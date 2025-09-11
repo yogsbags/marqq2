@@ -10,6 +10,8 @@ import {
   PenTool, 
   Eye, 
   Search,
+  Brain,
+  Workflow,
   Settings, 
   HelpCircle,
   ChevronLeft,
@@ -78,6 +80,16 @@ const navigationItems = [
     id: 'unified-customer-view',
     title: 'Customer View',
     icon: Eye,
+  },
+  {
+    id: 'agent-dashboard',
+    title: 'AI Agents',
+    icon: Brain,
+  },
+  {
+    id: 'workflow-builder',
+    title: 'Workflow Builder',
+    icon: Workflow,
   }
 ];
 

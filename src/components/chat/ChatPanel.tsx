@@ -13,6 +13,16 @@ import { CSVAnalysisPanel } from '@/components/ui/csv-analysis-panel';
 // Slash command definitions
 const SLASH_COMMANDS = [
   {
+    command: '/agents',
+    description: 'Open AI Agents Dashboard',
+    action: 'agents'
+  },
+  {
+    command: '/workflows',
+    description: 'Open Workflow Builder',
+    action: 'workflows'
+  },
+  {
     command: '/lead-intelligence',
     description: 'Deploy Lead Intelligence & AI Agents workflow',
     action: 'lead-intelligence'
@@ -214,6 +224,12 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
         onModuleSelect(moduleId);
         // Close chat panel to show the module
         setTimeout(() => onClose(), 500);
+      } else if (cmd.action === 'agents') {
+        onModuleSelect('agent-dashboard');
+        setTimeout(() => onClose(), 500);
+      } else if (cmd.action === 'workflows') {
+        onModuleSelect('workflow-builder');
+        setTimeout(() => onClose(), 500);
       }
     }
 
@@ -221,6 +237,55 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
       let responseContent = '';
       
       switch (cmd.action) {
+        case 'agents':
+          responseContent = `🤖 **AI Agents Dashboard - Navigating to Module**
+
+**Module Loading:** AI Agents Dashboard ✅
+**Available Agents:** 4 specialized marketing agents ready
+
+**Your AI Marketing Team:**
+• **Lead Analyst** - Lead Intelligence & Scoring specialist
+• **Content Creator** - AI Content Generation specialist  
+• **Campaign Optimizer** - Budget & Performance optimization specialist
+• **Customer Insights** - Customer Analytics & Segmentation specialist
+
+**Agent Capabilities:**
+• Autonomous task execution
+• Real-time chat and consultation
+• Tool integration and automation
+• Memory and learning from interactions
+• Collaborative workflow orchestration
+
+**Next:** Check the AI Agents Dashboard to interact with your marketing AI team! 🚀`;
+          break;
+          
+        case 'workflows':
+          responseContent = `⚡ **Workflow Builder - Navigating to Module**
+
+**Module Loading:** Agent Workflow Builder ✅
+**Workflow Orchestration:** Multi-agent collaboration system
+
+**Build Custom Workflows:**
+• Chain multiple AI agents together
+• Create complex marketing automation
+• Define sequential or parallel task execution
+• Monitor workflow performance and results
+
+**Pre-built Templates:**
+• Complete Lead Analysis Pipeline
+• Content Marketing Pipeline  
+• Campaign Optimization Suite
+• Customer Journey Mapping
+
+**Features:**
+• Visual workflow designer
+• Agent task configuration
+• Real-time execution monitoring
+• Result aggregation and analysis
+
+**Next:** Check the Workflow Builder to create powerful multi-agent marketing workflows! ⚡`;
+          break;
+          
         case 'lead-intelligence':
           responseContent = `🚀 **Lead Intelligence & AI Agents - Navigating to Module**
 
@@ -438,6 +503,10 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
           
         case 'help':
           responseContent = `🤖 **Available Slash Commands**
+
+**Agentic AI Commands:**
+• \`/agents\` - Open AI Agents Dashboard - interact with your marketing AI team
+• \`/workflows\` - Open Workflow Builder - create multi-agent workflows
 
 **Agentic AI Commands:**
 • \`/ai-agents\` - Deploy AI Agents Hub - manage all autonomous agents
