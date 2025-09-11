@@ -13,7 +13,13 @@ import {
   Settings, 
   HelpCircle,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  GitBranch,
+  Zap,
+  Network,
+  Store,
+  Brain,
+  UserCog
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';

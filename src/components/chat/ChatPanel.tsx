@@ -13,6 +13,41 @@ import { CSVAnalysisPanel } from '@/components/ui/csv-analysis-panel';
 // Slash command definitions
 const SLASH_COMMANDS = [
   {
+    command: '/ai-agents',
+    description: 'Deploy AI Agents Hub - manage all autonomous agents',
+    action: 'ai-agents'
+  },
+  {
+    command: '/agent-workflows',
+    description: 'Deploy Agent Workflows - create multi-step AI workflows',
+    action: 'agent-workflows'
+  },
+  {
+    command: '/autonomous-campaigns',
+    description: 'Deploy Autonomous Campaigns - self-optimizing campaigns',
+    action: 'autonomous-campaigns'
+  },
+  {
+    command: '/agent-orchestration',
+    description: 'Deploy Multi-Agent Orchestration - coordinate multiple AI agents',
+    action: 'multi-agent-orchestration'
+  },
+  {
+    command: '/agent-marketplace',
+    description: 'Access Agent Marketplace - browse and deploy pre-built agents',
+    action: 'agent-marketplace'
+  },
+  {
+    command: '/predictive-intelligence',
+    description: 'Deploy Predictive Intelligence - AI forecasting and predictions',
+    action: 'predictive-intelligence'
+  },
+  {
+    command: '/real-time-personalization',
+    description: 'Deploy Real-time Personalization - dynamic content adaptation',
+    action: 'real-time-personalization'
+  },
+  {
     command: '/lead-intelligence',
     description: 'Deploy Lead Intelligence & AI Agents workflow',
     action: 'lead-intelligence'
