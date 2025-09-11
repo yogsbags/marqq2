@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface WorkflowStep {
   id: string;
@@ -94,6 +95,26 @@ export function PerformanceScorecard() {
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks for performance analysis
+      const optimizerAgent = AgentService.getAgents().find(agent => agent.role.includes('Optimization'));
+      if (optimizerAgent) {
+        // Execute performance analysis
+        await AgentService.executeTask(optimizerAgent.id, {
+          type: 'campaign_optimization',
+          description: 'Generate comprehensive performance scorecard and benchmarking',
+          input: {
+            campaignData: [
+              { name: 'Search Ads', spend: 50000, conversions: 245, ctr: 0.045 },
+              { name: 'Social Media', spend: 30000, conversions: 156, ctr: 0.032 },
+              { name: 'Email Marketing', spend: 15000, conversions: 189, ctr: 0.067 }
+            ],
+            totalBudget: 95000,
+            timeframe: '90d',
+            includeForecasting: true
+          }
+        });
+      }
+
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);
         

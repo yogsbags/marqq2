@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface WorkflowStep {
   id: string;
@@ -123,6 +124,23 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks for video bot
+      const contentAgent = AgentService.getAgents().find(agent => agent.role.includes('Content'));
+      if (contentAgent) {
+        // Generate video scripts and content
+        await AgentService.executeTask(contentAgent.id, {
+          type: 'content_generation',
+          description: 'Generate video scripts and digital avatar content',
+          input: {
+            contentType: 'video_script',
+            topic: 'Product demonstration and sales presentation',
+            audience: { segment: 'Business Decision Makers' },
+            videoLength: '90-120 seconds',
+            tone: 'Professional & Engaging'
+          }
+        });
+      }
+
       // Simulate AI video bot deployment process
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);

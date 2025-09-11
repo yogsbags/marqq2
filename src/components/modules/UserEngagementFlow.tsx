@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface WorkflowStep {
   id: string;
@@ -96,6 +97,26 @@ export function UserEngagementFlow() {
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks for user engagement
+      const customerAgent = AgentService.getAgents().find(agent => agent.role.includes('Customer'));
+      if (customerAgent) {
+        // Execute customer segmentation
+        await AgentService.executeTask(customerAgent.id, {
+          type: 'customer_segmentation',
+          description: 'Segment customers and create personalized engagement journeys',
+          input: {
+            customerData: Array(500).fill({}).map(() => ({
+              id: Math.random().toString(),
+              email: 'customer@example.com',
+              ltv: Math.random() * 10000,
+              engagementScore: Math.random() * 100,
+              lastActivity: new Date()
+            })),
+            criteria: { method: 'behavioral', includeChurnRisk: true }
+          }
+        });
+      }
+
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);
         

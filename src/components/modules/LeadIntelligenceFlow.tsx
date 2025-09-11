@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface LeadIntelligenceFlowProps {
   autoStart?: boolean;
@@ -118,6 +119,26 @@ export function LeadIntelligenceFlow({ autoStart = false }: LeadIntelligenceFlow
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks
+      const leadAgent = AgentService.getAgents().find(agent => agent.role.includes('Lead'));
+      if (leadAgent) {
+        // Execute lead analysis task
+        await AgentService.executeTask(leadAgent.id, {
+          type: 'lead_analysis',
+          description: 'Analyze uploaded customer data and generate lead intelligence',
+          input: {
+            email: 'prospect@company.com',
+            company: 'Target Company',
+            customerDataset: Array(1000).fill({}).map(() => ({
+              email: 'customer@example.com',
+              company: 'Example Inc',
+              revenue: Math.random() * 1000000,
+              industry: 'Technology'
+            }))
+          }
+        });
+      }
+
       // Simulate AI agent deployment process
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);

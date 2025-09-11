@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface WorkflowStep {
   id: string;
@@ -95,6 +96,26 @@ export function AIContentFlow() {
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks for content generation
+      const contentAgent = AgentService.getAgents().find(agent => agent.role.includes('Content'));
+      if (contentAgent) {
+        // Execute content generation task
+        await AgentService.executeTask(contentAgent.id, {
+          type: 'content_generation',
+          description: 'Generate AI-powered marketing content across multiple channels',
+          input: {
+            contentType: 'multi_channel_campaign',
+            topic: 'AI Marketing Automation Benefits',
+            audience: { segment: 'Marketing Professionals' },
+            channels: ['blog', 'social_media', 'email', 'ads'],
+            brandGuidelines: {
+              tone: 'Professional & Innovative',
+              style: 'Data-driven & Results-focused'
+            }
+          }
+        });
+      }
+
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);
         

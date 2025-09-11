@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface WorkflowStep {
   id: string;
@@ -94,6 +95,25 @@ export function BudgetOptimizationFlow() {
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks for budget optimization
+      const optimizerAgent = AgentService.getAgents().find(agent => agent.role.includes('Optimization'));
+      if (optimizerAgent) {
+        // Execute campaign optimization
+        await AgentService.executeTask(optimizerAgent.id, {
+          type: 'campaign_optimization',
+          description: 'Analyze campaign performance and optimize budget allocation',
+          input: {
+            campaignData: [
+              { name: 'Search Ads', spend: 50000, conversions: 245, ctr: 0.045 },
+              { name: 'Social Media', spend: 30000, conversions: 156, ctr: 0.032 },
+              { name: 'Display Ads', spend: 20000, conversions: 89, ctr: 0.018 }
+            ],
+            totalBudget: 125000,
+            timeframe: '30d'
+          }
+        });
+      }
+
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);
         

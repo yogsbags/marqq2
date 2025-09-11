@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface WorkflowStep {
   id: string;
@@ -100,6 +101,27 @@ export function SEOLLMOFlow() {
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks for SEO/LLMO optimization
+      const contentAgent = AgentService.getAgents().find(agent => agent.role.includes('Content'));
+      if (contentAgent) {
+        // Execute SEO optimization task
+        await AgentService.executeTask(contentAgent.id, {
+          type: 'content_generation',
+          description: 'Optimize content for search engines and Large Language Models',
+          input: {
+            contentType: 'seo_optimization',
+            topic: 'Website content optimization for AI discoverability',
+            targetKeywords: ['AI marketing', 'marketing automation', 'lead intelligence'],
+            optimizeForSEO: true,
+            optimizeForLLMO: true,
+            websiteData: {
+              pages: 247,
+              currentRankings: { 'AI marketing automation': 15, 'marketing intelligence': 8 }
+            }
+          }
+        });
+      }
+
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);
         

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface WorkflowStep {
   id: string;
@@ -95,6 +96,33 @@ export function UnifiedCustomerViewFlow() {
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks for unified customer view
+      const customerAgent = AgentService.getAgents().find(agent => agent.role.includes('Customer'));
+      if (customerAgent) {
+        // Execute customer view analysis
+        await AgentService.executeTask(customerAgent.id, {
+          type: 'customer_segmentation',
+          description: 'Build unified customer profiles and generate 360-degree insights',
+          input: {
+            customerData: Array(45000).fill({}).map(() => ({
+              id: Math.random().toString(),
+              email: 'customer@example.com',
+              company: 'Example Corp',
+              ltv: Math.random() * 50000,
+              engagementScore: Math.random() * 100,
+              touchpoints: ['email', 'website', 'support', 'sales'],
+              lastActivity: new Date()
+            })),
+            criteria: { 
+              method: 'unified_view',
+              includeChurnRisk: true,
+              includeLTV: true,
+              includeEngagement: true
+            }
+          }
+        });
+      }
+
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);
         

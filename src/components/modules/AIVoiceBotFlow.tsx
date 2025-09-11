@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AgentService } from '@/services/agentService';
 
 interface WorkflowStep {
   id: string;
@@ -122,6 +123,22 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
     setIsProcessing(true);
     
     try {
+      // Execute actual AI agent tasks for voice bot
+      const contentAgent = AgentService.getAgents().find(agent => agent.role.includes('Content'));
+      if (contentAgent) {
+        // Generate voice scripts
+        await AgentService.executeTask(contentAgent.id, {
+          type: 'content_generation',
+          description: 'Generate personalized voice bot scripts for calling campaign',
+          input: {
+            contentType: 'voice_script',
+            topic: 'Sales outreach for wealth management services',
+            audience: { segment: 'Wealth Management Professionals' },
+            tone: 'Professional & Conversational'
+          }
+        });
+      }
+
       // Simulate AI voice bot deployment process
       for (let i = currentStep; i < steps.length; i++) {
         updateStepStatus(i, 'processing', 0);
