@@ -519,12 +519,6 @@ export class AgentService {
         case 'customer_segmentation':
           result = await this.executeCustomerSegmentation(agent, task.input);
           break;
-        case 'lookalike_audience_generation':
-          result = await this.executeLookalikeAudienceGeneration(agent, task.input);
-          break;
-        case 'ai_outreach':
-          result = await this.executeAIOutreach(agent, task.input);
-          break;
         default:
           throw new Error(`Unknown task type: ${task.type}`);
       }
