@@ -419,7 +419,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                   <div className="space-y-2">
                     <div>
                       <Label htmlFor="avatar-gender">Avatar Gender</Label>
-                      <select id="avatar-gender" className="w-full p-2 border rounded-md">
+                      <select id="avatar-gender" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Female (Professional)</option>
                         <option>Male (Business)</option>
                         <option>Female (Friendly)</option>
@@ -428,7 +428,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="avatar-age">Age Range</Label>
-                      <select id="avatar-age" className="w-full p-2 border rounded-md">
+                      <select id="avatar-age" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>25-35 (Young Professional)</option>
                         <option>35-45 (Experienced)</option>
                         <option>45-55 (Senior Expert)</option>
@@ -436,7 +436,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="avatar-style">Avatar Style</Label>
-                      <select id="avatar-style" className="w-full p-2 border rounded-md">
+                      <select id="avatar-style" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Business Professional</option>
                         <option>Casual Friendly</option>
                         <option>Tech Expert</option>
@@ -518,7 +518,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                   <div className="space-y-2">
                     <div>
                       <Label htmlFor="video-type">Video Type</Label>
-                      <select id="video-type" className="w-full p-2 border rounded-md">
+                      <select id="video-type" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Product Demo</option>
                         <option>Sales Pitch</option>
                         <option>Educational Content</option>
@@ -528,7 +528,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="video-length">Target Length</Label>
-                      <select id="video-length" className="w-full p-2 border rounded-md">
+                      <select id="video-length" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>30 seconds (Quick intro)</option>
                         <option>1-2 minutes (Standard)</option>
                         <option>3-5 minutes (Detailed)</option>
@@ -537,7 +537,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="video-tone">Tone & Style</Label>
-                      <select id="video-tone" className="w-full p-2 border rounded-md">
+                      <select id="video-tone" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Professional & Formal</option>
                         <option>Friendly & Conversational</option>
                         <option>Energetic & Enthusiastic</option>
@@ -638,7 +638,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                   <div className="space-y-3">
                     <div>
                       <Label htmlFor="video-quality">Video Quality</Label>
-                      <select id="video-quality" className="w-full p-2 border rounded-md">
+                      <select id="video-quality" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>4K Ultra HD (3840x2160)</option>
                         <option>Full HD (1920x1080)</option>
                         <option>HD (1280x720)</option>
@@ -646,7 +646,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="background">Background</Label>
-                      <select id="background" className="w-full p-2 border rounded-md">
+                      <select id="background" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Office Environment</option>
                         <option>Modern Studio</option>
                         <option>Custom Brand Background</option>
@@ -655,7 +655,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="branding">Brand Integration</Label>
-                      <select id="branding" className="w-full p-2 border rounded-md">
+                      <select id="branding" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Logo + Brand Colors</option>
                         <option>Full Brand Package</option>
                         <option>Minimal Branding</option>
@@ -775,7 +775,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
                     <Label htmlFor="target-audience">Target Audience</Label>
-                    <select id="target-audience" className="w-full p-2 border rounded-md">
+                    <select id="target-audience" className="w-full p-2 border rounded-md bg-white text-gray-900">
                       <option>All Customers</option>
                       <option>High-Value Prospects</option>
                       <option>Existing Customers</option>
@@ -784,7 +784,7 @@ export function AIVideoBotFlow({ autoStart = false }: AIVideoBotFlowProps) {
                   </div>
                   <div>
                     <Label htmlFor="deployment-priority">Priority</Label>
-                    <select id="deployment-priority" className="w-full p-2 border rounded-md">
+                    <select id="deployment-priority" className="w-full p-2 border rounded-md bg-white text-gray-900">
                       <option>High Priority</option>
                       <option>Standard</option>
                       <option>Low Priority</option>

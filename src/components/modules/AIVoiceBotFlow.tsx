@@ -460,7 +460,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
                   <div className="space-y-2">
                     <div>
                       <Label htmlFor="script-tone">Conversation Tone</Label>
-                      <select id="script-tone" className="w-full p-2 border rounded-md">
+                      <select id="conversation-tone" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Professional & Formal</option>
                         <option>Friendly & Conversational</option>
                         <option>Direct & Business-focused</option>
@@ -469,7 +469,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="script-length">Call Duration Target</Label>
-                      <select id="script-length" className="w-full p-2 border rounded-md">
+                      <select id="call-duration" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>2-3 minutes (Quick intro)</option>
                         <option>5-7 minutes (Standard pitch)</option>
                         <option>10-15 minutes (Detailed discussion)</option>
@@ -477,7 +477,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="script-objective">Call Objective</Label>
-                      <select id="script-objective" className="w-full p-2 border rounded-md">
+                      <select id="call-objective" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Schedule a meeting</option>
                         <option>Product demonstration</option>
                         <option>Qualify interest level</option>
@@ -594,7 +594,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
                   <div className="space-y-3">
                     <div>
                       <Label htmlFor="voice-gender">Voice Gender</Label>
-                      <select id="voice-gender" className="w-full p-2 border rounded-md">
+                      <select id="voice-gender" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Female (Sarah - Professional)</option>
                         <option>Male (David - Authoritative)</option>
                         <option>Female (Emma - Friendly)</option>
@@ -603,7 +603,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="voice-speed">Speaking Speed</Label>
-                      <select id="voice-speed" className="w-full p-2 border rounded-md">
+                      <select id="speaking-speed" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Slow (140 WPM)</option>
                         <option>Normal (160 WPM)</option>
                         <option>Fast (180 WPM)</option>
@@ -611,7 +611,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="voice-accent">Accent</Label>
-                      <select id="voice-accent" className="w-full p-2 border rounded-md">
+                      <select id="accent" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>Indian English</option>
                         <option>American English</option>
                         <option>British English</option>
@@ -638,7 +638,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
                     </div>
                     <div>
                       <Label htmlFor="max-call-duration">Max Call Duration</Label>
-                      <select id="max-call-duration" className="w-full p-2 border rounded-md">
+                      <select id="max-call-duration" className="w-full p-2 border rounded-md bg-white text-gray-900">
                         <option>5 minutes</option>
                         <option>10 minutes</option>
                         <option>15 minutes</option>

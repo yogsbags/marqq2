@@ -860,7 +860,7 @@ export function LeadIntelligenceFlow({ autoStart = false }: LeadIntelligenceFlow
                   </div>
                   <div>
                     <Label htmlFor="follow-up">Follow-up Sequence</Label>
-                    <select className="w-full p-2 border rounded-md">
+                    <select className="w-full p-2 border rounded-md bg-white text-gray-900">
                       <option>3-touch sequence</option>
                       <option>5-touch sequence</option>
                       <option>7-touch sequence</option>

@@ -242,7 +242,7 @@ export function AgentWorkflowBuilder() {
                                 <select
                                   value={step.agentId}
                                   onChange={(e) => updateStep(step.id, { agentId: e.target.value })}
-                                  className="w-full p-2 border rounded-md"
+                                  className="w-full p-2 border rounded-md bg-white text-gray-900"
                                 >
                                   {agents.map(agent => (
                                     <option key={agent.id} value={agent.id}>
@@ -260,7 +260,7 @@ export function AgentWorkflowBuilder() {
                                     taskType: e.target.value as WorkflowStep['taskType'],
                                     input: JSON.parse(getSampleInput(e.target.value))
                                   })}
-                                  className="w-full p-2 border rounded-md"
+                                  className="w-full p-2 border rounded-md bg-white text-gray-900"
                                 >
                                   <option value="lead_analysis">Lead Analysis</option>
                                   <option value="content_generation">Content Generation</option>
