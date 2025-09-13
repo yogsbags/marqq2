@@ -10,7 +10,7 @@ export const dashboardData: DashboardData = {
   modules: [
     {
       id: 'lead-intelligence',
-      name: 'Lead Intelligence',
+      name: '',
       color: '#3B82F6',
       metrics: [
         { label: 'Leads Scored', value: '12.4K', change: 15 },
