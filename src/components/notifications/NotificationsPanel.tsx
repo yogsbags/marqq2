@@ -4,21 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { 
-  Bell, 
-  X, 
-  CheckCircle, 
-  AlertTriangle, 
-  Info, 
-  TrendingUp,
-  Users,
-  Target,
-  DollarSign,
-  Clock,
-  Trash2,
-  Settings,
-  MarkAsUnread
-} from 'lucide-react';
+import { Bell, X, CheckCircle, AlertTriangle, Info, TrendingUp, Users, Target, DollarSign, Clock, Trash2, Settings, AreaChart as MarkAsUnread } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Notification {
@@ -373,38 +359,39 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
                         </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-
-          {/* Footer Actions */}
-          {notifications.length > 0 && (
-            <>
-              <Separator />
-              <div className="p-4 flex items-center justify-between">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearAllNotifications}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Clear All
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                >
-                  <Settings className="h-4 w-4 mr-2" />
-                  Settings
-                </Button>
+                  </div>
+                ))}
               </div>
-            </>
-          )}
-        </div>
-      </>
-    );
-  }
+            )}
+          </div>
+        </ScrollArea>
+
+        {/* Footer Actions */}
+        {notifications.length > 0 && (
+          <>
+            <Separator />
+            <div className="p-4 flex items-center justify-between">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearAllNotifications}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Clear All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
