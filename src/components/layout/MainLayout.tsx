@@ -46,7 +46,7 @@ export function MainLayout({ children, selectedModule, onModuleSelect }: MainLay
           "flex-1 overflow-auto bg-gradient-to-br from-orange-50/30 via-white to-orange-50/50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950",
           "transition-all duration-300 pt-4"
         )}>
-          <div className="container mx-auto px-6 pb-8 max-w-7xl">
+          <div className="w-full px-6 pb-8">
             {children}
           </div>
         </main>
