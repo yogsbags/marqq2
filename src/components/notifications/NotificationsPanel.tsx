@@ -203,9 +203,9 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
       />
 
       {/* Notifications Panel */}
-      <div className="fixed top-16 right-6 w-96 bg-background border rounded-lg shadow-2xl z-50 animate-in slide-in-from-top-5 fade-in-50 duration-300">
+      <div className="fixed top-16 right-6 w-96 h-[32rem] bg-background border rounded-lg shadow-2xl z-50 animate-in slide-in-from-top-5 fade-in-50 duration-300 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b">
+        <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
           <div className="flex items-center space-x-3">
             <div className="h-8 w-8 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
               <Bell className="h-4 w-4 text-orange-600" />
@@ -228,7 +228,7 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
         </div>
 
         {/* Filter Tabs */}
-        <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+        <div className="flex items-center justify-between p-4 border-b bg-muted/30 flex-shrink-0">
           <div className="flex space-x-2">
             <Button
               variant={filter === 'all' ? 'default' : 'ghost'}
@@ -270,7 +270,7 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
         </div>
 
         {/* Notifications List */}
-        <ScrollArea className="max-h-96">
+        <ScrollArea className="flex-1 max-h-96 overflow-y-auto">
           <div className="p-2">
             {filteredNotifications.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
@@ -279,14 +279,15 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
                 <p className="text-xs">You're all caught up!</p>
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1 pb-2">
                 {filteredNotifications.map((notification) => (
                   <div
                     key={notification.id}
                     className={cn(
-                      "p-3 rounded-lg border transition-all duration-200 hover:bg-muted/50 group",
+                      "p-3 rounded-lg border transition-all duration-200 hover:bg-muted/50 group cursor-pointer",
                       !notification.read ? "bg-orange-50/50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-800" : "bg-background"
                     )}
+                    onClick={() => !notification.read && markAsRead(notification.id)}
                   >
                     <div className="flex items-start space-x-3">
                       <div className="flex-shrink-0 mt-0.5">
@@ -370,7 +371,7 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
         {notifications.length > 0 && (
           <>
             <Separator />
-            <div className="p-4 flex items-center justify-between">
+            <div className="p-4 flex items-center justify-between flex-shrink-0">
               <Button
                 variant="ghost"
                 size="sm"
