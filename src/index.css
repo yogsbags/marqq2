@@ -227,3 +227,31 @@ select option {
   background-color: white !important;
   color: #1f2937 !important;
 }
+
+/* Ensure all icons have proper contrast */
+.lucide {
+  color: inherit;
+}
+
+/* Force icon visibility in buttons */
+button .lucide {
+  color: currentColor;
+}
+
+/* Specific icon color fixes */
+.sidebar-icon {
+  color: #1f2937;
+}
+
+.dark .sidebar-icon {
+  color: #f9fafb;
+}
+
+/* Header icon fixes */
+.header-icon {
+  color: #374151 !important;
+}
+
+.dark .header-icon {
+  color: #d1d5db !important;
+}

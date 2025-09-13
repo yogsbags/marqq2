@@ -984,7 +984,7 @@ Simply type any slash command and press Enter to instantly trigger the correspon
               disabled={(!inputValue.trim() && !selectedFile) || isTyping}
               className="bg-orange-500 hover:bg-orange-600"
             >
-              <Send className="h-4 w-4" />
+              <Send className="h-4 w-4 text-white" />
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2 text-center">
