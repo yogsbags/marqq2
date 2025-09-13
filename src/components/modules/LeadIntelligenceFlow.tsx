@@ -295,9 +295,6 @@ export function LeadIntelligenceFlow({ autoStart = false }: LeadIntelligenceFlow
     <div className="space-y-6">
       {/* Header */}
       <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-          Lead Intelligence & AI Agents
-        </h1>
         <p className="text-muted-foreground">
           Transform your customer data into high-converting leads using AI-powered workflows
         </p>
