@@ -1685,69 +1685,69 @@ app.post('/api/topic/generate', async (req, res) => {
   try {
     const { campaignType, purpose, targetAudience, platforms, language } = req.body;
 
-    // Spawn a process to generate topic using the social-media backend
-    const args = [
-      socialMediaMainJsPath,
-      'generate-topic',
-      '--campaign-type', campaignType,
-      '--purpose', purpose,
-      '--target-audience', targetAudience,
-      '--language', language
-    ];
+    // Generate topic directly (avoid spawning a CLI command that may not exist)
+    const groqKey = process.env.GROQ_API_KEY;
+    const platformList = Array.isArray(platforms) ? platforms : [];
 
-    platforms.forEach((platform) => {
-      args.push('--platform', platform);
+    if (!groqKey) {
+      const fallbackTopic = `PL Capital ${campaignType || 'Campaign'}: ${purpose || 'Brand Awareness'} (${(language || 'english').toString()})`;
+      return res.json({ topic: fallbackTopic, model: 'fallback' });
+    }
+
+    const systemPrompt = `You are a senior campaign strategist for PL Capital (financial services, India).
+Return ONLY valid JSON with a single key "topic". No markdown, no extra keys.`;
+
+    const userPrompt = `Generate ONE strong social media campaign topic/title.
+
+Constraints:
+- Language: ${language || 'english'}
+- Campaign type: ${campaignType || 'general'}
+- Purpose: ${purpose || 'brand-awareness'}
+- Target audience: ${targetAudience || 'all_clients'}
+- Platforms: ${platformList.join(', ') || 'linkedin'}
+- Keep it specific, non-generic, compliant for financial services (no guaranteed returns).
+- 6 to 14 words max.
+
+Return JSON like: {"topic":"..."} only.`;
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 200
+      })
     });
 
-    const envPath = path.resolve(__dirname, '..', '.env');
-    const nodeEnv = {
-      ...process.env,
-      ...(fs.existsSync(envPath) ? dotenv.parse(fs.readFileSync(envPath)) : {})
-    };
+    if (!response.ok) {
+      const text = await response.text();
+      return res.status(500).json({ error: text || `Groq API error: ${response.status}` });
+    }
 
-    const nodeProcess = spawn('node', args, {
-      cwd: socialMediaBackendDir,
-      env: nodeEnv,
-    });
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
 
-    let output = '';
-    let errorOutput = '';
+    // Extract JSON from model output safely
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) {
+      return res.json({ topic: content.trim() || 'Generated topic', model: 'groq-llama-3.3-70b-versatile' });
+    }
 
-    nodeProcess.stdout.on('data', (data) => {
-      output += data.toString();
-    });
+    const parsed = JSON.parse(match[0]);
+    const topic = typeof parsed.topic === 'string' ? parsed.topic.trim() : '';
+    if (!topic) {
+      return res.json({ topic: content.trim() || 'Generated topic', model: 'groq-llama-3.3-70b-versatile' });
+    }
 
-    nodeProcess.stderr.on('data', (data) => {
-      errorOutput += data.toString();
-    });
-
-    nodeProcess.on('close', (code) => {
-      if (code === 0) {
-        // Try to parse JSON from output
-        try {
-          const lines = output.trim().split('\n');
-          const jsonLine = lines.find(line => line.startsWith('{') || line.includes('topic'));
-          if (jsonLine) {
-            const data = JSON.parse(jsonLine);
-            res.json(data);
-          } else {
-            // Fallback: extract topic from text output
-            const topicMatch = output.match(/Topic:\s*(.+)/i) || output.match(/"topic":\s*"([^"]+)"/i);
-            if (topicMatch) {
-              res.json({ topic: topicMatch[1], model: 'gemini-3-pro-preview' });
-            } else {
-              res.json({ topic: output.trim().split('\n')[0] || 'Generated topic', model: 'gemini-3-pro-preview' });
-            }
-          }
-        } catch (parseError) {
-          // If JSON parsing fails, return a simple response
-          res.json({ topic: output.trim().split('\n')[0] || 'Generated topic', model: 'gemini-3-pro-preview' });
-        }
-      } else {
-        console.error('[Social Media] Topic generation failed:', errorOutput);
-        res.status(500).json({ error: errorOutput || 'Failed to generate topic' });
-      }
-    });
+    res.json({ topic, model: 'groq-llama-3.3-70b-versatile' });
   } catch (error) {
     console.error('[Social Media] Error in topic generation:', error);
     res.status(500).json({ error: error.message });
@@ -2410,4 +2410,3 @@ app.listen(PORT, () => {
   console.log(`📱 Social Media API routes available at /api/workflow/social-media/*`);
   console.log(`🎬 Video Gen API routes available at /api/video-gen/*`);
 });
-
