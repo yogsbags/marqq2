@@ -536,13 +536,22 @@ export function SocialMediaFlow() {
       setTopicError(null)
       addLog('Generating campaign topic with Gemini 3 Pro Preview...')
 
+      const campaignTypeMeta = campaignTypes.find(c => c.value === campaignType)
+      const purposeMeta = purposeOptions.find(p => p.value === purpose)
+      const targetAudienceMeta = targetAudienceOptions.find(a => a.value === targetAudience)
+
       const response = await fetch('/api/topic/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           campaignType,
+          campaignTypeLabel: campaignTypeMeta?.label,
           purpose,
+          purposeLabel: purposeMeta?.label,
+          purposeDescription: purposeMeta?.description,
           targetAudience,
+          targetAudienceLabel: targetAudienceMeta?.label,
+          targetAudienceDescription: targetAudienceMeta?.description,
           platforms: selectedPlatforms,
           language
         })

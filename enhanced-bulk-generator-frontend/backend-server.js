@@ -1683,29 +1683,46 @@ app.post('/api/workflow/social-media/data/save', async (req, res) => {
 // Social Media: Generate topic
 app.post('/api/topic/generate', async (req, res) => {
   try {
-    const { campaignType, purpose, targetAudience, platforms, language } = req.body;
+    const {
+      campaignType,
+      campaignTypeLabel,
+      purpose,
+      purposeLabel,
+      purposeDescription,
+      targetAudience,
+      targetAudienceLabel,
+      targetAudienceDescription,
+      platforms,
+      language
+    } = req.body;
 
     // Generate topic directly (avoid spawning a CLI command that may not exist)
     const groqKey = process.env.GROQ_API_KEY;
     const platformList = Array.isArray(platforms) ? platforms : [];
 
     if (!groqKey) {
-      const fallbackTopic = `PL Capital ${campaignType || 'Campaign'}: ${purpose || 'Brand Awareness'} (${(language || 'english').toString()})`;
+      const fallbackTopic = `PL Capital: ${campaignTypeLabel || campaignType || 'Campaign'} for ${purposeLabel || purpose || 'Brand Awareness'}`;
       return res.json({ topic: fallbackTopic, model: 'fallback' });
     }
 
     const systemPrompt = `You are a senior campaign strategist for PL Capital (financial services, India).
+You generate punchy campaign topics that match the campaign format, objective, and audience.
 Return ONLY valid JSON with a single key "topic". No markdown, no extra keys.`;
 
     const userPrompt = `Generate ONE strong social media campaign topic/title.
 
 Constraints:
 - Language: ${language || 'english'}
-- Campaign type: ${campaignType || 'general'}
-- Purpose: ${purpose || 'brand-awareness'}
-- Target audience: ${targetAudience || 'all_clients'}
+- Campaign type: ${campaignTypeLabel || campaignType || 'general'}
+- Purpose: ${purposeLabel || purpose || 'brand-awareness'}${purposeDescription ? ` (${purposeDescription})` : ''}
+- Target audience: ${targetAudienceLabel || targetAudience || 'all_clients'}${targetAudienceDescription ? ` (${targetAudienceDescription})` : ''}
 - Platforms: ${platformList.join(', ') || 'linkedin'}
-- Keep it specific, non-generic, compliant for financial services (no guaranteed returns).
+
+Guidance:
+- Make it SPECIFIC to the purpose and audience above (avoid generic finance topics).
+- Match the campaign type format (e.g. carousel = list/steps; reel = hook/benefit; newsletter = timely insights).
+- Compliant for financial services: no guaranteed returns, no exaggerated claims.
+- Prefer an India-relevant framing where appropriate (₹, SIP, tax, markets), but avoid giving personalized advice.
 - 6 to 14 words max.
 
 Return JSON like: {"topic":"..."} only.`;
