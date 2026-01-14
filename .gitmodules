@@ -1,0 +1,3 @@
+[submodule "social-media-frontend"]
+	path = social-media-frontend
+	url = https://github.com/yogsbags/pl-social-media.git
