@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -7,12 +8,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  Bot, 
-  Brain, 
-  Users, 
-  Target, 
-  PenTool, 
+import {
+  Bot,
+  Brain,
+  Users,
+  Target,
+  PenTool,
   BarChart3,
   Play,
   Pause,
@@ -64,13 +65,13 @@ export function AgentDashboard() {
     setIsProcessing(true);
     try {
       const response = await AgentService.agentChat(selectedAgent.id, chatMessage);
-      
+
       setChatHistory(prev => [
         ...prev,
         { role: 'user', content: chatMessage, timestamp: new Date() },
         { role: 'assistant', content: response, timestamp: new Date() }
       ]);
-      
+
       setChatMessage('');
       toast.success('Agent responded successfully');
     } catch (error) {
@@ -88,7 +89,7 @@ export function AgentDashboard() {
         description: `Execute ${taskType} task`,
         input
       });
-      
+
       toast.success(`Task completed: ${task.description}`);
       loadAgents(); // Refresh agents to show updated task history
     } catch (error) {
@@ -107,7 +108,7 @@ export function AgentDashboard() {
         'Comprehensive analysis including lead scoring, content generation, and campaign optimization',
         agentIds
       );
-      
+
       // Execute workflow with sample data
       await AgentService.executeWorkflow(workflow.id, {
         email: 'john.doe@techcorp.com',
@@ -120,7 +121,7 @@ export function AgentDashboard() {
         contentType: 'blog_post',
         topic: 'AI Marketing Automation'
       });
-      
+
       loadWorkflows();
       toast.success('Sample workflow executed successfully');
     } catch (error) {
@@ -168,8 +169,8 @@ export function AgentDashboard() {
         {agents.map((agent) => {
           const IconComponent = getAgentIcon(agent.role);
           return (
-            <Card 
-              key={agent.id} 
+            <Card
+              key={agent.id}
               className={cn(
                 "transition-all duration-300 hover:scale-105 cursor-pointer",
                 selectedAgent?.id === agent.id ? "ring-2 ring-purple-500" : ""
@@ -231,7 +232,7 @@ export function AgentDashboard() {
                       ))}
                     </div>
                   </div>
-                  
+
                   <div>
                     <h4 className="font-medium mb-2">Available Tools</h4>
                     <div className="space-y-2">
@@ -318,7 +319,7 @@ export function AgentDashboard() {
                         <p className="text-xs">Ask about marketing strategies, campaign optimization, or data analysis</p>
                       </div>
                     )}
-                    
+
                     {chatHistory.map((msg, index) => (
                       <div
                         key={index}
@@ -330,8 +331,8 @@ export function AgentDashboard() {
                         <div
                           className={cn(
                             "max-w-[80%] p-3 rounded-lg",
-                            msg.role === 'user' 
-                              ? "bg-purple-500 text-white" 
+                            msg.role === 'user'
+                              ? "bg-purple-500 text-white"
                               : "bg-muted"
                           )}
                         >
@@ -345,7 +346,7 @@ export function AgentDashboard() {
                         </div>
                       </div>
                     ))}
-                    
+
                     {isProcessing && (
                       <div className="flex justify-start">
                         <div className="bg-muted p-3 rounded-lg">
@@ -359,7 +360,7 @@ export function AgentDashboard() {
                     )}
                   </div>
                 </ScrollArea>
-                
+
                 <div className="flex space-x-2">
                   <Input
                     value={chatMessage}
@@ -368,7 +369,7 @@ export function AgentDashboard() {
                     onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleAgentChat()}
                     disabled={isProcessing}
                   />
-                  <Button 
+                  <Button
                     onClick={handleAgentChat}
                     disabled={!chatMessage.trim() || isProcessing}
                     className="bg-purple-500 hover:bg-purple-600"
@@ -376,7 +377,7 @@ export function AgentDashboard() {
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
-                
+
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
@@ -437,7 +438,7 @@ export function AgentDashboard() {
                     <Target className="h-6 w-6 text-blue-500" />
                     <span className="text-sm">Lead Analysis</span>
                   </Button>
-                  
+
                   <Button
                     variant="outline"
                     className="h-auto p-4 flex flex-col items-center space-y-2"
@@ -457,7 +458,7 @@ export function AgentDashboard() {
                     <PenTool className="h-6 w-6 text-green-500" />
                     <span className="text-sm">Content Generation</span>
                   </Button>
-                  
+
                   <Button
                     variant="outline"
                     className="h-auto p-4 flex flex-col items-center space-y-2"
@@ -479,7 +480,7 @@ export function AgentDashboard() {
                     <TrendingUp className="h-6 w-6 text-orange-500" />
                     <span className="text-sm">Campaign Optimization</span>
                   </Button>
-                  
+
                   <Button
                     variant="outline"
                     className="h-auto p-4 flex flex-col items-center space-y-2"
@@ -549,7 +550,7 @@ export function AgentDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span>Agent Workflows</span>
-                <Button 
+                <Button
                   onClick={createSampleWorkflow}
                   disabled={isProcessing}
                   className="bg-purple-500 hover:bg-purple-600"
@@ -569,7 +570,7 @@ export function AgentDashboard() {
                     <div key={workflow.id} className="p-4 border rounded-lg">
                       <div className="flex items-center justify-between mb-2">
                         <h4 className="font-medium">{workflow.name}</h4>
-                        <Badge 
+                        <Badge
                           variant={workflow.status === 'completed' ? 'default' : 'secondary'}
                           className={cn(
                             workflow.status === 'completed' ? 'bg-green-100 text-green-800' : '',
@@ -581,20 +582,20 @@ export function AgentDashboard() {
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-3">{workflow.description}</p>
-                      
+
                       <div className="flex items-center space-x-4 text-xs text-muted-foreground">
                         <span>{workflow.agents.length} agents</span>
                         <span>{workflow.tasks.length} tasks</span>
                         <span>Created: {workflow.createdAt.toLocaleDateString()}</span>
                       </div>
-                      
+
                       {workflow.tasks.length > 0 && (
                         <div className="mt-3">
                           <div className="flex items-center space-x-2 mb-2">
                             <span className="text-sm font-medium">Task Progress:</span>
-                            <Progress 
-                              value={(workflow.tasks.filter(t => t.status === 'completed').length / workflow.tasks.length) * 100} 
-                              className="flex-1 h-2" 
+                            <Progress
+                              value={(workflow.tasks.filter(t => t.status === 'completed').length / workflow.tasks.length) * 100}
+                              className="flex-1 h-2"
                             />
                           </div>
                         </div>
@@ -639,7 +640,7 @@ export function AgentDashboard() {
               <Target className="h-6 w-6 text-blue-500" />
               <span className="text-sm text-center">Analyze Top Leads</span>
             </Button>
-            
+
             <Button
               variant="outline"
               className="h-auto p-4 flex flex-col items-center space-y-2"
@@ -655,7 +656,7 @@ export function AgentDashboard() {
               <PenTool className="h-6 w-6 text-green-500" />
               <span className="text-sm text-center">Generate Content</span>
             </Button>
-            
+
             <Button
               variant="outline"
               className="h-auto p-4 flex flex-col items-center space-y-2"

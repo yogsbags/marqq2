@@ -194,7 +194,7 @@ export function UserEngagementFlow() {
       // Create a synthetic event to reuse the existing upload logic
       const syntheticEvent = {
         target: { files: [file] }
-      } as React.ChangeEvent<HTMLInputElement>;
+      } as unknown as React.ChangeEvent<HTMLInputElement>;
       
       handleFileUpload(syntheticEvent);
     }

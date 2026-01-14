@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
-import { ChatPanel } from '@/components/chat/ChatPanel';
+import { ChatPanel, Message } from '@/components/chat/ChatPanel';
 import { ChatToggle } from '@/components/chat/ChatToggle';
 import { cn } from '@/lib/utils';
 
@@ -14,11 +14,11 @@ interface MainLayoutProps {
 export function MainLayout({ children, selectedModule, onModuleSelect }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([
+  const [chatMessages, setChatMessages] = useState<Message[]>([
     {
       id: '1',
       content: 'Hello! I\'m your AI assistant. How can I help you with your marketing campaigns today?',
-      sender: 'ai' as const,
+      sender: 'ai',
       timestamp: new Date(),
     },
   ]);
@@ -40,7 +40,7 @@ export function MainLayout({ children, selectedModule, onModuleSelect }: MainLay
       )}>
         {/* Header - Only show on dashboard */}
         <DashboardHeader selectedModule={selectedModule} onModuleSelect={onModuleSelect} />
-        
+
         {/* Main Content Area */}
         <main className={cn(
           "flex-1 overflow-auto bg-gradient-to-br from-orange-50/30 via-white to-orange-50/50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950",
@@ -58,9 +58,9 @@ export function MainLayout({ children, selectedModule, onModuleSelect }: MainLay
       </div>
 
       {/* Chat Panel */}
-      <ChatPanel 
-        isOpen={chatOpen} 
-        onClose={() => setChatOpen(false)} 
+      <ChatPanel
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
         messages={chatMessages}
         onMessagesChange={setChatMessages}
         onModuleSelect={onModuleSelect}

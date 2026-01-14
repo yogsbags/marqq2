@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -173,7 +174,7 @@ function FormattedMessage({ content, isAI }: { content: string; isAI: boolean })
   );
 }
 
-interface Message {
+export type Message = {
   id: string;
   content: string;
   sender: 'user' | 'ai';
@@ -184,13 +185,13 @@ interface Message {
     type: string;
     url?: string;
   };
-}
+};
 
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
   messages: Message[];
-  onMessagesChange: (messages: Message[]) => void;
+  onMessagesChange: Dispatch<SetStateAction<Message[]>>;
   onModuleSelect?: (moduleId: string | null) => void;
 }
 

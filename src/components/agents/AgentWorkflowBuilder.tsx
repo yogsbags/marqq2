@@ -6,11 +6,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { 
-  Plus, 
-  Trash2, 
-  Play, 
-  Bot, 
+import {
+  Plus,
+  Trash2,
+  Play,
+  Clock,
+  Bot,
   ArrowRight,
   Settings,
   Target,
@@ -55,7 +56,7 @@ export function AgentWorkflowBuilder() {
   };
 
   const updateStep = (stepId: string, updates: Partial<WorkflowStep>) => {
-    setSteps(steps.map(step => 
+    setSteps(steps.map(step =>
       step.id === stepId ? { ...step, ...updates } : step
     ));
   };
@@ -85,7 +86,7 @@ export function AgentWorkflowBuilder() {
       }
 
       toast.success('Workflow executed successfully! 🎉');
-      
+
       // Reset form
       setWorkflowName('');
       setWorkflowDescription('');
@@ -100,7 +101,7 @@ export function AgentWorkflowBuilder() {
   const getAgentIcon = (agentId: string) => {
     const agent = agents.find(a => a.id === agentId);
     if (!agent) return Bot;
-    
+
     if (agent.role.includes('Lead')) return Target;
     if (agent.role.includes('Content')) return PenTool;
     if (agent.role.includes('Optimization')) return TrendingUp;
@@ -222,7 +223,7 @@ export function AgentWorkflowBuilder() {
                   steps.map((step, index) => {
                     const agent = agents.find(a => a.id === step.agentId);
                     const IconComponent = getAgentIcon(step.agentId);
-                    
+
                     return (
                       <div key={step.id} className="relative">
                         <div className="flex items-start space-x-4 p-4 border rounded-lg">
@@ -234,7 +235,7 @@ export function AgentWorkflowBuilder() {
                               <ArrowRight className="h-4 w-4 text-gray-400 mt-2 rotate-90" />
                             )}
                           </div>
-                          
+
                           <div className="flex-1 space-y-3">
                             <div className="grid gap-3 md:grid-cols-2">
                               <div>
@@ -251,12 +252,12 @@ export function AgentWorkflowBuilder() {
                                   ))}
                                 </select>
                               </div>
-                              
+
                               <div>
                                 <Label>Task Type</Label>
                                 <select
                                   value={step.taskType}
-                                  onChange={(e) => updateStep(step.id, { 
+                                  onChange={(e) => updateStep(step.id, {
                                     taskType: e.target.value as WorkflowStep['taskType'],
                                     input: JSON.parse(getSampleInput(e.target.value))
                                   })}
@@ -269,7 +270,7 @@ export function AgentWorkflowBuilder() {
                                 </select>
                               </div>
                             </div>
-                            
+
                             <div>
                               <Label>Step Description</Label>
                               <Input
@@ -278,7 +279,7 @@ export function AgentWorkflowBuilder() {
                                 placeholder="Describe what this step should accomplish"
                               />
                             </div>
-                            
+
                             <div>
                               <Label>Input Data (JSON)</Label>
                               <Textarea
@@ -295,7 +296,7 @@ export function AgentWorkflowBuilder() {
                                 className="font-mono text-xs"
                               />
                             </div>
-                            
+
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-2">
                                 <IconComponent className="h-4 w-4 text-purple-500" />
@@ -441,7 +442,7 @@ export function AgentWorkflowBuilder() {
                     <div className="text-xs text-muted-foreground">Lead scoring + ICP analysis</div>
                   </div>
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   className="w-full justify-start text-left h-auto p-3"
@@ -475,7 +476,7 @@ export function AgentWorkflowBuilder() {
                     <div className="text-xs text-muted-foreground">Audience analysis + content creation</div>
                   </div>
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   className="w-full justify-start text-left h-auto p-3"
@@ -523,7 +524,7 @@ export function AgentWorkflowBuilder() {
                   {steps.map((step, index) => {
                     const agent = agents.find(a => a.id === step.agentId);
                     const IconComponent = getAgentIcon(step.agentId);
-                    
+
                     return (
                       <div key={step.id} className="relative">
                         <div className="flex items-center space-x-3 p-3 border rounded-lg">
