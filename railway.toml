@@ -1,0 +1,13 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+# Run the internal API (port 3006) and serve the Vite app on Railway's $PORT
+startCommand = "node enhanced-bulk-generator-frontend/backend-server.js & npm run preview -- --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+# Notes:
+# - The backend listens on http://localhost:3006 inside the container.
+# - The frontend is served by `vite preview` on $PORT.
