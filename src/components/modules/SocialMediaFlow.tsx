@@ -330,6 +330,7 @@ export function SocialMediaFlow() {
   const resolvedAvatarIdForBackend = () => {
     const parsed = parseHeyGenSelection(avatarId)
     if (parsed.kind === 'avatar') return parsed.avatarId || ''
+    if (parsed.kind === 'group') return ''
     return avatarId
   }
 
