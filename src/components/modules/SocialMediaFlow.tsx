@@ -259,6 +259,9 @@ export function SocialMediaFlow() {
   const HEYGEN_GROUPS = {
     indianMale: 'c2d73a2a1707469c852206165ede3fb2',
     indianFemale: '2c43461ac14846ef973be96e81c49ca3',
+    male2: '1185d8e89e7b4fe6a577343bbfd1bb0e',
+    male3: '3802eae40be249198de20e64662259b6',
+    female3: 'a761ce70b43447ab8383684d98afcf22',
   } as const
 
   // Load available avatars on component mount
@@ -294,6 +297,16 @@ export function SocialMediaFlow() {
       setHeygenGroupAvatars([])
       return []
     }
+  }
+
+  const getHeyGenGroupLabel = (groupId: string | null) => {
+    if (!groupId) return 'Group'
+    if (groupId === HEYGEN_GROUPS.indianMale) return 'Indian Male'
+    if (groupId === HEYGEN_GROUPS.indianFemale) return 'Indian Female'
+    if (groupId === HEYGEN_GROUPS.male2) return 'Male 2'
+    if (groupId === HEYGEN_GROUPS.male3) return 'Male 3'
+    if (groupId === HEYGEN_GROUPS.female3) return 'Female 3'
+    return 'Group'
   }
 
   const parseHeyGenSelection = (value: string) => {
@@ -1696,9 +1709,12 @@ export function SocialMediaFlow() {
                     <option value="siddharth-vora">Siddharth Vora (HeyGen Custom Avatar)</option>
                     <option value={`heygen-group:${HEYGEN_GROUPS.indianMale}`}>Indian Male (HeyGen)</option>
                     <option value={`heygen-group:${HEYGEN_GROUPS.indianFemale}`}>Indian Female (HeyGen)</option>
+                    <option value={`heygen-group:${HEYGEN_GROUPS.male2}`}>Male 2 (HeyGen)</option>
+                    <option value={`heygen-group:${HEYGEN_GROUPS.male3}`}>Male 3 (HeyGen)</option>
+                    <option value={`heygen-group:${HEYGEN_GROUPS.female3}`}>Female 3 (HeyGen)</option>
                     {heygenAvatarGroupId && heygenGroupAvatars.length > 0 && (
                       <optgroup
-                        label={`HeyGen Looks (${heygenAvatarGroupId === HEYGEN_GROUPS.indianMale ? 'Indian Male' : heygenAvatarGroupId === HEYGEN_GROUPS.indianFemale ? 'Indian Female' : 'Group'})`}
+                        label={`HeyGen Looks (${getHeyGenGroupLabel(heygenAvatarGroupId)})`}
                       >
                         {heygenGroupAvatars.map((a, idx) => (
                           <option key={a.avatarId} value={`heygen-avatar:${heygenAvatarGroupId}:${a.avatarId}`}>
