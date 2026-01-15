@@ -966,6 +966,7 @@ export function SocialMediaFlow() {
                   // Auto-set contentType to 'image' for infographic campaigns
                   if (next === 'infographic') {
                     setContentType('image')
+                    setAspectRatio('4:5')
                   }
                   // Instagram Reels defaults: vertical video
                   if (next === 'instagram-reel') {

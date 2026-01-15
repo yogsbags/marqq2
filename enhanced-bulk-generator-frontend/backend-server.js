@@ -1612,10 +1612,10 @@ Format as markdown with clear headings (## / ###) and bullet points.`;
 
 	    // Stage 2: Content Generation (post copy/captions/hashtags) using Gemini 3 Flash Preview.
 	    // Stage 3 handles image/video asset generation; Stage 2 focuses on the textual content pack.
-	    if (stageIdNum === 2 && !isEmailCampaign) {
-	      try {
-	        const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-	        const platformList = Array.isArray(platforms) ? platforms : [];
+		    if (stageIdNum === 2 && !isEmailCampaign) {
+		      try {
+		        const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+		        const platformList = Array.isArray(platforms) ? platforms : [];
 
 	        const state = readSocialMediaWorkflowState();
 	        const planningEntry =
@@ -1623,29 +1623,49 @@ Format as markdown with clear headings (## / ###) and bullet points.`;
 	          getLatestSocialMediaStateEntry(state, 'campaigns');
 	        const planningText = planningEntry?.creativePrompt || planningEntry?.output || '';
 
-	        if (!geminiKey) {
-	          const fallback = {
-	            global: {
-	              topic,
-	              campaignType,
-	              purpose: purpose || 'brand-awareness',
-	              targetAudience: targetAudience || 'all_clients',
-	              tone: 'professional, trustworthy, educational',
-	              complianceNote: 'Avoid guaranteed returns; no personalized investment advice.'
-	            },
-	            platforms: Object.fromEntries(
-	              (platformList.length ? platformList : ['linkedin']).map((p) => [
-	                p,
-	                {
-	                  primaryCaption: `PL Capital | ${topic}\n\nKey takeaway: ...\n\nCTA: Learn more / Book a consultation.`,
-	                  altCaptions: [],
-	                  hashtags: ['#Investing', '#WealthManagement', '#FinancialPlanning'],
-	                  ctaOptions: ['Learn more', 'Book a consultation', 'Follow for updates'],
-	                  ...(p === 'twitter'
-	                    ? {
-	                        threadHook: `THREAD: ${topic}`,
-	                        thread: [
-	                          `THREAD: ${topic}\n\n1) Quick context...`,
+		        if (!geminiKey) {
+		          const fallback = {
+		            global: {
+		              topic,
+		              campaignType,
+		              purpose: purpose || 'brand-awareness',
+		              targetAudience: targetAudience || 'all_clients',
+		              tone: 'professional, trustworthy, educational',
+		              complianceNote: 'Avoid guaranteed returns; no personalized investment advice.'
+		            },
+		            platforms: Object.fromEntries(
+		              (platformList.length ? platformList : ['linkedin']).map((p) => [
+		                p,
+		                {
+		                  primaryCaption: `PL Capital | ${topic}\n\nKey takeaway: ...\n\nCTA: Learn more / Book a consultation.`,
+		                  altCaptions: [],
+		                  hashtags: ['#Investing', '#WealthManagement', '#FinancialPlanning'],
+		                  ctaOptions: ['Learn more', 'Book a consultation', 'Follow for updates'],
+		                  ...(campaignType === 'infographic'
+		                    ? {
+		                        infographic: {
+		                          title: topic || 'Quick Finance Infographic',
+		                          subtitle: '3 key points in 30 seconds',
+		                          keyStats: [
+		                            { label: 'Point 1', value: '...' },
+		                            { label: 'Point 2', value: '...' },
+		                            { label: 'Point 3', value: '...' }
+		                          ],
+		                          sections: [
+		                            { heading: 'What it means', bullets: ['...', '...'] },
+		                            { heading: 'How to use it', bullets: ['...', '...'] },
+		                            { heading: 'Common mistake', bullets: ['...', '...'] }
+		                          ],
+		                          footerCta: 'Save this • Follow PL Capital',
+		                          disclaimerLine: 'Market risks apply.'
+		                        }
+		                      }
+		                    : {}),
+		                  ...(p === 'twitter'
+		                    ? {
+		                        threadHook: `THREAD: ${topic}`,
+		                        thread: [
+		                          `THREAD: ${topic}\n\n1) Quick context...`,
 	                          `2) One key point...`,
 	                          `3) One practical takeaway...`,
 	                          `4) Common mistake to avoid...`,
@@ -1693,7 +1713,7 @@ Format as markdown with clear headings (## / ###) and bullet points.`;
 	          (m, idx, arr) => m && arr.indexOf(m) === idx
 	        );
 
-	        const prompt = `You are a senior social media copywriter for PL Capital (financial services, India).
+		        const prompt = `You are a senior social media copywriter for PL Capital (financial services, India).
 Generate Stage 2 "Content" output: captions/post copy that matches the campaign purpose, campaign type, and target audience.
 Return ONLY valid JSON (no markdown, no code fences).
 
@@ -1746,6 +1766,16 @@ Requirements:
    - WhatsApp Creative: optimize for forwards + CTR:
      * MUST include: "headline" (<= 10 words), "body" (<= 2 short lines), "ctaText" (2–4 words), and "whatsAppMessage" (ready-to-send message).
      * Keep it compliant and clear; avoid spammy language. Use ₹ cues if relevant.
+   - Infographic: if Campaign type is "infographic": ALSO include an "infographic" object for EACH platform in the Platforms list:
+     * Purpose: blueprint for a single, high-clarity, text-forward infographic image (NOT a carousel).
+     * Keep every line short and readable on mobile.
+     * infographic schema:
+       - title: <= 10 words
+       - subtitle: <= 14 words
+       - keyStats: 3–5 items, each { label: <= 4 words, value: short, numbers allowed (₹, %, years) }
+       - sections: 3–5 sections, each { heading: <= 4 words, bullets: 2–4 bullets, each bullet <= 8 words }
+       - footerCta: <= 8 words (save/share/follow CTA)
+       - disclaimerLine: <= 8 words (no guarantees)
    - YouTube: can be longer; include a clearer CTA.
 3) Be compliant: no guaranteed returns, no exaggerated claims, no personalized investment advice. Add a short generic disclaimer where appropriate.
 4) Output JSON schema (for platform === "instagram", pinnedComment, coverText, onScreenText are REQUIRED):
@@ -1778,6 +1808,14 @@ Requirements:
         "coverText": string,
         "slides": Array<{ "title": string, "body": string, "highlight": string, "visualCue": string }>,
         "finalSlideCta": string,
+        "disclaimerLine": string
+      },
+      "infographic"?: {
+        "title": string,
+        "subtitle": string,
+        "keyStats": Array<{ "label": string, "value": string }>,
+        "sections": Array<{ "heading": string, "bullets": string[] }>,
+        "footerCta": string,
         "disclaimerLine": string
       }
     }
@@ -2015,37 +2053,41 @@ ${brandGuidance ? `Brand Requirements:\n${brandGuidance}\nIMPORTANT: You MUST us
 	      }
 	    }
 
-    // Map campaignType to format for orchestrator (matching original frontend behavior)
-    // BUT: Respect contentType from frontend - if user selected "Static Image", generate image, not video
-    let format;
-    if (contentType === 'image') {
-      // User selected "Static Image" - force image generation regardless of campaign type
-      format = campaignType === 'linkedin-carousel' ? 'carousel' : 'image';
-    } else if (contentType === 'faceless-video' || contentType === 'avatar-video') {
-      // User selected video - use campaign type mapping
-      const campaignTypeToFormat = {
-        'linkedin-testimonial': 'video-testimonial',
-        'linkedin-carousel': 'carousel',
-        'linkedin-data-viz': 'data-viz',
-        'instagram-reel': 'reel',
-        'instagram-carousel': 'carousel',
-        'youtube-explainer': 'explainer',
-        'email-newsletter': 'newsletter'
-      };
-      format = campaignTypeToFormat[campaignType] || campaignType;
-    } else {
-      // Default: use campaign type mapping
-      const campaignTypeToFormat = {
-        'linkedin-testimonial': 'video-testimonial',
-        'linkedin-carousel': 'carousel',
-        'linkedin-data-viz': 'data-viz',
-        'instagram-reel': 'reel',
-        'instagram-carousel': 'carousel',
-        'youtube-explainer': 'explainer',
-        'email-newsletter': 'newsletter'
-      };
-      format = campaignTypeToFormat[campaignType] || campaignType;
-    }
+	    // Map campaignType to format for orchestrator (matching original frontend behavior)
+	    // BUT: Respect contentType from frontend - if user selected "Static Image", generate image, not video
+	    let format;
+	    if (contentType === 'image') {
+	      // User selected "Static Image" - force image generation regardless of campaign type
+	      if (campaignType === 'linkedin-carousel') format = 'carousel';
+	      else if (campaignType === 'infographic') format = 'infographic';
+	      else format = 'image';
+	    } else if (contentType === 'faceless-video' || contentType === 'avatar-video') {
+	      // User selected video - use campaign type mapping
+	      const campaignTypeToFormat = {
+	        'linkedin-testimonial': 'video-testimonial',
+	        'linkedin-carousel': 'carousel',
+	        'linkedin-data-viz': 'data-viz',
+	        'instagram-reel': 'reel',
+	        'instagram-carousel': 'carousel',
+	        'youtube-explainer': 'explainer',
+	        'infographic': 'infographic',
+	        'email-newsletter': 'newsletter'
+	      };
+	      format = campaignTypeToFormat[campaignType] || campaignType;
+	    } else {
+	      // Default: use campaign type mapping
+	      const campaignTypeToFormat = {
+	        'linkedin-testimonial': 'video-testimonial',
+	        'linkedin-carousel': 'carousel',
+	        'linkedin-data-viz': 'data-viz',
+	        'instagram-reel': 'reel',
+	        'instagram-carousel': 'carousel',
+	        'youtube-explainer': 'explainer',
+	        'infographic': 'infographic',
+	        'email-newsletter': 'newsletter'
+	      };
+	      format = campaignTypeToFormat[campaignType] || campaignType;
+	    }
 
     // Build arguments for social media backend
     // The main.js expects: node main.js stage <stageName> [options]

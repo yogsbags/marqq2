@@ -657,9 +657,9 @@ Output rules:
 	        }
 	      };
 
-      // Carousel (LinkedIn/Instagram): generate one image per slide
-      const isCarousel = options.format === 'carousel' && (options.platform === 'linkedin' || options.platform === 'instagram');
-      if (isCarousel) {
+	      // Carousel (LinkedIn/Instagram): generate one image per slide
+	      const isCarousel = options.format === 'carousel' && (options.platform === 'linkedin' || options.platform === 'instagram');
+	      if (isCarousel) {
         const carouselPlatform = options.platform;
         const platformLabel = carouselPlatform === 'instagram' ? 'Instagram' : 'LinkedIn';
         console.log(`   🧩 ${platformLabel} carousel detected — generating slide images...`);
@@ -830,14 +830,147 @@ Constraints: no guaranteed returns, no “sure-shot” claims. No exaggerated cl
 	        return {
 	          success: true,
 	          images: generatedImages,
-	          features: ['carousel', 'multi-slide']
+		          features: ['carousel', 'multi-slide']
+		        };
+		      }
+
+	      // Infographic: generate a single, text-forward infographic from Stage 2 blueprint (if present)
+	      const isInfographic = options.format === 'infographic';
+	      if (isInfographic) {
+	        const infographicPlatform = options.platform;
+	        const platformLabelMap = {
+	          linkedin: 'LinkedIn',
+	          instagram: 'Instagram',
+	          facebook: 'Facebook',
+	          twitter: 'Twitter/X',
+	          whatsapp: 'WhatsApp'
+	        };
+	        const platformLabel = platformLabelMap[infographicPlatform] || infographicPlatform;
+	        console.log(`   📊 ${platformLabel} infographic detected — generating infographic image...`);
+
+	        const contentEntries = Object.values(this.stateManager?.state?.content || {}).filter(Boolean);
+	        const byCompletedAtDesc = (a, b) => {
+	          const aTs = new Date(a?.completedAt || a?.updatedAt || a?.createdAt || 0).getTime();
+	          const bTs = new Date(b?.completedAt || b?.updatedAt || b?.createdAt || 0).getTime();
+	          return bTs - aTs;
+	        };
+
+	        const topic = (options.topic || '').trim();
+	        const latestContent =
+	          (topic
+	            ? contentEntries.filter((e) => (e?.topic || '').trim() === topic).sort(byCompletedAtDesc)[0]
+	            : null) || contentEntries.sort(byCompletedAtDesc)[0] || null;
+
+	        const blueprint = latestContent?.contentPack?.platforms?.[infographicPlatform]?.infographic || null;
+	        const title = (blueprint?.title || options.topic || 'Quick Finance Infographic').trim();
+	        const subtitle = (blueprint?.subtitle || 'Key points in 30 seconds').trim();
+	        const keyStats = Array.isArray(blueprint?.keyStats) ? blueprint.keyStats : [];
+	        const sections = Array.isArray(blueprint?.sections) ? blueprint.sections : [];
+	        const footerCta = (blueprint?.footerCta || 'Save this • Follow PL Capital').trim();
+	        const disclaimerLine = (blueprint?.disclaimerLine || 'Market risks apply.').trim();
+
+	        const clampWords = (text, maxWords) => {
+	          const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+	          if (words.length <= maxWords) return words.join(' ');
+	          return words.slice(0, maxWords).join(' ');
+	        };
+
+	        const clampChars = (text, maxChars) => {
+	          const raw = String(text || '').trim();
+	          if (raw.length <= maxChars) return raw;
+	          return `${raw.slice(0, Math.max(0, maxChars - 1)).trim()}…`;
+	        };
+
+	        const safeTitle = clampWords(title, 10);
+	        const safeSubtitle = clampChars(subtitle, 90);
+
+	        const safeStats = keyStats
+	          .slice(0, 5)
+	          .map((s) => ({
+	            label: clampWords(s?.label || 'Key', 4),
+	            value: clampChars(s?.value || '…', 18)
+	          }))
+	          .filter((s) => s.label && s.value);
+
+	        const safeSections = sections
+	          .slice(0, 5)
+	          .map((sec) => ({
+	            heading: clampWords(sec?.heading || 'Section', 4),
+	            bullets: (Array.isArray(sec?.bullets) ? sec.bullets : [])
+	              .slice(0, 4)
+	              .map((b) => clampWords(b, 8))
+	              .filter(Boolean)
+	          }))
+	          .filter((s) => s.heading && s.bullets.length);
+
+	        const contentSpec = [
+	          `Title: ${safeTitle}`,
+	          `Subtitle: ${safeSubtitle}`,
+	          safeStats.length
+	            ? `Key stats:\n${safeStats.map((s) => `- ${s.label}: ${s.value}`).join('\n')}`
+	            : '',
+	          safeSections.length
+	            ? `Sections:\n${safeSections
+	                .map((s) => `- ${s.heading}: ${s.bullets.map((b) => `• ${b}`).join(' ')}`)
+	                .join('\n')}`
+	            : '',
+	          `Footer CTA: ${clampWords(footerCta, 8)}`,
+	          `Disclaimer: ${clampWords(disclaimerLine, 8)}`
+	        ]
+	          .filter(Boolean)
+	          .join('\n');
+
+	        const infographicPrompt = `Design ONE visually stunning, premium, text-forward finance infographic for PL Capital (India).
+Platform context: ${platformLabel} feed.
+Goal: instantly understandable + highly saveable/shareable. No clutter. No faces. No stock-photo humans.
+
+Layout system (STRICT):
+- Safe margins: 80px on all sides.
+- Structure: Header (Title + Subtitle) → Key Stats row → 3–5 Section blocks → Footer (CTA + tiny disclaimer).
+- Typography: bold headline; clear section headers; short bullets; high contrast; mobile-first legibility.
+- Visuals: minimal icons + tiny charts/mini-graphs as accents only (flat vector style). Avoid busy backgrounds.
+- Branding: use PL palette (navy/blue base with green accents). Footer may include tiny text “PL Capital” only. Do NOT add any extra logos.
+
+Text to render (exact words):
+${contentSpec}
+
+Compliance:
+- No guaranteed returns, no “sure-shot”, no exaggerated claims.
+${options.language && options.language !== 'english' ? `All text must be in ${this._getLanguageName(options.language)}.` : ''}`;
+
+	        console.log(`   ⏳ Generating infographic (Gemini 3 Pro, 4K)...\n`);
+	        const infographicResult = await generator.generateSocialGraphic(infographicPrompt, infographicPlatform, {
+	          imageSize: '4K',
+	          useGrounding: false,
+	          aspectRatio: options.aspectRatio || this._getAspectRatioForFormat('infographic'),
+	          language: options.language,
+	          numberOfImages: 1
+	        });
+
+	        const first = infographicResult?.images?.[0];
+	        if (first && process.env.IMGBB_API_KEY) {
+	          console.log('   ☁️  Uploading infographic to ImgBB...');
+	          const imagePath = first.path || first.url;
+	          const hostedUrl = await uploadToImgBB(imagePath);
+	          if (hostedUrl) {
+	            first.hostedUrl = hostedUrl;
+	            console.log(`   ✅ Uploaded to ImgBB: ${hostedUrl}`);
+	          }
+	        } else {
+	          console.log('   ℹ️  ImgBB upload skipped (no API key or no images)');
+	        }
+
+	        return {
+	          success: true,
+	          images: infographicResult?.images || [],
+	          features: ['infographic']
 	        };
 	      }
 
-	      // Generate platform-specific graphics using Gemini 3 Pro
-	      const prompt = options.prompt || this._buildVisualPrompt(options);
-	      console.log(`   Prompt: ${prompt.substring(0, 80)}...`);
-	      console.log('   ⏳ Generating image (Gemini 3 Pro, 4K)...\n');
+		      // Generate platform-specific graphics using Gemini 3 Pro
+		      const prompt = options.prompt || this._buildVisualPrompt(options);
+		      console.log(`   Prompt: ${prompt.substring(0, 80)}...`);
+		      console.log('   ⏳ Generating image (Gemini 3 Pro, 4K)...\n');
 
       const result = await generator.generateSocialGraphic(prompt, options.platform, {
         imageSize: '4K',
@@ -978,13 +1111,14 @@ ${brandGuidance}`;
   /**
    * Get optimal aspect ratio for content format
    */
-  _getAspectRatioForFormat(format) {
-    const aspectRatios = {
-      'carousel': '1:1',
-      'post': '1:1',
-      'story': '9:16',
-      'reel': '9:16',
-      'thumbnail': '16:9',
+	  _getAspectRatioForFormat(format) {
+	    const aspectRatios = {
+	      'carousel': '1:1',
+	      'infographic': '4:5',
+	      'post': '1:1',
+	      'story': '9:16',
+	      'reel': '9:16',
+	      'thumbnail': '16:9',
       'explainer': '16:9',
       'cover': '16:9'
     };
