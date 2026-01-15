@@ -1689,9 +1689,17 @@ ${planningText ? planningText : '(none)'}
 
 Requirements:
 1) For each platform, create: primaryCaption, 3 altCaptions, 10-15 hashtags, 3 CTA options.
-2) Platform constraints: Twitter max 280 chars for primaryCaption; LinkedIn is professional; Instagram can be punchier; YouTube can be longer.
+2) Platform constraints:
+   - Twitter: primaryCaption must be <= 280 chars.
+   - LinkedIn: professional, value-forward, slightly longer is OK.
+   - Instagram: optimize for Reels virality in the Indian context:
+     * Strong hook in the first 1–2 lines, short punchy lines, use line breaks, 0–2 emojis max.
+     * Prefer relatable India cues where appropriate (₹, SIP, tax, salary day, “aaj ka quick tip”), but never personalized advice.
+     * Include a short "pinnedComment" idea and 5–7 on-screen text lines ("onScreenText") suitable for captions/subtitles.
+     * Include a short "coverText" (3–6 words) for the Reel cover.
+   - YouTube: can be longer; include a clearer CTA.
 3) Be compliant: no guaranteed returns, no exaggerated claims, no personalized investment advice. Add a short generic disclaimer where appropriate.
-4) Output JSON schema:
+4) Output JSON schema (additional IG fields are required for platform === "instagram"):
 {
   "global": { "tone": string, "disclaimer": string, "language": string },
   "platforms": {
@@ -1699,7 +1707,10 @@ Requirements:
       "primaryCaption": string,
       "altCaptions": string[],
       "hashtags": string[],
-      "ctaOptions": string[]
+      "ctaOptions": string[],
+      "pinnedComment"?: string,
+      "coverText"?: string,
+      "onScreenText"?: string[]
     }
   }
 }`;

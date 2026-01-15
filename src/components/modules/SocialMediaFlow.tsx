@@ -245,6 +245,7 @@ export function SocialMediaFlow() {
 
   const languages = [
     { value: 'english', label: 'English', native: 'English' },
+    { value: 'hinglish', label: 'Hinglish', native: 'Hinglish' },
     { value: 'hindi', label: 'Hindi', native: 'हिंदी' },
     { value: 'bengali', label: 'Bengali', native: 'বাংলা' },
     { value: 'telugu', label: 'Telugu', native: 'తెలుగు' },

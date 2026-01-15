@@ -671,6 +671,7 @@ Output rules:
   _getLanguageName(languageCode) {
     const languageMap = {
       'english': 'English',
+      'hinglish': 'Hinglish (Hindi in Latin script)',
       'hindi': 'Hindi',
       'bengali': 'Bengali',
       'telugu': 'Telugu',
