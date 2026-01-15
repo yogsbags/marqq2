@@ -328,10 +328,11 @@ class SocialMediaOrchestrator {
     }
 
     // For WhatsApp static creative, delegate to visual generation now
+    // IMPORTANT: only route to WhatsApp creative generation when explicitly requested.
+    // Generic image formats (e.g. LinkedIn static image) should NOT be forced to WhatsApp.
     const isWhatsAppImage = (options.platform && options.platform.includes('whatsapp')) ||
       (options.type && options.type.includes('whatsapp')) ||
-      options.format === 'whatsapp' ||
-      options.format === 'image';
+      options.format === 'whatsapp';
 
     if (isWhatsAppImage) {
       console.log('   📷 Generating WhatsApp static creative with Gemini 3 Pro Image Preview...');
