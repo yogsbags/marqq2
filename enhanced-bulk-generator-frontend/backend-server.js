@@ -1640,7 +1640,28 @@ Format as markdown with clear headings (## / ###) and bullet points.`;
 	                  primaryCaption: `PL Capital | ${topic}\n\nKey takeaway: ...\n\nCTA: Learn more / Book a consultation.`,
 	                  altCaptions: [],
 	                  hashtags: ['#Investing', '#WealthManagement', '#FinancialPlanning'],
-	                  ctaOptions: ['Learn more', 'Book a consultation', 'Follow for updates']
+	                  ctaOptions: ['Learn more', 'Book a consultation', 'Follow for updates'],
+	                  ...(p === 'twitter'
+	                    ? {
+	                        threadHook: `THREAD: ${topic}`,
+	                        thread: [
+	                          `THREAD: ${topic}\n\n1) Quick context...`,
+	                          `2) One key point...`,
+	                          `3) One practical takeaway...`,
+	                          `4) Common mistake to avoid...`,
+	                          `5) Summary + disclaimer: Market risks apply.`
+	                        ],
+	                        threadCta: 'Save + share if useful. Follow PL Capital for more.'
+	                      }
+	                    : {}),
+	                  ...(p === 'whatsapp'
+	                    ? {
+	                        headline: `${topic}`,
+	                        body: 'One quick takeaway.\nOne clear next step.',
+	                        ctaText: 'Learn more',
+	                        whatsAppMessage: `PL Capital: ${topic}\n\nKey takeaway: ...\n\nReply YES for details.\nMarket risks apply.`
+	                      }
+	                    : {})
 	                }
 	              ])
 	            )
@@ -1718,6 +1739,13 @@ Requirements:
    - Facebook Community: optimize for comments/discussion:
      * primaryCaption should be a community post (short intro + a clear question).
      * MUST include: "question", "pollOptions" (4 options), and "commentReplyBank" (5 short replies to common comments).
+   - Twitter/X thread: optimize for shares/bookmarks:
+     * primaryCaption must be the full thread text (tweet 1 + 6–10 follow-up tweets), each tweet <= 280 chars.
+     * MUST include: "thread" (array of tweets), "threadHook" (tweet 1 as a standalone string), and "threadCta" (last tweet CTA).
+     * Style: crisp, slightly contrarian hook, simple bullets, India context OK (₹, SIP, tax), zero hype, compliant.
+   - WhatsApp Creative: optimize for forwards + CTR:
+     * MUST include: "headline" (<= 10 words), "body" (<= 2 short lines), "ctaText" (2–4 words), and "whatsAppMessage" (ready-to-send message).
+     * Keep it compliant and clear; avoid spammy language. Use ₹ cues if relevant.
    - YouTube: can be longer; include a clearer CTA.
 3) Be compliant: no guaranteed returns, no exaggerated claims, no personalized investment advice. Add a short generic disclaimer where appropriate.
 4) Output JSON schema (for platform === "instagram", pinnedComment, coverText, onScreenText are REQUIRED):
@@ -1738,6 +1766,13 @@ Requirements:
       "question"?: string,
       "pollOptions"?: string[],
       "commentReplyBank"?: string[],
+      "threadHook"?: string,
+      "thread"?: string[],
+      "threadCta"?: string,
+      "headline"?: string,
+      "body"?: string,
+      "ctaText"?: string,
+      "whatsAppMessage"?: string,
       "carousel"?: {
         "slideCount": number,
         "coverText": string,

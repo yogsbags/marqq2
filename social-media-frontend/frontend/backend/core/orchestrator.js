@@ -466,12 +466,22 @@ Output rules:
 
     if (isWhatsAppImage) {
       console.log('   📷 Generating WhatsApp static creative with Gemini 3 Pro Image Preview...');
+      // If Stage 2 content pack created a WhatsApp headline/body/cta, allow it to drive the image prompt
+      const waHeadline = options.whatsappHeadline || options.headline;
+      const waBody = options.whatsappBody || options.body;
+      const waCta = options.whatsappCta || options.ctaText || options.cta;
+
       const prompt = options.prompt || this._buildVisualPrompt({
         platform: 'whatsapp',
         format: 'image',
         topic: options.topic,
         type: options.type,
-        brandSettings: options.brandSettings
+        brandSettings: options.brandSettings,
+        whatsapp: {
+          headline: waHeadline,
+          body: waBody,
+          cta: waCta
+        }
       });
 
       // If a reference image path is provided (via env), use edit mode
@@ -841,7 +851,7 @@ Constraints: no guaranteed returns, no “sure-shot” claims. Professional Link
    * Build visual prompt based on options
    */
   _buildVisualPrompt(options) {
-    const { platform, format, topic, type, brandSettings, language = 'english' } = options;
+    const { platform, format, topic, type, brandSettings, language = 'english', whatsapp } = options;
     const languageName = this._getLanguageName(language);
 
     const defaultBrand = 'PL Capital brand palette: Navy (#0e0e6a), Blue (#3c3cf8), Teal (#00d084), Green (#66e766); typography: Figtree; tone: professional, trustworthy, data-driven.';
@@ -870,7 +880,22 @@ Constraints: no guaranteed returns, no “sure-shot” claims. Professional Link
       youtube: `High-quality ${safeFormat} thumbnail/graphic for YouTube about ${topic || 'wealth building'}. Bold text, high contrast, attention-grabbing design.${languageInstruction}`,
       facebook: `Engaging ${safeFormat} post graphic for Facebook about ${topic || 'financial planning'}. Community-focused, accessible design, clear messaging.${languageInstruction}`,
       twitter: `Concise ${safeFormat} visual for Twitter about ${topic || 'market insights'}. Clean, minimal design optimized for quick engagement.${languageInstruction}`,
-      whatsapp: `High-contrast, text-forward static image for WhatsApp about ${topic || 'your offer'}. 1080x1920 portrait-friendly layout, bold headline, single CTA, clear brand colors.${languageInstruction} ${brandGuidance}`
+      whatsapp: (() => {
+        const headline = whatsapp?.headline ? String(whatsapp.headline).trim() : '';
+        const body = whatsapp?.body ? String(whatsapp.body).trim() : '';
+        const cta = whatsapp?.cta ? String(whatsapp.cta).trim() : '';
+        const contentSpec = (headline || body || cta)
+          ? `Text to render (exact):
+Headline: ${headline || (topic || 'Your offer')}
+Body: ${body || 'One clear benefit.\nOne clear next step.'}
+CTA: ${cta || 'Learn more'}`
+          : `Text-forward layout with a bold headline and a single CTA.`;
+
+        return `High-contrast, text-forward static image for WhatsApp. 1080x1920 portrait-friendly layout, bold headline, single CTA, clear brand colors.
+${contentSpec}
+Design: clean, high readability on small screens, minimal elements, strong hierarchy.
+Constraints: no guaranteed returns, no exaggerated claims.${languageInstruction} ${brandGuidance}`;
+      })()
     };
 
     return basePrompts[platform] || basePrompts.linkedin;
