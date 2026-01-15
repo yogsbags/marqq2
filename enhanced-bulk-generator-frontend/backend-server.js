@@ -1725,9 +1725,9 @@ Requirements:
 	      sendEvent({ log: '📧 Generating HTML email newsletter...' });
 
 	      try {
-	        const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-	        if (!geminiKey) {
-	          throw new Error('GEMINI_API_KEY not set (required for email newsletter generation)');
+	        const groqKey = process.env.GROQ_API_KEY;
+	        if (!groqKey) {
+	          throw new Error('GROQ_API_KEY not set (required for email newsletter generation)');
 	        }
 
 	        const state = readSocialMediaWorkflowState();
@@ -1739,11 +1739,6 @@ Requirements:
 	        if (creativePrompt) {
 	          sendEvent({ log: '📋 Using creative prompt from Stage 1' });
 	        }
-
-	        const requestedModel = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
-	        const modelCandidates = [requestedModel, 'gemini-3-pro-preview'].filter(
-	          (m, idx, arr) => m && arr.indexOf(m) === idx
-	        );
 
 	        let brandGuidance = '';
 	        if (brandSettings?.useBrandGuidelines) {
@@ -1766,8 +1761,13 @@ ${brandSettings.customInstructions ? `- **Additional Guidelines**: ${brandSettin
 `;
 	        }
 
-	        const prompt = `You are an email marketing copywriter for PL Capital (financial services, India).
-Generate a single HTML newsletter email for the given topic. You MUST follow the layout reference closely.
+	        const systemPrompt = `You are an expert email marketing specialist and HTML email designer.
+
+Your task is to generate a complete, production-ready HTML email newsletter following industry best practices.
+You MUST follow the provided layout reference and keep the header/footer image URLs intact.
+Return ONLY valid JSON (no markdown, no code fences).`;
+
+	        const userPrompt = `Generate a single HTML newsletter email for the given topic. Follow the layout reference closely.
 Return ONLY valid JSON (no markdown, no code fences).
 
 Inputs:
@@ -1832,34 +1832,38 @@ Output JSON schema:
 
 ${brandGuidance ? `Brand Requirements:\n${brandGuidance}\nIMPORTANT: You MUST use these exact brand colors in the email HTML.` : ''}`;
 
-	        sendEvent({ log: `🧠 Generating newsletter with Gemini (${modelCandidates[0]})...` });
+	        const model = process.env.GROQ_EMAIL_MODEL || 'openai/gpt-oss-120b';
+	        sendEvent({ log: `🧠 Generating newsletter with Groq (${model})...` });
 
-	        let rawText = '';
-	        let emailData = null;
-	        let modelUsed = '';
-	        let lastError = null;
+	        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+	          method: 'POST',
+	          headers: {
+	            'Authorization': `Bearer ${groqKey}`,
+	            'Content-Type': 'application/json'
+	          },
+	          body: JSON.stringify({
+	            model,
+	            messages: [
+	              { role: 'system', content: systemPrompt },
+	              { role: 'user', content: userPrompt }
+	            ],
+	            temperature: 0.7,
+	            max_tokens: 8000
+	          })
+	        });
 
-	        for (const model of modelCandidates) {
-	          try {
-	            rawText = await callGeminiGenerateContentJson({
-	              apiKey: geminiKey,
-	              model,
-	              prompt,
-	              temperature: 0.6,
-	              maxOutputTokens: 2000
-	            });
-	            emailData = extractJsonFromText(rawText);
-	            modelUsed = model;
-	            if (emailData) break;
-	          } catch (err) {
-	            lastError = err;
-	          }
+	        if (!response.ok) {
+	          const text = await response.text().catch(() => '');
+	          throw new Error(text || `Groq API error: ${response.status}`);
 	        }
 
+	        const groqData = await response.json();
+	        const rawText = (groqData.choices?.[0]?.message?.content || '').trim();
+	        const emailData = extractJsonFromText(rawText);
+
 	        if (!emailData) {
-	          throw new Error(
-	            lastError?.message || 'Gemini returned an unexpected response; unable to parse JSON newsletter.'
-	          );
+	          sendEvent({ log: `⚠️ Groq raw response (truncated): ${rawText.slice(0, 800)}` });
+	          throw new Error('Groq returned an unexpected response; unable to parse JSON newsletter.');
 	        }
 
 	        sendEvent({ log: '✅ Email newsletter generated successfully!' });
@@ -1879,7 +1883,7 @@ ${brandGuidance ? `Brand Requirements:\n${brandGuidance}\nIMPORTANT: You MUST us
 	          subjectVariations: emailData.subjectVariations,
 	          html: emailData.html,
 	          plainText: emailData.plainText,
-	          model: modelUsed,
+	          model,
 	          output: rawText
 	        };
 
