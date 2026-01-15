@@ -52,6 +52,7 @@
     "@radix-ui/react-tooltip": "^1.1.2",
     "@supabase/supabase-js": "^2.90.1",
     "class-variance-authority": "^0.7.0",
+    "cloudinary": "^2.8.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
     "date-fns": "^3.6.0",
