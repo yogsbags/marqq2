@@ -60,6 +60,11 @@ const navigationItems = [
     icon: LayoutDashboard,
   },
   {
+    id: 'company-intelligence',
+    title: 'Company Intelligence',
+    icon: TrendingUp,
+  },
+  {
     id: 'lead-intelligence',
     title: 'Lead Intelligence',
     icon: Target,
@@ -98,11 +103,6 @@ const navigationItems = [
     id: 'seo-llmo',
     title: 'SEO/LLMO',
     icon: Search,
-  },
-  {
-    id: 'company-intelligence',
-    title: 'Company Intelligence',
-    icon: TrendingUp,
   },
   {
     id: 'unified-customer-view',

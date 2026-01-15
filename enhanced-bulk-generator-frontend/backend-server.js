@@ -134,27 +134,120 @@ function stripHtml(html) {
     .trim();
 }
 
+function decodeHtmlEntities(text) {
+  const raw = String(text || '');
+  if (!raw) return raw;
+  const basic = raw
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+
+  // numeric entities
+  return basic.replace(/&#(\d+);/g, (_, num) => {
+    const code = Number(num);
+    if (!Number.isFinite(code)) return _;
+    try {
+      return String.fromCodePoint(code);
+    } catch {
+      return _;
+    }
+  });
+}
+
 function extractHtmlMeta(html) {
   const raw = String(html || '');
   const title =
-    raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ')?.trim() || '';
+    decodeHtmlEntities(
+      raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ')?.trim() || ''
+    );
 
   const metaDescription =
-    raw.match(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']+)["'][^>]*>/i)?.[1]?.trim() ||
-    raw.match(/<meta[^>]+content=["']([^"']+)["'][^>]*name=["']description["'][^>]*>/i)?.[1]?.trim() ||
+    decodeHtmlEntities(
+      raw.match(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']+)["'][^>]*>/i)?.[1]?.trim() ||
+        raw.match(/<meta[^>]+content=["']([^"']+)["'][^>]*name=["']description["'][^>]*>/i)?.[1]?.trim() ||
+        ''
+    ) ||
     '';
 
   const h1 = Array.from(raw.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi))
     .map((m) => stripHtml(m[1]))
+    .map(decodeHtmlEntities)
     .filter(Boolean)
     .slice(0, 3);
 
   const h2 = Array.from(raw.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi))
     .map((m) => stripHtml(m[1]))
+    .map(decodeHtmlEntities)
     .filter(Boolean)
     .slice(0, 6);
 
   return { title, metaDescription, h1, h2 };
+}
+
+function extractLinksFromHtml(html, baseUrl) {
+  const raw = String(html || '');
+  const links = [];
+  for (const m of raw.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>/gi)) {
+    const href = String(m[1] || '').trim();
+    if (!href || href.startsWith('#') || href.startsWith('javascript:')) continue;
+    try {
+      const resolved = baseUrl ? new URL(href, baseUrl).toString() : href;
+      links.push(resolved);
+    } catch {
+      // ignore
+    }
+  }
+  return Array.from(new Set(links)).slice(0, 200);
+}
+
+function pickFirstUrlByIncludes(links, includesList) {
+  for (const inc of includesList) {
+    const found = links.find((u) => u.toLowerCase().includes(inc));
+    if (found) return found;
+  }
+  return null;
+}
+
+function extractSocialLinks(links) {
+  const norm = links.map((u) => String(u || '')).filter(Boolean);
+  return {
+    linkedin: pickFirstUrlByIncludes(norm, ['linkedin.com/company', 'linkedin.com/']),
+    instagram: pickFirstUrlByIncludes(norm, ['instagram.com/']),
+    youtube: pickFirstUrlByIncludes(norm, ['youtube.com/', 'youtu.be/']),
+    twitter: pickFirstUrlByIncludes(norm, ['x.com/', 'twitter.com/'])
+  };
+}
+
+function extractKeyPages(links) {
+  const norm = links.map((u) => String(u || '')).filter(Boolean);
+  return {
+    about: pickFirstUrlByIncludes(norm, ['/about', 'about-us', 'our-story', 'company']),
+    productsOrServices: pickFirstUrlByIncludes(norm, ['/products', '/product', '/services', '/service', '/solutions', '/offerings']),
+    pricing: pickFirstUrlByIncludes(norm, ['/pricing', 'plans', 'fees']),
+    contact: pickFirstUrlByIncludes(norm, ['/contact', 'get-in-touch', 'support'])
+  };
+}
+
+function inferIndustry({ title, metaDescription }) {
+  const text = `${title || ''} ${metaDescription || ''}`.toLowerCase();
+  if (/(stock\s*broker|broking|online\s*trading|trade\s*online|trading\s*platform)/.test(text)) return 'Stock Broking / Online Trading';
+  if (/(investment|wealth|portfolio|mutual fund|sip)/.test(text)) return 'Investments / Wealth Management';
+  if (/(saas|software|platform|api)/.test(text)) return 'Software / Platform';
+  return 'unknown';
+}
+
+function inferOfferingsFromHeadings({ h1, h2 }) {
+  const candidates = []
+    .concat(Array.isArray(h1) ? h1 : [])
+    .concat(Array.isArray(h2) ? h2 : [])
+    .map((t) => String(t || '').trim())
+    .filter(Boolean);
+
+  const uniq = Array.from(new Set(candidates));
+  return uniq.slice(0, 12);
 }
 
 function inferCompanyName({ explicitName, websiteUrl, title }) {
@@ -199,10 +292,10 @@ app.get('/api/company-intel/companies', (req, res) => {
 });
 
 	// Company Intelligence: create + ingest (website/company name)
-	app.post('/api/company-intel/companies', async (req, res) => {
-	  try {
-	    const companyName = String(req.body?.companyName || req.body?.name || '').trim();
-	    const websiteUrl = normalizeWebsiteUrl(req.body?.websiteUrl || req.body?.website || '');
+app.post('/api/company-intel/companies', async (req, res) => {
+  try {
+    const companyName = String(req.body?.companyName || req.body?.name || '').trim();
+    const websiteUrl = normalizeWebsiteUrl(req.body?.websiteUrl || req.body?.website || '');
 
     if (!companyName && !websiteUrl) {
       res.status(400).json({ error: 'Provide companyName or websiteUrl' });
@@ -215,6 +308,7 @@ app.get('/api/company-intel/companies', (req, res) => {
     let sourceHtml = '';
     let sourceText = '';
     let sourceMeta = { title: '', metaDescription: '', h1: [], h2: [] };
+    let extractedLinks = [];
     let fetchInfo = null;
 
     if (websiteUrl) {
@@ -223,18 +317,19 @@ app.get('/api/company-intel/companies', (req, res) => {
       sourceHtml = fetched.text;
       sourceText = stripHtml(sourceHtml).slice(0, 15000);
       sourceMeta = extractHtmlMeta(sourceHtml);
+      extractedLinks = extractLinksFromHtml(sourceHtml, websiteUrl);
     }
 
-	    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-	    const requestedModel =
-	      process.env.GEMINI_COMPANY_MODEL ||
-	      process.env.GEMINI_TEXT_MODEL ||
-	      'gemini-3-flash-preview';
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    const requestedModel =
+      process.env.GEMINI_COMPANY_MODEL ||
+      process.env.GEMINI_TEXT_MODEL ||
+      'gemini-3-flash-preview';
 
-	    let profile = null;
-	    if (geminiKey && (companyName || websiteUrl)) {
-	      const inferredName = inferCompanyName({ explicitName: companyName, websiteUrl, title: sourceMeta.title });
-	      const prompt = `You are a senior marketing strategist and brand analyst.
+    let profile = null;
+    if (geminiKey && (companyName || websiteUrl)) {
+      const inferredName = inferCompanyName({ explicitName: companyName, websiteUrl, title: sourceMeta.title });
+      const prompt = `You are a senior marketing strategist and brand analyst.
 Use Google Search grounding to accurately identify the company's products/services, positioning, and key pages.
 Return ONLY valid JSON (no markdown, no code fences).
 If the website content is thin/unknown, make best-effort inferences but label uncertain items in "assumptions".
@@ -272,16 +367,74 @@ Output JSON schema:
   "assumptions": string[]
 }`;
 
-      const rawText = await callGeminiGenerateContentJsonWithTools({
-        apiKey: geminiKey,
-        model: requestedModel,
-        prompt,
-        temperature: 0.4,
-        maxOutputTokens: 1800,
-        tools: [{ google_search: {} }]
-      });
-	      profile = extractJsonFromText(rawText);
-	    }
+      const modelCandidates = [
+        requestedModel,
+        'gemini-3-flash-preview',
+        'gemini-3-pro-preview'
+      ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+      let lastErr = null;
+      for (const model of modelCandidates) {
+        try {
+          const rawText = await callGeminiGenerateContentJsonWithTools({
+            apiKey: geminiKey,
+            model,
+            prompt,
+            temperature: 0.4,
+            maxOutputTokens: 1800,
+            tools: [{ google_search: {} }]
+          });
+          profile = extractJsonFromText(rawText);
+          if (profile) break;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+
+      // Fallback: if tools-based grounding isn't supported, try plain JSON generation using the fetched page excerpt.
+      if (!profile) {
+        for (const model of modelCandidates) {
+          try {
+            const rawText = await callGeminiGenerateContentJson({
+              apiKey: geminiKey,
+              model,
+              prompt,
+              temperature: 0.4,
+              maxOutputTokens: 1800
+            });
+            profile = extractJsonFromText(rawText);
+            if (profile) break;
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+      }
+
+      if (!profile && lastErr) {
+        profile = {
+          companyName: inferredName,
+          websiteUrl: websiteUrl || null,
+          summary: sourceMeta.metaDescription || sourceMeta.title || '',
+          industry: inferIndustry({ title: sourceMeta.title, metaDescription: sourceMeta.metaDescription }),
+          geoFocus: sourceMeta.title.toLowerCase().includes('india') || sourceMeta.metaDescription.toLowerCase().includes('india') ? ['India'] : ['India'],
+          productsServices: [],
+          offerings: inferOfferingsFromHeadings({ h1: sourceMeta.h1, h2: sourceMeta.h2 }),
+          primaryAudience: [],
+          positioning: sourceMeta.metaDescription || '',
+          brandVoice: { tone: 'professional', style: 'clear', dos: [], donts: [] },
+          keywords: [],
+          complianceNotes: [],
+          competitorsHint: [],
+          keyPages: extractKeyPages(extractedLinks),
+          socialLinks: extractSocialLinks(extractedLinks),
+          sources: websiteUrl ? [websiteUrl] : [],
+          assumptions: [
+            'Gemini extraction failed; used website metadata heuristics.',
+            String(lastErr?.message || '').slice(0, 200)
+          ].filter(Boolean)
+        };
+      }
+    }
 
 	    const finalCompanyName = inferCompanyName({
 	      explicitName: profile?.companyName || companyName,
@@ -289,36 +442,37 @@ Output JSON schema:
 	      title: sourceMeta.title
 	    });
 
-	    const company = {
-	      id,
-	      companyName: finalCompanyName,
-	      websiteUrl: profile?.websiteUrl || websiteUrl || null,
-	      createdAt,
-	      updatedAt: createdAt,
-	      profile: profile || {
-	        companyName: finalCompanyName,
-	        websiteUrl: websiteUrl || null,
-	        summary: sourceMeta.metaDescription || '',
-	        industry: 'unknown',
-	        geoFocus: ['India'],
-	        productsServices: [],
-        offerings: [],
+    const company = {
+      id,
+      companyName: finalCompanyName,
+      websiteUrl: profile?.websiteUrl || websiteUrl || null,
+      createdAt,
+      updatedAt: createdAt,
+      profile: profile || {
+        companyName: finalCompanyName,
+        websiteUrl: websiteUrl || null,
+        summary: sourceMeta.metaDescription || '',
+        industry: inferIndustry({ title: sourceMeta.title, metaDescription: sourceMeta.metaDescription }),
+        geoFocus: sourceMeta.title.toLowerCase().includes('india') || sourceMeta.metaDescription.toLowerCase().includes('india') ? ['India'] : ['India'],
+        productsServices: [],
+        offerings: inferOfferingsFromHeadings({ h1: sourceMeta.h1, h2: sourceMeta.h2 }),
         primaryAudience: [],
         positioning: sourceMeta.metaDescription || '',
         brandVoice: { tone: 'professional', style: 'clear', dos: [], donts: [] },
         keywords: [],
         complianceNotes: [],
         competitorsHint: [],
-        keyPages: { about: null, productsOrServices: null, pricing: null, contact: null },
-        socialLinks: { linkedin: null, instagram: null, youtube: null, twitter: null },
-        sources: [],
+        keyPages: extractKeyPages(extractedLinks),
+        socialLinks: extractSocialLinks(extractedLinks),
+        sources: websiteUrl ? [websiteUrl] : [],
         assumptions: ['Limited data; generated from minimal website metadata.']
       },
       sources: {
         fetchedAt: websiteUrl ? new Date().toISOString() : null,
         fetchInfo,
         meta: sourceMeta,
-        textExcerpt: sourceText || ''
+        textExcerpt: sourceText || '',
+        linksExtracted: extractedLinks.slice(0, 60)
       }
     };
 
