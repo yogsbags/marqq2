@@ -1692,6 +1692,12 @@ Requirements:
 2) Platform constraints:
    - Twitter: primaryCaption must be <= 280 chars.
    - LinkedIn: professional, value-forward, slightly longer is OK.
+     * If Campaign type is "linkedin-carousel": ALSO include a "carousel" object with a slide-by-slide plan suitable for a viral finance carousel in India:
+       - slideCount: 7 to 9
+       - coverText: 4–8 words (hook)
+       - slides: array of length slideCount, each slide has: title (max 6 words), body (max 2 short lines), highlight (1 key number/term), visualCue (icons/graph idea)
+       - finalSlideCta: 1 short line (e.g., "Save this checklist" / "Follow PL Capital")
+       - disclaimerLine: 1 short line to use in caption or final slide footer (no guarantees)
    - Instagram: optimize for Reels virality in the Indian context:
      * Strong hook in the first 1–2 lines, short punchy lines, use line breaks, 0–2 emojis max.
      * Prefer relatable India cues where appropriate (₹, SIP, tax, salary day, “aaj ka quick tip”), but never personalized advice.
@@ -1711,7 +1717,14 @@ Requirements:
       "ctaOptions": string[],
       "pinnedComment"?: string,
       "coverText"?: string,
-      "onScreenText"?: string[]
+      "onScreenText"?: string[],
+      "carousel"?: {
+        "slideCount": number,
+        "coverText": string,
+        "slides": Array<{ "title": string, "body": string, "highlight": string, "visualCue": string }>,
+        "finalSlideCta": string,
+        "disclaimerLine": string
+      }
     }
   }
 }`;

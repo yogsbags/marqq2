@@ -609,17 +609,159 @@ Output rules:
       return { success: false, error: 'Missing GEMINI_API_KEY' };
     }
 
-    try {
-      // Initialize ImageGenerator with Gemini 3 Pro as primary
-      const generator = new ImageGenerator({
-        apiKey: process.env.GEMINI_API_KEY,
-        provider: 'gemini'
-      });
+	    try {
+	      // Initialize ImageGenerator with Gemini 3 Pro as primary
+	      const generator = new ImageGenerator({
+	        apiKey: process.env.GEMINI_API_KEY,
+	        provider: 'gemini'
+	      });
 
-      // Generate platform-specific graphics using Gemini 3 Pro
-      const prompt = options.prompt || this._buildVisualPrompt(options);
-      console.log(`   Prompt: ${prompt.substring(0, 80)}...`);
-      console.log('   ⏳ Generating image (Gemini 3 Pro, 4K)...\n');
+	      const uploadToImgBB = async (imagePath) => {
+	        if (!process.env.IMGBB_API_KEY) return null;
+	        if (!imagePath || !fs.existsSync(imagePath)) return null;
+
+	        try {
+	          const imgBuffer = fs.readFileSync(imagePath);
+	          const b64 = imgBuffer.toString('base64');
+	          const payload = new URLSearchParams();
+	          payload.append('key', process.env.IMGBB_API_KEY);
+	          payload.append('image', b64);
+
+	          const uploadResp = await fetch('https://api.imgbb.com/1/upload', {
+	            method: 'POST',
+	            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+	            body: payload
+	          });
+
+	          if (!uploadResp.ok) {
+	            const text = await uploadResp.text().catch(() => '');
+	            console.log(`   ⚠️ ImgBB upload failed: ${uploadResp.status} ${text}`);
+	            return null;
+	          }
+
+	          const json = await uploadResp.json();
+	          return json?.data?.url || null;
+	        } catch (err) {
+	          console.log(`   ⚠️ ImgBB upload error: ${err instanceof Error ? err.message : 'unknown'}`);
+	          return null;
+	        }
+	      };
+
+	      // LinkedIn Carousel: generate one image per slide
+	      const isLinkedInCarousel = options.platform === 'linkedin' && options.format === 'carousel';
+	      if (isLinkedInCarousel) {
+	        console.log('   🧩 LinkedIn carousel detected — generating slide images...');
+
+	        const contentEntries = Object.values(this.stateManager?.state?.content || {}).filter(Boolean);
+	        const byCompletedAtDesc = (a, b) => {
+	          const aTs = new Date(a?.completedAt || a?.updatedAt || a?.createdAt || 0).getTime();
+	          const bTs = new Date(b?.completedAt || b?.updatedAt || b?.createdAt || 0).getTime();
+	          return bTs - aTs;
+	        };
+
+	        const topic = (options.topic || '').trim();
+	        const latestContent =
+	          (topic
+	            ? contentEntries.filter((e) => (e?.topic || '').trim() === topic).sort(byCompletedAtDesc)[0]
+	            : null) || contentEntries.sort(byCompletedAtDesc)[0] || null;
+
+	        const carousel = latestContent?.contentPack?.platforms?.linkedin?.carousel || null;
+	        const slideCount = Math.min(12, Math.max(5, Number(carousel?.slideCount || 7)));
+	        const coverText = carousel?.coverText || options.topic || 'Quick Investing Checklist';
+	        const slides = Array.isArray(carousel?.slides) ? carousel.slides : [];
+	        const finalSlideCta = carousel?.finalSlideCta || 'Save this checklist • Follow PL Capital';
+
+	        const resolvedSlides = Array.from({ length: slideCount }).map((_, idx) => {
+	          const s = slides[idx] || {};
+	          const isCover = idx === 0;
+	          const isFinal = idx === slideCount - 1;
+
+	          if (isCover) {
+	            return {
+	              title: coverText,
+	              body: s.body || 'Swipe →',
+	              highlight: s.highlight || 'Checklist',
+	              visualCue: s.visualCue || 'Bold cover headline, minimal icons'
+	            };
+	          }
+
+	          if (isFinal) {
+	            return {
+	              title: s.title || 'Quick recap',
+	              body: s.body || finalSlideCta,
+	              highlight: s.highlight || 'Save',
+	              visualCue: s.visualCue || 'Checklist icons + CTA button look'
+	            };
+	          }
+
+	          return {
+	            title: s.title || `Point ${idx}`,
+	            body: s.body || 'One clear takeaway.\nOne actionable step.',
+	            highlight: s.highlight || 'Key idea',
+	            visualCue: s.visualCue || 'Simple icon + mini chart'
+	          };
+	        });
+
+	        const generatedImages = [];
+
+	        for (let i = 0; i < resolvedSlides.length; i++) {
+	          const slide = resolvedSlides[i];
+	          const slideNumber = i + 1;
+	          const total = resolvedSlides.length;
+
+	          const slidePrompt = `Design ONE LinkedIn carousel slide (1:1 square) for PL Capital (India, finance).
+Slide ${slideNumber}/${total}.
+Layout: clean, high-contrast, generous padding, consistent template across slides.
+Typography: large bold heading, 1–2 short body lines, small footer.
+Colors: PL palette (navy/blue accents, green highlight). Avoid clutter.
+Text to render on slide (exact words):
+Heading: ${slide.title}
+Body: ${slide.body}
+Highlight: ${slide.highlight}
+Visual cue: ${slide.visualCue}
+Constraints: no guaranteed returns, no “sure-shot” claims. Professional LinkedIn look.`;
+
+	          console.log(`   ⏳ Generating carousel slide ${slideNumber}/${total}...`);
+	          const slideResult = await generator.generateSocialGraphic(slidePrompt, 'linkedin', {
+	            imageSize: '4K',
+	            useGrounding: false,
+	            aspectRatio: '1:1',
+	            language: options.language,
+	            numberOfImages: 1
+	          });
+
+	          const first = slideResult?.images?.[0];
+	          if (first) {
+	            generatedImages.push(first);
+	            console.log(`   ✅ Slide ${slideNumber} generated: ${first.path || first.url || 'success'}`);
+	          }
+	        }
+
+	        if (process.env.IMGBB_API_KEY && generatedImages.length > 0) {
+	          console.log('   ☁️  Uploading carousel slides to ImgBB...');
+	          for (const img of generatedImages) {
+	            const imagePath = img.path || img.url;
+	            const hostedUrl = await uploadToImgBB(imagePath);
+	            if (hostedUrl) {
+	              img.hostedUrl = hostedUrl;
+	              console.log(`   ✅ Uploaded to ImgBB: ${hostedUrl}`);
+	            }
+	          }
+	        } else {
+	          console.log('   ℹ️  ImgBB upload skipped (no API key or no images)');
+	        }
+
+	        return {
+	          success: true,
+	          images: generatedImages,
+	          features: ['carousel', 'multi-slide']
+	        };
+	      }
+
+	      // Generate platform-specific graphics using Gemini 3 Pro
+	      const prompt = options.prompt || this._buildVisualPrompt(options);
+	      console.log(`   Prompt: ${prompt.substring(0, 80)}...`);
+	      console.log('   ⏳ Generating image (Gemini 3 Pro, 4K)...\n');
 
       const result = await generator.generateSocialGraphic(prompt, options.platform, {
         imageSize: '4K',
@@ -631,46 +773,20 @@ Output rules:
       console.log(`   ✅ Visual generated: ${result.images[0]?.path || 'success'}`);
       console.log(`   Features: ${result.features?.join(', ') || 'N/A'}`);
 
-      // Attempt to upload the first generated image to ImgBB for a shareable URL
-      if (process.env.IMGBB_API_KEY && result.images && result.images.length > 0) {
-        const firstImage = result.images[0];
-        const imagePath = firstImage.path || firstImage.url;
-
-        if (imagePath && fs.existsSync(imagePath)) {
-          try {
-            console.log('   ☁️  Uploading visual to ImgBB...');
-            const imgBuffer = fs.readFileSync(imagePath);
-            const b64 = imgBuffer.toString('base64');
-            const payload = new URLSearchParams();
-            payload.append('key', process.env.IMGBB_API_KEY);
-            payload.append('image', b64);
-
-            const uploadResp = await fetch('https://api.imgbb.com/1/upload', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: payload
-            });
-
-            if (uploadResp.ok) {
-              const json = await uploadResp.json();
-              const hostedUrl = json?.data?.url || null;
-              if (hostedUrl) {
-                firstImage.hostedUrl = hostedUrl;
-                console.log(`   ✅ Uploaded to ImgBB: ${hostedUrl}`);
-              }
-            } else {
-              const text = await uploadResp.text();
-              console.log(`   ⚠️ ImgBB upload failed: ${uploadResp.status} ${text}`);
-            }
-          } catch (err) {
-            console.log(`   ⚠️ ImgBB upload error: ${err instanceof Error ? err.message : 'unknown'}`);
-          }
-        } else {
-          console.log('   ℹ️  ImgBB upload skipped (image path missing)');
-        }
-      } else {
-        console.log('   ℹ️  ImgBB upload skipped (no API key)');
-      }
+	      // Attempt to upload generated images to ImgBB for shareable URLs
+	      if (process.env.IMGBB_API_KEY && result.images && result.images.length > 0) {
+	        console.log('   ☁️  Uploading visual(s) to ImgBB...');
+	        for (const img of result.images) {
+	          const imagePath = img.path || img.url;
+	          const hostedUrl = await uploadToImgBB(imagePath);
+	          if (hostedUrl) {
+	            img.hostedUrl = hostedUrl;
+	            console.log(`   ✅ Uploaded to ImgBB: ${hostedUrl}`);
+	          }
+	        }
+	      } else {
+	        console.log('   ℹ️  ImgBB upload skipped (no API key or no images)');
+	      }
 
       return {
         success: true,
