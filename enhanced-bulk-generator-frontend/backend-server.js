@@ -1963,14 +1963,16 @@ ${brandGuidance ? `Brand Requirements:\n${brandGuidance}\nIMPORTANT: You MUST us
     ];
 
     if (useVeo) args.push('--use-veo');
-    if (finalUseAvatar) {
-      args.push('--use-avatar');
-      if (avatarId) args.push('--avatar-id', avatarId);
-      if (avatarScriptText) args.push('--avatar-script', avatarScriptText);
-      if (avatarVoiceId) args.push('--avatar-voice', avatarVoiceId);
-    } else {
-      args.push('--no-avatar');
-    }
+	    if (finalUseAvatar) {
+	      args.push('--use-avatar');
+	      if (avatarId) args.push('--avatar-id', avatarId);
+	      if (avatarScriptText) args.push('--avatar-script', avatarScriptText);
+	      if (avatarVoiceId) args.push('--avatar-voice', avatarVoiceId);
+	      // For avatar videos (HeyGen or other providers), wait for completion so Stage 4 returns a playable URL.
+	      args.push('--wait-for-completion');
+	    } else {
+	      args.push('--no-avatar');
+	    }
 
     platforms.forEach((platform) => {
       args.push('--platform', platform);

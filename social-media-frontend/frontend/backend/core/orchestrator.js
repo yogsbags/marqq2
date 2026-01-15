@@ -809,9 +809,9 @@ class SocialMediaOrchestrator {
 
             let status = 'pending';
             let attempts = 0;
-            const maxAttempts = 60; // 5 minutes max wait (5s intervals)
+            const maxAttempts = 120; // 10 minutes max wait (5s intervals)
 
-            while (status === 'pending' && attempts < maxAttempts) {
+            while ((status === 'pending' || status === 'processing' || status === 'queued') && attempts < maxAttempts) {
               await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s
 
               const statusResult = await this._callMcpTool('mcp__heygen__get_avatar_video_status', {
