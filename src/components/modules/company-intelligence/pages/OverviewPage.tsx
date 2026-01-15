@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import type { ArtifactRecord, Company } from '../api'
 import { COMPANY_INTEL_PAGES, type CompanyIntelPageId } from '../pages'
 
@@ -48,37 +49,47 @@ export function OverviewPage({
           <CardTitle className="text-base">Company Selector</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Company</Label>
-              <select
-                value={selectedCompanyId}
-                onChange={(e) => onSelectCompanyId(e.target.value)}
-                className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm text-gray-800 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                <option value="" disabled>
-                  Select a company
-                </option>
-                {companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.companyName}
-                  </option>
-                ))}
-              </select>
-              {company?.websiteUrl ? <div className="text-xs text-gray-600 break-all">{company.websiteUrl}</div> : null}
+              <Label>Create / Ingest Company</Label>
+              <div className="space-y-2">
+                <Input value={newCompanyName} onChange={(e) => setNewCompanyName(e.target.value)} placeholder="Company name (e.g., PL Capital)" />
+                <Input value={newWebsiteUrl} onChange={(e) => setNewWebsiteUrl(e.target.value)} placeholder="Website URL (optional, e.g., https://example.com)" />
+                <Button onClick={onIngest} disabled={ingestDisabled || ingestBusy} className="w-full">
+                  {ingestBusy ? 'Ingesting…' : 'Ingest Company'}
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label>New company name</Label>
-              <Input value={newCompanyName} onChange={(e) => setNewCompanyName(e.target.value)} placeholder="e.g., PL Capital" />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Website URL (optional)</Label>
-              <Input value={newWebsiteUrl} onChange={(e) => setNewWebsiteUrl(e.target.value)} placeholder="e.g., https://example.com" />
-              <Button onClick={onIngest} disabled={ingestDisabled || ingestBusy} className="w-full">
-                {ingestBusy ? 'Ingesting…' : 'Ingest Company'}
-              </Button>
+              <Label>Companies</Label>
+              <div className="max-h-[280px] overflow-auto space-y-2">
+                {companies.length ? (
+                  companies.map((c) => {
+                    const isSelected = c.id === selectedCompanyId
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => onSelectCompanyId(c.id)}
+                        className={cn(
+                          'w-full text-left border rounded-md p-3 transition-colors',
+                          isSelected ? 'border-orange-400 bg-orange-50' : 'hover:bg-gray-50'
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-semibold text-sm text-gray-900">{c.companyName}</div>
+                          <div className="text-xs text-gray-600">{new Date(c.updatedAt || c.createdAt).toLocaleDateString()}</div>
+                        </div>
+                        {c.websiteUrl ? <div className="text-xs text-gray-600 break-all mt-1">{c.websiteUrl}</div> : null}
+                      </button>
+                    )
+                  })
+                ) : (
+                  <div className="text-sm text-gray-600">No companies yet. Ingest one to get started.</div>
+                )}
+              </div>
+              {company?.websiteUrl ? <div className="text-xs text-gray-600 break-all">Selected: {company.websiteUrl}</div> : null}
             </div>
           </div>
         </CardContent>
@@ -147,4 +158,3 @@ export function OverviewPage({
     </div>
   )
 }
-
