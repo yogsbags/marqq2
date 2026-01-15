@@ -16,19 +16,26 @@ export function JsonCard({ title, data }: Props) {
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="text-base">{title}</CardTitle>
-        <Button variant="outline" size="sm" onClick={copy}>
+    <details className="rounded-lg border bg-white">
+      <summary className="cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-2">
+        <div className="text-sm font-semibold">{title}</div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            void copy()
+          }}
+        >
           Copy JSON
         </Button>
-      </CardHeader>
-      <CardContent>
+      </summary>
+      <div className="px-4 pb-4">
         <pre className="text-xs whitespace-pre-wrap break-words max-h-[520px] overflow-auto">
           {JSON.stringify(data, null, 2)}
         </pre>
-      </CardContent>
-    </Card>
+      </div>
+    </details>
   )
 }
-

@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import type { ArtifactRecord, Company } from '../api'
 import { COMPANY_INTEL_PAGES, type CompanyIntelPageId } from '../pages'
+import { CompanySnapshotCard } from '../ui/CompanySnapshotCard'
 
 type Props = {
   companies: Company[]
@@ -96,16 +97,7 @@ export function OverviewPage({
       </Card>
 
       {company?.profile ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Company Profile Snapshot</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-xs whitespace-pre-wrap break-words max-h-72 overflow-auto">
-              {JSON.stringify(company.profile, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
+        <CompanySnapshotCard companyName={company.companyName} websiteUrl={company.websiteUrl} profile={company.profile} />
       ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

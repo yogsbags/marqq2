@@ -201,12 +201,16 @@ app.post('/api/company-intel/companies', async (req, res) => {
     }
 
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    const requestedModel = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
+    const requestedModel =
+      process.env.GEMINI_COMPANY_MODEL ||
+      process.env.GEMINI_TEXT_MODEL ||
+      'gemini-3-flash-preview';
 
     let profile = null;
     if (geminiKey && (companyName || websiteUrl)) {
       const prompt = `You are a senior marketing strategist and brand analyst.
-Build a concise "Company Profile" from the inputs. Return ONLY valid JSON (no markdown, no code fences).
+Use Google Search grounding to accurately identify the company's products/services, positioning, and key pages.
+Return ONLY valid JSON (no markdown, no code fences).
 If the website content is thin/unknown, make best-effort inferences but label uncertain items in "assumptions".
 
 Inputs:
@@ -223,8 +227,10 @@ Output JSON schema:
 {
   "companyName": string,
   "websiteUrl": string | null,
+  "summary": string,
   "industry": string,
   "geoFocus": string[],
+  "productsServices": Array<{ "name": string, "category": string, "description": string, "targetCustomer": string, "differentiator": string }>,
   "offerings": string[],
   "primaryAudience": string[],
   "positioning": string,
@@ -232,15 +238,19 @@ Output JSON schema:
   "keywords": string[],
   "complianceNotes": string[],
   "competitorsHint": string[],
+  "keyPages": { "about": string | null, "productsOrServices": string | null, "pricing": string | null, "contact": string | null },
+  "socialLinks": { "linkedin": string | null, "instagram": string | null, "youtube": string | null, "twitter": string | null },
+  "sources": string[],
   "assumptions": string[]
 }`;
 
-      const rawText = await callGeminiGenerateContentJson({
+      const rawText = await callGeminiGenerateContentJsonWithTools({
         apiKey: geminiKey,
         model: requestedModel,
         prompt,
         temperature: 0.4,
-        maxOutputTokens: 1400
+        maxOutputTokens: 1800,
+        tools: [{ google_search: {} }]
       });
       profile = extractJsonFromText(rawText);
     }
@@ -254,8 +264,10 @@ Output JSON schema:
       profile: profile || {
         companyName: companyName || 'Untitled Company',
         websiteUrl: websiteUrl || null,
+        summary: sourceMeta.metaDescription || '',
         industry: 'unknown',
         geoFocus: ['India'],
+        productsServices: [],
         offerings: [],
         primaryAudience: [],
         positioning: sourceMeta.metaDescription || '',
@@ -263,6 +275,9 @@ Output JSON schema:
         keywords: [],
         complianceNotes: [],
         competitorsHint: [],
+        keyPages: { about: null, productsOrServices: null, pricing: null, contact: null },
+        socialLinks: { linkedin: null, instagram: null, youtube: null, twitter: null },
+        sources: [],
         assumptions: ['Limited data; generated from minimal website metadata.']
       },
       sources: {
@@ -1304,6 +1319,35 @@ async function callGeminiGenerateContentJson({
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature, maxOutputTokens, responseMimeType: 'application/json' }
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `Gemini API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts.map((p) => p.text).filter(Boolean).join('\n').trim();
+}
+
+async function callGeminiGenerateContentJsonWithTools({
+  apiKey,
+  model,
+  prompt,
+  temperature = 0.7,
+  maxOutputTokens = 1600,
+  tools = []
+}) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      tools,
       generationConfig: { temperature, maxOutputTokens, responseMimeType: 'application/json' }
     })
   });
