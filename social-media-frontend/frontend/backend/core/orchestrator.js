@@ -677,11 +677,33 @@ Output rules:
 	            ? contentEntries.filter((e) => (e?.topic || '').trim() === topic).sort(byCompletedAtDesc)[0]
 	            : null) || contentEntries.sort(byCompletedAtDesc)[0] || null;
 
-        const carousel = latestContent?.contentPack?.platforms?.[carouselPlatform]?.carousel || null;
-        const slideCount = Math.min(12, Math.max(5, Number(carousel?.slideCount || 7)));
-        const coverText = carousel?.coverText || options.topic || 'Quick Investing Checklist';
-        const slides = Array.isArray(carousel?.slides) ? carousel.slides : [];
-        const finalSlideCta = carousel?.finalSlideCta || 'Save this checklist • Follow PL Capital';
+	        const carousel = latestContent?.contentPack?.platforms?.[carouselPlatform]?.carousel || null;
+	        const slideCount = Math.min(12, Math.max(5, Number(carousel?.slideCount || 7)));
+	        const coverText = carousel?.coverText || options.topic || 'Quick Investing Checklist';
+	        const slides = Array.isArray(carousel?.slides) ? carousel.slides : [];
+	        const finalSlideCta = carousel?.finalSlideCta || 'Save this checklist • Follow PL Capital';
+	        const disclaimerLine = carousel?.disclaimerLine || 'Market risks apply.';
+
+	        const clampWords = (text, maxWords) => {
+	          const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+	          if (words.length <= maxWords) return words.join(' ');
+	          return words.slice(0, maxWords).join(' ');
+	        };
+
+	        const clampLines = (text, maxLines, maxCharsPerLine) => {
+	          const raw = String(text || '').trim();
+	          const lines = raw
+	            .split(/\r?\n/)
+	            .map((l) => l.trim())
+	            .filter(Boolean);
+
+	          const limited = (lines.length ? lines : [raw]).slice(0, maxLines).map((l) => {
+	            if (l.length <= maxCharsPerLine) return l;
+	            return `${l.slice(0, Math.max(0, maxCharsPerLine - 1)).trim()}…`;
+	          });
+
+	          return limited.join('\n');
+	        };
 
 	        const resolvedSlides = Array.from({ length: slideCount }).map((_, idx) => {
 	          const s = slides[idx] || {};
@@ -691,7 +713,7 @@ Output rules:
 	          if (isCover) {
 	            return {
 	              title: coverText,
-	              body: s.body || 'Swipe →',
+	              body: s.body || (carouselPlatform === 'instagram' ? 'Swipe →\nSave later' : 'Swipe →'),
 	              highlight: s.highlight || 'Checklist',
 	              visualCue: s.visualCue || 'Bold cover headline, minimal icons'
 	            };
@@ -700,7 +722,7 @@ Output rules:
 	          if (isFinal) {
 	            return {
 	              title: s.title || 'Quick recap',
-	              body: s.body || finalSlideCta,
+	              body: s.body || `${finalSlideCta}\n${disclaimerLine}`,
 	              highlight: s.highlight || 'Save',
 	              visualCue: s.visualCue || 'Checklist icons + CTA button look'
 	            };
@@ -721,30 +743,59 @@ Output rules:
 	          const slideNumber = i + 1;
 	          const total = resolvedSlides.length;
 
-          const slidePrompt = carouselPlatform === 'instagram'
-            ? `Design ONE Instagram carousel slide (1:1 square) for PL Capital (India, finance).
+	          const maxBodyChars = carouselPlatform === 'instagram' ? 32 : 40;
+	          const safeTitle = clampWords(slide.title, 6);
+	          const safeBody = clampLines(slide.body, 2, maxBodyChars);
+	          const safeHighlight = clampLines(slide.highlight, 1, 18);
+	          const safeVisualCue = clampLines(slide.visualCue, 2, 60);
+
+	          const slidePrompt = carouselPlatform === 'instagram'
+	            ? `Design ONE visually stunning Instagram carousel slide (1:1 square) for PL Capital (India, finance).
 Slide ${slideNumber}/${total}.
-Goal: swipe-stopping and saveable, but still premium and compliant.
-Layout: bold headline, very short body lines, strong hierarchy, consistent template across slides.
-Typography: big, clean, high-contrast; subtle decorative elements; avoid clutter.
-Colors: PL palette (navy/blue accents, green highlight). Modern IG aesthetic.
+Goal: swipe-stopping + saveable, premium, clean, and compliant.
+
+Layout system (STRICT):
+- Safe margins: 80px on all sides.
+- Template consistency: keep the same layout, background style, and element positions across all slides; only text changes.
+- Hierarchy: Headline (top), Body (middle), Highlight badge (small chip), Footer (tiny).
+- Headline: max 2 lines, bold, high-contrast.
+- Body: max 2 lines, very short and readable on mobile.
+- Highlight: 1 chip/badge only (green).
+- Footer: tiny (optional) “PL Capital” text only. No extra logos.
+
+Visual style:
+- Modern gradient background (navy→blue), subtle texture, clean whitespace.
+- One simple finance icon/mini-chart (flat, minimal) based on visual cue. No faces. No clutter.
+
 Text to render on slide (exact words):
-Heading: ${slide.title}
-Body: ${slide.body}
-Highlight: ${slide.highlight}
-Visual cue: ${slide.visualCue}
-Constraints: no guaranteed returns, no “sure-shot” claims. Professional finance tone.`
-            : `Design ONE LinkedIn carousel slide (1:1 square) for PL Capital (India, finance).
+Heading: ${safeTitle}
+Body: ${safeBody}
+Highlight: ${safeHighlight}
+Visual cue: ${safeVisualCue}
+Constraints: no guaranteed returns, no “sure-shot” claims. No exaggerated claims.`
+	            : `Design ONE visually stunning LinkedIn carousel slide (1:1 square) for PL Capital (India, finance).
 Slide ${slideNumber}/${total}.
-Layout: clean, high-contrast, generous padding, consistent template across slides.
-Typography: large bold heading, 1–2 short body lines, small footer.
-Colors: PL palette (navy/blue accents, green highlight). Avoid clutter.
+Goal: professional, instantly understandable, and highly shareable/bookmarkable.
+
+Layout system (STRICT):
+- Safe margins: 80px on all sides.
+- Template consistency: keep the same layout, background style, and element positions across all slides; only text changes.
+- Hierarchy: Headline (top), Body (middle), Highlight badge (small chip), Footer (tiny disclaimer if needed).
+- Headline: max 2 lines, bold, high-contrast.
+- Body: max 2 lines, readable on mobile.
+- Highlight: 1 chip/badge only (green).
+- Footer: tiny “PL Capital” text only. No extra logos.
+
+Visual style:
+- Premium, clean corporate design; subtle gradient (navy→blue); minimal shapes.
+- One simple finance icon/mini-chart (flat, minimal) based on visual cue. No faces. No clutter.
+
 Text to render on slide (exact words):
-Heading: ${slide.title}
-Body: ${slide.body}
-Highlight: ${slide.highlight}
-Visual cue: ${slide.visualCue}
-Constraints: no guaranteed returns, no “sure-shot” claims. Professional LinkedIn look.`;
+Heading: ${safeTitle}
+Body: ${safeBody}
+Highlight: ${safeHighlight}
+Visual cue: ${safeVisualCue}
+Constraints: no guaranteed returns, no “sure-shot” claims. No exaggerated claims.`;
 
           console.log(`   ⏳ Generating carousel slide ${slideNumber}/${total}...`);
           const slideResult = await generator.generateSocialGraphic(slidePrompt, carouselPlatform, {
