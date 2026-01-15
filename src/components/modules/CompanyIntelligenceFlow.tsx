@@ -1,53 +1,38 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
+import type { ArtifactRecord, Company } from './company-intelligence/api'
+import { fetchJson } from './company-intelligence/api'
+import { COMPANY_INTEL_PAGES, getCompanyIntelPageTitle, type CompanyIntelPageId } from './company-intelligence/pages'
+import { OverviewPage } from './company-intelligence/pages/OverviewPage'
+import { GenerateControls } from './company-intelligence/ui/GenerateControls'
+import { MarketingStrategyPage } from './company-intelligence/pages/MarketingStrategyPage'
+import { SocialCalendarPage } from './company-intelligence/pages/SocialCalendarPage'
+import { CompetitorIntelligencePage } from './company-intelligence/pages/CompetitorIntelligencePage'
+import { IcpsPage } from './company-intelligence/pages/IcpsPage'
+import { GenericArtifactPage } from './company-intelligence/pages/GenericArtifactPage'
 
-type Company = {
-  id: string
-  companyName: string
-  websiteUrl: string | null
-  createdAt: string
-  updatedAt: string
-  profile?: unknown
-}
+function parseHashParam(key: string): string | null {
+  const raw = window.location.hash || ''
+  if (!raw.startsWith('#')) return null
+  const value = raw.slice(1)
+  if (!value) return null
 
-type ArtifactRecord = {
-  type: string
-  updatedAt: string
-  data: unknown
-}
-
-const ARTIFACTS: Array<{ type: string; label: string; helper?: string }> = [
-  { type: 'competitor_intelligence', label: 'Competitor Intelligence' },
-  { type: 'client_profiling', label: 'Client Profiling Analytics' },
-  { type: 'partner_profiling', label: 'Partner Profiling Analytics' },
-  { type: 'icps', label: 'ICPs (Cohorts/Segments)' },
-  { type: 'social_calendar', label: 'Social Media Content Calendar' },
-  { type: 'marketing_strategy', label: 'Marketing Strategy' },
-  { type: 'content_strategy', label: 'Content Strategy' },
-  { type: 'channel_strategy', label: 'Channel Strategy' },
-  { type: 'lookalike_audiences', label: 'Lookalike Audiences' },
-  { type: 'lead_magnets', label: 'Lead Magnets' }
-]
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(init?.headers || {})
-    }
-  })
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const message = (json as any)?.error || `Request failed: ${res.status}`
-    throw new Error(message)
+  // Support either "#ci=marketing_strategy" or "#company-intel:marketing_strategy"
+  if (value.startsWith('company-intel:')) {
+    const candidate = value.slice('company-intel:'.length)
+    return key === 'ci' ? candidate : null
   }
-  return json as T
+
+  const params = new URLSearchParams(value.replace(/^(\?|&)/, ''))
+  return params.get(key)
+}
+
+function setHashCi(pageId: CompanyIntelPageId) {
+  const next = `ci=${encodeURIComponent(pageId)}`
+  if (window.location.hash === `#${next}`) return
+  window.location.hash = next
 }
 
 export function CompanyIntelligenceFlow() {
@@ -57,35 +42,42 @@ export function CompanyIntelligenceFlow() {
     null
   )
 
+  const [activePage, setActivePage] = useState<CompanyIntelPageId>('overview')
+
   const [newCompanyName, setNewCompanyName] = useState('')
   const [newWebsiteUrl, setNewWebsiteUrl] = useState('')
-  const [activeTab, setActiveTab] = useState<string>('marketing_strategy')
 
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [inputsJson, setInputsJson] = useState<string>(
-    JSON.stringify(
-      {
-        goal: 'Increase qualified leads',
-        geo: 'India',
-        timeframe: '90 days',
-        channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
-        notes: 'Keep it compliance-safe (no guaranteed returns).'
-      },
-      null,
-      2
-    )
-  )
 
-  const currentArtifact = useMemo(() => {
-    if (!companyDetails) return null
-    return companyDetails.artifacts?.[activeTab] || null
-  }, [companyDetails, activeTab])
+  const currentCompany = useMemo(() => companyDetails?.company || null, [companyDetails])
+  const currentArtifacts = useMemo(() => companyDetails?.artifacts || {}, [companyDetails])
 
-  const currentCompany = useMemo(() => {
-    if (!companyDetails) return null
-    return companyDetails.company
-  }, [companyDetails])
+  const activeArtifactType = useMemo(() => {
+    const page = COMPANY_INTEL_PAGES.find((p) => p.id === activePage)
+    return page?.artifactType || null
+  }, [activePage])
+
+  const activeArtifact = useMemo(() => {
+    if (!activeArtifactType) return null
+    return currentArtifacts?.[activeArtifactType] || null
+  }, [activeArtifactType, currentArtifacts])
+
+  useEffect(() => {
+    const fromHash = parseHashParam('ci')
+    if (fromHash && COMPANY_INTEL_PAGES.some((p) => p.id === (fromHash as any))) {
+      setActivePage(fromHash as CompanyIntelPageId)
+    } else {
+      setActivePage('overview')
+    }
+
+    const onHash = () => {
+      const v = parseHashParam('ci')
+      if (v && COMPANY_INTEL_PAGES.some((p) => p.id === (v as any))) setActivePage(v as CompanyIntelPageId)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -129,7 +121,7 @@ export function CompanyIntelligenceFlow() {
     }
   }, [selectedCompanyId])
 
-  async function createCompany() {
+  async function ingestCompany() {
     try {
       setLoading('ingest')
       setError(null)
@@ -140,6 +132,8 @@ export function CompanyIntelligenceFlow() {
       setNewCompanyName('')
       setNewWebsiteUrl('')
       setSelectedCompanyId(data.company.id)
+      setActivePage('overview')
+      setHashCi('overview')
     } catch (e: any) {
       setError(e?.message || 'Company ingestion failed')
     } finally {
@@ -147,23 +141,15 @@ export function CompanyIntelligenceFlow() {
     }
   }
 
-  async function generateArtifact() {
+  async function generate(type: string, inputs: Record<string, unknown>) {
     if (!selectedCompanyId) return
     try {
-      setLoading(`generate:${activeTab}`)
+      setLoading(`generate:${type}`)
       setError(null)
-      let inputs: any = {}
-      try {
-        inputs = inputsJson ? JSON.parse(inputsJson) : {}
-      } catch {
-        throw new Error('Inputs JSON is invalid')
-      }
-
       await fetchJson<{ artifact: ArtifactRecord }>(`/api/company-intel/companies/${selectedCompanyId}/generate`, {
         method: 'POST',
-        body: JSON.stringify({ type: activeTab, inputs })
+        body: JSON.stringify({ type, inputs })
       })
-
       const refreshed = await fetchJson<{ company: Company; artifacts: Record<string, ArtifactRecord> }>(
         `/api/company-intel/companies/${selectedCompanyId}`
       )
@@ -175,129 +161,94 @@ export function CompanyIntelligenceFlow() {
     }
   }
 
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // ignore
-    }
+  function navigate(pageId: CompanyIntelPageId) {
+    setActivePage(pageId)
+    setHashCi(pageId)
   }
 
+  const title = getCompanyIntelPageTitle(activePage)
+
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Company Intelligence</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {error ? <div className="text-sm text-red-600">{error}</div> : null}
+    <div className="space-y-4">
+      {error ? (
+        <div className="text-sm text-red-600">{error}</div>
+      ) : null}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label>Company</Label>
-              <select
-                value={selectedCompanyId}
-                onChange={(e) => setSelectedCompanyId(e.target.value)}
-                className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm text-gray-800 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                <option value="" disabled>
-                  Select a company
-                </option>
-                {companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.companyName}
-                  </option>
-                ))}
-              </select>
-              {currentCompany?.websiteUrl ? (
-                <div className="text-xs text-gray-600 break-all">{currentCompany.websiteUrl}</div>
-              ) : null}
-            </div>
-
-            <div className="space-y-2">
-              <Label>New company name</Label>
-              <Input value={newCompanyName} onChange={(e) => setNewCompanyName(e.target.value)} placeholder="e.g., PL Capital" />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Website URL (optional)</Label>
-              <Input value={newWebsiteUrl} onChange={(e) => setNewWebsiteUrl(e.target.value)} placeholder="e.g., https://example.com" />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Left: sub-navigation */}
+        <Card className="lg:col-span-3 h-fit">
+          <CardHeader>
+            <CardTitle className="text-base">Company Intelligence</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {COMPANY_INTEL_PAGES.map((p) => (
               <Button
-                onClick={createCompany}
-                disabled={loading === 'ingest' || (!newCompanyName.trim() && !newWebsiteUrl.trim())}
-                className="w-full"
+                key={p.id}
+                variant={activePage === p.id ? 'default' : 'ghost'}
+                className={cn('w-full justify-start', activePage === p.id ? 'bg-orange-500 hover:bg-orange-600' : '')}
+                onClick={() => navigate(p.id)}
               >
-                {loading === 'ingest' ? 'Ingesting…' : 'Ingest Company'}
+                {p.title}
               </Button>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Right: page content */}
+        <div className="lg:col-span-9 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xl font-bold">{title}</div>
+              <div className="text-xs text-gray-600">{currentCompany?.companyName || 'Select or ingest a company'}</div>
             </div>
           </div>
 
-          {currentCompany?.profile ? (
-            <div className="rounded-lg border bg-white p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-semibold">Company profile (generated)</div>
-                <Button variant="outline" size="sm" onClick={() => copy(JSON.stringify(currentCompany.profile, null, 2))}>
-                  Copy JSON
-                </Button>
+          {activePage === 'overview' ? (
+            <OverviewPage
+              companies={companies}
+              selectedCompanyId={selectedCompanyId}
+              onSelectCompanyId={(id) => setSelectedCompanyId(id)}
+              company={currentCompany}
+              artifacts={currentArtifacts}
+              newCompanyName={newCompanyName}
+              newWebsiteUrl={newWebsiteUrl}
+              setNewCompanyName={setNewCompanyName}
+              setNewWebsiteUrl={setNewWebsiteUrl}
+              ingestDisabled={!newCompanyName.trim() && !newWebsiteUrl.trim()}
+              ingestBusy={loading === 'ingest'}
+              onIngest={ingestCompany}
+              onNavigate={navigate}
+            />
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+              <div className="xl:col-span-4 space-y-4">
+                <GenerateControls
+                  title="Controls"
+                  disabled={!selectedCompanyId || !activeArtifactType}
+                  isGenerating={loading === `generate:${activeArtifactType}`}
+                  artifact={activeArtifact}
+                  onGenerate={(inputs) => generate(String(activeArtifactType), inputs)}
+                />
               </div>
-              <pre className="mt-2 text-xs whitespace-pre-wrap break-words max-h-56 overflow-auto">
-                {JSON.stringify(currentCompany.profile, null, 2)}
-              </pre>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex flex-wrap h-auto">
-          {ARTIFACTS.map((a) => (
-            <TabsTrigger key={a.type} value={a.type} className="text-xs">
-              {a.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        {ARTIFACTS.map((a) => (
-          <TabsContent key={a.type} value={a.type} className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{a.label}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  <Label>Generation inputs (JSON)</Label>
-                  <Textarea value={inputsJson} onChange={(e) => setInputsJson(e.target.value)} className="min-h-[160px]" />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Button onClick={generateArtifact} disabled={!selectedCompanyId || loading === `generate:${a.type}`}>
-                    {loading === `generate:${a.type}` ? 'Generating…' : 'Generate / Regenerate'}
-                  </Button>
-                  {currentArtifact ? (
-                    <div className="text-xs text-gray-600">Updated: {new Date(currentArtifact.updatedAt).toLocaleString()}</div>
-                  ) : (
-                    <div className="text-xs text-gray-600">No output yet</div>
-                  )}
-                </div>
-
-                {currentArtifact ? (
-                  <div className="rounded-lg border bg-white p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold">Output</div>
-                      <Button variant="outline" size="sm" onClick={() => copy(JSON.stringify(currentArtifact.data, null, 2))}>
-                        Copy JSON
-                      </Button>
-                    </div>
-                    <pre className="mt-2 text-xs whitespace-pre-wrap break-words max-h-[420px] overflow-auto">
-                      {JSON.stringify(currentArtifact.data, null, 2)}
-                    </pre>
-                  </div>
+              <div className="xl:col-span-8 space-y-4">
+                {activePage === 'marketing_strategy' ? (
+                  <MarketingStrategyPage artifact={activeArtifact} />
                 ) : null}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        ))}
-      </Tabs>
+                {activePage === 'social_calendar' ? <SocialCalendarPage artifact={activeArtifact} /> : null}
+                {activePage === 'competitor_intelligence' ? <CompetitorIntelligencePage artifact={activeArtifact} /> : null}
+                {activePage === 'icps' ? <IcpsPage artifact={activeArtifact} /> : null}
+
+                {['client_profiling', 'partner_profiling', 'content_strategy', 'channel_strategy', 'lookalike_audiences', 'lead_magnets'].includes(
+                  activePage
+                ) ? (
+                  <GenericArtifactPage title={title} artifact={activeArtifact} />
+                ) : null}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
