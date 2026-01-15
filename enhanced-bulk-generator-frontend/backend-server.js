@@ -1631,110 +1631,122 @@ Requirements:
 	    if (stageIdNum === 2 && isEmailCampaign) {
 	      sendEvent({ log: '📧 Generating HTML email newsletter...' });
 
-      try {
-        // Get creative prompt from Stage 1 if available
-        const stateFilePath = path.join(socialMediaBackendDir, 'data', 'workflow-state.json');
-        let creativePrompt = '';
+	      try {
+	        const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+	        if (!geminiKey) {
+	          throw new Error('GEMINI_API_KEY not set (required for email newsletter generation)');
+	        }
 
-        if (fs.existsSync(stateFilePath)) {
-          const stateContent = fs.readFileSync(stateFilePath, 'utf-8');
-          const state = JSON.parse(stateContent);
+	        const state = readSocialMediaWorkflowState();
+	        const planningEntry =
+	          getLatestSocialMediaStateEntry(state, 'campaigns', (e) => e?.topic === topic) ||
+	          getLatestSocialMediaStateEntry(state, 'campaigns');
+	        const creativePrompt = planningEntry?.creativePrompt || planningEntry?.output || '';
 
-          // Find the most recent campaign with matching topic
-          const campaigns = Object.values(state.campaigns || {});
-          const matchingCampaign = campaigns
-            .filter((c) => c.topic === topic)
-            .sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime())[0];
+	        if (creativePrompt) {
+	          sendEvent({ log: '📋 Using creative prompt from Stage 1' });
+	        }
 
-          if (matchingCampaign?.output) {
-            // Extract creative prompt from output field
-            creativePrompt = matchingCampaign.output;
-            sendEvent({ log: '📋 Using creative prompt from Stage 1' });
-          } else if (matchingCampaign?.creativePrompt) {
-            creativePrompt = matchingCampaign.creativePrompt;
-            sendEvent({ log: '📋 Using creative prompt from Stage 1' });
-          }
-        }
+	        const requestedModel = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
+	        const modelCandidates = [requestedModel, 'gemini-3-pro-preview'].filter(
+	          (m, idx, arr) => m && arr.indexOf(m) === idx
+	        );
 
-        // Call email generation API from the social-media frontend Next.js server
-        // Try multiple possible ports where the Next.js server might be running
-        const possiblePorts = [3001, 3004, 3007];
-        let emailData = null;
-        let emailError = null;
+	        const brandHint = brandSettings?.customInstructions
+	          ? `Brand instructions: ${brandSettings.customInstructions}`
+	          : '';
 
-        for (const port of possiblePorts) {
-          try {
-            const emailApiUrl = `http://localhost:${port}/api/email/generate`;
-            sendEvent({ log: `📡 Attempting to call email API at ${emailApiUrl}...` });
+	        const prompt = `You are an email marketing copywriter for PL Capital (financial services, India).
+Generate a single HTML newsletter email for the given topic.
+Return ONLY valid JSON (no markdown, no code fences).
 
-            const emailResponse = await fetch(emailApiUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                topic,
-                purpose: purpose || 'newsletter',
-                targetAudience: targetAudience || 'investors and wealth builders',
-                creativePrompt,
-                brandSettings: brandSettings,
-                language: language || 'english'
-              }),
-              signal: AbortSignal.timeout(60000) // 60 second timeout
-            });
+Inputs:
+- Topic: ${topic}
+- Campaign type: ${campaignType}
+- Purpose: ${purpose || 'newsletter'}
+- Target audience: ${targetAudience || 'investors and wealth builders'}
+- Language: ${language || 'english'}
+${brandHint ? `- ${brandHint}` : ''}
 
-            if (emailResponse.ok) {
-              emailData = await emailResponse.json();
-              sendEvent({ log: `✅ Email API responded from port ${port}` });
-              break;
-            } else {
-              const errorText = await emailResponse.text();
-              sendEvent({ log: `⚠️ Email API at port ${port} returned ${emailResponse.status}: ${errorText.substring(0, 100)}` });
-            }
-          } catch (err) {
-            emailError = err;
-            sendEvent({ log: `⚠️ Email API at port ${port} unavailable: ${err.message}` });
-            continue;
-          }
-        }
+Stage 1 creative prompt (if any):
+${creativePrompt || '(none)'}
 
-        if (emailData) {
-          sendEvent({ log: '✅ Email newsletter generated successfully!' });
-          sendEvent({ log: `📧 Subject: ${emailData.subject}` });
-          sendEvent({ log: `📝 Preheader: ${emailData.preheader}` });
-          sendEvent({ log: `📄 HTML: ${emailData.html?.length || 0} characters` });
+Requirements:
+1) Provide: subject (<=70 chars), preheader (<=120 chars), 3 subjectVariations, plainText, html.
+2) HTML: use email-safe inline CSS and table layout; include a header, a hero section, 3-5 bullet takeaways, and a CTA button.
+3) Compliance: no guaranteed returns, no exaggerated claims, no personalized investment advice. Include a short disclaimer in the footer.
 
-          // Save the generated email as stage 2 data
-          const stageData = {
-            topic,
-            campaignType,
-            platforms,
-            status: 'completed',
-            type: 'content-generation',
-            contentType: 'email-newsletter',
-            subject: emailData.subject,
-            preheader: emailData.preheader,
-            subjectVariations: emailData.subjectVariations,
-            html: emailData.html,
-            plainText: emailData.plainText,
-            model: emailData.model
-          };
+Output JSON schema:
+{
+  "subject": string,
+  "preheader": string,
+  "subjectVariations": string[],
+  "plainText": string,
+  "html": string
+}`;
 
-	          saveSocialMediaStageData(stageIdNum, stageData);
-	          sendEvent({ stage: stageIdNum, status: 'completed', message: 'Email newsletter generated', data: stageData });
-	          sendEvent({ log: '✅ Stage 2 completed successfully!' });
-	          res.end();
-	          return;
-	        } else {
-          sendEvent({ log: `⚠️ Email generation API unavailable on all ports (${possiblePorts.join(', ')})` });
-          sendEvent({ log: '💡 Make sure the social-media frontend Next.js server is running' });
-          sendEvent({ log: '📦 Falling back to standard workflow execution...' });
-          // Continue with normal backend execution if email generation fails
-        }
-      } catch (error) {
-        sendEvent({ log: `⚠️ Email generation failed: ${error.message}` });
-        sendEvent({ log: '📦 Falling back to standard workflow execution...' });
-        // Continue with normal backend execution if email generation fails
-      }
-    }
+	        sendEvent({ log: `🧠 Generating newsletter with Gemini (${modelCandidates[0]})...` });
+
+	        let rawText = '';
+	        let emailData = null;
+	        let modelUsed = '';
+	        let lastError = null;
+
+	        for (const model of modelCandidates) {
+	          try {
+	            rawText = await callGeminiGenerateContent({
+	              apiKey: geminiKey,
+	              model,
+	              prompt,
+	              temperature: 0.6,
+	              maxOutputTokens: 2000
+	            });
+	            emailData = extractFirstJsonObject(rawText);
+	            modelUsed = model;
+	            if (emailData) break;
+	          } catch (err) {
+	            lastError = err;
+	          }
+	        }
+
+	        if (!emailData) {
+	          throw new Error(
+	            lastError?.message || 'Gemini returned an unexpected response; unable to parse JSON newsletter.'
+	          );
+	        }
+
+	        sendEvent({ log: '✅ Email newsletter generated successfully!' });
+	        sendEvent({ log: `📧 Subject: ${emailData.subject}` });
+	        sendEvent({ log: `📝 Preheader: ${emailData.preheader}` });
+	        sendEvent({ log: `📄 HTML: ${emailData.html?.length || 0} characters` });
+
+	        const stageData = {
+	          topic,
+	          campaignType,
+	          platforms,
+	          status: 'completed',
+	          type: 'content-generation',
+	          contentType: 'email-newsletter',
+	          subject: emailData.subject,
+	          preheader: emailData.preheader,
+	          subjectVariations: emailData.subjectVariations,
+	          html: emailData.html,
+	          plainText: emailData.plainText,
+	          model: modelUsed,
+	          output: rawText
+	        };
+
+	        saveSocialMediaStageData(stageIdNum, stageData);
+	        sendEvent({ stage: stageIdNum, status: 'completed', message: 'Email newsletter generated', data: stageData });
+	        sendEvent({ log: '✅ Stage 2 completed successfully!' });
+	        res.end();
+	        return;
+	      } catch (error) {
+	        sendEvent({ stage: stageIdNum, status: 'error', message: error.message || 'Email generation failed' });
+	        res.end();
+	        return;
+	      }
+	    }
 
     // Map campaignType to format for orchestrator (matching original frontend behavior)
     // BUT: Respect contentType from frontend - if user selected "Static Image", generate image, not video
