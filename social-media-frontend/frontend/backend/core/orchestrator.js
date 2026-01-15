@@ -501,6 +501,47 @@ class SocialMediaOrchestrator {
       console.log(`   ✅ Visual generated: ${result.images[0]?.path || 'success'}`);
       console.log(`   Features: ${result.features?.join(', ') || 'N/A'}`);
 
+      // Attempt to upload the first generated image to ImgBB for a shareable URL
+      if (process.env.IMGBB_API_KEY && result.images && result.images.length > 0) {
+        const firstImage = result.images[0];
+        const imagePath = firstImage.path || firstImage.url;
+
+        if (imagePath && fs.existsSync(imagePath)) {
+          try {
+            console.log('   ☁️  Uploading visual to ImgBB...');
+            const imgBuffer = fs.readFileSync(imagePath);
+            const b64 = imgBuffer.toString('base64');
+            const payload = new URLSearchParams();
+            payload.append('key', process.env.IMGBB_API_KEY);
+            payload.append('image', b64);
+
+            const uploadResp = await fetch('https://api.imgbb.com/1/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: payload
+            });
+
+            if (uploadResp.ok) {
+              const json = await uploadResp.json();
+              const hostedUrl = json?.data?.url || null;
+              if (hostedUrl) {
+                firstImage.hostedUrl = hostedUrl;
+                console.log(`   ✅ Uploaded to ImgBB: ${hostedUrl}`);
+              }
+            } else {
+              const text = await uploadResp.text();
+              console.log(`   ⚠️ ImgBB upload failed: ${uploadResp.status} ${text}`);
+            }
+          } catch (err) {
+            console.log(`   ⚠️ ImgBB upload error: ${err instanceof Error ? err.message : 'unknown'}`);
+          }
+        } else {
+          console.log('   ℹ️  ImgBB upload skipped (image path missing)');
+        }
+      } else {
+        console.log('   ℹ️  ImgBB upload skipped (no API key)');
+      }
+
       return {
         success: true,
         images: result.images,

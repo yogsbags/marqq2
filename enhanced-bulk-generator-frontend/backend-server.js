@@ -949,6 +949,29 @@ function extractFirstJsonObject(text) {
   }
 }
 
+function extractLastMatch(text, regex) {
+  if (!text) return null;
+  let match = null;
+  for (const m of text.matchAll(regex)) {
+    match = m;
+  }
+  return match;
+}
+
+function extractImgBbUrlFromOutput(output) {
+  const m = extractLastMatch(output, /(https?:\/\/[^\s]+imgbb\.com[^\s]*)/gi);
+  if (!m) return null;
+  return (m[1] || m[0] || '').replace(/[),.;\]]+$/g, '');
+}
+
+function extractVisualImagePathFromOutput(output) {
+  const m =
+    extractLastMatch(output, /✅\s*Visual generated:\s*(\/[^\s]+?\.(png|jpg|jpeg|webp))/gi) ||
+    extractLastMatch(output, /(\/tmp\/[^\s]+?\.(png|jpg|jpeg|webp))/gi);
+  if (!m) return null;
+  return (m[1] || m[0] || '').replace(/[),.;\]]+$/g, '');
+}
+
 // Social Media: Execute full workflow - extracted as reusable function
 async function handleSocialMediaExecute(req, res) {
   const encoder = new TextEncoder();
@@ -1816,15 +1839,31 @@ Requirements:
 	      if (output.includes('completed') || output.includes('Completed')) {
 	        // Extract clean prompt content from output buffer
 	        const cleanOutput = extractPromptFromOutput(outputBuffer, stageIdNum);
+	        const hostedUrl = extractImgBbUrlFromOutput(outputBuffer);
+	        const imagePath = stageIdNum === 3 ? extractVisualImagePathFromOutput(outputBuffer) : null;
 
-	        saveSocialMediaStageData(stageIdNum, {
+	        const stagePayload = {
 	          type: stageName,
 	          topic,
 	          campaignType,
 	          platforms,
 	          status: 'completed',
 	          output: cleanOutput // Save extracted prompt, not full logs
-	        });
+	        };
+
+	        if (hostedUrl) {
+	          stagePayload.hostedUrl = hostedUrl;
+	        }
+	        if (imagePath || hostedUrl) {
+	          stagePayload.images = [
+	            {
+	              ...(imagePath ? { path: imagePath } : {}),
+	              ...(hostedUrl ? { hostedUrl } : {})
+	            }
+	          ];
+	        }
+
+	        saveSocialMediaStageData(stageIdNum, stagePayload);
 	        sendEvent({ stage: stageIdNum, status: 'completed', message: `${stageName} completed` });
 	      }
 	    });
