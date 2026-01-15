@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { useEffect, useMemo, useState } from 'react';
 import {
   HiChat as Bot,
   HiCurrencyDollar as DollarSign,
@@ -23,6 +24,34 @@ interface SidebarProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
 }
+
+function parseCompanyIntelPageFromHash(): string {
+  const raw = window.location.hash || '';
+  if (!raw.startsWith('#')) return 'overview';
+  const value = raw.slice(1);
+  if (!value) return 'overview';
+
+  if (value.startsWith('company-intel:')) {
+    return value.slice('company-intel:'.length) || 'overview';
+  }
+
+  const params = new URLSearchParams(value.replace(/^(\?|&)/, ''));
+  return params.get('ci') || 'overview';
+}
+
+const COMPANY_INTEL_SUBMENU = [
+  { id: 'overview', title: 'Company Selector' },
+  { id: 'competitor_intelligence', title: 'Competitor Intelligence' },
+  { id: 'client_profiling', title: 'Client Profiling Analytics' },
+  { id: 'partner_profiling', title: 'Partner Profiling Analytics' },
+  { id: 'icps', title: 'ICPs (Cohorts/Segments)' },
+  { id: 'social_calendar', title: 'Social Media Content Calendar' },
+  { id: 'marketing_strategy', title: 'Marketing Strategy' },
+  { id: 'content_strategy', title: 'Content Strategy' },
+  { id: 'channel_strategy', title: 'Channel Strategy' },
+  { id: 'lookalike_audiences', title: 'Lookalike Audiences' },
+  { id: 'lead_magnets', title: 'Lead Magnets' }
+];
 
 const navigationItems = [
   {
@@ -96,6 +125,24 @@ const bottomItems = [
 ];
 
 export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCollapse }: SidebarProps) {
+  const [companyIntelPage, setCompanyIntelPage] = useState<string>(() => parseCompanyIntelPageFromHash());
+
+  useEffect(() => {
+    const handler = () => setCompanyIntelPage(parseCompanyIntelPageFromHash());
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  const companySubmenuVisible = useMemo(
+    () => selectedModule === 'company-intelligence' && !collapsed,
+    [selectedModule, collapsed]
+  );
+
+  const navigateCompanyIntel = (pageId: string) => {
+    window.location.hash = `ci=${encodeURIComponent(pageId)}`;
+    onModuleSelect('company-intelligence');
+  };
+
   return (
     <div className={cn(
       "fixed left-0 top-0 z-30 flex flex-col h-full bg-white dark:bg-gray-950 border-r transition-all duration-300",
@@ -126,30 +173,65 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
       {/* Navigation */}
       <ScrollArea className="flex-1 px-3 py-4">
         <div className="space-y-2">
-          {navigationItems.map((item) => (
-            <Button
-              key={item.id || 'dashboard'}
-              variant={selectedModule === item.id ? "default" : "ghost"}
-              className={cn(
-                "w-full justify-start transition-all duration-200 hover:scale-[1.02]",
-                collapsed ? "px-2" : "px-3 py-2.5",
-                selectedModule === item.id
-                  ? "bg-orange-500 text-white hover:bg-orange-600"
-                  : "bg-transparent text-gray-700 hover:bg-orange-50 hover:text-orange-700 dark:text-gray-300 dark:hover:bg-orange-900/20 dark:hover:text-orange-400 focus:outline-none focus:ring-0"
-              )}
-              onClick={() => onModuleSelect(item.id)}
-            >
-              {item.icon && (
-                <item.icon className={cn(
-                  "h-4 w-4",
-                  collapsed ? "" : "mr-2"
-                )} />
-              )}
-              {!collapsed && (
-                <span className="font-medium text-left">{item.title}</span>
-              )}
-            </Button>
-          ))}
+          {navigationItems.map((item) => {
+            const isCompanyRoot = item.id === 'company-intelligence';
+            const isSelected = selectedModule === item.id;
+            return (
+              <div key={item.id || 'dashboard'} className="space-y-1">
+                <Button
+                  variant={isSelected ? "default" : "ghost"}
+                  className={cn(
+                    "w-full justify-start transition-all duration-200 hover:scale-[1.02]",
+                    collapsed ? "px-2" : "px-3 py-2.5",
+                    isSelected
+                      ? "bg-orange-500 text-white hover:bg-orange-600"
+                      : "bg-transparent text-gray-700 hover:bg-orange-50 hover:text-orange-700 dark:text-gray-300 dark:hover:bg-orange-900/20 dark:hover:text-orange-400 focus:outline-none focus:ring-0"
+                  )}
+                  onClick={() => {
+                    if (isCompanyRoot) {
+                      navigateCompanyIntel('overview');
+                      return;
+                    }
+                    onModuleSelect(item.id);
+                  }}
+                >
+                  {item.icon && (
+                    <item.icon className={cn(
+                      "h-4 w-4",
+                      collapsed ? "" : "mr-2"
+                    )} />
+                  )}
+                  {!collapsed && (
+                    <span className="font-medium text-left">{item.title}</span>
+                  )}
+                </Button>
+
+                {isCompanyRoot && companySubmenuVisible ? (
+                  <div className="ml-2 border-l pl-2 space-y-1">
+                    {COMPANY_INTEL_SUBMENU.map((sub) => {
+                      const isActive = companyIntelPage === sub.id;
+                      return (
+                        <Button
+                          key={sub.id}
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            "w-full justify-start text-xs",
+                            isActive
+                              ? "bg-orange-50 text-orange-700 hover:bg-orange-100"
+                              : "text-gray-600 hover:bg-orange-50 hover:text-orange-700 dark:text-gray-400 dark:hover:bg-orange-900/20 dark:hover:text-orange-400"
+                          )}
+                          onClick={() => navigateCompanyIntel(sub.id)}
+                        >
+                          {sub.title}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
 
         <Separator className="my-4" />

@@ -11,7 +11,12 @@ import { MarketingStrategyPage } from './company-intelligence/pages/MarketingStr
 import { SocialCalendarPage } from './company-intelligence/pages/SocialCalendarPage'
 import { CompetitorIntelligencePage } from './company-intelligence/pages/CompetitorIntelligencePage'
 import { IcpsPage } from './company-intelligence/pages/IcpsPage'
-import { GenericArtifactPage } from './company-intelligence/pages/GenericArtifactPage'
+import { ClientProfilingPage } from './company-intelligence/pages/ClientProfilingPage'
+import { PartnerProfilingPage } from './company-intelligence/pages/PartnerProfilingPage'
+import { ContentStrategyPage } from './company-intelligence/pages/ContentStrategyPage'
+import { ChannelStrategyPage } from './company-intelligence/pages/ChannelStrategyPage'
+import { LookalikeAudiencesPage } from './company-intelligence/pages/LookalikeAudiencesPage'
+import { LeadMagnetsPage } from './company-intelligence/pages/LeadMagnetsPage'
 
 function parseHashParam(key: string): string | null {
   const raw = window.location.hash || ''
@@ -239,11 +244,12 @@ export function CompanyIntelligenceFlow() {
                 {activePage === 'competitor_intelligence' ? <CompetitorIntelligencePage artifact={activeArtifact} /> : null}
                 {activePage === 'icps' ? <IcpsPage artifact={activeArtifact} /> : null}
 
-                {['client_profiling', 'partner_profiling', 'content_strategy', 'channel_strategy', 'lookalike_audiences', 'lead_magnets'].includes(
-                  activePage
-                ) ? (
-                  <GenericArtifactPage title={title} artifact={activeArtifact} />
-                ) : null}
+                {activePage === 'client_profiling' ? <ClientProfilingPage artifact={activeArtifact} /> : null}
+                {activePage === 'partner_profiling' ? <PartnerProfilingPage artifact={activeArtifact} /> : null}
+                {activePage === 'content_strategy' ? <ContentStrategyPage artifact={activeArtifact} /> : null}
+                {activePage === 'channel_strategy' ? <ChannelStrategyPage artifact={activeArtifact} /> : null}
+                {activePage === 'lookalike_audiences' ? <LookalikeAudiencesPage artifact={activeArtifact} /> : null}
+                {activePage === 'lead_magnets' ? <LeadMagnetsPage artifact={activeArtifact} /> : null}
               </div>
             </div>
           )}
@@ -252,4 +258,3 @@ export function CompanyIntelligenceFlow() {
     </div>
   )
 }
-
