@@ -152,6 +152,20 @@ export default function StageDataModal({
   const renderField = (key: string, value: any) => {
     const isLongText = typeof value === 'string' && value.length > 100
 
+    const extractFirstUrl = (text: string, kind: 'image' | 'video'): string => {
+      const trimmed = (text || '').trim()
+      if (!trimmed) return ''
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
+
+      if (kind === 'image') {
+        const match = trimmed.match(/(https?:\/\/[^\s]+(?:imgbb\.com|i\.ibb\.co)[^\s]*)/i)
+        return match?.[1] || ''
+      }
+
+      const match = trimmed.match(/(https?:\/\/(?:res\.)?cloudinary\.com\/[^\s]+?\.(mp4|mov|webm)(?:\?[^\s]*)?)/i)
+      return match?.[1] || ''
+    }
+
     // Check if this is an image URL (from imgbb)
     // Handles: imgbb.com URLs, or fields like "images.0.hostedUrl", "hostedUrl" in image context
     const isImageUrl = typeof value === 'string' && value.trim() !== '' && (
@@ -176,6 +190,9 @@ export default function StageDataModal({
       ))
     )
 
+    const safeImageUrl = isImageUrl && typeof value === 'string' ? extractFirstUrl(value, 'image') : ''
+    const safeVideoUrl = isVideoUrl && typeof value === 'string' ? extractFirstUrl(value, 'video') : ''
+
     return (
       <div key={key} className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -190,7 +207,7 @@ export default function StageDataModal({
               className="flex-1 px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm bg-white text-gray-900"
             />
             <a
-              href={value}
+              href={safeImageUrl || value}
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold whitespace-nowrap flex items-center gap-2"
@@ -211,7 +228,7 @@ export default function StageDataModal({
                 className="flex-1 px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm bg-white text-gray-900"
               />
               <button
-                onClick={() => setPreviewingVideoUrl(value)}
+                onClick={() => setPreviewingVideoUrl(safeVideoUrl || value)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-semibold whitespace-nowrap flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -221,7 +238,7 @@ export default function StageDataModal({
                 Preview Video
               </button>
               <a
-                href={value}
+                href={safeVideoUrl || value}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-semibold whitespace-nowrap flex items-center gap-2"
@@ -232,7 +249,7 @@ export default function StageDataModal({
                 View Video
               </a>
             </div>
-            {previewingVideoUrl === value && (
+            {previewingVideoUrl === (safeVideoUrl || value) && (
               <div className="border-2 border-indigo-300 rounded-lg bg-gray-900 overflow-hidden">
                 <div className="bg-indigo-100 px-3 py-2 flex items-center justify-between border-b-2 border-indigo-300">
                   <div className="flex items-center gap-2">
@@ -250,7 +267,7 @@ export default function StageDataModal({
                 </div>
                 <div className="p-4 bg-black">
                   <video
-                    src={value}
+                    src={safeVideoUrl || value}
                     controls
                     className="w-full max-h-[500px] rounded-lg"
                     style={{ aspectRatio: '16/9' }}

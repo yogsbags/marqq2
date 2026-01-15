@@ -1065,6 +1065,23 @@ function extractVisualImagePathFromOutput(output) {
   return (m[1] || m[0] || '').replace(/[),.;\]]+$/g, '');
 }
 
+function extractCloudinaryUrlFromOutput(output) {
+  const m = extractLastMatch(
+    output,
+    /(https?:\/\/(?:res\.)?cloudinary\.com\/[^\s]+?\.(mp4|mov|webm)(?:\?[^\s]*)?)/gi
+  );
+  if (!m) return null;
+  return (m[1] || m[0] || '').replace(/[),.;\]]+$/g, '');
+}
+
+function extractVideoPathFromOutput(output) {
+  const m =
+    extractLastMatch(output, /✅\s*Video saved to\s*(\/[^\s]+?\.(mp4|mov|webm))/gi) ||
+    extractLastMatch(output, /(\/tmp\/[^\s]+?\.(mp4|mov|webm))/gi);
+  if (!m) return null;
+  return (m[1] || m[0] || '').replace(/[),.;\]]+$/g, '');
+}
+
 // Social Media: Execute full workflow - extracted as reusable function
 async function handleSocialMediaExecute(req, res) {
   const encoder = new TextEncoder();
@@ -2005,6 +2022,8 @@ ${brandGuidance ? `Brand Requirements:\n${brandGuidance}\nIMPORTANT: You MUST us
 	        const cleanOutput = extractPromptFromOutput(outputBuffer, stageIdNum);
 	        const hostedUrl = extractImgBbUrlFromOutput(outputBuffer);
 	        const imagePath = stageIdNum === 3 ? extractVisualImagePathFromOutput(outputBuffer) : null;
+	        const cloudinaryUrl = stageIdNum === 4 ? extractCloudinaryUrlFromOutput(outputBuffer) : null;
+	        const videoPath = stageIdNum === 4 ? extractVideoPathFromOutput(outputBuffer) : null;
 
 	        const stagePayload = {
 	          type: stageName,
@@ -2015,10 +2034,20 @@ ${brandGuidance ? `Brand Requirements:\n${brandGuidance}\nIMPORTANT: You MUST us
 	          output: cleanOutput // Save extracted prompt, not full logs
 	        };
 
-	        if (hostedUrl) {
+	        if (cloudinaryUrl) {
+	          stagePayload.hostedUrl = cloudinaryUrl;
+	        } else if (hostedUrl) {
 	          stagePayload.hostedUrl = hostedUrl;
 	        }
-	        if (imagePath || hostedUrl) {
+
+	        if (stageIdNum === 4 && (videoPath || cloudinaryUrl)) {
+	          stagePayload.videos = [
+	            {
+	              ...(videoPath ? { localPath: videoPath } : {}),
+	              ...(cloudinaryUrl ? { hostedUrl: cloudinaryUrl } : {})
+	            }
+	          ];
+	        } else if (imagePath || hostedUrl) {
 	          stagePayload.images = [
 	            {
 	              ...(imagePath ? { path: imagePath } : {}),
