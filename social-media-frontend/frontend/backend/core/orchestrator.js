@@ -647,10 +647,12 @@ Output rules:
 	        }
 	      };
 
-	      // LinkedIn Carousel: generate one image per slide
-	      const isLinkedInCarousel = options.platform === 'linkedin' && options.format === 'carousel';
-	      if (isLinkedInCarousel) {
-	        console.log('   🧩 LinkedIn carousel detected — generating slide images...');
+      // Carousel (LinkedIn/Instagram): generate one image per slide
+      const isCarousel = options.format === 'carousel' && (options.platform === 'linkedin' || options.platform === 'instagram');
+      if (isCarousel) {
+        const carouselPlatform = options.platform;
+        const platformLabel = carouselPlatform === 'instagram' ? 'Instagram' : 'LinkedIn';
+        console.log(`   🧩 ${platformLabel} carousel detected — generating slide images...`);
 
 	        const contentEntries = Object.values(this.stateManager?.state?.content || {}).filter(Boolean);
 	        const byCompletedAtDesc = (a, b) => {
@@ -665,11 +667,11 @@ Output rules:
 	            ? contentEntries.filter((e) => (e?.topic || '').trim() === topic).sort(byCompletedAtDesc)[0]
 	            : null) || contentEntries.sort(byCompletedAtDesc)[0] || null;
 
-	        const carousel = latestContent?.contentPack?.platforms?.linkedin?.carousel || null;
-	        const slideCount = Math.min(12, Math.max(5, Number(carousel?.slideCount || 7)));
-	        const coverText = carousel?.coverText || options.topic || 'Quick Investing Checklist';
-	        const slides = Array.isArray(carousel?.slides) ? carousel.slides : [];
-	        const finalSlideCta = carousel?.finalSlideCta || 'Save this checklist • Follow PL Capital';
+        const carousel = latestContent?.contentPack?.platforms?.[carouselPlatform]?.carousel || null;
+        const slideCount = Math.min(12, Math.max(5, Number(carousel?.slideCount || 7)));
+        const coverText = carousel?.coverText || options.topic || 'Quick Investing Checklist';
+        const slides = Array.isArray(carousel?.slides) ? carousel.slides : [];
+        const finalSlideCta = carousel?.finalSlideCta || 'Save this checklist • Follow PL Capital';
 
 	        const resolvedSlides = Array.from({ length: slideCount }).map((_, idx) => {
 	          const s = slides[idx] || {};
@@ -709,7 +711,20 @@ Output rules:
 	          const slideNumber = i + 1;
 	          const total = resolvedSlides.length;
 
-	          const slidePrompt = `Design ONE LinkedIn carousel slide (1:1 square) for PL Capital (India, finance).
+          const slidePrompt = carouselPlatform === 'instagram'
+            ? `Design ONE Instagram carousel slide (1:1 square) for PL Capital (India, finance).
+Slide ${slideNumber}/${total}.
+Goal: swipe-stopping and saveable, but still premium and compliant.
+Layout: bold headline, very short body lines, strong hierarchy, consistent template across slides.
+Typography: big, clean, high-contrast; subtle decorative elements; avoid clutter.
+Colors: PL palette (navy/blue accents, green highlight). Modern IG aesthetic.
+Text to render on slide (exact words):
+Heading: ${slide.title}
+Body: ${slide.body}
+Highlight: ${slide.highlight}
+Visual cue: ${slide.visualCue}
+Constraints: no guaranteed returns, no “sure-shot” claims. Professional finance tone.`
+            : `Design ONE LinkedIn carousel slide (1:1 square) for PL Capital (India, finance).
 Slide ${slideNumber}/${total}.
 Layout: clean, high-contrast, generous padding, consistent template across slides.
 Typography: large bold heading, 1–2 short body lines, small footer.
@@ -721,14 +736,14 @@ Highlight: ${slide.highlight}
 Visual cue: ${slide.visualCue}
 Constraints: no guaranteed returns, no “sure-shot” claims. Professional LinkedIn look.`;
 
-	          console.log(`   ⏳ Generating carousel slide ${slideNumber}/${total}...`);
-	          const slideResult = await generator.generateSocialGraphic(slidePrompt, 'linkedin', {
-	            imageSize: '4K',
-	            useGrounding: false,
-	            aspectRatio: '1:1',
-	            language: options.language,
-	            numberOfImages: 1
-	          });
+          console.log(`   ⏳ Generating carousel slide ${slideNumber}/${total}...`);
+          const slideResult = await generator.generateSocialGraphic(slidePrompt, carouselPlatform, {
+            imageSize: '4K',
+            useGrounding: false,
+            aspectRatio: '1:1',
+            language: options.language,
+            numberOfImages: 1
+          });
 
 	          const first = slideResult?.images?.[0];
 	          if (first) {

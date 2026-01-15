@@ -975,6 +975,10 @@ export function SocialMediaFlow() {
                   if (next === 'linkedin-carousel') {
                     setAspectRatio('1:1')
                   }
+                  // Instagram Carousel defaults: square slides
+                  if (next === 'instagram-carousel') {
+                    setAspectRatio('1:1')
+                  }
                 }}
                 disabled={isRunning || executingStage !== null}
                 className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm text-gray-800 disabled:bg-gray-100 disabled:cursor-not-allowed"

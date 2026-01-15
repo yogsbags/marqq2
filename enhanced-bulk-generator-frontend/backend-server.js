@@ -1698,6 +1698,13 @@ Requirements:
        - slides: array of length slideCount, each slide has: title (max 6 words), body (max 2 short lines), highlight (1 key number/term), visualCue (icons/graph idea)
        - finalSlideCta: 1 short line (e.g., "Save this checklist" / "Follow PL Capital")
        - disclaimerLine: 1 short line to use in caption or final slide footer (no guarantees)
+   - Instagram (carousel): if Campaign type is "instagram-carousel": ALSO include a "carousel" object for platform === "instagram":
+     * Style: Instagram swipe carousel (India context), punchy + saveable, but still compliant.
+     * slideCount: 7 to 9 (prefer 8)
+     * coverText: 3–6 words (hook)
+     * slides: same structure as LinkedIn, but keep each body line even shorter (max ~32 chars per line).
+     * finalSlideCta: "Save + Share" style CTA
+     * disclaimerLine: short, non-scary.
    - Instagram: optimize for Reels virality in the Indian context:
      * Strong hook in the first 1–2 lines, short punchy lines, use line breaks, 0–2 emojis max.
      * Prefer relatable India cues where appropriate (₹, SIP, tax, salary day, “aaj ka quick tip”), but never personalized advice.
