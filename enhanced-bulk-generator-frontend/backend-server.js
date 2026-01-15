@@ -1687,6 +1687,13 @@ Inputs:
 Stage 1 creative prompt (if any):
 ${creativePrompt || '(none)'}
 
+Critical requirement: The newsletter copy MUST be tailored to the Purpose and Target audience above.
+- Make the intro, “Market Highlights”, story headlines, and CTAs purpose-driven and audience-specific (avoid generic finance content).
+- If Purpose implies lead-gen/consultation: emphasize clear next steps (consultation, portfolio review, speak to an advisor).
+- If Purpose implies education/awareness: emphasize insights, explainers, and “learn more” CTAs.
+- If Target audience implies specific segment (e.g., HNI/retail/SIP/young professionals): adjust language, examples, and CTAs accordingly.
+- Keep compliance: no guaranteed returns, no exaggerated claims, no personalized investment advice.
+
 Layout reference (use this structure and styling cues; OMIT web stories section):
 - 600px wide, single-column responsive layout (table-based).
 - Header/hero with logo linking to plindia.com and top banner using:
@@ -1716,6 +1723,10 @@ Requirements:
 3) Include: header section with logo/link, hero/banner, intro, Market Highlights, 3-column story grid, primary CTA, footer image, social icons row, footer compliance/unsubscribe.
 4) Compliance: no guaranteed returns, no exaggerated claims, no personalized investment advice. Include a short disclaimer in the footer.
 5) Images: keep the header and footer image URLs exactly as provided above.
+6) Content quality:
+   - Market Highlights: 4-6 bullets, each concrete and relevant to the Topic + Purpose + Audience.
+   - Story grid: 3 stories with distinct angles; each needs an image URL (can use relevant stock/illustrative URLs), headline, 1-2 line summary, and “Read more” button.
+   - CTA section: align CTA button text and destination with Purpose (use plindia.com/news or plindia.com as appropriate).
 
 Output JSON schema:
 {
