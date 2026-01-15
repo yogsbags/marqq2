@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { cn } from '@/lib/utils'
 import type { ArtifactRecord, Company } from './company-intelligence/api'
 import { fetchJson } from './company-intelligence/api'
 import { COMPANY_INTEL_PAGES, getCompanyIntelPageTitle, type CompanyIntelPageId } from './company-intelligence/pages'
@@ -179,81 +177,59 @@ export function CompanyIntelligenceFlow() {
         <div className="text-sm text-red-600">{error}</div>
       ) : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Left: sub-navigation */}
-        <Card className="lg:col-span-3 h-fit">
-          <CardHeader>
-            <CardTitle className="text-base">Company Intelligence</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {COMPANY_INTEL_PAGES.map((p) => (
-              <Button
-                key={p.id}
-                variant={activePage === p.id ? 'default' : 'ghost'}
-                className={cn('w-full justify-start', activePage === p.id ? 'bg-orange-500 hover:bg-orange-600' : '')}
-                onClick={() => navigate(p.id)}
-              >
-                {p.title}
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xl font-bold">{title}</div>
+            <div className="text-xs text-gray-600">{currentCompany?.companyName || 'Select or ingest a company'}</div>
+          </div>
+        </div>
 
-        {/* Right: page content */}
-        <div className="lg:col-span-9 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-xl font-bold">{title}</div>
-              <div className="text-xs text-gray-600">{currentCompany?.companyName || 'Select or ingest a company'}</div>
+        {activePage === 'overview' ? (
+          <OverviewPage
+            companies={companies}
+            selectedCompanyId={selectedCompanyId}
+            onSelectCompanyId={(id) => setSelectedCompanyId(id)}
+            company={currentCompany}
+            artifacts={currentArtifacts}
+            newCompanyName={newCompanyName}
+            newWebsiteUrl={newWebsiteUrl}
+            setNewCompanyName={setNewCompanyName}
+            setNewWebsiteUrl={setNewWebsiteUrl}
+            ingestDisabled={!newCompanyName.trim() && !newWebsiteUrl.trim()}
+            ingestBusy={loading === 'ingest'}
+            onIngest={ingestCompany}
+            onNavigate={navigate}
+          />
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+            <div className="xl:col-span-4 space-y-4">
+              <GenerateControls
+                title="Controls"
+                disabled={!selectedCompanyId || !activeArtifactType}
+                isGenerating={loading === `generate:${activeArtifactType}`}
+                artifact={activeArtifact}
+                onGenerate={(inputs) => generate(String(activeArtifactType), inputs)}
+              />
+            </div>
+
+            <div className="xl:col-span-8 space-y-4">
+              {activePage === 'marketing_strategy' ? (
+                <MarketingStrategyPage artifact={activeArtifact} />
+              ) : null}
+              {activePage === 'social_calendar' ? <SocialCalendarPage artifact={activeArtifact} /> : null}
+              {activePage === 'competitor_intelligence' ? <CompetitorIntelligencePage artifact={activeArtifact} /> : null}
+              {activePage === 'icps' ? <IcpsPage artifact={activeArtifact} /> : null}
+
+              {activePage === 'client_profiling' ? <ClientProfilingPage artifact={activeArtifact} /> : null}
+              {activePage === 'partner_profiling' ? <PartnerProfilingPage artifact={activeArtifact} /> : null}
+              {activePage === 'content_strategy' ? <ContentStrategyPage artifact={activeArtifact} /> : null}
+              {activePage === 'channel_strategy' ? <ChannelStrategyPage artifact={activeArtifact} /> : null}
+              {activePage === 'lookalike_audiences' ? <LookalikeAudiencesPage artifact={activeArtifact} /> : null}
+              {activePage === 'lead_magnets' ? <LeadMagnetsPage artifact={activeArtifact} /> : null}
             </div>
           </div>
-
-          {activePage === 'overview' ? (
-            <OverviewPage
-              companies={companies}
-              selectedCompanyId={selectedCompanyId}
-              onSelectCompanyId={(id) => setSelectedCompanyId(id)}
-              company={currentCompany}
-              artifacts={currentArtifacts}
-              newCompanyName={newCompanyName}
-              newWebsiteUrl={newWebsiteUrl}
-              setNewCompanyName={setNewCompanyName}
-              setNewWebsiteUrl={setNewWebsiteUrl}
-              ingestDisabled={!newCompanyName.trim() && !newWebsiteUrl.trim()}
-              ingestBusy={loading === 'ingest'}
-              onIngest={ingestCompany}
-              onNavigate={navigate}
-            />
-          ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-              <div className="xl:col-span-4 space-y-4">
-                <GenerateControls
-                  title="Controls"
-                  disabled={!selectedCompanyId || !activeArtifactType}
-                  isGenerating={loading === `generate:${activeArtifactType}`}
-                  artifact={activeArtifact}
-                  onGenerate={(inputs) => generate(String(activeArtifactType), inputs)}
-                />
-              </div>
-
-              <div className="xl:col-span-8 space-y-4">
-                {activePage === 'marketing_strategy' ? (
-                  <MarketingStrategyPage artifact={activeArtifact} />
-                ) : null}
-                {activePage === 'social_calendar' ? <SocialCalendarPage artifact={activeArtifact} /> : null}
-                {activePage === 'competitor_intelligence' ? <CompetitorIntelligencePage artifact={activeArtifact} /> : null}
-                {activePage === 'icps' ? <IcpsPage artifact={activeArtifact} /> : null}
-
-                {activePage === 'client_profiling' ? <ClientProfilingPage artifact={activeArtifact} /> : null}
-                {activePage === 'partner_profiling' ? <PartnerProfilingPage artifact={activeArtifact} /> : null}
-                {activePage === 'content_strategy' ? <ContentStrategyPage artifact={activeArtifact} /> : null}
-                {activePage === 'channel_strategy' ? <ChannelStrategyPage artifact={activeArtifact} /> : null}
-                {activePage === 'lookalike_audiences' ? <LookalikeAudiencesPage artifact={activeArtifact} /> : null}
-                {activePage === 'lead_magnets' ? <LeadMagnetsPage artifact={activeArtifact} /> : null}
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )
