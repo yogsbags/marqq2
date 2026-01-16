@@ -374,7 +374,7 @@ app.post('/api/company-intel/companies', async (req, res) => {
 
     let profile = null;
     const groqKey = process.env.GROQ_API_KEY;
-    const groqModel = process.env.GROQ_COMPANY_MODEL || 'llama-3.3-70b-versatile';
+    const groqModel = process.env.GROQ_COMPANY_MODEL || 'groq/compound';
 
     if (groqKey && (companyName || websiteUrl)) {
       const systemPrompt = `You are a senior brand analyst and product marketing strategist.
