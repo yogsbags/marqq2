@@ -10,6 +10,16 @@ function asObj(data: unknown): any {
   return data && typeof data === 'object' ? (data as any) : null
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((v) => (typeof v === 'string' || typeof v === 'number' ? String(v) : ''))
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+type RiskItem = string | { risk?: unknown; mitigation?: unknown }
+
 export function MarketingStrategyPage({ artifact }: Props) {
   const data = asObj(artifact?.data)
 
@@ -26,12 +36,12 @@ export function MarketingStrategyPage({ artifact }: Props) {
 
   const objective = String(data.objective || '')
   const positioning = String(data.positioning || '')
-  const targetSegments: string[] = Array.isArray(data.targetSegments) ? data.targetSegments : []
-  const messagingPillars: string[] = Array.isArray(data.messagingPillars) ? data.messagingPillars : []
-  const kpis: string[] = Array.isArray(data.kpis) ? data.kpis : []
+  const targetSegments = asStringArray(data.targetSegments)
+  const messagingPillars = asStringArray(data.messagingPillars)
+  const kpis = asStringArray(data.kpis)
   const funnelPlan: any[] = Array.isArray(data.funnelPlan) ? data.funnelPlan : []
   const plan90: any[] = Array.isArray(data['90DayPlan']) ? data['90DayPlan'] : []
-  const risks: string[] = Array.isArray(data.risksAndMitigations) ? data.risksAndMitigations : []
+  const risks: RiskItem[] = Array.isArray(data.risksAndMitigations) ? (data.risksAndMitigations as RiskItem[]) : []
 
   return (
     <div className="space-y-4">
@@ -114,10 +124,22 @@ export function MarketingStrategyPage({ artifact }: Props) {
                 <div className="font-semibold text-sm">{String(stage.stage || `Stage ${idx + 1}`)}</div>
                 <div className="text-sm text-gray-800 mt-1">{String(stage.goal || '')}</div>
                 <div className="text-xs text-gray-600 mt-2">
-                  Channels: {(Array.isArray(stage.channels) ? stage.channels : []).join(', ') || '—'}
+                  Channels:{' '}
+                  {(Array.isArray(stage.channels)
+                    ? asStringArray(stage.channels)
+                    : typeof stage.channels === 'string'
+                      ? [stage.channels.trim()].filter(Boolean)
+                      : []
+                  ).join(', ') || '—'}
                 </div>
                 <div className="text-xs text-gray-600">
-                  Offers: {(Array.isArray(stage.offers) ? stage.offers : []).join(', ') || '—'}
+                  Offers:{' '}
+                  {(Array.isArray(stage.offers)
+                    ? asStringArray(stage.offers)
+                    : typeof stage.offers === 'string'
+                      ? [stage.offers.trim()].filter(Boolean)
+                      : []
+                  ).join(', ') || '—'}
                 </div>
               </div>
             ))
@@ -137,7 +159,15 @@ export function MarketingStrategyPage({ artifact }: Props) {
               <div key={idx} className="border rounded-md p-3">
                 <div className="font-semibold text-sm">Week {Number(w.week || idx + 1)}</div>
                 <div className="text-sm text-gray-800 mt-1">{String(w.focus || '')}</div>
-                <div className="text-xs text-gray-600 mt-2">{String(w.keyActivities || '')}</div>
+                {Array.isArray(w.keyActivities) ? (
+                  <div className="text-xs text-gray-600 mt-2 space-y-1">
+                    {asStringArray(w.keyActivities).map((a, aIdx) => (
+                      <div key={aIdx}>• {a}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-600 mt-2">{String(w.keyActivities || '')}</div>
+                )}
               </div>
             ))
           ) : (
@@ -152,11 +182,27 @@ export function MarketingStrategyPage({ artifact }: Props) {
             <CardTitle className="text-base">Risks & Mitigations</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {risks.map((r, idx) => (
-              <div key={idx} className="text-sm text-gray-800">
-                • {r}
-              </div>
-            ))}
+            {risks.map((r, idx) => {
+              if (typeof r === 'string') {
+                return (
+                  <div key={idx} className="text-sm text-gray-800">
+                    • {r}
+                  </div>
+                )
+              }
+
+              const riskText = r && typeof r === 'object' ? String((r as any).risk || '') : ''
+              const mitigationText = r && typeof r === 'object' ? String((r as any).mitigation || '') : ''
+
+              if (!riskText && !mitigationText) return null
+
+              return (
+                <div key={idx} className="text-sm text-gray-800">
+                  <div className="font-medium">• {riskText || 'Risk'}</div>
+                  {mitigationText ? <div className="text-sm text-gray-700 mt-1">Mitigation: {mitigationText}</div> : null}
+                </div>
+              )
+            })}
           </CardContent>
         </Card>
       ) : null}
@@ -165,4 +211,3 @@ export function MarketingStrategyPage({ artifact }: Props) {
     </div>
   )
 }
-
