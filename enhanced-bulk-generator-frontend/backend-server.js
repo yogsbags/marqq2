@@ -944,6 +944,148 @@ ${schema}`;
   }
 });
 
+// Performance Scorecard: list connectors (same philosophy as budget optimization)
+app.get('/api/performance-scorecard/connectors', (req, res) => {
+  const connectors = [
+    { id: 'meta_ads', name: 'Meta Ads', status: process.env.META_ACCESS_TOKEN ? 'configured' : 'not_configured' },
+    { id: 'google_ads', name: 'Google Ads', status: process.env.GOOGLE_ADS_DEVELOPER_TOKEN ? 'configured' : 'not_configured' },
+    { id: 'ga4', name: 'Google Analytics 4', status: process.env.GA4_PROPERTY_ID ? 'configured' : 'not_configured' },
+    { id: 'tiktok_ads', name: 'TikTok Ads', status: process.env.TIKTOK_ACCESS_TOKEN ? 'configured' : 'not_configured' },
+    { id: 'shopify', name: 'Shopify', status: process.env.SHOPIFY_ACCESS_TOKEN ? 'configured' : 'not_configured' },
+    { id: 'snowflake', name: 'Snowflake', status: process.env.SNOWFLAKE_ACCOUNT ? 'configured' : 'not_configured' },
+    { id: 'manual', name: 'Manual Upload / Paste', status: 'available' }
+  ];
+
+  res.json({
+    philosophy: 'Real-time fetch; no permanent storage',
+    rateLimit: `${budgetOptMaxRequestsPerWindow}/minute`,
+    cacheTtlSeconds: Math.round(budgetOptCacheTtlMs / 1000),
+    connectors
+  });
+});
+
+// Performance Scorecard: generate a scorecard (Groq)
+app.post('/api/performance-scorecard/generate', async (req, res) => {
+  try {
+    if (!enforceBudgetOptRateLimit(req, res)) return;
+
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!groqKey) return res.status(400).json({ error: 'GROQ_API_KEY not set' });
+
+    const timeframe = String(req.body?.timeframe || 'last_30_days').trim();
+    const currency = String(req.body?.currency || 'INR').trim();
+    const connectorsUsed = Array.isArray(req.body?.connectorsUsed) ? req.body.connectorsUsed.map(String) : [];
+    const dataTextRaw = String(req.body?.dataText || '').trim();
+    const businessContext = String(req.body?.businessContext || '').trim();
+
+    if (!dataTextRaw && !businessContext) {
+      return res.status(400).json({ error: 'Provide dataText or businessContext' });
+    }
+
+    const maxChars = 25_000;
+    const dataText = dataTextRaw.length > maxChars ? dataTextRaw.slice(0, maxChars) : dataTextRaw;
+
+    const cacheKey = crypto
+      .createHash('sha256')
+      .update(JSON.stringify({ kind: 'perf-scorecard', timeframe, currency, connectorsUsed, dataText, businessContext }))
+      .digest('hex');
+
+    const cached = cacheGet(cacheKey);
+    if (cached) return res.json({ cached: true, result: cached });
+
+    const systemPrompt = `You are a senior performance marketing analyst for India-focused brands.
+Create a comprehensive Performance Scorecard using only the provided exports/notes (no assumptions of a data warehouse).
+Output ONLY valid JSON (no markdown, no code fences, no extra keys).
+Be compliance-safe for financial marketing: no guaranteed returns, no personalized investment advice.
+If you must assume, list assumptions explicitly and keep them minimal.`;
+
+    const schema = `{
+  "timeframe": string,
+  "currency": string,
+  "assumptions": string[],
+  "overallScore": number,
+  "kpis": {
+    "spend": number|null,
+    "revenue": number|null,
+    "roas": number|null,
+    "leads": number|null,
+    "customers": number|null,
+    "cpa": number|null,
+    "cpc": number|null,
+    "ctr": number|null,
+    "cvr": number|null
+  },
+  "sectionScores": [
+    {"section": "Acquisition"|"Creative"|"Conversion"|"Retention"|"Measurement", "score": number, "notes": string[]}
+  ],
+  "channelBreakdown": [
+    {"channel": string, "spend": number|null, "revenue": number|null, "roas": number|null, "cpa": number|null, "ctr": number|null, "cvr": number|null, "score": number, "notes": string}
+  ],
+  "benchmarks": [
+    {"metric": string, "yourValue": string, "benchmark": string, "status": "above"|"near"|"below", "notes": string}
+  ],
+  "insights": string[],
+  "recommendedActions": [
+    {"title": string, "priority": "high"|"medium"|"low", "why": string, "how": string[], "metricToWatch": string}
+  ],
+  "forecast": {
+    "horizon": string,
+    "summary": string,
+    "scenarios": [{"name": string, "assumption": string, "expectedOutcome": string}]
+  },
+  "reportHtml": string
+}`;
+
+    const userPrompt = `TIMEFRAME: ${timeframe}
+CURRENCY: ${currency}
+CONNECTORS USED: ${connectorsUsed.join(', ') || 'none'}
+
+BUSINESS CONTEXT (optional):
+${businessContext || '(none)'}
+
+DATA (CSV/JSON export or notes):
+${dataText || '(none)'}
+
+Return JSON matching this schema exactly:
+${schema}`;
+
+    const model = process.env.GROQ_SCORECARD_MODEL || 'groq/compound';
+
+    let rawText = await callGroqChatJson({
+      apiKey: groqKey,
+      model,
+      systemPrompt,
+      userPrompt,
+      temperature: 0.35,
+      maxTokens: 2600
+    });
+
+    let parsed = extractJsonFromText(rawText);
+    if (!parsed) {
+      rawText = await callGroqChatJson({
+        apiKey: groqKey,
+        model,
+        systemPrompt: 'Return ONLY valid JSON. No markdown. No commentary. No code fences.',
+        userPrompt: `Fix the following into valid JSON matching this schema exactly:\n\nSCHEMA:\n${schema}\n\nTEXT:\n${rawText}`,
+        temperature: 0.2,
+        maxTokens: 2600
+      });
+      parsed = extractJsonFromText(rawText);
+    }
+
+    if (!parsed) return res.status(500).json({ error: 'Unable to parse JSON from model response' });
+
+    if (parsed && typeof parsed === 'object' && typeof parsed.reportHtml === 'string') {
+      parsed.reportHtml = parsed.reportHtml.replace(/<script[\s\S]*?<\/script>/gi, '');
+    }
+
+    cacheSet(cacheKey, parsed);
+    return res.json({ cached: false, result: parsed });
+  } catch (error) {
+    res.status(500).json({ error: 'Scorecard generation failed', details: error.message });
+  }
+});
+
 // Company Intelligence: list companies
 app.get('/api/company-intel/companies', (req, res) => {
   const db = readCompanyIntelDb();
