@@ -138,6 +138,26 @@ export function CompanyIntelligenceFlow() {
       setSelectedCompanyId(data.company.id)
       setActivePage('overview')
       setHashCi('overview')
+
+      // Auto-generate all sub-menu artifacts with default inputs
+      setLoading('generate-all')
+      await fetchJson(`/api/company-intel/companies/${data.company.id}/generate-all`, {
+        method: 'POST',
+        body: JSON.stringify({
+          inputs: {
+            goal: 'Increase qualified leads',
+            geo: 'India',
+            timeframe: '90 days',
+            channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
+            notes: 'Keep it compliance-safe (no guaranteed returns).'
+          }
+        })
+      })
+
+      const refreshed = await fetchJson<{ company: Company; artifacts: Record<string, ArtifactRecord> }>(
+        `/api/company-intel/companies/${data.company.id}`
+      )
+      setCompanyDetails(refreshed)
     } catch (e: any) {
       setError(e?.message || 'Company ingestion failed')
     } finally {

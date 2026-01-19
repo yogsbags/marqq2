@@ -47,17 +47,17 @@ export function OverviewPage({
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Company Selector</CardTitle>
+          <CardTitle className="text-base">Company Snapshot</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Create / Ingest Company</Label>
+              <Label>Ingest Company</Label>
               <div className="space-y-2">
                 <Input value={newCompanyName} onChange={(e) => setNewCompanyName(e.target.value)} placeholder="Company name (e.g., PL Capital)" />
                 <Input value={newWebsiteUrl} onChange={(e) => setNewWebsiteUrl(e.target.value)} placeholder="Website URL (optional, e.g., https://example.com)" />
                 <Button onClick={onIngest} disabled={ingestDisabled || ingestBusy} className="w-full">
-                  {ingestBusy ? 'Ingesting…' : 'Ingest Company'}
+                  {ingestBusy ? 'Ingesting & generating…' : 'Ingest Company'}
                 </Button>
               </div>
             </div>
