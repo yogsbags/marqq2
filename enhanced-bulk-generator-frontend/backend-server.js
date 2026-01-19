@@ -1118,12 +1118,22 @@ app.post('/api/company-intel/companies', async (req, res) => {
     let fetchInfo = null;
 
     if (websiteUrl) {
-      const fetched = await fetchText(websiteUrl, { timeoutMs: 20000 });
-      fetchInfo = { contentType: fetched.contentType, truncated: fetched.truncated };
-      sourceHtml = fetched.text;
-      sourceText = stripHtml(sourceHtml).slice(0, 15000);
-      sourceMeta = extractHtmlMeta(sourceHtml);
-      extractedLinks = extractLinksFromHtml(sourceHtml, websiteUrl);
+      try {
+        const fetched = await fetchText(websiteUrl, { timeoutMs: 20000 });
+        fetchInfo = { contentType: fetched.contentType, truncated: fetched.truncated };
+        sourceHtml = fetched.text;
+        sourceText = stripHtml(sourceHtml).slice(0, 15000);
+        sourceMeta = extractHtmlMeta(sourceHtml);
+        extractedLinks = extractLinksFromHtml(sourceHtml, websiteUrl);
+      } catch (e) {
+        // Don't fail ingestion if the site is blocked/timeouts in the deploy environment.
+        const msg = e?.message ? String(e.message) : 'Fetch failed';
+        fetchInfo = { error: msg };
+        sourceHtml = '';
+        sourceText = '';
+        sourceMeta = { title: '', metaDescription: '', h1: [], h2: [] };
+        extractedLinks = [];
+      }
     }
 
     const inferredName = inferCompanyName({ explicitName: companyName, websiteUrl, title: sourceMeta.title });
