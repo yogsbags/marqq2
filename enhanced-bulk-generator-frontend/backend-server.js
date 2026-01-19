@@ -1332,6 +1332,10 @@ function getArtifactSpec(type) {
       label: 'Competitor Intelligence',
       schema: `{"topCompetitors":[{"name":string,"website":string|null,"whyRelevant":string,"positioningSnapshot":string,"strengths":string[],"weaknesses":string[]}],"comparison":{"yourDifferentiators":string[],"messagingGaps":string[],"opportunities":string[]},"notes":string[]}`
     },
+    opportunities: {
+      label: 'Opportunities',
+      schema: `{"summary":string,"quickWins":[{"title":string,"priority":"high"|"medium"|"low","description":string,"expectedImpact":string,"timeToValue":string}],"opportunities":[{"title":string,"category":string,"priority":"high"|"medium"|"low","description":string,"expectedImpact":string,"effort":"low"|"medium"|"high","requirements":string[],"nextSteps":string[]}],"risksAndMitigations":[{"risk":string,"mitigation":string}],"90DayPlan":[{"week":number,"focus":string,"keyActivities":string[]}]}`
+    },
     client_profiling: {
       label: 'Client Profiling Analytics',
       schema: `{"segments":[{"name":string,"profile":string,"jobsToBeDone":string[],"painPoints":string[],"objections":string[],"triggers":string[],"channels":string[]}],"insights":string[]}`
@@ -1381,7 +1385,7 @@ function getArtifactSpec(type) {
 
     const spec = getArtifactSpec(type);
     if (!spec) {
-      res.status(400).json({ error: 'Unknown type', supported: 'competitor_intelligence, client_profiling, partner_profiling, icps, social_calendar, marketing_strategy, content_strategy, channel_strategy, lookalike_audiences, lead_magnets' });
+      res.status(400).json({ error: 'Unknown type', supported: 'competitor_intelligence, opportunities, client_profiling, partner_profiling, icps, social_calendar, marketing_strategy, content_strategy, channel_strategy, lookalike_audiences, lead_magnets' });
       return;
     }
 
