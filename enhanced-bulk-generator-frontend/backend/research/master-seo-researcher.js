@@ -1330,6 +1330,8 @@ ${focusArea ? `- ${focusArea} (PRIMARY FOCUS - at least 7 out of 10 gaps)\n` : '
 
 ⚠️ MANDATORY: The content_gaps array in your JSON response MUST contain exactly 10 gap objects. Do not return 2, 3, 5, or any other number - it must be exactly 10 gaps.
 
+🚨 VALIDATION: Before returning your response, count the gaps in your content_gaps array. If it's not exactly 10, generate more gaps until you have exactly 10. This is a hard requirement - do not proceed with fewer than 10 gaps.
+
 For each gap, analyze:
 - Why competitors are weak here
 - Search volume potential
