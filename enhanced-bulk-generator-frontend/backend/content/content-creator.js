@@ -917,7 +917,7 @@ For financial content, ALWAYS include:
 25. ✅ QUANTITATIVE CLAIMS (volumes, participation, user counts):
    - ❌ AVOID specific unverifiable numbers: "12 lakh traders", "5.7 crore contracts"
    - ✅ USE general qualifiers: "Lakhs of traders", "Approximately X crore", "Industry estimates suggest..."
-   - ✅ IF using specific numbers, cite source: "As per NSE data (Nov 2025), approximately X contracts..."
+   - ✅ IF using specific numbers, cite source: "As per NSE data (${currentMonth.split(' ')[0]} ${currentYear}), approximately X contracts..."
    - Add asterisk (*) and explain in Important Notes if source unavailable
 
 26. ✅ REGULATORY DATA (lot sizes, margins, limits, ratios):

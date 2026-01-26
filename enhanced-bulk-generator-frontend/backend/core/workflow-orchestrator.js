@@ -11,6 +11,7 @@
  * - Google Custom Search API for coverage detection
  */
 
+const path = require('path');
 const CSVDataManager = require('./csv-data-manager');
 const MasterSEOResearcher = require('../research/master-seo-researcher');
 const TopicGenerator = require('../research/topic-generator');
@@ -852,8 +853,9 @@ class WorkflowOrchestrator {
         // Import the URL helper functions
         let googleSheetsSyncModule;
         try {
-          // Path goes up 3 levels: frontend/backend/core -> frontend/backend -> frontend -> root
-          googleSheetsSyncModule = require('../../../scripts/sync-google-sheets');
+          // Path goes up 3 levels: backend/core -> backend -> enhanced-bulk-generator-frontend -> martech -> scripts
+          const syncPath = path.resolve(__dirname, '../../../scripts/sync-google-sheets');
+          googleSheetsSyncModule = require(syncPath);
         } catch (error) {
           // Module not available, skip URL display
           return result;

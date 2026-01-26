@@ -617,6 +617,10 @@ class TopicGenerator {
       ? `The topic MUST be in the "${this.selectedCategory}" category.`
       : 'Auto-detect the most appropriate category based on the topic.';
 
+    // Dynamic date context
+    const now = new Date();
+    const currentYear = now.getFullYear();
+
     return `You are an Expert Content Strategist for Indian WealthTech. Generate ${topicCount} HIGH-QUALITY, STRATEGIC content topic(s) based on this user-provided topic: "${customTopicTitle}"
 
 ${categoryInstruction}
@@ -625,7 +629,7 @@ ${categoryInstruction}
 - topic_title MUST be compelling, specific, and SEO-optimized (50-60 chars max)
 - Include the user-provided topic "${customTopicTitle}" naturally in the title
 - Use power words: "Complete", "Ultimate", "Step-by-Step", "Comprehensive", "Best", "Top"
-- Include year (2025) when relevant for time-sensitive content
+- Include year (${currentYear}) when relevant for time-sensitive content
 - Make it ACTIONABLE and SPECIFIC - avoid generic titles
 - primary_keyword should be extracted from the topic title, not just copied
 
@@ -638,7 +642,7 @@ For EACH of the ${topicCount} topic(s), provide:
 3. topic_title:
    - Generate a compelling, SEO-optimized blog title based on "${customTopicTitle}"
    - Format: "[Primary Keyword] [Year]: [Value Proposition]" or "[Action] [Primary Keyword] [Year]"
-   - Examples: "Nifty Options Strategies: Complete Guide for Beginners in 2025", "Best ELSS Funds 2025: Top Tax-Saving Equity Schemes for Indian Investors"
+   - Examples: "Nifty Options Strategies: Complete Guide for Beginners in ${currentYear}", "Best ELSS Funds ${currentYear}: Top Tax-Saving Equity Schemes for Indian Investors"
    - MUST be 50-60 characters, include the primary keyword, and be specific
    - AVOID generic titles like "Investment Guide" or "Wealth Management Tips"
 4. category: [mutual_funds|tax_planning|stock_market|retirement_planning|insurance|personal_finance|investment_strategies|derivatives] (auto-detect)
@@ -649,7 +653,7 @@ For EACH of the ${topicCount} topic(s), provide:
 9. priority: [High|Medium|Low] - High if search_volume >8000 or difficulty <30, Medium if 3000-8000, Low otherwise
 10. topic_type: [quick_win|authority_builder|competitive_strike] (quick_win if difficulty <35, authority_builder if volume >8000, competitive_strike if targeting specific competitor)
 11. target_competitor: Which competitor we're outranking (Groww, Zerodha, ETMoney, PaytmMoney, etc.)
-12. our_competitive_advantage: Specific, actionable plan to beat competitor (e.g., "2025 data, interactive calculator, expert quotes, video comparisons")
+12. our_competitive_advantage: Specific, actionable plan to beat competitor (e.g., "${currentYear} data, interactive calculator, expert quotes, video comparisons")
 13. word_count_target: Recommended length (2000-3000 words for comprehensive guides, 1500-2000 for quick wins)
 14. expert_required: [true|false] - true for YMYL content, investment advice, or complex topics
 15. estimated_ranking_time: Days to rank (30-45 for quick wins, 60-90 for authority builders)
@@ -670,16 +674,16 @@ EXAMPLE (High Quality):
     {
       "research_gap_id": "CUSTOM-GAP",
       "content_type": "ymyl",
-      "topic_title": "Nifty Options Strategies: Complete Guide for Beginners in 2025",
+      "topic_title": "Nifty Options Strategies: Complete Guide for Beginners in ${currentYear}",
       "category": "derivatives",
       "primary_keyword": "nifty options strategies",
-      "secondary_keywords": "nifty options trading,options strategies for beginners,weekly options nifty,options trading guide 2025",
+      "secondary_keywords": "nifty options trading,options strategies for beginners,weekly options nifty,options trading guide ${currentYear}",
       "search_volume": 8500,
       "keyword_difficulty": 32,
       "priority": "High",
       "topic_type": "authority_builder",
       "target_competitor": "Zerodha",
-      "our_competitive_advantage": "2025 lot size updates, interactive strategy calculator, backtesting examples, expert trader interviews",
+      "our_competitive_advantage": "${currentYear} lot size updates, interactive strategy calculator, backtesting examples, expert trader interviews",
       "word_count_target": 2500,
       "expert_required": "true",
       "estimated_ranking_time": 60,
@@ -699,10 +703,10 @@ EXAMPLE (High Quality):
 - "Financial Planning" (no value proposition)
 
 ✅ GOOD TOPIC TITLE EXAMPLES:
-- "Best ELSS Funds 2025: Top Tax-Saving Equity Schemes for Indian Investors"
-- "Nifty Options Strategies: Complete Guide for Beginners in 2025"
-- "Section 80C Deductions 2025: Step-by-Step Guide to Maximize Tax Savings"
-- "Bank Nifty Weekly Options Trading: Tuesday Expiry Strategy Guide 2025"
+- "Best ELSS Funds ${currentYear}: Top Tax-Saving Equity Schemes for Indian Investors"
+- "Nifty Options Strategies: Complete Guide for Beginners in ${currentYear}"
+- "Section 80C Deductions ${currentYear}: Step-by-Step Guide to Maximize Tax Savings"
+- "Bank Nifty Weekly Options Trading: Tuesday Expiry Strategy Guide ${currentYear}"
 
 CRITICAL:
 - Generate exactly ${topicCount} topic(s)
@@ -1011,7 +1015,7 @@ CRITICAL:
     const topicTemplates = [
       {
         category: 'mutual_funds',
-        title: 'Index Funds vs Mutual Funds: Complete 2025 Guide',
+        title: `Index Funds vs Mutual Funds: Complete ${new Date().getFullYear()} Guide`,
         keyword: 'index funds vs mutual funds',
         volume: 12000,
         difficulty: 28,
@@ -1027,7 +1031,7 @@ CRITICAL:
       },
       {
         category: 'stock_market',
-        title: 'Small Cap vs Mid Cap vs Large Cap: 2025 Analysis',
+        title: `Small Cap vs Mid Cap vs Large Cap: ${new Date().getFullYear()} Analysis`,
         keyword: 'small cap vs mid cap vs large cap',
         volume: 6800,
         difficulty: 25,
@@ -1045,7 +1049,7 @@ CRITICAL:
         topic_title: template.title,
         category: template.category,
         primary_keyword: template.keyword,
-        secondary_keywords: `${template.keyword} 2025,${template.category.replace('_', ' ')} guide,investment comparison`,
+        secondary_keywords: `${template.keyword} ${new Date().getFullYear()},${template.category.replace('_', ' ')} guide,investment comparison`,
         search_volume: template.volume,
         keyword_difficulty: template.difficulty,
         priority: template.volume > 8000 ? 'High' : 'Medium',
@@ -1075,6 +1079,10 @@ CRITICAL:
    * Build comprehensive topic generation prompt
    */
   buildTopicPrompt(approvedGaps, topicCount = 50) {
+    // Dynamic date context
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    
     // Select top gaps for prompt context
     const topGaps = approvedGaps
       .sort((a, b) => parseInt(b.priority_score) - parseInt(a.priority_score))
@@ -1111,7 +1119,7 @@ CRITICAL:
 - topic_title MUST be compelling, specific, and SEO-optimized (50-60 chars max)
 - Use the gap_title and primary_keyword from research gaps as the foundation, but enhance them
 - Topics should be ACTIONABLE and SPECIFIC - avoid generic titles like "Investment Guide" or "Wealth Management Tips"
-- Include year (2025) when relevant for time-sensitive content
+- Include year (${currentYear}) when relevant for time-sensitive content
 - Use power words: "Complete", "Ultimate", "Step-by-Step", "Comprehensive", "Best", "Top"
 - Ensure topics address the competitor_weakness and leverage our_competitive_edge from research gaps
 
@@ -1131,7 +1139,7 @@ For EACH of the ${topicCount} topics, you MUST:
 2. **topic_title**:
    - Base it on the gap_title from the research gap, but make it MORE compelling
    - Format: "[Primary Keyword] [Year]: [Value Proposition]" or "[Action] [Primary Keyword] [Year]"
-   - Examples: "Index Funds vs Mutual Funds 2025: Complete Comparison Guide", "Best ELSS Funds 2025: Top Tax-Saving Equity Schemes"
+   - Examples: "Index Funds vs Mutual Funds ${currentYear}: Complete Comparison Guide", "Best ELSS Funds ${currentYear}: Top Tax-Saving Equity Schemes"
    - AVOID generic titles like "Wealth Management Guide" or "Investment Strategies"
    - MUST include the primary_keyword naturally in the title
 3. **primary_keyword**: Use EXACTLY the primary_keyword from the research gap (don't modify it)
@@ -1169,16 +1177,16 @@ EXAMPLE (High Quality):
     {
       "research_gap_id": "GAP-001",
       "content_type": "ymyl",
-      "topic_title": "Index Funds vs Mutual Funds 2025: Complete Comparison Guide for Indian Investors",
+      "topic_title": "Index Funds vs Mutual Funds ${currentYear}: Complete Comparison Guide for Indian Investors",
       "category": "mutual_funds",
       "primary_keyword": "index funds vs mutual funds",
-      "secondary_keywords": "best index funds 2025,index fund calculator,passive investing india,index fund returns 2025",
+      "secondary_keywords": "best index funds ${currentYear},index fund calculator,passive investing india,index fund returns ${currentYear}",
       "search_volume": 12000,
       "keyword_difficulty": 28,
       "priority": "High",
       "topic_type": "authority_builder",
       "target_competitor": "Groww",
-      "our_competitive_advantage": "Include 2025 expense ratio data, interactive calculator, video comparisons, expert CFA quotes",
+      "our_competitive_advantage": "Include ${currentYear} expense ratio data, interactive calculator, video comparisons, expert CFA quotes",
       "word_count_target": 2500,
       "expert_required": "true",
       "estimated_ranking_time": 60,
@@ -1198,10 +1206,10 @@ EXAMPLE (High Quality):
 - "Stock Market Analysis" (too broad)
 
 ✅ GOOD TOPIC TITLE EXAMPLES:
-- "Best ELSS Funds 2025: Top Tax-Saving Equity Schemes for Indian Investors"
-- "Nifty Options Strategies: Complete Guide for Beginners in 2025"
-- "Section 80C Deductions 2025: Step-by-Step Guide to Maximize Tax Savings"
-- "Bank Nifty Weekly Options Trading: Tuesday Expiry Strategy Guide 2025"
+- "Best ELSS Funds ${currentYear}: Top Tax-Saving Equity Schemes for Indian Investors"
+- "Nifty Options Strategies: Complete Guide for Beginners in ${currentYear}"
+- "Section 80C Deductions ${currentYear}: Step-by-Step Guide to Maximize Tax Savings"
+- "Bank Nifty Weekly Options Trading: Tuesday Expiry Strategy Guide ${currentYear}"
 
 CRITICAL RULES:
 - Generate exactly ${topicCount} topics (no more, no less)

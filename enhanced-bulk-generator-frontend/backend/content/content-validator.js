@@ -742,6 +742,11 @@ class ContentValidator {
   buildCorrectionPrompt(content, validationResult) {
     const article = content.article_content || '';
     const seoMeta = this.safeParseJSON(content.seo_metadata, {});
+    
+    // Dynamic date context
+    const now = new Date();
+    const currentMonth = now.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    const currentYear = now.getFullYear();
 
     let prompt = `# Content Correction Task\n\n`;
     prompt += `You must fix the following ${validationResult.issues.length} validation issues in this financial article.\n\n`;
@@ -764,7 +769,7 @@ class ContentValidator {
     prompt += `5. **CTA Link**: Include https://instakyc.plindia.com/ or https://www.plindia.com\n`;
     prompt += `6. **Sentence Length**: Keep sentences under 15 words average\n`;
     prompt += `7. **FAQ**: Exactly 5 FAQ questions in H3 format (###), placed AFTER Conclusion\n`;
-    prompt += `8. **Dates**: Use "November 2025" not "January 2025"\n`;
+    prompt += `8. **Dates**: Use "${currentMonth}" not outdated months/years\n`;
     prompt += `9. **No Absolute Claims**: Avoid "X% probability" or "success rate of Y%" without qualifiers\n`;
     prompt += `10. **Formatting**: Use bullets, numbered lists, and tables for variety\n`;
     prompt += `11. **Title Difference**: The article title (from topic_title or first heading) MUST be different from the SEO meta title (seo_metadata.title)\n\n`;
