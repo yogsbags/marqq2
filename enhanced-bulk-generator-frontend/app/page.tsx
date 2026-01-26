@@ -124,6 +124,28 @@ export default function Home() {
     addLog(`🚀 Starting Stage ${stageId} execution...`)
 
     try {
+      // If Stage 3 (Deep Research), approve all topics first
+      if (stageId === 3) {
+        addLog(`✅ Approving all topics before deep research...`)
+        try {
+          // Get all topics (not just last 10)
+          const topicsResponse = await fetch('/api/workflow/approve-all?stageId=2')
+          if (topicsResponse.ok) {
+            const result = await topicsResponse.json()
+            if (result.approved > 0) {
+              addLog(`✅ Approved ${result.approved} topic(s) for deep research`)
+            } else {
+              addLog(`ℹ️  All topics already approved`)
+            }
+          } else {
+            throw new Error('Failed to approve topics')
+          }
+        } catch (approveError) {
+          addLog(`⚠️  Warning: Could not auto-approve topics: ${approveError instanceof Error ? approveError.message : 'Unknown error'}`)
+          // Continue anyway - user might have manually approved
+        }
+      }
+
       const response = await fetch('/api/workflow/stage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
