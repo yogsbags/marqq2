@@ -124,8 +124,9 @@ export default function Home() {
     addLog(`🚀 Starting Stage ${stageId} execution...`)
 
     try {
-      // If Stage 3 (Deep Research), approve all topics first
-      if (stageId === 3) {
+      // If Stage 3 (Deep Research), approve all topics first (only if customTitle is not provided)
+      // Custom title mode bypasses topic generation, so no need to approve topics
+      if (stageId === 3 && !customTitle) {
         addLog(`✅ Approving all topics before deep research...`)
         try {
           // Get all topics (not just last 10)
@@ -144,6 +145,8 @@ export default function Home() {
           addLog(`⚠️  Warning: Could not auto-approve topics: ${approveError instanceof Error ? approveError.message : 'Unknown error'}`)
           // Continue anyway - user might have manually approved
         }
+      } else if (stageId === 3 && customTitle) {
+        addLog(`🚀 Custom title mode: Skipping topic approval (bypasses topic generation)`)
       }
 
       const response = await fetch('/api/workflow/stage', {
