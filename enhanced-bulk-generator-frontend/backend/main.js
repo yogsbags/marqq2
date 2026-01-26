@@ -531,6 +531,7 @@ async function main() {
         // Always pass limit regardless of truthiness - let the orchestrator handle null/undefined
         if (stageName === 'research') {
           stageOptions.customTopic = generator.config.customTopic;
+          stageOptions.category = generator.config.category;
         } else if (stageName === 'topics') {
           stageOptions.limit = generator.config.topicLimit;
         } else if (stageName === 'deep-research') {

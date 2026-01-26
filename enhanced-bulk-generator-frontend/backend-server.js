@@ -1729,10 +1729,14 @@ app.post('/api/workflow/stage', async (req, res) => {
 
     const args = [mainJsPath, 'stage', stageName];
 
-    if (stageName === 'research' && customTopic) {
-      args.push('--custom-topic', customTopic);
+    if (stageName === 'research') {
+      args.push('--category', category);
+      if (customTopic) {
+        args.push('--custom-topic', customTopic);
+      }
     } else if (stageName === 'topics') {
       args.push('--topic-limit', topicLimit.toString());
+      args.push('--category', category);
     }
 
     if (customTitle) {

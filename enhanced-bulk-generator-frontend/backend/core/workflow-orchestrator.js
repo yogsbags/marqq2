@@ -183,16 +183,20 @@ class WorkflowOrchestrator {
       console.log(`🎯 Generating ${this.config.gapsPerRun} content gap opportunities...`);
 
       // Use customTopic if provided, otherwise use category
+      const category = options.category || this.config.category || 'derivatives';
+      
       if (options.customTopic || this.config.customTopic) {
         const topic = options.customTopic || this.config.customTopic;
         console.log(`✨ Custom Topic Focus: "${topic}"`);
-        console.log(`📂 Category (fallback): ${this.config.category || 'derivatives (default)'}`);
+        console.log(`📂 Category (fallback): ${category}`);
 
         // Update researcher with custom topic
         this.researcher.customTopic = topic;
-        this.researcher.selectedCategory = this.config.category || 'derivatives';
+        this.researcher.selectedCategory = category;
       } else {
-        console.log(`📂 Category Filter: ${this.config.category || 'derivatives (default)'}`);
+        console.log(`📂 Category Filter: ${category}`);
+        // Always set category on researcher, even without customTopic
+        this.researcher.selectedCategory = category;
       }
 
       console.log('');
