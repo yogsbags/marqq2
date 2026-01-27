@@ -365,6 +365,16 @@ class WorkflowOrchestrator {
           console.log('🤖 Auto-approving high-priority topics for deep research...');
           this.topicGenerator.autoApproveAll();
           approvedTopics = this.csvManager.getApprovedTopics();
+
+          // Fallback: if auto-approve did not mark any topics as "Yes" (e.g. CSV mismatch),
+          // but topics exist, use all topics as a safety net so Stage 3 can still run.
+          if (approvedTopics.length === 0) {
+            const allTopics = this.csvManager.getAllTopics();
+            if (allTopics.length > 0) {
+              console.log('⚠️  Auto-approve fallback: using all topics for deep research because none are marked approved.');
+              approvedTopics = allTopics;
+            }
+          }
         }
 
         if (approvedTopics.length === 0) {
