@@ -233,7 +233,9 @@ class WorkflowOrchestrator {
       console.log('');
 
       // Auto-approve if enabled
-      if (this.config.autoApprove) {
+      // Use options.autoApprove if provided, otherwise fall back to this.config.autoApprove
+      const autoApprove = options.autoApprove !== undefined ? options.autoApprove : this.config.autoApprove;
+      if (autoApprove) {
         const approved = this.researcher.autoApproveAll();
         console.log(`🤖 Auto-approved ${approved} high-priority gaps`);
       } else {
@@ -270,7 +272,9 @@ class WorkflowOrchestrator {
       let approvedGaps = this.csvManager.getApprovedResearchGaps();
 
       if (approvedGaps.length === 0) {
-        if (this.config.autoApprove) {
+        // Use options.autoApprove if provided, otherwise fall back to this.config.autoApprove
+        const autoApprove = options.autoApprove !== undefined ? options.autoApprove : this.config.autoApprove;
+        if (autoApprove) {
           // Auto-approve gaps so topic generation can proceed in automated runs
           console.log('🤖 Auto-approving gaps for topic generation...');
           const approved = this.researcher.autoApproveAll();
@@ -335,7 +339,9 @@ class WorkflowOrchestrator {
       console.log('');
 
       // Auto-approve if enabled
-      if (this.config.autoApprove) {
+      // Use options.autoApprove if provided, otherwise fall back to this.config.autoApprove
+      const autoApproveFinal = options.autoApprove !== undefined ? options.autoApprove : this.config.autoApprove;
+      if (autoApproveFinal) {
         const approved = this.topicGenerator.autoApproveAll();
         console.log(`🤖 Auto-approved ${approved} high-priority topics`);
       } else {

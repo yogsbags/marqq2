@@ -527,7 +527,9 @@ async function main() {
           generator.showHelp();
           process.exit(1);
         }
-        const stageOptions = {};
+        const stageOptions = {
+          autoApprove: generator.config.autoApprove  // 🔧 FIX: Pass autoApprove to stage execution
+        };
         // Always pass limit regardless of truthiness - let the orchestrator handle null/undefined
         if (stageName === 'research') {
           stageOptions.customTopic = generator.config.customTopic;

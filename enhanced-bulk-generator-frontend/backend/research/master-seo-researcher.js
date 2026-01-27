@@ -236,7 +236,7 @@ class MasterSEOResearcher {
   async executeResearch() {
     console.log('\n🔍 MASTER SEO RESEARCH STARTED');
     console.log('='.repeat(50));
-    console.log(`🤖 AI Model: ${this.groqModel}`);
+    console.log(`🤖 AI Model: ${this.currentModel}`);
     console.log(`🎯 Target: 100 content gap opportunities`);
     console.log(`🏢 Competitors: ${this.competitors.length}`);
 
