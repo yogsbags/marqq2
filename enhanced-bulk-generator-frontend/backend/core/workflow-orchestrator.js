@@ -357,8 +357,72 @@ class WorkflowOrchestrator {
     console.log('-'.repeat(40));
 
     try {
-      let approvedTopics = this.csvManager.getApprovedTopics();
       const limit = options.limit ?? this.config.deepResearchLimit ?? null;
+      const customTitle = options.customTitle || this.config.customTitle || '';
+
+      // 🔀 Custom Title Mode: bypass topics/approvals entirely and let
+      // DeepTopicResearcher handle the custom title workflow.
+      if (customTitle) {
+        console.log(`\n✨ CUSTOM TITLE MODE (Stage 3)`);
+        console.log(`📝 Custom Title: "${customTitle}"`);
+        console.log('🚀 Bypassing approved topics and running deep research directly on the custom title...');
+
+        const deepResearcher = new DeepTopicResearcher({
+          ...this.config,
+          customTitle,
+          topicLimit: limit
+        });
+
+        const researchResults = await deepResearcher.conductDeepResearch(limit);
+
+        if (!researchResults || researchResults.length === 0) {
+          console.log('⚠️  Deep research produced no results for custom title. Check API keys and rerun.');
+          return false;
+        }
+
+        if (this.config.autoApprove) {
+          deepResearcher.approveHighQuality();
+        } else {
+          console.log('\n⏳ Next Steps:');
+          console.log('   1. Review data/topic-research.csv');
+          console.log('   2. Approve rows (set approval_status = "Yes") for content creation');
+        }
+
+        const topicIds = [...new Set(researchResults.map(item => item.topic_id).filter(Boolean))];
+        const stageNotes = this.config.autoApprove
+          ? 'Deep research auto-approved. Content creation unlocked.'
+          : 'Deep research ready. Awaiting manual approval.';
+        const stageStatus = this.config.autoApprove ? 'Deep Research Approved' : 'Deep Research Completed';
+        const stageApproval = this.config.autoApprove ? 'Approved' : 'Pending';
+
+        if (this.config.autoApprove && topicIds.length > 0) {
+          const savedResearch = this.csvManager.getTopicResearchByTopicIds(topicIds);
+          savedResearch.forEach(item => {
+            if (item.topic_research_id) {
+              this.csvManager.updateApprovalStatus('topicResearch', 'topic_research_id', item.topic_research_id, 'Yes');
+            }
+          });
+          console.log(`🤖 Auto-approved ${savedResearch.length} research items for content creation`);
+        }
+
+        topicIds.forEach(topicId => {
+          this.csvManager.updateWorkflowStatus(
+            topicId,
+            this.stages.DEEP_RESEARCH,
+            stageStatus,
+            stageNotes,
+            { deep_research_approval: stageApproval }
+          );
+        });
+
+        console.log(`\n📝 Saved ${researchResults.length} research entries to data/topic-research.csv`);
+        await this.syncToGoogleSheets('topic-research');
+        await this.sleep(this.config.delayBetweenStages);
+        return true;
+      }
+
+      // 📂 Standard Topic Mode (no custom title)
+      let approvedTopics = this.csvManager.getApprovedTopics();
 
       if (approvedTopics.length === 0) {
         if (this.config.autoApprove) {
