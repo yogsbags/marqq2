@@ -119,34 +119,48 @@ export default function Home() {
     }
   }
 
+  const approveAllForStage = async (stageIdToApprove: number, label: string) => {
+    addLog(`✅ Approving all ${label}...`)
+    const resp = await fetch(`/api/workflow/approve-all?stageId=${stageIdToApprove}`)
+    if (!resp.ok) {
+      let details = ''
+      try {
+        const err = await resp.json()
+        details = err?.error || err?.details || ''
+      } catch {
+        // ignore
+      }
+      throw new Error(`Failed to approve ${label}${details ? `: ${details}` : ''}`)
+    }
+    const result = await resp.json()
+    if (result.approved > 0) {
+      addLog(`✅ Approved ${result.approved} ${label}`)
+    } else {
+      addLog(`ℹ️  All ${label} already approved`)
+    }
+  }
+
   const executeStage = async (stageId: number) => {
     setExecutingStage(stageId)
     addLog(`🚀 Starting Stage ${stageId} execution...`)
 
     try {
-      // If Stage 3 (Deep Research), approve all topics first (only if customTitle is not provided)
-      // Custom title mode bypasses topic generation, so no need to approve topics
-      if (stageId === 3 && !customTitle) {
-        addLog(`✅ Approving all topics before deep research...`)
-        try {
-          // Get all topics (not just last 10)
-          const topicsResponse = await fetch('/api/workflow/approve-all?stageId=2')
-          if (topicsResponse.ok) {
-            const result = await topicsResponse.json()
-            if (result.approved > 0) {
-              addLog(`✅ Approved ${result.approved} topic(s) for deep research`)
-            } else {
-              addLog(`ℹ️  All topics already approved`)
-            }
-          } else {
-            throw new Error('Failed to approve topics')
-          }
-        } catch (approveError) {
-          addLog(`⚠️  Warning: Could not auto-approve topics: ${approveError instanceof Error ? approveError.message : 'Unknown error'}`)
-          // Continue anyway - user might have manually approved
+      // "Approve & Continue" should actually approve the prerequisite stage before running the next stage.
+      // Stage 2 requires approved Stage 1 gaps; Stage 3 requires approved Stage 2 topics (unless custom title);
+      // Stage 4 requires approved Stage 3 deep research.
+      try {
+        if (stageId === 2) {
+          await approveAllForStage(1, 'research gap(s) for topic generation')
+        } else if (stageId === 3 && !customTitle) {
+          await approveAllForStage(2, 'topic(s) for deep research')
+        } else if (stageId === 3 && customTitle) {
+          addLog(`🚀 Custom title mode: Skipping topic approval (bypasses topic generation)`)
+        } else if (stageId === 4) {
+          await approveAllForStage(3, 'deep research item(s) for content creation')
         }
-      } else if (stageId === 3 && customTitle) {
-        addLog(`🚀 Custom title mode: Skipping topic approval (bypasses topic generation)`)
+      } catch (approveError) {
+        addLog(`⚠️  Warning: Could not auto-approve: ${approveError instanceof Error ? approveError.message : 'Unknown error'}`)
+        // Continue anyway - user might have manually approved
       }
 
       const response = await fetch('/api/workflow/stage', {

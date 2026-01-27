@@ -267,14 +267,23 @@ class WorkflowOrchestrator {
 
     try {
       // Check if we have approved research gaps
-      const approvedGaps = this.csvManager.getApprovedResearchGaps();
+      let approvedGaps = this.csvManager.getApprovedResearchGaps();
 
       if (approvedGaps.length === 0) {
         if (this.config.autoApprove) {
-          // Auto-approve high-priority gaps
-          console.log('🤖 Auto-approving high-priority gaps...');
+          // Auto-approve gaps so topic generation can proceed in automated runs
+          console.log('🤖 Auto-approving gaps for topic generation...');
           const approved = this.researcher.autoApproveAll();
-          console.log(`✅ Auto-approved ${approved} gaps for topic generation`);
+          console.log(`✅ Auto-approved ${approved} gap(s) for topic generation`);
+          approvedGaps = this.csvManager.getApprovedResearchGaps();
+          if (approvedGaps.length === 0) {
+            // Provide a clearer message: either Stage 1 produced no gaps or approvals didn't persist
+            const totalGaps = this.csvManager.readCSV(this.csvManager.files.researchGaps).length;
+            if (totalGaps === 0) {
+              throw new Error('No research gaps found. Run Stage 1 (research) before Stage 2 (topics).');
+            }
+            throw new Error('No approved research gaps found. Auto-approval did not yield any approved gaps.');
+          }
         } else {
           console.log('⚠️  No approved research gaps found');
           console.log('');
