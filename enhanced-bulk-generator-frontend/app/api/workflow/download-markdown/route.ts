@@ -338,7 +338,12 @@ export async function GET(request: NextRequest) {
     const records = parse(fileContent, {
       columns: true,
       skip_empty_lines: true,
-      trim: true
+      relax_quotes: true,
+      relax_column_count: true,
+      skip_records_with_error: true,
+      trim: true,
+      escape: '"',
+      quote: '"',
     })
 
     // Find the content by ID (exact match required)

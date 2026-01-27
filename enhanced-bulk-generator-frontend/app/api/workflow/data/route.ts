@@ -87,7 +87,11 @@ export async function GET(req: NextRequest) {
       columns: true,
       skip_empty_lines: true,
       relax_quotes: true,
+      relax_column_count: true,
+      skip_records_with_error: true,
       trim: true,
+      escape: '"',
+      quote: '"',
     })
 
     // Limit to last 10 records to avoid overwhelming the UI
