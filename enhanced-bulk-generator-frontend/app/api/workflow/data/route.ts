@@ -28,6 +28,21 @@ const CSV_TO_SHEET_NAME: Record<string, string> = {
   'workflow-status.csv': 'workflow-status'
 }
 
+// Map stages to their ID field names for validation
+function getIdFieldForStage(stageId: number): string {
+  const idFields: Record<number, string> = {
+    1: 'gap_id',
+    2: 'topic_id',
+    3: 'topic_research_id',
+    4: 'content_id',
+    5: 'content_id',
+    6: 'content_id',
+    7: 'publish_id',
+    8: 'topic_id'
+  }
+  return idFields[stageId] || 'id'
+}
+
 // Google Sheets configuration
 const SPREADSHEET_ID = '104GA_1AMKFgMEbEaU8oJHiP0hBX0fe8EmmQNt_ZnSC4'
 
@@ -94,14 +109,39 @@ export async function GET(req: NextRequest) {
       quote: '"',
     })
 
-    // Limit to last 10 records to avoid overwhelming the UI
-    const limitedRecords = records.slice(-10)
+    // Filter out malformed rows based on stage-specific ID patterns
+    const validRecords = records.filter((record: any) => {
+      const idField = getIdFieldForStage(stageId)
+      const idValue = record[idField]
+
+      if (!idValue) return false
+
+      // Stage-specific ID validation
+      const idPatterns: Record<number, RegExp> = {
+        1: /^GAP(-QW)?-\d+$/,              // research-gaps.csv (GAP-001 or GAP-QW-001)
+        2: /^TOPIC-\d+$/,                  // generated-topics.csv
+        3: /^TR-\d+$/,                     // topic-research.csv
+        4: /^CONT-\d+$/,                   // created-content.csv
+        5: /^CONT-\d+$/,                   // created-content.csv (validation stage)
+        6: /^CONT-\d+$/,                   // created-content.csv (SEO stage)
+        7: /^PUB-\d+$/,                    // published-content.csv
+        8: /^TOPIC-\d+$/                   // workflow-status.csv
+      }
+
+      const pattern = idPatterns[stageId]
+      if (!pattern) return true // No validation for unknown stages
+
+      return pattern.test(idValue.trim())
+    })
+
+    // Limit to last 10 valid records to avoid overwhelming the UI
+    const limitedRecords = validRecords.slice(-10)
 
     // Get summary stats
     const summary = {
-      total: records.length,
+      total: validRecords.length,
       showing: limitedRecords.length,
-      approved: records.filter((r: any) =>
+      approved: validRecords.filter((r: any) =>
         r.approval_status === 'Yes' || r.approval_status === 'SEO-Ready'
       ).length
     }
