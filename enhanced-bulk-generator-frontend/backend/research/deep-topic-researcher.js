@@ -817,7 +817,9 @@ Focus on Indian market context and SEBI/RBI compliance where applicable.`;
           .replace(/,\s*}/g, '}')
           .replace(/,\s*]/g, ']')
           .replace(/\r?\n/g, ' ')
-          .replace(/\s+/g, ' ');
+          .replace(/\s+/g, ' ')
+          // Quote unquoted property names like foo: "bar" -> "foo": "bar"
+          .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
 
         try {
           const parsed = JSON.parse(jsonString);

@@ -196,22 +196,25 @@ async function syncToGoogleSheets(options = {}) {
 
         const encodedSheetName = encodeURIComponent(sheetName);
 
-        log(`   🔄 Clearing existing data...`);
-        await client.request({
-          url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedSheetName}:clear`,
-          method: 'POST'
-        });
-        log(`   ✓ Sheet cleared`);
+        // Append mode: do NOT clear existing data. If the sheet already exists,
+        // assume the header row is already present and append only data rows
+        // to avoid duplicating headers. For a new sheet, append everything.
+        const valuesToAppend = existingSheets.has(sheetName) ? values.slice(1) : values;
 
-        log(`   📝 Uploading ${values.length} rows...`);
+        if (valuesToAppend.length === 0) {
+          log('   ℹ️  No new rows to append (header only). Skipping.');
+          continue;
+        }
+
+        log(`   ➕ Appending ${valuesToAppend.length} rows...`);
         await client.request({
-          url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedSheetName}?valueInputOption=RAW`,
-          method: 'PUT',
+          url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedSheetName}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+          method: 'POST',
           data: {
-            values
+            values: valuesToAppend
           }
         });
-        log(`   ✅ Synced successfully!`);
+        log(`   ✅ Synced successfully (append mode)!`);
 
         syncedCount++;
       } catch (fileError) {
