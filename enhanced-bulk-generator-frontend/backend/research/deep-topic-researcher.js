@@ -825,9 +825,9 @@ Focus on Indian market context and SEBI/RBI compliance where applicable.`;
           const parsed = JSON.parse(jsonString);
           const sources = this.extractSourceUrls(parsed, topic);
           const research = {
-            topic_id: topic.topic_id,
+            topic_id: topic.topic_id || `UNKNOWN-${Date.now()}`, // Defensive: ensure topic_id is never empty
             research_date: new Date().toISOString().split('T')[0],
-            primary_keyword: topic.primary_keyword,
+            primary_keyword: topic.primary_keyword || topic.topic_title || 'Not specified',
             top_10_competitors: parsed.top_10_competitors || '',
             content_gaps: parsed.content_gaps || '',
             search_intent: parsed.search_intent || '',
@@ -841,7 +841,7 @@ Focus on Indian market context and SEBI/RBI compliance where applicable.`;
             approval_status: 'Pending'
           };
           await this.enrichWithCompetitorOutlines(research, parsed, topic);
-          console.log(`✅ Successfully parsed JSON response for ${topic.topic_id}`);
+          console.log(`✅ Successfully parsed JSON response for ${topic.topic_id || research.topic_id}`);
           return research;
         } catch (jsonError) {
           console.warn(`⚠️  JSON parse failed for ${topic.topic_id}: ${jsonError.message}`);
@@ -850,12 +850,12 @@ Focus on Indian market context and SEBI/RBI compliance where applicable.`;
       }
 
       // Fallback: use raw response
-      console.warn(`⚠️  No valid JSON found, using fallback parsing for ${topic.topic_id}`);
+      console.warn(`⚠️  No valid JSON found, using fallback parsing for ${topic.topic_id || 'UNKNOWN'}`);
       const fallbackSources = this.extractSourceUrls({}, topic);
       const research = {
-        topic_id: topic.topic_id,
+        topic_id: topic.topic_id || `UNKNOWN-${Date.now()}`, // Defensive: ensure topic_id is never empty
         research_date: new Date().toISOString().split('T')[0],
-        primary_keyword: topic.primary_keyword,
+        primary_keyword: topic.primary_keyword || topic.topic_title || 'Not specified',
         top_10_competitors: 'Analysis conducted',
         content_gaps: response.substring(0, 500),
         search_intent: 'Informational',
