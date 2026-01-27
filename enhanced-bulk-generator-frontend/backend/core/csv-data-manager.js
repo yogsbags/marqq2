@@ -275,34 +275,66 @@ class CSVDataManager {
   }
 
   /**
+   * Normalize a string for safe CSV output (no newlines/carriage returns).
+   * Prevents field values from bleeding into the next column when the AI
+   * returns multiline text inside a single field.
+   */
+  _sanitizeForCSV(value) {
+    if (value == null || value === '') return '';
+    const str = String(value).trim();
+    return str.replace(/\r\n|\r|\n/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * Normalize a research-gap object to schema columns with safe string values.
+   * Ensures each field is a single-line value so CSV parsing doesn't misalign columns.
+   */
+  normalizeResearchGapForCSV(gap) {
+    const cols = this.getSchemaColumns('researchGaps');
+    if (!cols) return gap;
+    const out = {};
+    for (const key of cols) {
+      const v = gap[key];
+      if (typeof v === 'string') {
+        out[key] = this._sanitizeForCSV(v);
+      } else if (v !== undefined && v !== null) {
+        out[key] = String(v).replace(/\r\n|\r|\n/g, ' ').trim();
+      } else {
+        out[key] = '';
+      }
+    }
+    return out;
+  }
+
+  /**
    * Save research gaps data (append mode for subsequent runs)
    */
   saveResearchGaps(gaps) {
     const timestamp = new Date().toISOString();
 
-    // Generate incremental IDs for each gap
-    const dataWithTimestamp = gaps.map((gap, index) => {
-      // Get the next ID based on existing data
-      const existingData = this.readCSV(this.files.researchGaps);
-      const numericIds = existingData
-        .map(row => row.gap_id)
-        .filter(id => id && id.startsWith('GAP-'))
-        .map(id => {
-          const match = id.match(/GAP-(\d+)$/);
-          return match ? parseInt(match[1], 10) : 0;
-        })
-        .filter(num => !isNaN(num));
+    // Get the next ID based on existing data once (not per gap)
+    const existingData = this.readCSV(this.files.researchGaps);
+    const numericIds = existingData
+      .map(row => row.gap_id)
+      .filter(id => id && id.startsWith('GAP-'))
+      .map(id => {
+        const match = id.match(/GAP-(\d+)$/);
+        return match ? parseInt(match[1], 10) : 0;
+      })
+      .filter(num => !isNaN(num));
+    const maxId = numericIds.length > 0 ? Math.max(...numericIds) : 0;
 
-      const maxId = numericIds.length > 0 ? Math.max(...numericIds) : 0;
+    // Generate incremental IDs and normalize each gap for CSV (single-line fields)
+    const dataWithTimestamp = gaps.map((gap, index) => {
       const nextId = maxId + index + 1;
       const paddedId = String(nextId).padStart(3, '0');
-
-      return {
+      const normalized = this.normalizeResearchGapForCSV({
         ...gap,
         gap_id: `GAP-${paddedId}`,
         approval_status: gap.approval_status || 'Pending',
         created_at: timestamp
-      };
+      });
+      return normalized;
     });
 
     return this.appendCSV(this.files.researchGaps, dataWithTimestamp);

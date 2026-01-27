@@ -1684,6 +1684,64 @@ app.post('/api/workflow/execute', async (req, res) => {
   }
 });
 
+// Approve all pending items for a stage (used before Stage 3 when user clicks "Approve & Continue")
+app.get('/api/workflow/approve-all', async (req, res) => {
+  try {
+    const stageId = parseInt(req.query.stageId, 10);
+    const stageFiles = {
+      1: 'research-gaps.csv',
+      2: 'generated-topics.csv',
+      3: 'topic-research.csv',
+      4: 'created-content.csv',
+      5: 'created-content.csv',
+      6: 'created-content.csv',
+      7: 'published-content.csv',
+      8: 'workflow-status.csv'
+    };
+    const csvFile = stageFiles[stageId];
+    if (!csvFile) {
+      return res.status(400).json({ error: 'Invalid stage ID' });
+    }
+    const csvPath = path.join(backendDir, 'data', csvFile);
+    if (!fs.existsSync(csvPath)) {
+      return res.json({ approved: 0, total: 0, message: `CSV file not found: ${csvFile}` });
+    }
+    const csvContent = fs.readFileSync(csvPath, 'utf-8');
+    const records = parse(csvContent, {
+      columns: true,
+      skip_empty_lines: true,
+      relax_quotes: true,
+      trim: true
+    });
+    let approvedCount = 0;
+    const updatedRecords = records.map((row) => {
+      const status = (row.approval_status || '').toLowerCase();
+      if (status !== 'yes' && status !== 'seo-ready') {
+        approvedCount++;
+        return { ...row, approval_status: 'Yes' };
+      }
+      return row;
+    });
+    if (approvedCount > 0) {
+      const updatedCsv = stringify(updatedRecords, {
+        header: true,
+        columns: Object.keys(updatedRecords[0])
+      });
+      fs.writeFileSync(csvPath, updatedCsv, 'utf-8');
+    }
+    res.json({
+      approved: approvedCount,
+      total: records.length,
+      message: approvedCount > 0
+        ? `Approved ${approvedCount} pending ${stageId === 2 ? 'topics' : 'items'}`
+        : 'All items already approved'
+    });
+  } catch (err) {
+    console.error('Error in /api/workflow/approve-all:', err);
+    res.status(500).json({ error: 'Failed to approve items', details: err.message });
+  }
+});
+
 // Execute single stage
 app.post('/api/workflow/stage', async (req, res) => {
   // Check if this is a social media request
@@ -1726,6 +1784,32 @@ app.post('/api/workflow/stage', async (req, res) => {
     }
 
     sendEvent({ log: `🚀 Starting Stage ${stageId}: ${stageName}...` });
+
+    // For Stage 3 (Deep Research), approve all topics first so the backend finds them
+    if (stageId === 3 && !customTitle) {
+      try {
+        const topicsPath = path.join(backendDir, 'data', 'generated-topics.csv');
+        if (fs.existsSync(topicsPath)) {
+          const csvContent = fs.readFileSync(topicsPath, 'utf-8');
+          const records = parse(csvContent, { columns: true, skip_empty_lines: true, relax_quotes: true, trim: true });
+          let approvedCount = 0;
+          const updated = records.map((row) => {
+            const s = (row.approval_status || '').toLowerCase();
+            if (s !== 'yes' && s !== 'seo-ready') {
+              approvedCount++;
+              return { ...row, approval_status: 'Yes' };
+            }
+            return row;
+          });
+          if (approvedCount > 0) {
+            fs.writeFileSync(topicsPath, stringify(updated, { header: true, columns: Object.keys(updated[0]) }), 'utf-8');
+            sendEvent({ log: `✅ Approved ${approvedCount} topic(s) for deep research` });
+          }
+        }
+      } catch (e) {
+        sendEvent({ log: `⚠️  Could not auto-approve topics: ${e.message}` });
+      }
+    }
 
     const args = [mainJsPath, 'stage', stageName];
 

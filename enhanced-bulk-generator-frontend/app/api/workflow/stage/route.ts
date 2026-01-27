@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import path from 'path'
+import fs from 'fs'
+import { parse } from 'csv-parse/sync'
+import { stringify } from 'csv-stringify/sync'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -61,6 +64,32 @@ export async function POST(req: NextRequest) {
           sendEvent({ log: `📝 Content Outline: ${lineCount} lines provided` })
         }
         sendEvent({ stage: stageId, status: 'running', message: `Executing ${stageName}...` })
+
+        // For Stage 3 (Deep Research), approve all topics first so the backend finds them
+        if (stageId === 3 && !customTitle) {
+          try {
+            const topicsPath = path.join(process.cwd(), 'backend', 'data', 'generated-topics.csv')
+            if (fs.existsSync(topicsPath)) {
+              const csvContent = fs.readFileSync(topicsPath, 'utf-8')
+              const records = parse(csvContent, { columns: true, skip_empty_lines: true, relax_quotes: true, trim: true })
+              let approvedCount = 0
+              const updated = records.map((row: Record<string, string>) => {
+                const s = (row.approval_status || '').toLowerCase()
+                if (s !== 'yes' && s !== 'seo-ready') {
+                  approvedCount++
+                  return { ...row, approval_status: 'Yes' }
+                }
+                return row
+              })
+              if (approvedCount > 0) {
+                fs.writeFileSync(topicsPath, stringify(updated, { header: true, columns: Object.keys(updated[0]) }), 'utf-8')
+                sendEvent({ log: `✅ Approved ${approvedCount} topic(s) for deep research` })
+              }
+            }
+          } catch (e) {
+            sendEvent({ log: `⚠️  Could not auto-approve topics: ${e instanceof Error ? e.message : 'Unknown'}` })
+          }
+        }
 
         // Execute stage with NODE_PATH for module resolution
         const parentNodeModules = path.join(process.cwd(), 'node_modules')
