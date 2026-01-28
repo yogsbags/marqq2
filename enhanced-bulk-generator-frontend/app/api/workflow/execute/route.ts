@@ -157,6 +157,10 @@ export async function POST(req: NextRequest) {
             args.push('--content-outline-provided')
           }
 
+          // Debug: Log complete command with all args
+          sendEvent({ log: `🐛 DEBUG: autoApprove parameter = ${autoApprove}` })
+          sendEvent({ log: `🐛 DEBUG: Complete args array: ${JSON.stringify(args)}` })
+
           // Add parent node_modules to NODE_PATH for Vercel deployment
           const parentNodeModules = path.join(process.cwd(), 'node_modules')
           const nodeEnv = {

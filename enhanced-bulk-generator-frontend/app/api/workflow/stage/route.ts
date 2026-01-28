@@ -110,6 +110,11 @@ export async function POST(req: NextRequest) {
         if (contentOutline) {
           args.push('--content-outline-provided')
         }
+
+        // Debug: Log complete command with all args
+        sendEvent({ log: `🐛 DEBUG: autoApprove parameter = ${autoApprove}` })
+        sendEvent({ log: `🐛 DEBUG: Complete args array: ${JSON.stringify(args)}` })
+
         const nodeProcess = spawn('node', args, {
           cwd: workingDir,
           env: nodeEnv,
