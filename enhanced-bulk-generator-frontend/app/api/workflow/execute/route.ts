@@ -12,8 +12,29 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       const sendEvent = (data: any) => {
-        const message = `data: ${JSON.stringify(data)}\n\n`
-        controller.enqueue(encoder.encode(message))
+        try {
+          // Sanitize log messages to prevent JSON parsing errors
+          if (data.log && typeof data.log === 'string') {
+            // Remove ANSI color codes and control characters
+            data.log = data.log
+              .replace(/\x1b\[[0-9;]*m/g, '') // Remove ANSI codes
+              .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '') // Remove control chars except \n and \r
+              .trim()
+
+            // Truncate very long logs to prevent SSE overflow
+            if (data.log.length > 5000) {
+              data.log = data.log.substring(0, 5000) + '... (truncated)'
+            }
+          }
+
+          const message = `data: ${JSON.stringify(data)}\n\n`
+          controller.enqueue(encoder.encode(message))
+        } catch (error) {
+          // If JSON.stringify fails, send a safe error message
+          console.error('SSE JSON stringify error:', error)
+          const safeMessage = `data: ${JSON.stringify({ log: '⚠️ [Log encoding error]' })}\n\n`
+          controller.enqueue(encoder.encode(safeMessage))
+        }
       }
 
       let currentStage = 0
