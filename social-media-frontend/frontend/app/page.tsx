@@ -73,6 +73,8 @@ export default function Home() {
   const [avatarId, setAvatarId] = useState<string>('siddharth-vora')
   const [avatarScriptText, setAvatarScriptText] = useState<string>('')
   const [avatarVoiceId, setAvatarVoiceId] = useState<string>('')
+  const [generatingScript, setGeneratingScript] = useState<boolean>(false)
+  const [scriptError, setScriptError] = useState<string | null>(null)
   const [availableAvatars, setAvailableAvatars] = useState<Array<{
     id: string
     name: string
@@ -275,6 +277,7 @@ export default function Home() {
           autoPublish,
           targetAudience,
           language,
+          aspectRatio,
           campaignData,
           files: fileData,
           avatarId,
@@ -1560,12 +1563,51 @@ export default function Home() {
                   </label>
                   <textarea
                     value={avatarScriptText}
-                    onChange={(e) => setAvatarScriptText(e.target.value)}
+                    onChange={(e) => {
+                      setAvatarScriptText(e.target.value)
+                      if (scriptError) setScriptError(null)
+                    }}
                     placeholder="Leave empty to auto-generate based on campaign topic and purpose..."
                     rows={4}
                     disabled={isRunning || executingStage !== null}
                     className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm resize-none disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
+                  <div className="mt-2 flex items-center gap-3 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setScriptError(null)
+                        setGeneratingScript(true)
+                        try {
+                          const res = await fetch('/api/workflow/generate-script', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              topic: topic.trim() || 'PL Capital investing insights',
+                              duration,
+                              platform: selectedPlatforms?.[0] || 'instagram',
+                              format: 'reel',
+                              language
+                            })
+                          })
+                          const data = await res.json()
+                          if (!res.ok) throw new Error(data.error || 'Failed to generate script')
+                          setAvatarScriptText(data.script ?? '')
+                        } catch (e) {
+                          setScriptError(e instanceof Error ? e.message : 'Failed to generate script')
+                        } finally {
+                          setGeneratingScript(false)
+                        }
+                      }}
+                      disabled={isRunning || executingStage !== null || generatingScript}
+                      className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {generatingScript ? 'Generating…' : 'Generate'}
+                    </button>
+                    {scriptError && (
+                      <span className="text-sm text-red-600">{scriptError}</span>
+                    )}
+                  </div>
                   <p className="text-xs text-gray-500 mt-1">
                     If left empty, AI will generate a contextually appropriate script based on your campaign configuration
                   </p>
