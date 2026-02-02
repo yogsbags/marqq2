@@ -391,18 +391,14 @@ export async function POST(request: NextRequest) {
           // Pass avatar options directly as CLI arguments - ONLY if avatar mode is enabled
           if (finalUseAvatar && avatarId) {
             args.push('--avatar-id', avatarId)
-            // Only pass heygen-avatar-group-id for Siddharth Vora (if explicitly provided)
-            // Other avatars (Raj, Priya, etc.) use VEO with descriptions from mapping
+            // Siddharth Vora: optional heygen group id; voice comes from env or backend default
             if (avatarId === 'siddharth-vora') {
               const heygenGroupId = body.heygenAvatarGroupId
-              if (heygenGroupId) {
-                args.push('--heygen-avatar-group-id', heygenGroupId)
-              }
+              if (heygenGroupId) args.push('--heygen-avatar-group-id', heygenGroupId)
+              if (avatarVoiceId) args.push('--avatar-voice-id', avatarVoiceId)
             } else {
-              // For non-Siddharth avatars, pass voice ID for VEO
-              if (avatarVoiceId) {
-                args.push('--avatar-voice-id', avatarVoiceId)
-              }
+              // Other HeyGen avatars (Raj, Priya, etc.): pass voice from frontend mapping
+              if (avatarVoiceId) args.push('--avatar-voice-id', avatarVoiceId)
             }
           }
           if (finalUseAvatar && avatarScriptText) {

@@ -1278,16 +1278,42 @@ ${brandGuidance}`;
           console.log(`   📝 Script: ${scriptText.substring(0, 60)}...`);
         }
 
-        // Get HeyGen avatar and voice IDs from options or use defaults
-        const heygenAvatarId =
-          options.heygenAvatarId ||
-          (looksLikeHeyGenAvatarId(options.avatarId) ? options.avatarId : null) ||
-          process.env.HEYGEN_AVATAR_ID_SIDDHARTH;
+        // Avatar/voice resolution aligned with frontend (multiple HeyGen avatars + mapped voices)
+        // - Siddharth Vora (avatarId === 'siddharth-vora'): env or hardcoded Siddharth defaults
+        // - Other HeyGen avatars (32-char groupId from /api/avatars): use options.avatarId + options.avatarVoiceId, or resolve voice from mapping
+        const SIDDHARTH_AVATAR_ID = '9da4afb2c22441b5aab73369dda7f65d';
+        const SIDDHARTH_VOICE_ID = 'c8d184ef4d81484a97d70c94bb76fec3';
+        const isSiddharthVora = options.avatarId === 'siddharth-vora';
+        const isGroupIdAvatar = looksLikeHeyGenAvatarId(options.avatarId);
 
-        const heygenVoiceId =
-          options.heygenVoiceId ||
-          options.avatarVoiceId ||
-          process.env.HEYGEN_VOICE_ID_SIDDHARTH;
+        let heygenAvatarId;
+        let heygenVoiceId;
+
+        if (isSiddharthVora) {
+          heygenAvatarId =
+            options.heygenAvatarId ||
+            process.env.HEYGEN_AVATAR_ID_SIDDHARTH ||
+            process.env.HEYGEN_AVATAR_ID ||
+            SIDDHARTH_AVATAR_ID;
+          heygenVoiceId =
+            options.heygenVoiceId ||
+            options.avatarVoiceId ||
+            process.env.HEYGEN_VOICE_ID_SIDDHARTH ||
+            process.env.HEYGEN_VOICE_ID ||
+            SIDDHARTH_VOICE_ID;
+        } else if (isGroupIdAvatar) {
+          heygenAvatarId = options.heygenAvatarId || options.avatarId;
+          heygenVoiceId =
+            options.heygenVoiceId ||
+            options.avatarVoiceId ||
+            this._getVoiceIdFromAvatarMapping(options.avatarId);
+          if (!heygenVoiceId) {
+            throw new Error(`HeyGen voice not found for avatar ${options.avatarId}. Pass avatarVoiceId or add voiceId in config/heygen-native-voice-mapping.json`);
+          }
+        } else {
+          heygenAvatarId = options.heygenAvatarId || process.env.HEYGEN_AVATAR_ID_SIDDHARTH || process.env.HEYGEN_AVATAR_ID || SIDDHARTH_AVATAR_ID;
+          heygenVoiceId = options.heygenVoiceId || options.avatarVoiceId || process.env.HEYGEN_VOICE_ID_SIDDHARTH || process.env.HEYGEN_VOICE_ID || SIDDHARTH_VOICE_ID;
+        }
 
         if (!heygenAvatarId) {
           throw new Error('HeyGen avatar ID not configured. Set HEYGEN_AVATAR_ID_SIDDHARTH or pass heygenAvatarId');
@@ -2058,6 +2084,34 @@ Editing: jump cuts, zooms, whip transitions, whoosh SFX (no copyrighted music/ly
     }
 
     return scenePrompts;
+  }
+
+  /**
+   * Resolve HeyGen voiceId for a groupId from the same mapping the frontend uses
+   * (/api/avatars reads config/heygen-native-voice-mapping.json or avatar-voice-mapping.json)
+   * @private
+   * @param {string} groupId - HeyGen avatar group ID (32 hex chars)
+   * @returns {string|null} voiceId or null if not found
+   */
+  _getVoiceIdFromAvatarMapping(groupId) {
+    if (!groupId || typeof groupId !== 'string') return null;
+    const configPaths = [
+      path.join(this.projectRoot, 'backend', 'config', 'heygen-native-voice-mapping.json'),
+      path.join(this.projectRoot, 'config', 'heygen-native-voice-mapping.json'),
+      path.join(this.projectRoot, 'backend', 'config', 'avatar-voice-mapping.json')
+    ];
+    for (const configPath of configPaths) {
+      try {
+        if (fs.existsSync(configPath)) {
+          const raw = fs.readFileSync(configPath, 'utf8');
+          const mapping = JSON.parse(raw);
+          const entry = mapping[groupId] || (typeof mapping === 'object' && mapping.avatars ? mapping.avatars[groupId] : null);
+          const voiceId = entry?.voiceId || null;
+          if (voiceId) return voiceId;
+        }
+      } catch (_) { /* ignore */ }
+    }
+    return null;
   }
 
   /**
