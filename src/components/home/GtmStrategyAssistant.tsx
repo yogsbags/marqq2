@@ -313,11 +313,11 @@ export function GtmStrategyAssistant({ onDeployAgent }: GtmStrategyAssistantProp
               Reset
             </Button>
           </div>
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
               className="rounded-full"
               onClick={() => {
                 const seed = 'Create GTM strategy';
@@ -325,14 +325,14 @@ export function GtmStrategyAssistant({ onDeployAgent }: GtmStrategyAssistantProp
                 if (canStart) startPlanning(seed);
               }}
               disabled={!canStart}
-            >
-              Create GTM strategy
-            </Button>
-            <Badge variant="outline" className="rounded-full">
-              Model: gemini-3-flash-preview
-            </Badge>
-          </div>
-        </CardHeader>
+                >
+                  Create GTM strategy
+                </Button>
+                <Badge variant="outline" className="rounded-full">
+                  Model: {strategy?.model || plan?.model || 'gemini-3-flash-preview'}
+                </Badge>
+              </div>
+            </CardHeader>
 
         <CardContent className="space-y-4">
           <ScrollArea className="h-[360px] rounded-lg border p-4">
@@ -486,4 +486,3 @@ export function GtmStrategyAssistant({ onDeployAgent }: GtmStrategyAssistantProp
     </div>
   );
 }
-

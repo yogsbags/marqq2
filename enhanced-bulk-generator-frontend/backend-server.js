@@ -4085,6 +4085,33 @@ app.get('/api/health/social-media', (req, res) => {
 // GTM STRATEGY (GEMINI) ROUTES
 // ============================================================================
 
+async function gtmCallGeminiJsonWithFallback({ apiKey, models, prompt, temperature, maxOutputTokens }) {
+  const tried = [];
+  let lastError = null;
+
+  for (const model of models) {
+    if (!model) continue;
+    if (tried.includes(model)) continue;
+    tried.push(model);
+
+    try {
+      const raw = await callGeminiGenerateContentJson({
+        apiKey,
+        model,
+        prompt,
+        temperature,
+        maxOutputTokens
+      });
+      return { raw, modelUsed: model };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  const msg = lastError?.message ? String(lastError.message) : 'Unknown Gemini error';
+  throw new Error(`${msg} (models tried: ${tried.join(', ') || 'none'})`);
+}
+
 function gtmClampArray(value, maxLen) {
   if (!Array.isArray(value)) return [];
   return value.slice(0, maxLen);
@@ -4157,7 +4184,13 @@ app.post('/api/gtm/questions', async (req, res) => {
       return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
     }
 
-    const model = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
+    const preferredModel = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
+    const modelCandidates = [
+      preferredModel,
+      'gemini-3-pro-preview',
+      'gemini-2.5-flash',
+      'gemini-2.5-pro'
+    ];
     const allowedTypes = ['single_select', 'multi_select', 'free_text'];
 
     const userPrompt = `You are an expert Go-To-Market (GTM) strategist.
@@ -4187,9 +4220,9 @@ Return ONLY JSON with this schema:
   }>
 }`;
 
-    const raw = await callGeminiGenerateContentJson({
+    const { raw, modelUsed } = await gtmCallGeminiJsonWithFallback({
       apiKey: geminiKey,
-      model,
+      models: modelCandidates,
       prompt: userPrompt,
       temperature: 0.4,
       maxOutputTokens: 1200
@@ -4206,7 +4239,7 @@ Return ONLY JSON with this schema:
       return res.status(500).json({ error: 'Failed to generate a valid interview plan' });
     }
 
-    return res.json({ title, questions: normalizedQuestions });
+    return res.json({ title, questions: normalizedQuestions, model: modelUsed });
   } catch (error) {
     console.error('[GTM] Error generating questions:', error);
     return res.status(500).json({ error: error.message || 'Failed to generate questions' });
@@ -4250,7 +4283,12 @@ app.post('/api/gtm/strategy', async (req, res) => {
       return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
     }
 
-    const model = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
+    const preferredModel = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
+    const modelCandidates = [
+      preferredModel,
+      'gemini-3-pro-preview',
+      'gemini-2.5-pro'
+    ];
 
     const allowedAgentTargets = [
       'company_intel_icp',
@@ -4301,9 +4339,9 @@ Return ONLY JSON with this schema:
   "nextSteps": string[]
 }`;
 
-    const raw = await callGeminiGenerateContentJson({
+    const { raw, modelUsed } = await gtmCallGeminiJsonWithFallback({
       apiKey: geminiKey,
-      model,
+      models: modelCandidates,
       prompt: strategyPrompt,
       temperature: 0.45,
       maxOutputTokens: 2200
@@ -4336,7 +4374,8 @@ Return ONLY JSON with this schema:
       executiveSummary,
       assumptions,
       sections: coercedSections,
-      nextSteps
+      nextSteps,
+      model: modelUsed
     });
   } catch (error) {
     console.error('[GTM] Error generating strategy:', error);

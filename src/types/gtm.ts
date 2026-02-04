@@ -17,6 +17,7 @@ export interface GtmInterviewQuestion {
 export interface GtmInterviewPlan {
   title: string;
   questions: GtmInterviewQuestion[];
+  model?: string;
 }
 
 export type AgentTarget =
@@ -47,5 +48,5 @@ export interface GtmStrategyResponse {
   assumptions: string[];
   sections: GtmStrategySection[];
   nextSteps: string[];
+  model?: string;
 }
-
