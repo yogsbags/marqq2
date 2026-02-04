@@ -7,14 +7,15 @@ import {
   HiChat as Bot,
   HiCurrencyDollar as DollarSign,
   HiEye as Eye,
+  HiHome as Home,
   HiQuestionMarkCircle as HelpCircle,
-  HiHome as LayoutDashboard,
   HiPencil as PenTool,
   HiSearch as Search,
   HiCog as Settings,
   HiChartBar as Target,
   HiTrendingUp as TrendingUp,
   HiUsers as Users,
+  HiViewGrid as LayoutDashboard,
   HiVideoCamera as Video
 } from 'react-icons/hi';
 
@@ -56,6 +57,11 @@ const COMPANY_INTEL_SUBMENU = [
 ];
 
 const navigationItems = [
+  {
+    id: 'home',
+    title: 'Home',
+    icon: Home,
+  },
   {
     id: null,
     title: 'Dashboard',

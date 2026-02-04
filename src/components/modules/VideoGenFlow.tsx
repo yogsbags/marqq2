@@ -97,7 +97,7 @@ export function VideoGenFlow() {
       // Check if we need multi-stage generation for 30s
       if (duration === '30' && model !== 'omnihuman-1.5') {
         // Split audio if available
-        let audioSegments: string[] = [];
+        const audioSegments: string[] = [];
         if (audioUrl && audioBase64 && audioTimestamps.length > 0) {
           setProgress(5);
           const splitRes = await fetch('/api/video-gen/split-audio', {
@@ -493,4 +493,3 @@ export function VideoGenFlow() {
     </main>
   );
 }
-

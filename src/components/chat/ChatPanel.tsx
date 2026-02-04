@@ -129,7 +129,7 @@ function markdownToRichText(markdown: string): string {
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-orange-600 dark:text-orange-400 hover:underline">$1</a>');
 
   // Unordered lists (- item or * item)
-  html = html.replace(/^[\*\-\+]\s+(.+)$/gm, '<li class="ml-4 list-disc">$1</li>');
+  html = html.replace(/^[*+-]\s+(.+)$/gm, '<li class="ml-4 list-disc">$1</li>');
 
   // Ordered lists (1. item)
   html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="ml-4 list-decimal">$1</li>');

@@ -45,8 +45,8 @@ export async function executeWorkflow(options: {
       env: nodeEnv,
     });
 
-    let output: string[] = [];
-    let errorOutput: string[] = [];
+    const output: string[] = [];
+    const errorOutput: string[] = [];
 
     nodeProcess.stdout.on('data', (data: Buffer) => {
       output.push(data.toString());
@@ -69,4 +69,3 @@ export async function executeWorkflow(options: {
     });
   });
 }
-

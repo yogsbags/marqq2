@@ -4082,6 +4082,269 @@ app.get('/api/health/social-media', (req, res) => {
 });
 
 // ============================================================================
+// GTM STRATEGY (GEMINI) ROUTES
+// ============================================================================
+
+function gtmClampArray(value, maxLen) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, maxLen);
+}
+
+function gtmSafeString(value, fallback = '') {
+  if (typeof value === 'string') return value.trim();
+  return fallback;
+}
+
+function gtmSafeBool(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  return fallback;
+}
+
+function gtmNormalizeQuestion(raw, index) {
+  const id =
+    gtmSafeString(raw?.id) ||
+    `q${String(index + 1).padStart(2, '0')}`.replace(/[^a-z0-9_]/gi, '_');
+  const typeRaw = gtmSafeString(raw?.type);
+  const type =
+    typeRaw === 'single_select' || typeRaw === 'multi_select' || typeRaw === 'free_text'
+      ? typeRaw
+      : 'free_text';
+
+  const question = gtmSafeString(raw?.question);
+  if (!question) return null;
+
+  const helperText = gtmSafeString(raw?.helperText) || undefined;
+  const allowCustomAnswer = gtmSafeBool(raw?.allowCustomAnswer, true);
+
+  const optionsRaw = Array.isArray(raw?.options) ? raw.options : [];
+  const options =
+    type === 'free_text'
+      ? undefined
+      : gtmClampArray(optionsRaw, 12)
+          .map((o) => {
+            const value = gtmSafeString(o?.value);
+            const label = gtmSafeString(o?.label);
+            if (!value || !label) return null;
+            return {
+              value: value
+                .toLowerCase()
+                .replace(/[^a-z0-9_]+/g, '_')
+                .replace(/^_+|_+$/g, ''),
+              label
+            };
+          })
+          .filter(Boolean);
+
+  return {
+    id,
+    question,
+    ...(helperText ? { helperText } : {}),
+    type,
+    ...(options?.length ? { options } : {}),
+    allowCustomAnswer
+  };
+}
+
+app.post('/api/gtm/questions', async (req, res) => {
+  try {
+    const prompt = gtmSafeString(req.body?.prompt);
+    if (!prompt) {
+      return res.status(400).json({ error: 'prompt is required' });
+    }
+
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!geminiKey) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
+    }
+
+    const model = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
+    const allowedTypes = ['single_select', 'multi_select', 'free_text'];
+
+    const userPrompt = `You are an expert Go-To-Market (GTM) strategist.
+
+Task: Create a short interview plan (5 to 6 questions) to collect the MOST important information needed to produce a high-quality GTM strategy.
+
+User request: ${JSON.stringify(prompt)}
+
+Rules:
+- Ask exactly 6 questions if possible; otherwise 5.
+- Each question must be answerable quickly (1-2 mins).
+- Prefer SELECT questions with strong defaults; allow "Other / custom" for nuance.
+- Use these types only: ${allowedTypes.map((t) => `"${t}"`).join(', ')}
+- For select questions, provide 4-8 options.
+- Keep option values in snake_case.
+
+Return ONLY JSON with this schema:
+{
+  "title": string,
+  "questions": Array<{
+    "id": string,
+    "question": string,
+    "helperText"?: string,
+    "type": "single_select" | "multi_select" | "free_text",
+    "options"?: Array<{ "value": string, "label": string }>,
+    "allowCustomAnswer"?: boolean
+  }>
+}`;
+
+    const raw = await callGeminiGenerateContentJson({
+      apiKey: geminiKey,
+      model,
+      prompt: userPrompt,
+      temperature: 0.4,
+      maxOutputTokens: 1200
+    });
+
+    const parsed = extractJsonFromText(raw);
+    const title = gtmSafeString(parsed?.title, prompt || 'GTM Interview');
+    const questionsRaw = Array.isArray(parsed?.questions) ? parsed.questions : [];
+    const normalizedQuestions = gtmClampArray(questionsRaw, 6)
+      .map((q, idx) => gtmNormalizeQuestion(q, idx))
+      .filter(Boolean);
+
+    if (normalizedQuestions.length < 5) {
+      return res.status(500).json({ error: 'Failed to generate a valid interview plan' });
+    }
+
+    return res.json({ title, questions: normalizedQuestions });
+  } catch (error) {
+    console.error('[GTM] Error generating questions:', error);
+    return res.status(500).json({ error: error.message || 'Failed to generate questions' });
+  }
+});
+
+function gtmNormalizeStrategySection(raw, idx) {
+  const id = gtmSafeString(raw?.id) || `section_${idx + 1}`;
+  const title = gtmSafeString(raw?.title);
+  const summary = gtmSafeString(raw?.summary);
+  const bulletsRaw = Array.isArray(raw?.bullets) ? raw.bullets : [];
+  const bullets = gtmClampArray(bulletsRaw, 12).map((b) => gtmSafeString(b)).filter(Boolean);
+  const recommendedAgentTarget = gtmSafeString(raw?.recommendedAgentTarget);
+  const deployLabel = gtmSafeString(raw?.deployLabel) || undefined;
+
+  if (!title || !summary || !bullets.length || !recommendedAgentTarget) return null;
+
+  return {
+    id,
+    title,
+    summary,
+    bullets,
+    recommendedAgentTarget,
+    ...(deployLabel ? { deployLabel } : {})
+  };
+}
+
+app.post('/api/gtm/strategy', async (req, res) => {
+  try {
+    const prompt = gtmSafeString(req.body?.prompt);
+    const answers =
+      req.body?.answers && typeof req.body.answers === 'object' && !Array.isArray(req.body.answers)
+        ? req.body.answers
+        : null;
+
+    if (!prompt) return res.status(400).json({ error: 'prompt is required' });
+    if (!answers) return res.status(400).json({ error: 'answers is required' });
+
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!geminiKey) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
+    }
+
+    const model = process.env.GEMINI_TEXT_MODEL || 'gemini-3-flash-preview';
+
+    const allowedAgentTargets = [
+      'company_intel_icp',
+      'company_intel_competitors',
+      'company_intel_marketing_strategy',
+      'company_intel_content_strategy',
+      'company_intel_channel_strategy',
+      'company_intel_social_calendar',
+      'company_intel_lead_magnets',
+      'lead_intelligence',
+      'budget_optimization',
+      'performance_scorecard',
+      'user_engagement'
+    ];
+
+    const strategyPrompt = `You are a senior Go-To-Market (GTM) strategist.
+Write a clear, actionable GTM strategy based on the user's request and their interview answers.
+
+User request: ${JSON.stringify(prompt)}
+Interview answers (JSON): ${JSON.stringify(answers)}
+
+Hard requirements:
+- Output MUST be JSON only, matching the schema below.
+- Use these pre-defined section themes (at least 6 sections total):
+  1) ICP & segmentation
+  2) Positioning & messaging
+  3) Channel strategy
+  4) Content strategy
+  5) Lead capture / sales motion (incl. lead magnets)
+  6) Budget + KPI scorecard
+  7) Launch plan + lifecycle / retention (optional if needed)
+- Each section must include a recommendedAgentTarget from this allowed list:
+  ${allowedAgentTargets.map((t) => `"${t}"`).join(', ')}
+
+Return ONLY JSON with this schema:
+{
+  "title": string,
+  "executiveSummary": string,
+  "assumptions": string[],
+  "sections": Array<{
+    "id": string,
+    "title": string,
+    "summary": string,
+    "bullets": string[],
+    "recommendedAgentTarget": string,
+    "deployLabel"?: string
+  }>,
+  "nextSteps": string[]
+}`;
+
+    const raw = await callGeminiGenerateContentJson({
+      apiKey: geminiKey,
+      model,
+      prompt: strategyPrompt,
+      temperature: 0.45,
+      maxOutputTokens: 2200
+    });
+
+    const parsed = extractJsonFromText(raw);
+    const title = gtmSafeString(parsed?.title, 'GTM Strategy');
+    const executiveSummary = gtmSafeString(parsed?.executiveSummary);
+    const assumptions = gtmClampArray(parsed?.assumptions, 12).map((a) => gtmSafeString(a)).filter(Boolean);
+    const nextSteps = gtmClampArray(parsed?.nextSteps, 12).map((n) => gtmSafeString(n)).filter(Boolean);
+    const sectionsRaw = Array.isArray(parsed?.sections) ? parsed.sections : [];
+    const sections = gtmClampArray(sectionsRaw, 12)
+      .map((s, idx) => gtmNormalizeStrategySection(s, idx))
+      .filter(Boolean);
+
+    if (!executiveSummary || sections.length < 5) {
+      return res.status(500).json({ error: 'Failed to generate a valid GTM strategy' });
+    }
+
+    const allowedSet = new Set(allowedAgentTargets);
+    const coercedSections = sections.map((s) => ({
+      ...s,
+      recommendedAgentTarget: allowedSet.has(s.recommendedAgentTarget)
+        ? s.recommendedAgentTarget
+        : 'company_intel_marketing_strategy'
+    }));
+
+    return res.json({
+      title,
+      executiveSummary,
+      assumptions,
+      sections: coercedSections,
+      nextSteps
+    });
+  } catch (error) {
+    console.error('[GTM] Error generating strategy:', error);
+    return res.status(500).json({ error: error.message || 'Failed to generate strategy' });
+  }
+});
+
+// ============================================================================
 // VIDEO-GEN API ROUTES
 // ============================================================================
 

@@ -9,12 +9,17 @@ import { DashboardContent } from '@/components/dashboard/DashboardContent';
 import { ModuleDetail } from '@/components/modules/ModuleDetail';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { HelpPanel } from '@/components/help/HelpPanel';
+import { HomePanel } from '@/components/home/HomePanel';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { dashboardData } from '@/data/dashboardData';
 import './App.css';
 
 // Update document title based on current view
 function updateDocumentTitle(selectedModule: string | null) {
+  if (selectedModule === 'home') {
+    document.title = 'Home - Torqq AI';
+    return;
+  }
   if (selectedModule === 'settings') {
     document.title = 'Settings - Torqq AI';
   } else if (selectedModule === 'help') {
@@ -73,6 +78,10 @@ function Dashboard() {
     : null;
 
   const renderContent = () => {
+    if (selectedModule === 'home') {
+      return <HomePanel onModuleSelect={handleModuleSelect} />;
+    }
+
     if (selectedModule === 'settings') {
       return <SettingsPanel />;
     }
