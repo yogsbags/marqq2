@@ -38,7 +38,11 @@ for (const envPath of envPaths) {
 }
 
 const app = express();
-const PORT = Number(process.env.PORT || process.env.BACKEND_PORT || 3008);
+// IMPORTANT:
+// - On Railway, the main frontend server (server.js) listens on process.env.PORT
+// - If this backend also binds to process.env.PORT, it will conflict and crash (EADDRINUSE)
+// - Therefore we ONLY respect BACKEND_PORT here, and default to 3008 for local dev
+const PORT = Number(process.env.BACKEND_PORT || 3008);
 
 // Middleware
 app.use(cors());

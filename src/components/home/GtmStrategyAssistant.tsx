@@ -1,4 +1,3 @@
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -367,7 +366,7 @@ export function GtmStrategyAssistant({ onDeployAgent, onOpenWorkflow }: GtmStrat
             <div className="space-y-1">
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-orange-600" />
-                GTM Strategy Chat
+                Marketing Strategist
               </CardTitle>
               <CardDescription>
                 Ask for a GTM strategy. I’ll run a short interview, then produce an executable plan with deployable agents.
@@ -394,9 +393,6 @@ export function GtmStrategyAssistant({ onDeployAgent, onOpenWorkflow }: GtmStrat
                 >
                   Create GTM strategy
                 </Button>
-                <Badge variant="outline" className="rounded-full">
-                  Model: {strategy?.model || plan?.model || 'gemini'}
-                </Badge>
               </div>
             </CardHeader>
 
