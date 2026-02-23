@@ -5,11 +5,10 @@ import { Toaster } from '@/components/ui/sonner';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { DashboardContent } from '@/components/dashboard/DashboardContent';
 import { ModuleDetail } from '@/components/modules/ModuleDetail';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { HelpPanel } from '@/components/help/HelpPanel';
-import { HomePanel } from '@/components/home/HomePanel';
+import { ChatHome } from '@/components/chat/ChatHome';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { dashboardData } from '@/data/dashboardData';
 import type { Conversation } from '@/types/chat';
@@ -50,11 +49,34 @@ function AuthScreen() {
 function Dashboard() {
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [autoStartModule, setAutoStartModule] = useState(false);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    try {
+      const raw = localStorage.getItem('torqq_conversations');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return parsed.map((c: { id: string; name: string; createdAt: string; lastMessageAt: string; messages: Array<{ id: string; content: string; sender: 'user' | 'ai'; timestamp: string }> }) => ({
+        ...c,
+        createdAt: new Date(c.createdAt),
+        lastMessageAt: new Date(c.lastMessageAt),
+        messages: c.messages.map(m => ({ ...m, timestamp: new Date(m.timestamp) })),
+      }));
+    } catch { return []; }
+  });
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
-  // Suppress unused-variable warning until Task 8 wires these fully
-  void setConversations;
+  const handleConversationsChange = () => {
+    try {
+      const raw = localStorage.getItem('torqq_conversations');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      setConversations(parsed.map((c: { id: string; name: string; createdAt: string; lastMessageAt: string; messages: Array<{ id: string; content: string; sender: 'user' | 'ai'; timestamp: string }> }) => ({
+        ...c,
+        createdAt: new Date(c.createdAt),
+        lastMessageAt: new Date(c.lastMessageAt),
+        messages: c.messages.map(m => ({ ...m, timestamp: new Date(m.timestamp) })),
+      })));
+    } catch { /* ignore */ }
+  };
 
   const handleModuleSelect = (moduleId: string | null) => {
     setSelectedModule(moduleId);
@@ -84,29 +106,37 @@ function Dashboard() {
     : null;
 
   const renderContent = () => {
-    if (selectedModule === 'home') {
-      return <HomePanel onModuleSelect={handleModuleSelect} />;
+    // Home and default both show ChatHome
+    if (!selectedModule || selectedModule === 'home') {
+      return (
+        <ChatHome
+          onModuleSelect={handleModuleSelect}
+          activeConversationId={activeConversationId}
+          onConversationsChange={handleConversationsChange}
+        />
+      );
     }
 
-    if (selectedModule === 'settings') {
-      return <SettingsPanel />;
-    }
-    
-    if (selectedModule === 'help') {
-      return <HelpPanel />;
-    }
-    
+    if (selectedModule === 'settings') return <SettingsPanel />;
+    if (selectedModule === 'help') return <HelpPanel />;
+
     if (currentModule) {
       return (
-        <ModuleDetail 
-          module={currentModule} 
-          onBack={() => setSelectedModule(null)} 
+        <ModuleDetail
+          module={currentModule}
+          onBack={() => setSelectedModule(null)}
           autoStart={autoStartModule}
         />
       );
     }
-    
-    return <DashboardContent onViewDetails={handleModuleSelect} />;
+
+    // Fallback
+    return (
+      <ChatHome
+        onModuleSelect={handleModuleSelect}
+        onConversationsChange={handleConversationsChange}
+      />
+    );
   };
 
   return (
@@ -115,7 +145,10 @@ function Dashboard() {
       onModuleSelect={handleModuleSelect}
       conversations={conversations}
       activeConversationId={activeConversationId}
-      onConversationSelect={setActiveConversationId}
+      onConversationSelect={(id) => {
+          setActiveConversationId(id);
+          setSelectedModule('home');
+        }}
     >
       {renderContent()}
     </MainLayout>
