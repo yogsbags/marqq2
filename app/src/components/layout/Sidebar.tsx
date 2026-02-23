@@ -194,15 +194,16 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
             const isSelected = selectedModule === item.id;
 
             if (item.id === 'home') {
+              const isHomeActive = !selectedModule || selectedModule === 'home';
               return (
                 <div key="home" className="space-y-1">
                   <div className={cn("flex items-center", !collapsed && "gap-1")}>
                     <Button
-                      variant={isSelected ? "default" : "ghost"}
+                      variant={isHomeActive ? "default" : "ghost"}
                       className={cn(
                         "flex-1 justify-start transition-all duration-200 hover:scale-[1.02]",
                         collapsed ? "px-2" : "px-3 py-2.5",
-                        isSelected
+                        isHomeActive
                           ? "bg-orange-500 text-white hover:bg-orange-600"
                           : "bg-transparent text-gray-700 hover:bg-orange-50 hover:text-orange-700 dark:text-gray-300 dark:hover:bg-orange-900/20 dark:hover:text-orange-400 focus:outline-none focus:ring-0"
                       )}

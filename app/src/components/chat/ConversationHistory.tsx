@@ -30,7 +30,10 @@ export function ConversationHistory({ conversations, activeId, onSelect }: Conve
 
   return (
     <div className="ml-6 space-y-0.5">
-      {conversations.slice(0, 10).map(conv => (
+      {[...conversations]
+        .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
+        .slice(0, 10)
+        .map(conv => (
         <button
           key={conv.id}
           onClick={() => onSelect(conv.id)}

@@ -178,6 +178,7 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredCommands, setFilteredCommands] = useState(SLASH_COMMANDS);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showCSVAnalysis, setShowCSVAnalysis] = useState(false);
@@ -248,6 +249,16 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setFilePreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(selectedFile);
+    setFilePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedFile]);
 
   // -- New conversation
 
@@ -584,7 +595,7 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => onMessagesChange(initialMessages)}
+              onClick={handleNewConversation}
               className="text-xs h-7 text-gray-400"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -728,7 +739,7 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
                   </div>
                   {selectedFile.type.includes('image') && (
                     <img
-                      src={URL.createObjectURL(selectedFile)}
+                      src={filePreviewUrl ?? ''}
                       alt={selectedFile.name}
                       className="w-10 h-10 object-cover rounded"
                     />
@@ -768,7 +779,7 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
             <Input
               value={inputValue}
               onChange={(e) => handleInputChange(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyPress}
               placeholder={selectedFile ? 'Add a message (optional)...' : 'Ask me anything or use /commands...'}
               className="flex-1"
               disabled={isTyping}
