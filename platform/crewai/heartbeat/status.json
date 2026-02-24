@@ -1,0 +1,11 @@
+{
+  "updated_at": null,
+  "agents": {
+    "zara":  { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "09:15 IST daily" },
+    "maya":  { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "06:00 IST daily" },
+    "arjun": { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "07:00 IST daily" },
+    "priya": { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "08:00 IST daily" },
+    "riya":  { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "08:00 IST Mon/Wed/Fri" },
+    "dev":   { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "09:00 IST Monday" }
+  }
+}
