@@ -1,23 +1,30 @@
-import { useState, useEffect } from 'react';
-import { AuthProvider, useAuth } from '@/contexts/AuthContext';
-import { ThemeProvider } from '@/contexts/ThemeContext';
-import { Toaster } from '@/components/ui/sonner';
+import { AgentDashboard } from '@/components/agents/AgentDashboard';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
+import { ChatHome } from '@/components/chat/ChatHome';
+import { HelpPanel } from '@/components/help/HelpPanel';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ModuleDetail } from '@/components/modules/ModuleDetail';
+import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
-import { HelpPanel } from '@/components/help/HelpPanel';
-import { ChatHome } from '@/components/chat/ChatHome';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Toaster } from '@/components/ui/sonner';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
+import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
 import { dashboardData } from '@/data/dashboardData';
 import type { Conversation } from '@/types/chat';
+import { useEffect, useState } from 'react';
 import './App.css';
 
 // Update document title based on current view
 function updateDocumentTitle(selectedModule: string | null) {
   if (selectedModule === 'home') {
     document.title = 'Home - Torqq AI';
+    return;
+  }
+  if (selectedModule === 'dashboard') {
+    document.title = 'AI Team Dashboard - Torqq AI';
     return;
   }
   if (selectedModule === 'settings') {
@@ -37,11 +44,11 @@ function AuthScreen() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-blue-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-center justify-center p-4">
-        {isSignup ? (
-          <SignupForm onToggleMode={() => setIsSignup(false)} />
-        ) : (
-          <LoginForm onToggleMode={() => setIsSignup(true)} />
-        )}
+      {isSignup ? (
+        <SignupForm onToggleMode={() => setIsSignup(false)} />
+      ) : (
+        <LoginForm onToggleMode={() => setIsSignup(true)} />
+      )}
     </div>
   );
 }
@@ -101,7 +108,7 @@ function Dashboard() {
     updateDocumentTitle(selectedModule);
   }, [selectedModule]);
 
-  const currentModule = selectedModule 
+  const currentModule = selectedModule
     ? dashboardData.modules.find(m => m.id === selectedModule)
     : null;
 
@@ -119,6 +126,7 @@ function Dashboard() {
 
     if (selectedModule === 'settings') return <SettingsPanel />;
     if (selectedModule === 'help') return <HelpPanel />;
+    if (selectedModule === 'dashboard') return <AgentDashboard />;
 
     if (currentModule) {
       return (
@@ -146,9 +154,9 @@ function Dashboard() {
       conversations={conversations}
       activeConversationId={activeConversationId}
       onConversationSelect={(id) => {
-          setActiveConversationId(id);
-          setSelectedModule('home');
-        }}
+        setActiveConversationId(id);
+        setSelectedModule('home');
+      }}
     >
       {renderContent()}
     </MainLayout>
@@ -157,6 +165,7 @@ function Dashboard() {
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
+  const [isOnboarded, setIsOnboarded] = useState(() => localStorage.getItem('torqq_onboarded') === '1');
 
   if (isLoading) {
     return (
@@ -169,6 +178,10 @@ function AppContent() {
     );
   }
 
+  if (isAuthenticated && !isOnboarded) {
+    return <OnboardingFlow onComplete={() => setIsOnboarded(true)} />;
+  }
+
   return isAuthenticated ? <Dashboard /> : <AuthScreen />;
 }
 
@@ -176,8 +189,10 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AppContent />
-        <Toaster richColors position="top-right" />
+        <WorkspaceProvider>
+          <AppContent />
+          <Toaster richColors position="top-right" />
+        </WorkspaceProvider>
       </AuthProvider>
     </ThemeProvider>
   );
