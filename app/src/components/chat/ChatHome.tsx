@@ -25,6 +25,7 @@ import type { Message, Conversation } from '@/types/chat';
 import { addAiTask, extractActionItems } from '@/lib/taskStore';
 import { markdownToRichText } from '@/lib/markdown';
 import { GTMWizard } from '@/components/gtm/GTMWizard';
+import { GettingStartedChecklist } from '@/components/dashboard/GettingStartedChecklist';
 
 // -- localStorage helpers
 
@@ -687,6 +688,9 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
             </Button>
           </div>
         </div>
+
+        {/* Onboarding checklist */}
+        <GettingStartedChecklist onNavigate={(id) => onModuleSelect?.(id)} />
 
         {/* Messages */}
         <ScrollArea className="flex-1 px-4 py-4">
