@@ -44,10 +44,7 @@ export function MainLayout({
         "flex-1 flex flex-col overflow-hidden transition-all duration-300",
         sidebarCollapsed ? "ml-16" : "ml-72"
       )}>
-        {/* Hide header on home/chat view to give full height to chat */}
-        {!isHomeView && (
-          <DashboardHeader selectedModule={selectedModule} onModuleSelect={onModuleSelect} />
-        )}
+        <DashboardHeader selectedModule={selectedModule} onModuleSelect={onModuleSelect} />
 
         <main className={cn(
           "flex-1 overflow-auto transition-all duration-300",
