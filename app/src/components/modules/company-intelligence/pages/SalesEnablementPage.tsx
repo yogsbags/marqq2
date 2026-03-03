@@ -4,11 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Sparkles, Plus, Trash2, Copy, Download } from 'lucide-react';
+import { BarChart3, Loader2, Sparkles, Plus, Trash2, Copy, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useGtmContext } from '@/lib/gtmContext';
 import { GtmContextBanner } from '@/components/ui/gtm-context-banner';
 import { saveSalesEnablement, loadSalesEnablement, createAutoSave } from '@/lib/persistence';
+import type { ArtifactRecord } from '../api';
 
 interface Battlecard {
   id: string;
@@ -39,7 +40,11 @@ interface PricingGuidance {
   competitivePositioning: string;
 }
 
-export function SalesEnablementPage() {
+interface Props {
+  artifact?: ArtifactRecord | null;
+}
+
+export function SalesEnablementPage({ artifact }: Props = {}) {
   const { toast } = useToast();
   const { context: gtmCtx, dismiss: dismissGtm } = useGtmContext('company_intel_sales_enablement');
 
@@ -77,29 +82,91 @@ export function SalesEnablementPage() {
     []
   );
 
-  // Load saved data on mount
+  // Load saved data on mount; fall back to AI artifact if no saved data
   useEffect(() => {
     loadSalesEnablement()
       .then(data => {
-        if (data) {
-          setBattlecards(data.battlecards || []);
-          setDemoScripts(data.demoScripts || { '5min': '', '15min': '', '30min': '' });
-          setObjectionHandlers(data.objectionHandlers || []);
-          setPricingGuidance(data.pricingGuidance || {
+        const hasSavedContent = !!(
+          (data?.battlecards?.length ?? 0) > 0 ||
+          (data?.objectionHandlers?.length ?? 0) > 0 ||
+          data?.demoScripts?.['5min']?.trim() ||
+          data?.demoScripts?.['15min']?.trim() ||
+          data?.demoScripts?.['30min']?.trim() ||
+          data?.pricingGuidance?.tierRecommendations?.trim()
+        );
+        if (hasSavedContent) {
+          setBattlecards(data!.battlecards || []);
+          setDemoScripts(data!.demoScripts || { '5min': '', '15min': '', '30min': '' });
+          setObjectionHandlers(data!.objectionHandlers || []);
+          setPricingGuidance(data!.pricingGuidance || {
             tierRecommendations: '',
             discountStrategy: '',
             valueJustification: '',
             competitivePositioning: '',
           });
+        } else if (artifact?.data) {
+          // No saved data — seed from AI-generated artifact
+          const d = artifact.data as {
+            battlecards?: Array<{ competitor?: string; strengths?: string[]; weaknesses?: string[]; differentiators?: string[]; objectionHandlers?: Array<{ objection: string; response: string }> }>;
+            demoScripts?: { '5min'?: string; '15min'?: string; '30min'?: string };
+            objectionHandlers?: Array<{ category?: string; objection?: string; response?: string; supportingData?: string }>;
+            pricingGuidance?: { tierRecommendations?: string; discountStrategy?: string; valueJustification?: string; competitivePositioning?: string };
+          };
+          if (d.battlecards?.length) {
+            setBattlecards(
+              d.battlecards.map((b, i) => ({
+                id: `battlecard-${i}-${Date.now()}`,
+                competitor: b.competitor || '',
+                strengths: b.strengths || [],
+                weaknesses: b.weaknesses || [],
+                differentiators: b.differentiators || [],
+                objectionHandlers: b.objectionHandlers || [],
+              }))
+            );
+          }
+          if (d.demoScripts) {
+            setDemoScripts({
+              '5min': d.demoScripts['5min'] || '',
+              '15min': d.demoScripts['15min'] || '',
+              '30min': d.demoScripts['30min'] || '',
+            });
+          }
+          if (d.objectionHandlers?.length) {
+            setObjectionHandlers(
+              d.objectionHandlers.map((o, i) => ({
+                id: `objection-${i}-${Date.now()}`,
+                category: o.category || '',
+                objection: o.objection || '',
+                response: o.response || '',
+                supportingData: o.supportingData || '',
+              }))
+            );
+          }
+          if (d.pricingGuidance) {
+            setPricingGuidance({
+              tierRecommendations: d.pricingGuidance.tierRecommendations || '',
+              discountStrategy: d.pricingGuidance.discountStrategy || '',
+              valueJustification: d.pricingGuidance.valueJustification || '',
+              competitivePositioning: d.pricingGuidance.competitivePositioning || '',
+            });
+          }
         }
       })
       .catch(err => {
         console.error('Failed to load sales enablement data:', err);
       });
-  }, []);
+  }, [artifact]);
 
-  // Auto-save on state changes
+  // Auto-save on state changes — skip if nothing to save yet
   useEffect(() => {
+    const hasContent =
+      battlecards.length > 0 ||
+      objectionHandlers.length > 0 ||
+      demoScripts['5min'].trim() ||
+      demoScripts['15min'].trim() ||
+      demoScripts['30min'].trim() ||
+      pricingGuidance.tierRecommendations.trim();
+    if (!hasContent) return;
     autoSave({
       battlecards,
       demoScripts,
@@ -146,7 +213,7 @@ export function SalesEnablementPage() {
       setLastVerified(data.verifiedAt);
 
       toast({
-        title: 'Live Competitive Intel Retrieved ✓',
+        title: 'Live Competitive Intel Retrieved',
         description: `Battlecard for ${data.battlecard.competitor} created with current market data`,
       });
     } catch (error) {
@@ -366,7 +433,7 @@ export function SalesEnablementPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Sales Enablement</h2>
+          <h2 className="text-2xl font-bold text-foreground">Sales Enablement</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Equip your sales team with battlecards, demo scripts, objection handlers, and pricing guidance
           </p>
@@ -484,7 +551,7 @@ export function SalesEnablementPage() {
                       <h4 className="font-semibold text-sm mb-2">Objection Handlers</h4>
                       <div className="space-y-2">
                         {battlecard.objectionHandlers.map((oh, i) => (
-                          <div key={i} className="bg-gray-50 dark:bg-gray-800 p-3 rounded">
+                          <div key={i} className="bg-muted p-3 rounded">
                             <p className="text-sm font-medium">{oh.objection}</p>
                             <p className="text-sm text-muted-foreground mt-1">{oh.response}</p>
                           </div>
@@ -496,7 +563,7 @@ export function SalesEnablementPage() {
                     {(battlecard as any).customerSentiment && (
                       <div>
                         <h4 className="font-semibold text-sm mb-2 text-purple-600">Customer Sentiment</h4>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">
+                        <p className="text-sm text-muted-foreground">
                           {(battlecard as any).customerSentiment}
                         </p>
                       </div>
@@ -515,7 +582,7 @@ export function SalesEnablementPage() {
 
                     {(battlecard as any).sourceUrls && Array.isArray((battlecard as any).sourceUrls) && (battlecard as any).sourceUrls.length > 0 && (
                       <div>
-                        <h4 className="font-semibold text-sm mb-2 text-gray-600">Sources Verified</h4>
+                        <h4 className="font-semibold text-sm mb-2 text-muted-foreground">Sources Verified</h4>
                         <div className="flex flex-wrap gap-2">
                           {(battlecard as any).sourceUrls.map((url: string, i: number) => (
                             <a
@@ -639,7 +706,7 @@ export function SalesEnablementPage() {
           </Button>
 
           {/* Manual Add */}
-          <div className="grid grid-cols-2 gap-3 mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded">
+          <div className="grid grid-cols-2 gap-3 mt-4 p-4 bg-muted rounded">
             <Input
               placeholder="Category (e.g., Pricing, Implementation)"
               value={newObjection.category}
@@ -683,8 +750,8 @@ export function SalesEnablementPage() {
                         <p className="font-semibold text-sm mb-2">{handler.objection}</p>
                         <p className="text-sm text-muted-foreground mb-2">{handler.response}</p>
                         {handler.supportingData && (
-                          <p className="text-xs text-blue-600 dark:text-blue-400">
-                            📊 {handler.supportingData}
+                          <p className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                            <BarChart3 className="h-3 w-3 flex-shrink-0" /> {handler.supportingData}
                           </p>
                         )}
                       </div>

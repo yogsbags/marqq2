@@ -1,0 +1,360 @@
+storyboard_task:
+  description: >
+    Create detailed video storyboard from script.
+
+    Script: {script}
+    Video duration: {video_duration} seconds
+    Video style: {video_style}
+    Target platform: {platform}
+
+    Design a scene-by-scene visual narrative:
+
+    1. Scene breakdown:
+       - Divide script into 8-second segments (Veo 3.1 optimal length)
+       - For {video_duration}s video, create {num_scenes} scenes
+       - Each scene should have clear beginning, middle, end
+       - Ensure smooth narrative flow between scenes
+
+    2. For each scene define:
+       - Scene number and timestamp (e.g., Scene 1: 0:00-0:08)
+       - Visual description: Detailed prompt for AI video generation
+       - Camera work: Angle, movement, framing (wide, medium, close-up)
+       - Lighting: Mood and style (bright, dramatic, soft, natural)
+       - Color palette: Dominant colors and brand alignment
+       - Subject/focus: Main visual element or action
+       - Background: Setting, environment, context
+       - Motion: What's moving, how fast, direction
+       - Transitions: How scene connects to next (cut, fade, zoom)
+
+    3. B-roll requirements:
+       - Identify supporting footage needed
+       - Product shots, demonstrations, examples
+       - Visual metaphors and illustrations
+       - Data visualizations or charts
+
+    4. Text overlay plan:
+       - Caption text for each scene
+       - Placement (top, bottom, center)
+       - Timing and duration
+       - Font style matching brand
+
+    5. Continuity notes:
+       - Visual elements that carry across scenes
+       - Color/style consistency requirements
+       - Branding elements (logo, colors, fonts)
+
+    Storyboard format:
+    ```json
+    {
+      "total_duration": 60,
+      "num_scenes": 8,
+      "style": "professional",
+      "scenes": [
+        {
+          "scene_number": 1,
+          "timestamp": "0:00-0:08",
+          "duration": 8,
+          "visual_prompt": "Detailed AI generation prompt",
+          "camera": "Medium shot, slight push-in",
+          "lighting": "Bright, professional office lighting",
+          "color_palette": ["#003366", "#FFFFFF", "#F0F0F0"],
+          "subject": "Professional presenter at desk",
+          "background": "Modern office with plants",
+          "motion": "Presenter gesturing naturally",
+          "transition_out": "Fade to next scene",
+          "captions": "Transform your marketing with AI",
+          "b_roll_notes": "Office environment establishing shot"
+        }
+      ]
+    }
+    ```
+
+    Return complete storyboard with all scenes and production notes.
+  expected_output: >
+    Detailed video storyboard with scene-by-scene visual descriptions, camera work,
+    timing, transitions, and production notes in JSON format
+  agent: storyboard_agent
+  output_json: true
+
+veo_generation_task:
+  description: >
+    Generate video clips using Google Veo 3.1 scene extension technique.
+
+    Storyboard: {storyboard}
+    Total duration: {video_duration} seconds
+    Quality: High (1080p minimum)
+
+    Execute Veo 3.1 scene extension workflow:
+
+    1. Scene preparation:
+       - Extract scene prompts from storyboard
+       - Total scenes: {num_scenes} (each 8 seconds)
+       - Prepare continuation prompts for chaining
+
+    2. Base clip generation (Scene 1):
+       - Prompt: First scene visual description from storyboard
+       - Duration: 8 seconds
+       - Quality: 1080p or 4K
+       - Aspect ratio: 16:9 (default) or platform-specific
+       - Return: video_url_1 and video_object_1
+
+    3. Scene extension (Scenes 2-N):
+       For each subsequent scene:
+       - Prompt: Next scene description + "Continue from previous scene"
+       - Previous clip: video_object_{n-1} (for continuity)
+       - Duration: 8 seconds
+       - Quality: Match base clip
+       - Return: video_url_n and video_object_n
+
+    4. Chaining example for 60-second video:
+       ```python
+       clips = []
+       previous_obj = None
+
+       for scene in storyboard.scenes:
+           clip = generate_veo_clip(
+               prompt=scene.visual_prompt,
+               previous_clip=previous_obj,
+               duration=8,
+               quality="1080p"
+           )
+           clips.append(clip.url)
+           previous_obj = clip.video_object
+
+           await sleep(500)  # Rate limit protection
+       ```
+
+    5. Quality checks:
+       - Visual continuity: Smooth transitions between clips
+       - Motion quality: Natural, realistic movement
+       - Resolution: Consistent across all clips
+       - Timing: Exact 8 seconds per clip
+
+    6. Fallback handling:
+       If Veo 3.1 fails or rate limited:
+       - Try Fal AI (faster, cost-effective)
+       - Try Replicate (stable diffusion models)
+       - Log fallback usage for cost tracking
+
+    7. Clip aggregation:
+       - Collect all clip URLs
+       - Verify clip count matches storyboard scenes
+       - Prepare for concatenation or compositing
+
+    Return all generated clip URLs with metadata and generation notes.
+  expected_output: >
+    Generated video clips with URLs, metadata, quality metrics, and any fallback
+    notes in JSON format
+  agent: veo_generator
+  output_json: true
+
+avatar_generation_task:
+  description: >
+    Generate AI spokesperson video using HeyGen avatars.
+
+    Script: {script}
+    Avatar style: {avatar_style}
+    Voice preference: {voice_preference}
+    Duration: {video_duration} seconds
+
+    Execute HeyGen avatar generation:
+
+    1. Avatar selection:
+       - Professional: Business formal, corporate setting
+       - Casual: Friendly, approachable, conversational
+       - Expert: Authoritative, knowledgeable, trustworthy
+       - Custom: Upload photo for personalized avatar
+
+    2. Voice configuration:
+       Indian voices available:
+       - Female Professional: Clear, articulate, business tone
+       - Male Professional: Authoritative, confident, engaging
+       - Female Casual: Friendly, warm, conversational
+       - Male Casual: Approachable, enthusiastic, relatable
+
+       Voice providers:
+       - Cartesia: Natural Indian accents, low latency (preferred)
+       - HeyGen native: Built-in avatar voices
+       - OpenAI TTS: Fallback option
+
+    3. Script formatting:
+       - Break long scripts into natural pauses
+       - Add emphasis markers for key words
+       - Include pronunciation guides for technical terms
+       - Format: "Welcome to [PAUSE] our platform. [EMPHASIS:Transform] your marketing."
+
+    4. Video generation:
+       ```json
+       {
+         "avatar_id": "heygen_professional_female",
+         "voice_id": "cartesia_indian_female_professional",
+         "script": "Formatted script text",
+         "duration": 60,
+         "background": "office" | "studio" | "transparent",
+         "camera_angle": "medium_shot" | "close_up"
+       }
+       ```
+
+    5. Quality verification:
+       - Lip sync accuracy: Mouth movements match words
+       - Facial expressions: Natural, appropriate to content
+       - Eye contact: Engaging, natural gaze
+       - Gestures: Appropriate hand movements
+       - Audio quality: Clear, well-paced, no artifacts
+
+    6. Integration options:
+       - Standalone: Avatar-only video (talking head)
+       - Picture-in-picture: Avatar overlaid on B-roll (20-30% screen size)
+       - Split screen: Avatar + product demo side-by-side (50/50)
+       - Integrated: Avatar composited into scene
+
+    7. Export settings:
+       - Resolution: 1080p minimum
+       - Format: MP4, H.264 codec
+       - Aspect ratio: 16:9 (or platform-specific)
+       - Background: Transparent PNG for compositing or solid color
+
+    Return generated avatar video URL with generation metadata.
+  expected_output: >
+    HeyGen avatar video URL with metadata including avatar details, voice settings,
+    and quality metrics in JSON format
+  agent: avatar_specialist
+  output_json: true
+
+video_editing_task:
+  description: >
+    Composite multi-layer video using Shotstack API.
+
+    Scene clips: {scene_clips}
+    Avatar video: {avatar_video}
+    Script: {script}
+    Platform: {platform}
+    Branding assets: {branding}
+
+    Execute Shotstack multi-track editing:
+
+    1. Timeline planning:
+       - Total duration: {video_duration} seconds
+       - Determine layer structure and timing
+       - Plan transitions and effects
+
+    2. Track 1 - Background (B-roll/scenes):
+       ```json
+       {
+         "track": 1,
+         "clips": [
+           {
+             "asset": {"type": "video", "src": scene_clip_url},
+             "start": 0,
+             "length": 8,
+             "fit": "crop",
+             "scale": 1.0
+           }
+         ]
+       }
+       ```
+
+    3. Track 2 - Avatar (if included):
+       Position options:
+       - Bottom right (picture-in-picture): x: 70%, y: 70%, scale: 0.25
+       - Full screen: x: 0%, y: 0%, scale: 1.0
+       - Split screen: x: 50%, y: 0%, scale: 0.5
+
+       ```json
+       {
+         "track": 2,
+         "clips": [
+           {
+             "asset": {"type": "video", "src": avatar_url},
+             "start": 0,
+             "length": 60,
+             "position": "bottomRight",
+             "offset": {"x": -20, "y": -20},
+             "scale": 0.25
+           }
+         ]
+       }
+       ```
+
+    4. Track 3 - Captions:
+       Generate captions from script:
+       - Font: Brand-appropriate, readable
+       - Size: 48-72px for mobile readability
+       - Position: Bottom 20% of frame
+       - Background: Semi-transparent box for contrast
+       - Timing: Sync with voiceover
+
+       ```json
+       {
+         "track": 3,
+         "clips": [
+           {
+             "asset": {
+               "type": "html",
+               "html": "<p style='font-size:60px; color:#FFF; background:rgba(0,0,0,0.7); padding:20px;'>Caption text</p>"
+             },
+             "start": 0,
+             "length": 5,
+             "position": "bottom"
+           }
+         ]
+       }
+       ```
+
+    5. Track 4 - Branding:
+       - Logo: Top right or bottom left, 10% opacity fade in first 2s
+       - Lower third: Presenter name/title (if avatar)
+       - Watermark: Subtle brand mark throughout
+       - End card: Call-to-action screen (last 3-5 seconds)
+
+    6. Track 5 - Audio:
+       - Background music: Licensed track, -14 LUFS
+       - Voice ducking: Reduce music when avatar speaks
+       - Sound effects: Transition sounds, UI clicks
+       - Audio normalization: Consistent levels
+
+    7. Transitions and effects:
+       - Scene transitions: Fade, dissolve (0.5s duration)
+       - Zoom effects: Emphasize key points
+       - Color grading: Brand color consistency
+       - Filters: Brightness, contrast adjustments
+
+    8. Platform-specific exports:
+       LinkedIn (16:9, 1080p):
+       ```json
+       {"format": "mp4", "resolution": "hd", "aspectRatio": "16:9"}
+       ```
+
+       Instagram Feed (1:1, 1080x1080):
+       ```json
+       {"format": "mp4", "resolution": "1080x1080", "aspectRatio": "1:1"}
+       ```
+
+       Instagram Reels (9:16, 1080x1920):
+       ```json
+       {"format": "mp4", "resolution": "1080x1920", "aspectRatio": "9:16"}
+       ```
+
+       YouTube (16:9, 1080p-4K):
+       ```json
+       {"format": "mp4", "resolution": "4k", "aspectRatio": "16:9"}
+       ```
+
+    9. Rendering:
+       - Submit Shotstack edit JSON
+       - Poll for completion (typically 2-10 minutes)
+       - Download rendered videos
+       - Verify output quality and timing
+
+    10. Thumbnail generation:
+        - Extract frame at 3-5 second mark
+        - Add text overlay with title
+        - Brand colors and logo
+        - High contrast for visibility
+
+    Return all platform-specific video exports with URLs and thumbnails.
+  expected_output: >
+    Rendered videos for each platform with URLs, thumbnails, metadata, and quality
+    metrics in JSON format
+  agent: video_editor
+  output_json: true

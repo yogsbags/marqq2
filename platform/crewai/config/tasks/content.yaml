@@ -1,0 +1,153 @@
+seo_research_task:
+  description: >
+    Conduct comprehensive SEO research for: {topic}
+
+    Use web search to analyze:
+    1. Search volume and keyword difficulty for primary keyword and variations
+    2. Top 10 ranking pages (analyze their content, structure, word count)
+    3. Competitor content gaps and opportunities
+    4. Related keywords and semantic clusters
+    5. User questions and pain points (People Also Ask, forums)
+    6. Featured snippet and SERP feature opportunities
+
+    Region focus: {region}
+
+    Return structured research with:
+    - Primary keyword and variations
+    - Search intent analysis
+    - Top competitor insights
+    - Content gap opportunities
+    - Recommended content angle
+  expected_output: >
+    SEO research report with keyword data, competitor analysis, content gaps,
+    and strategic recommendations in structured format
+  agent: seo_researcher
+
+topic_generation_task:
+  description: >
+    Generate {num_topics} strategic content topics based on SEO research.
+
+    Base topic area: {topic}
+
+    Create a mix of:
+    - 40% Quick Wins: High traffic, low difficulty, fast ranking potential
+    - 60% Authority Building: Comprehensive guides, pillar content
+
+    For each topic provide:
+    - Topic title and angle
+    - Target keywords (primary + secondary)
+    - Content type (how-to, listicle, guide, comparison, case study)
+    - Estimated word count
+    - Priority score (1-100 based on traffic potential and ranking difficulty)
+    - Strategic value (traffic, backlinks, conversions)
+
+    Ensure topics are:
+    - Aligned with user intent
+    - Unique from competitor content
+    - Optimized for E-E-A-T
+  expected_output: >
+    List of content topics with titles, keywords, content types, word counts,
+    priority scores, and strategic value in JSON format
+  agent: topic_generator
+
+content_creation_task:
+  description: >
+    Create comprehensive, SEO-optimized content for: {topic_title}
+
+    Target keywords: {keywords}
+    Word count target: {word_count}
+    Content type: {content_type}
+
+    Content requirements:
+    1. Engaging introduction with clear value proposition
+    2. Structured body with proper H2/H3 hierarchy
+    3. In-depth research from authoritative sources
+    4. Natural keyword integration (avoid over-optimization)
+    5. Internal linking opportunities (suggest related topics)
+    6. External links to credible sources (studies, reports, .gov/.edu)
+    7. Actionable takeaways and practical advice
+    8. Compelling conclusion with clear next steps
+
+    E-E-A-T compliance:
+    - Demonstrate expertise through detailed explanations
+    - Show experience with examples and case studies
+    - Maintain authoritative tone with proper citations
+    - Build trust with transparency and accuracy
+
+    Formatting:
+    - Short paragraphs (2-3 sentences)
+    - Bullet points and numbered lists
+    - Scannable structure
+    - Conversational yet professional tone
+
+    Return complete article content in HTML format.
+  expected_output: >
+    Complete article content in HTML format with proper heading structure,
+    internal links, external citations, and E-E-A-T compliant writing (minimum 2000 words)
+  agent: content_creator
+
+seo_optimization_task:
+  description: >
+    Optimize content for search engines while maintaining readability.
+
+    Content title: {topic_title}
+    Target keyword: {primary_keyword}
+
+    Generate:
+    1. SEO meta title (50-60 characters, includes target keyword)
+    2. Meta description (150-160 characters, compelling CTA, includes keyword)
+    3. URL slug (short, descriptive, lowercase, hyphens, includes keyword)
+    4. Focus keyword and secondary keywords list
+    5. Schema markup (Article schema with author, date, headline)
+    6. Image alt text recommendations
+    7. Internal linking suggestions (3-5 relevant pages)
+    8. External linking recommendations (2-3 authoritative sources)
+
+    Technical SEO checks:
+    - Keyword placement (title, intro, headings, conclusion)
+    - Content readability (Flesch Reading Ease score target: 60-70)
+    - Header tag hierarchy validation
+    - Image optimization suggestions
+
+    Return as structured JSON.
+  expected_output: >
+    SEO optimization metadata in JSON format with meta tags, schema markup,
+    alt text, internal/external link suggestions, and technical SEO recommendations
+  agent: seo_optimizer
+  output_json: true
+
+publishing_task:
+  description: >
+    Publish content to specified platforms: {platforms}
+
+    Content: {content_html}
+    SEO metadata: {seo_metadata}
+
+    Publishing workflow:
+
+    WordPress (if in platforms):
+    - Create post with HTML content
+    - Set meta title and description
+    - Add focus keyword
+    - Set categories and tags
+    - Upload and set featured image
+    - Set permalink structure
+    - Status: {publish_status}
+
+    Sanity (if in platforms):
+    - Convert HTML to Portable Text
+    - Create document with proper schema
+    - Add SEO metadata fields
+    - Upload and reference featured image
+    - Set slug and publish date
+    - Validate schema
+
+    Return publishing confirmation with:
+    - Platform URLs
+    - Publication status
+    - Any errors encountered
+  expected_output: >
+    Publishing confirmation with URLs for each platform, publication status,
+    and any errors or warnings in JSON format
+  agent: publisher
+  output_json: true

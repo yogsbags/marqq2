@@ -1,0 +1,286 @@
+{
+  "name": "Competitor Activity Monitoring - Daily",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger - Daily 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/competitor-monitoring/config",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ={{ $env.SUPABASE_ANON_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Monitoring Configs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [470, 300],
+      "notes": "Fetch all active monitoring configurations from Supabase"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "configs",
+        "options": {}
+      },
+      "name": "Split Into Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [690, 300],
+      "notes": "Process each competitor monitoring config separately"
+    },
+    {
+      "parameters": {
+        "model": "compound",
+        "prompt": "=You are a competitor intelligence analyst with real-time web access.\n\n**Search for news about {{ $json.competitor_name }} published in the last 24 hours:**\n\n1. Search for \"{{ $json.competitor_name }} news {{ $now.format('YYYY-MM-DD') }}\"\n2. Search for \"{{ $json.competitor_name }} {{ $json.keywords.join(' ') }} 2025\"\n3. Visit {{ $json.competitor_domain }} and check /newsroom, /press-releases, or /blog\n4. Check tech news sites: TechCrunch, VentureBeat, TechTarget for mentions\n5. Search LinkedIn for recent posts by {{ $json.competitor_name }}\n\n**Return ONLY valid JSON with this structure:**\n```json\n{\n  \"activities\": [\n    {\n      \"title\": \"Exact headline or title\",\n      \"summary\": \"2-3 sentence summary of the news\",\n      \"full_content\": \"Full article text if available (max 500 words)\",\n      \"alert_type\": \"news|funding|product_launch|pricing_change|acquisition|partnership|leadership_change\",\n      \"source_url\": \"https://exact-url.com/article\",\n      \"source_domain\": \"techcrunch.com\",\n      \"published_at\": \"2025-02-07T10:30:00Z\",\n      \"sentiment\": \"positive|neutral|negative\",\n      \"priority\": \"low|medium|high|critical\",\n      \"reasoning\": \"Why this is important for competitive intelligence\"\n    }\n  ],\n  \"no_news\": false,\n  \"search_summary\": \"Brief summary of search results\"\n}\n```\n\n**CRITICAL REQUIREMENTS:**\n- ONLY include news from the LAST 24 HOURS\n- If NO recent news found, return {\"activities\": [], \"no_news\": true}\n- Prioritize: funding announcements (critical), product launches (high), pricing changes (high), general news (medium)\n- Include source_url for EVERY activity\n- Determine sentiment based on news content (positive for growth/wins, negative for layoffs/setbacks)\n\n**Competitor**: {{ $json.competitor_name }}\n**Domain**: {{ $json.competitor_domain }}\n**Industry**: {{ $json.industry }}\n**Keywords to track**: {{ $json.keywords.join(', ') }}",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 2000
+        }
+      },
+      "name": "Search Competitor News (Groq Compound)",
+      "type": "n8n-nodes-base.groq",
+      "typeVersion": 1,
+      "position": [910, 300],
+      "notes": "Use Groq Compound's web tools to search for competitor news in last 24h",
+      "credentials": {
+        "groqApi": {
+          "id": "1",
+          "name": "Groq API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Groq response and extract activities\nconst response = $input.item.json.response;\nlet parsed;\n\ntry {\n  // Extract JSON from markdown code blocks if present\n  const jsonMatch = response.match(/```json\\s*([\\s\\S]*?)\\s*```/) || response.match(/\\{[\\s\\S]*\\}/);\n  const jsonStr = jsonMatch ? jsonMatch[1] || jsonMatch[0] : response;\n  parsed = JSON.parse(jsonStr);\n} catch (error) {\n  console.error('Failed to parse Groq response:', error);\n  return [];\n}\n\n// If no news found, return empty array\nif (parsed.no_news || !parsed.activities || parsed.activities.length === 0) {\n  return [];\n}\n\n// Generate content hash for deduplication (SHA-256 of title + source_url)\nconst crypto = require('crypto');\n\nconst activities = parsed.activities.map(activity => ({\n  competitor_name: $input.item.json.competitor_name,\n  alert_type: activity.alert_type,\n  title: activity.title,\n  summary: activity.summary,\n  full_content: activity.full_content || activity.summary,\n  source_url: activity.source_url,\n  source_domain: activity.source_domain,\n  published_at: activity.published_at,\n  sentiment: activity.sentiment || 'neutral',\n  priority: activity.priority || 'medium',\n  content_hash: crypto.createHash('sha256').update(activity.title + activity.source_url).digest('hex'),\n  reasoning: activity.reasoning\n}));\n\nreturn activities.map(activity => ({ json: activity }));"
+      },
+      "name": "Parse and Transform Activities",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1130, 300],
+      "notes": "Parse Groq JSON response and generate content hashes for deduplication"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/competitor-alerts/webhook",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "competitor_name",
+              "value": "={{ $json.competitor_name }}"
+            },
+            {
+              "name": "alert_type",
+              "value": "={{ $json.alert_type }}"
+            },
+            {
+              "name": "title",
+              "value": "={{ $json.title }}"
+            },
+            {
+              "name": "summary",
+              "value": "={{ $json.summary }}"
+            },
+            {
+              "name": "full_content",
+              "value": "={{ $json.full_content }}"
+            },
+            {
+              "name": "source_url",
+              "value": "={{ $json.source_url }}"
+            },
+            {
+              "name": "source_domain",
+              "value": "={{ $json.source_domain }}"
+            },
+            {
+              "name": "published_at",
+              "value": "={{ $json.published_at }}"
+            },
+            {
+              "name": "sentiment",
+              "value": "={{ $json.sentiment }}"
+            },
+            {
+              "name": "priority",
+              "value": "={{ $json.priority }}"
+            },
+            {
+              "name": "content_hash",
+              "value": "={{ $json.content_hash }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send Alert to Backend (Webhook)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1350, 300],
+      "notes": "POST each activity to backend webhook - backend handles deduplication and user targeting"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Check Webhook Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log successful alert creation\nconsole.log(`[SUCCESS] Alert created for ${$json.competitor_name}: ${$json.title}`);\nreturn $input.all();"
+      },
+      "name": "Log Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1790, 200],
+      "notes": "Log successful alert deliveries"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log errors or duplicates\nif ($json.deduplicated) {\n  console.log(`[DUPLICATE] Skipped duplicate alert for ${$input.item.json.competitor_name}: ${$input.item.json.title}`);\n} else {\n  console.error(`[ERROR] Failed to create alert for ${$input.item.json.competitor_name}:`, $json.error);\n}\nreturn $input.all();"
+      },
+      "name": "Log Errors/Duplicates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1790, 400],
+      "notes": "Log failures and duplicate alerts"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger - Daily 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Get Monitoring Configs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Monitoring Configs": {
+      "main": [
+        [
+          {
+            "node": "Split Into Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Items": {
+      "main": [
+        [
+          {
+            "node": "Search Competitor News (Groq Compound)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Competitor News (Groq Compound)": {
+      "main": [
+        [
+          {
+            "node": "Parse and Transform Activities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Transform Activities": {
+      "main": [
+        [
+          {
+            "node": "Send Alert to Backend (Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Alert to Backend (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Check Webhook Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Webhook Success": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Errors/Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "competitor-intelligence",
+      "id": "comp-intel-1"
+    },
+    {
+      "name": "daily-monitoring",
+      "id": "monitoring-1"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-02-07T00:00:00.000Z",
+  "versionId": "1"
+}

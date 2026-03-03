@@ -1,0 +1,8 @@
+{
+  "connectors": ["ga4", "mixpanel", "moengage"],
+  "permissions": "read",
+  "description": "Priya manages brand and engagement — she reads product analytics and user journeys.",
+  "recipes": {
+    "engagement_pulse": "rcp_7JAx5Ew8yyLm"
+  }
+}

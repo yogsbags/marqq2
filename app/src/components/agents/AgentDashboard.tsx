@@ -1,47 +1,28 @@
-import { useState, useEffect } from 'react';
-import React from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Bot,
-  Brain,
-  Users,
-  Target,
-  PenTool,
-  BarChart3,
-  Play,
-  Pause,
-  Settings,
-  MessageSquare,
-  Zap,
-  CheckCircle,
-  Clock,
-  AlertTriangle,
-  TrendingUp,
-  Eye,
-  Send,
-  RefreshCw,
-  PlayCircle
-} from 'lucide-react';
-import { AgentService } from '@/services/agentService';
-import { Agent, AgentTask, AgentWorkflow } from '@/types/agent';
+import { useEffect, useState } from 'react';
+import { PlayCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { addAiTasks } from '@/lib/taskStore';
 import { cn } from '@/lib/utils';
 
-// ── Digital employees (autonomous agents running on schedule) ──────────────────
 const DIGITAL_EMPLOYEES = [
-  { name: 'zara',  role: 'Campaign Strategist',  colour: 'bg-indigo-100 text-indigo-800',  initials: 'ZA' },
-  { name: 'maya',  role: 'SEO & LLMO Monitor',   colour: 'bg-blue-100 text-blue-800',      initials: 'MA' },
-  { name: 'riya',  role: 'Content Producer',     colour: 'bg-purple-100 text-purple-800',  initials: 'RI' },
-  { name: 'arjun', role: 'Lead Intelligence',    colour: 'bg-green-100 text-green-800',    initials: 'AR' },
-  { name: 'dev',   role: 'Performance Analyst',  colour: 'bg-orange-100 text-orange-800',  initials: 'DV' },
-  { name: 'priya', role: 'Brand Intelligence',   colour: 'bg-red-100 text-red-800',        initials: 'PR' },
+  { name: 'zara', role: 'Campaign Strategist' },
+  { name: 'maya', role: 'SEO & LLMO Monitor' },
+  { name: 'riya', role: 'Content Producer' },
+  { name: 'arjun', role: 'Lead Intelligence' },
+  { name: 'dev', role: 'Performance Analyst' },
+  { name: 'priya', role: 'Brand Intelligence' },
 ] as const;
 
 type EmployeeName = typeof DIGITAL_EMPLOYEES[number]['name'];
@@ -58,44 +39,203 @@ interface HeartbeatData {
   agents: Record<string, HeartbeatAgent>;
 }
 
-export function AgentDashboard() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [workflows, setWorkflows] = useState<AgentWorkflow[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-  const [chatMessage, setChatMessage] = useState('');
-  const [chatHistory, setChatHistory] = useState<Array<{role: string, content: string, timestamp: Date}>>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+type EmployeeProfile = {
+  title: string;
+  personality: string;
+  executes: string[];
+  objectives: string[];
+};
 
-  // Live heartbeat state for digital employees
+type PlannedTask = {
+  label: string;
+  horizon: 'day' | 'week' | 'month';
+};
+
+type AgentExecutionPlan = {
+  request: string;
+  summary: string;
+  tasks: PlannedTask[];
+  executionPrompt: string;
+};
+
+const EMPLOYEE_PROFILES: Record<EmployeeName, EmployeeProfile> = {
+  zara: {
+    title: 'Campaign Strategist',
+    personality: 'Decisive, commercially sharp, and biased toward clear GTM tradeoffs rather than vague planning.',
+    executes: [
+      'Turn business goals into channel-specific campaign plans',
+      'Recommend launch structure, offers, and funnel sequencing',
+      'Translate GTM strategy into deployable execution tasks',
+    ],
+    objectives: [
+      'Launch campaigns faster',
+      'Improve channel mix decisions',
+      'Keep GTM work aligned to revenue outcomes',
+    ],
+  },
+  maya: {
+    title: 'SEO & LLMO Monitor',
+    personality: 'Methodical, evidence-driven, and focused on search visibility, citations, and technical discoverability.',
+    executes: [
+      'Monitor SEO and AI-search visibility signals',
+      'Identify ranking, indexing, and answer-engine gaps',
+      'Suggest content and site updates that improve discoverability',
+    ],
+    objectives: [
+      'Increase organic visibility',
+      'Catch SEO regressions early',
+      'Improve AI citation readiness',
+    ],
+  },
+  riya: {
+    title: 'Content Producer',
+    personality: 'Fast-moving, editorially minded, and tuned to shipping usable content rather than abstract ideas.',
+    executes: [
+      'Generate content plans, briefs, and campaign-ready assets',
+      'Turn strategy into channel-specific content output',
+      'Support social, messaging, and creative production flows',
+    ],
+    objectives: [
+      'Maintain content velocity',
+      'Improve campaign consistency',
+      'Reduce time from idea to published asset',
+    ],
+  },
+  arjun: {
+    title: 'Lead Intelligence',
+    personality: 'Analytical and conversion-oriented, with a strong bias toward qualification, prioritization, and pipeline efficiency.',
+    executes: [
+      'Analyze lead quality and prospect segments',
+      'Surface ICP fit, enrichment, and prioritization insights',
+      'Support outreach and opportunity qualification decisions',
+    ],
+    objectives: [
+      'Improve lead quality',
+      'Prioritize the right accounts faster',
+      'Strengthen sales and marketing handoff',
+    ],
+  },
+  dev: {
+    title: 'Performance Analyst',
+    personality: 'Numerate, pragmatic, and focused on budget efficiency, signal quality, and measurable performance improvement.',
+    executes: [
+      'Review campaign performance and scorecards',
+      'Recommend budget reallocations and efficiency moves',
+      'Track KPI movement across channels and time horizons',
+    ],
+    objectives: [
+      'Improve ROI and spend efficiency',
+      'Spot underperformance quickly',
+      'Support budget decisions with data',
+    ],
+  },
+  priya: {
+    title: 'Brand Intelligence',
+    personality: 'Research-led, positioning-aware, and strong at turning messy market inputs into sharper differentiation.',
+    executes: [
+      'Generate company intelligence and competitor analysis',
+      'Refine messaging, positioning, and audience hypotheses',
+      'Support brand, market, and narrative decisions',
+    ],
+    objectives: [
+      'Sharpen market positioning',
+      'Improve competitive awareness',
+      'Create stronger strategic messaging',
+    ],
+  },
+};
+
+function AgentAvatar({
+  name,
+  size = 'md',
+  className,
+}: {
+  name: string;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+}) {
+  const avatarMap: Record<string, {
+    shell: string;
+    skin: string;
+    hair: string;
+    shirt: string;
+    accent: string;
+  }> = {
+    zara: { shell: 'from-indigo-100 to-violet-200 dark:from-indigo-950 dark:to-violet-900', skin: '#F6C7A5', hair: '#3B2C67', shirt: '#5B5CE2', accent: '#B6A5FF' },
+    maya: { shell: 'from-sky-100 to-cyan-200 dark:from-sky-950 dark:to-cyan-900', skin: '#EFC09A', hair: '#243B7A', shirt: '#0EA5E9', accent: '#8BE3FF' },
+    riya: { shell: 'from-fuchsia-100 to-purple-200 dark:from-fuchsia-950 dark:to-purple-900', skin: '#F3C9AF', hair: '#5B2167', shirt: '#A855F7', accent: '#F0ABFC' },
+    arjun: { shell: 'from-emerald-100 to-green-200 dark:from-emerald-950 dark:to-green-900', skin: '#D9A77E', hair: '#243B2F', shirt: '#16A34A', accent: '#86EFAC' },
+    dev: { shell: 'from-orange-100 to-amber-200 dark:from-orange-950 dark:to-amber-900', skin: '#D8A27D', hair: '#4B2E1F', shirt: '#F97316', accent: '#FDBA74' },
+    priya: { shell: 'from-rose-100 to-pink-200 dark:from-rose-950 dark:to-pink-900', skin: '#EFB89A', hair: '#4A2238', shirt: '#E11D48', accent: '#FDA4AF' },
+  };
+
+  const avatar = avatarMap[name.toLowerCase()] || avatarMap.zara;
+  const sizeClass = size === 'sm' ? 'h-8 w-8' : size === 'lg' ? 'h-14 w-14' : 'h-10 w-10';
+
+  return (
+    <div className={cn('rounded-2xl bg-gradient-to-br p-0.5 shadow-sm', avatar.shell, sizeClass, className)}>
+      <div className="flex h-full w-full items-center justify-center rounded-[calc(1rem-2px)] bg-white/75 dark:bg-slate-950/70">
+        <svg viewBox="0 0 64 64" className="h-[86%] w-[86%]" aria-hidden="true">
+          <circle cx="32" cy="32" r="30" fill={avatar.accent} opacity="0.16" />
+          <path d="M16 56c2-10 10-16 16-16s14 6 16 16" fill={avatar.shirt} />
+          <circle cx="32" cy="28" r="12" fill={avatar.skin} />
+          <path d="M20 28c0-9 5-16 12-16s12 7 12 16c-3-3-7-5-12-5s-9 2-12 5Z" fill={avatar.hair} />
+          <circle cx="27" cy="29" r="1.5" fill="#1F2937" />
+          <circle cx="37" cy="29" r="1.5" fill="#1F2937" />
+          <path d="M28 35c2.5 2 5.5 2 8 0" stroke="#7C4A2D" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+export function AgentDashboard() {
   const [heartbeat, setHeartbeat] = useState<HeartbeatData | null>(null);
   const [runningAgents, setRunningAgents] = useState<Set<EmployeeName>>(new Set());
+  const [meetAgent, setMeetAgent] = useState<EmployeeName | null>(null);
+  const [taskAgent, setTaskAgent] = useState<EmployeeName | null>(null);
+  const [taskDraft, setTaskDraft] = useState('');
+  const [isPlanningTask, setIsPlanningTask] = useState(false);
+  const [planPreview, setPlanPreview] = useState<AgentExecutionPlan | null>(null);
+  const [agentPlans, setAgentPlans] = useState<Partial<Record<EmployeeName, AgentExecutionPlan>>>({});
 
   const fetchHeartbeat = async () => {
     try {
       const res = await fetch('/api/agents/status');
-      if (res.ok) setHeartbeat(await res.json());
-    } catch { /* backend may not be running in dev */ }
+      if (res.ok) {
+        setHeartbeat(await res.json());
+      }
+    } catch {
+      /* backend may not be running in dev */
+    }
   };
 
   const runAgentNow = async (name: EmployeeName) => {
     if (runningAgents.has(name)) return;
+    const savedPlan = agentPlans[name];
+    if (!savedPlan) {
+      openTaskModal(name);
+      return;
+    }
     setRunningAgents((prev) => new Set([...prev, name]));
     try {
       const res = await fetch(`/api/agents/${name}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: 'Perform your scheduled task now and produce your standard output.' }),
+        body: JSON.stringify({ query: savedPlan.executionPrompt }),
       });
-      if (!res.ok) { toast.error(`${name}: failed to start`); return; }
-      toast.success(`${name} is running…`);
+      if (!res.ok) {
+        toast.error(`${name}: failed to start`);
+        return;
+      }
+      toast.success(`${name} is running...`);
       const reader = res.body?.getReader();
       if (reader) {
-        const dec = new TextDecoder();
+        const decoder = new TextDecoder();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          if (dec.decode(value).includes('[DONE]')) break;
+          if (decoder.decode(value).includes('[DONE]')) break;
         }
       }
       toast.success(`${name} finished`);
@@ -103,730 +243,378 @@ export function AgentDashboard() {
     } catch {
       toast.error(`${name}: run failed`);
     } finally {
-      setRunningAgents((prev) => { const s = new Set(prev); s.delete(name); return s; });
+      setRunningAgents((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
     }
   };
 
-  // Poll heartbeat every 30 s
   useEffect(() => {
     fetchHeartbeat();
-    const id = setInterval(fetchHeartbeat, 30_000);
-    return () => clearInterval(id);
+    const intervalId = setInterval(fetchHeartbeat, 30_000);
+    return () => clearInterval(intervalId);
   }, []);
-
-  useEffect(() => {
-    loadAgents();
-    loadWorkflows();
-  }, []);
-
-  const loadAgents = () => {
-    const agentList = AgentService.getAgents();
-    setAgents(agentList);
-    if (agentList.length > 0 && !selectedAgent) {
-      setSelectedAgent(agentList[0]);
-    }
-  };
-
-  const loadWorkflows = () => {
-    const workflowList = AgentService.getWorkflows();
-    setWorkflows(workflowList);
-  };
-
-  const handleAgentChat = async () => {
-    if (!selectedAgent || !chatMessage.trim()) return;
-
-    setIsProcessing(true);
-    try {
-      const response = await AgentService.agentChat(selectedAgent.id, chatMessage);
-
-      setChatHistory(prev => [
-        ...prev,
-        { role: 'user', content: chatMessage, timestamp: new Date() },
-        { role: 'assistant', content: response, timestamp: new Date() }
-      ]);
-
-      setChatMessage('');
-      toast.success('Agent responded successfully');
-    } catch (error) {
-      toast.error('Failed to get agent response');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const executeAgentTask = async (agentId: string, taskType: AgentTask['type'], input: any) => {
-    setIsProcessing(true);
-    try {
-      const task = await AgentService.executeTask(agentId, {
-        type: taskType,
-        description: `Execute ${taskType} task`,
-        input
-      });
-
-      toast.success(`Task completed: ${task.description}`);
-      loadAgents(); // Refresh agents to show updated task history
-    } catch (error) {
-      toast.error('Task execution failed');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const createSampleWorkflow = async () => {
-    setIsProcessing(true);
-    try {
-      const agentIds = agents.map(a => a.id);
-      const workflow = AgentService.createWorkflow(
-        'Complete Marketing Analysis',
-        'Comprehensive analysis including lead scoring, content generation, and campaign optimization',
-        agentIds
-      );
-
-      // Execute workflow with sample data
-      await AgentService.executeWorkflow(workflow.id, {
-        email: 'john.doe@techcorp.com',
-        company: 'TechCorp Solutions',
-        campaignData: [
-          { name: 'Search Ads', spend: 50000, conversions: 245 },
-          { name: 'Social Media', spend: 30000, conversions: 156 }
-        ],
-        totalBudget: 100000,
-        contentType: 'blog_post',
-        topic: 'AI Marketing Automation'
-      });
-
-      loadWorkflows();
-      toast.success('Sample workflow executed successfully');
-    } catch (error) {
-      toast.error('Workflow execution failed');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const getAgentIcon = (role: string) => {
-    if (role.includes('Lead')) return Target;
-    if (role.includes('Content')) return PenTool;
-    if (role.includes('Optimization')) return TrendingUp;
-    if (role.includes('Customer')) return Users;
-    return Bot;
-  };
-
-  const getTaskStatusIcon = (status: AgentTask['status']) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'processing':
-        return <Clock className="h-4 w-4 text-orange-500 animate-spin" />;
-      case 'failed':
-        return <AlertTriangle className="h-4 w-4 text-red-500" />;
-      default:
-        return <Clock className="h-4 w-4 text-gray-400" />;
-    }
-  };
 
   const formatLastRun = (ts: string | null) => {
     if (!ts) return 'Never';
     const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 60_000);
     if (diff < 1) return 'Just now';
     if (diff < 60) return `${diff}m ago`;
-    const h = Math.floor(diff / 60);
-    if (h < 24) return `${h}h ago`;
-    return `${Math.floor(h / 24)}d ago`;
+    const hours = Math.floor(diff / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
   };
 
-  const statusColour = (s?: HeartbeatAgent['status']) => {
-    switch (s) {
-      case 'running':   return 'bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300';
-      case 'completed': return 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-300';
-      case 'error':     return 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-300';
-      default:          return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400';
+  const statusColour = (status?: HeartbeatAgent['status']) => {
+    switch (status) {
+      case 'running':
+        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300';
+      case 'completed':
+        return 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-300';
+      case 'error':
+        return 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-300';
+      default:
+        return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400';
     }
+  };
+
+  const activeProfile = meetAgent ? EMPLOYEE_PROFILES[meetAgent] : null;
+
+  const openTaskModal = (name: EmployeeName) => {
+    const existingPlan = agentPlans[name] || null;
+    setTaskAgent(name);
+    setTaskDraft(existingPlan?.request ?? '');
+    setPlanPreview(existingPlan);
+  };
+
+  const createTaskPlan = async () => {
+    if (!taskAgent) return;
+    const nextRequest = taskDraft.trim();
+    if (!nextRequest) {
+      toast.error('Enter a task before creating the plan.');
+      return;
+    }
+
+    setIsPlanningTask(true);
+    try {
+      const response = await fetch(`/api/agents/${taskAgent}/plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: nextRequest }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const plan = await response.json();
+      setPlanPreview({
+        request: nextRequest,
+        summary: String(plan.summary || '').trim(),
+        tasks: Array.isArray(plan.tasks) ? plan.tasks : [],
+        executionPrompt: String(plan.executionPrompt || '').trim(),
+      });
+      toast.success(`Execution plan created for ${taskAgent}.`);
+    } catch {
+      toast.error('Failed to create the execution plan.');
+    } finally {
+      setIsPlanningTask(false);
+    }
+  };
+
+  const approveTaskPlan = () => {
+    if (!taskAgent || !planPreview) return;
+    addAiTasks(
+      planPreview.tasks.map((task) => ({
+        label: `[${taskAgent} • AI Team] ${task.label}`,
+        horizon: task.horizon,
+      })),
+    );
+    setAgentPlans((prev) => ({ ...prev, [taskAgent]: planPreview }));
+    toast.success(`Plan approved for ${taskAgent}. Tasks added to the taskboard.`);
+    setTaskAgent(null);
+    setTaskDraft('');
+    setPlanPreview(null);
+  };
+
+  const resetTaskModal = () => {
+    setTaskAgent(null);
+    setTaskDraft('');
+    setPlanPreview(null);
   };
 
   return (
     <div className="space-y-6">
-      {/* Live Digital Employee Status Grid */}
+      <div className="space-y-2 text-center">
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent">
+          AI Team
+        </h1>
+        <p className="mx-auto max-w-3xl text-sm text-muted-foreground">
+          Meet your AI team, assign work, and run tasks from one place.
+        </p>
+      </div>
+
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            AI Team — Live Status
-          </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <div />
           <button
             onClick={fetchHeartbeat}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-gray-700 dark:hover:text-gray-300"
           >
             <RefreshCw className="h-3 w-3" />
             Refresh
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          {DIGITAL_EMPLOYEES.map((emp) => {
-            const hb = heartbeat?.agents[emp.name];
-            const isRunning = runningAgents.has(emp.name) || hb?.status === 'running';
+
+        <div className="grid gap-3 md:grid-cols-3">
+          {DIGITAL_EMPLOYEES.map((employee) => {
+            const hb = heartbeat?.agents[employee.name];
+            const isRunning = runningAgents.has(employee.name) || hb?.status === 'running';
+            const profile = EMPLOYEE_PROFILES[employee.name];
+            const savedPlan = agentPlans[employee.name];
+
             return (
-              <div
-                key={emp.name}
-                className="p-3 rounded-lg border bg-background hover:bg-muted/30 transition-colors"
+              <Card
+                key={employee.name}
+                className="border-border/70 bg-background/90 transition-colors hover:border-orange-300/70 dark:hover:border-orange-800/70"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className={cn(
-                    'h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
-                    emp.colour
-                  )}>
-                    {emp.initials}
+                <CardContent className="p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <AgentAvatar name={employee.name} size="md" className="flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold capitalize text-foreground">{employee.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">{employee.role}</p>
+                      </div>
+                    </div>
+                    <Badge className={cn('px-2 py-0 text-xs capitalize', statusColour(isRunning ? 'running' : hb?.status))}>
+                      {isRunning ? 'running' : hb?.status ?? 'idle'}
+                    </Badge>
                   </div>
-                  <Badge className={cn('text-xs px-2 py-0 capitalize', statusColour(isRunning ? 'running' : hb?.status))}>
-                    {isRunning ? 'running' : (hb?.status ?? 'idle')}
-                  </Badge>
-                </div>
-                <p className="text-xs font-semibold capitalize text-gray-900 dark:text-gray-100 mb-0.5">
-                  {emp.name}
-                </p>
-                <p className="text-xs text-muted-foreground mb-2 truncate">{emp.role}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    {formatLastRun(hb?.last_run ?? null)}
-                  </span>
-                  <button
-                    onClick={() => runAgentNow(emp.name)}
-                    disabled={isRunning}
-                    title="Run now"
-                    className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isRunning
-                      ? <RefreshCw className="h-3 w-3 animate-spin" />
-                      : <PlayCircle className="h-3 w-3" />
-                    }
-                  </button>
-                </div>
-              </div>
+
+                  <p className="mb-4 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                    {profile.personality}
+                  </p>
+
+                  {savedPlan && (
+                    <div className="mb-4 rounded-xl border border-orange-200/70 bg-orange-50/70 p-3 dark:border-orange-900/60 dark:bg-orange-950/20">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-300">
+                            Execution plan ready
+                          </p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-foreground">
+                            {savedPlan.summary}
+                          </p>
+                        </div>
+                        <button
+                          className="text-[11px] font-medium text-orange-700 transition-colors hover:text-orange-900 dark:text-orange-300 dark:hover:text-orange-100"
+                          onClick={() => openTaskModal(employee.name)}
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-xs">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Last run</p>
+                      <p className="mt-1 font-medium text-foreground">{formatLastRun(hb?.last_run ?? null)}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 border-border/70 bg-background text-foreground hover:border-orange-300 hover:bg-orange-50 hover:text-orange-800 dark:bg-slate-950 dark:hover:border-orange-800 dark:hover:bg-orange-950/30 dark:hover:text-orange-200"
+                      onClick={() => setMeetAgent(employee.name)}
+                    >
+                      Meet Agent
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-orange-500 text-white hover:bg-orange-600"
+                      onClick={() => (savedPlan ? runAgentNow(employee.name) : openTaskModal(employee.name))}
+                      disabled={isRunning}
+                    >
+                      {isRunning ? (
+                        <>
+                          <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          Running
+                        </>
+                      ) : (
+                        <>
+                          <PlayCircle className="mr-2 h-3.5 w-3.5" />
+                          {savedPlan ? 'Run Now' : 'Give Task'}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             );
           })}
         </div>
       </div>
 
-      {/* Header */}
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-          Agentic AI Dashboard
-        </h1>
-        <p className="text-muted-foreground">
-          Manage and interact with your autonomous AI marketing agents
-        </p>
-      </div>
-
-      {/* Agent Overview Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {agents.map((agent) => {
-          const IconComponent = getAgentIcon(agent.role);
-          return (
-            <Card
-              key={agent.id}
-              className={cn(
-                "transition-all duration-300 hover:scale-105 cursor-pointer",
-                selectedAgent?.id === agent.id ? "ring-2 ring-purple-500" : ""
-              )}
-              onClick={() => setSelectedAgent(agent)}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center space-x-2 text-sm">
-                  <IconComponent className="h-4 w-4 text-purple-500" />
-                  <span>{agent.name}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">{agent.role}</p>
-                  <div className="flex items-center justify-between">
-                    <Badge variant={agent.isActive ? "default" : "secondary"}>
-                      {agent.isActive ? 'Active' : 'Idle'}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {agent.completedTasks.length} tasks
-                    </span>
+      <Dialog open={!!meetAgent} onOpenChange={(open) => !open && setMeetAgent(null)}>
+        <DialogContent className="border-orange-200/70 bg-background dark:border-orange-900/60">
+          {meetAgent && activeProfile && (
+            <>
+              <DialogHeader className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <AgentAvatar name={meetAgent} size="lg" />
+                  <div>
+                    <DialogTitle className="text-xl capitalize">{meetAgent}</DialogTitle>
+                    <DialogDescription className="mt-1 text-sm">
+                      {activeProfile.title}
+                    </DialogDescription>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+              </DialogHeader>
 
-      {/* Main Content */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="chat">Agent Chat</TabsTrigger>
-          <TabsTrigger value="tasks">Task Execution</TabsTrigger>
-          <TabsTrigger value="workflows">Workflows</TabsTrigger>
-        </TabsList>
+              <div className="space-y-5">
+                <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Personality</p>
+                  <p className="mt-2 text-sm leading-6 text-foreground">{activeProfile.personality}</p>
+                </div>
 
-        <TabsContent value="overview" className="space-y-4">
-          {selectedAgent && (
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    {React.createElement(getAgentIcon(selectedAgent.role), { className: "h-5 w-5 text-purple-500" })}
-                    <span>{selectedAgent.name}</span>
-                  </CardTitle>
-                  <CardDescription>{selectedAgent.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <h4 className="font-medium mb-2">Capabilities</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedAgent.capabilities.map((capability, index) => (
-                        <Badge key={index} variant="outline" className="text-xs">
-                          {capability}
-                        </Badge>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-xl border border-border/60 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {`Tasks ${meetAgent} can execute`}
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-foreground">
+                      {activeProfile.executes.map((task) => (
+                        <li key={task} className="flex gap-2">
+                          <span className="mt-1 h-1.5 w-1.5 rounded-full bg-orange-500" />
+                          <span>{task}</span>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
 
-                  <div>
-                    <h4 className="font-medium mb-2">Available Tools</h4>
-                    <div className="space-y-2">
-                      {selectedAgent.tools.map((tool, index) => (
-                        <div key={index} className="flex items-center space-x-2 text-sm">
-                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                          <span className="font-medium">{tool.name}</span>
-                          <span className="text-muted-foreground">- {tool.description}</span>
-                        </div>
+                  <div className="rounded-xl border border-border/60 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {`Objectives ${meetAgent} helps with`}
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-foreground">
+                      {activeProfile.objectives.map((objective) => (
+                        <li key={objective} className="flex gap-2">
+                          <span className="mt-1 h-1.5 w-1.5 rounded-full bg-orange-500" />
+                          <span>{objective}</span>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
+                </div>
 
-                  <div>
-                    <h4 className="font-medium mb-2">Performance Stats</h4>
-                    <div className="grid gap-2 grid-cols-2">
-                      <div className="text-center p-2 border rounded">
-                        <div className="text-lg font-bold text-green-600">{selectedAgent.completedTasks.length}</div>
-                        <div className="text-xs text-muted-foreground">Completed Tasks</div>
-                      </div>
-                      <div className="text-center p-2 border rounded">
-                        <div className="text-lg font-bold text-blue-600">
-                          {selectedAgent.completedTasks.filter(t => t.status === 'completed').length}
-                        </div>
-                        <div className="text-xs text-muted-foreground">Success Rate</div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent Tasks</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-64">
-                    <div className="space-y-2">
-                      {selectedAgent.completedTasks.length > 0 ? (
-                        selectedAgent.completedTasks.slice(-5).map((task) => (
-                          <div key={task.id} className="flex items-center space-x-3 p-2 border rounded">
-                            {getTaskStatusIcon(task.status)}
-                            <div className="flex-1">
-                              <div className="text-sm font-medium">{task.description}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {task.createdAt.toLocaleString()}
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-center text-muted-foreground py-8">
-                          <Bot className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p>No tasks completed yet</p>
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            </div>
+                <div className="flex justify-end">
+                  <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => setMeetAgent(null)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
-        </TabsContent>
+        </DialogContent>
+      </Dialog>
 
-        <TabsContent value="chat" className="space-y-4">
-          {selectedAgent && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <MessageSquare className="h-5 w-5 text-blue-500" />
-                  <span>Chat with {selectedAgent.name}</span>
-                </CardTitle>
-                <CardDescription>
-                  Have a conversation with your AI agent to get marketing insights and recommendations
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ScrollArea className="h-64 border rounded-lg p-4">
-                  <div className="space-y-3">
-                    {chatHistory.length === 0 && (
-                      <div className="text-center text-muted-foreground py-8">
-                        <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                        <p>Start a conversation with {selectedAgent.name}</p>
-                        <p className="text-xs">Ask about marketing strategies, campaign optimization, or data analysis</p>
-                      </div>
-                    )}
-
-                    {chatHistory.map((msg, index) => (
-                      <div
-                        key={index}
-                        className={cn(
-                          "flex",
-                          msg.role === 'user' ? "justify-end" : "justify-start"
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "max-w-[80%] p-3 rounded-lg",
-                            msg.role === 'user'
-                              ? "bg-purple-500 text-white"
-                              : "bg-muted"
-                          )}
-                        >
-                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                          <p className={cn(
-                            "text-xs mt-1 opacity-70",
-                            msg.role === 'user' ? "text-purple-100" : "text-muted-foreground"
-                          )}>
-                            {msg.timestamp.toLocaleTimeString()}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-
-                    {isProcessing && (
-                      <div className="flex justify-start">
-                        <div className="bg-muted p-3 rounded-lg">
-                          <div className="flex space-x-1">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                          </div>
-                        </div>
-                      </div>
-                    )}
+      <Dialog
+        open={!!taskAgent}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetTaskModal();
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto border-orange-200/70 bg-background dark:border-orange-900/60">
+          {taskAgent && (
+            <>
+              <DialogHeader className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <AgentAvatar name={taskAgent} size="lg" />
+                  <div>
+                    <DialogTitle className="text-xl capitalize">{taskAgent}</DialogTitle>
+                    <DialogDescription className="mt-1 text-sm">
+                      Describe what you want this agent to do, then review the execution plan before you run it.
+                    </DialogDescription>
                   </div>
-                </ScrollArea>
-
-                <div className="flex space-x-2">
-                  <Input
-                    value={chatMessage}
-                    onChange={(e) => setChatMessage(e.target.value)}
-                    placeholder="Ask your agent about marketing strategies..."
-                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleAgentChat()}
-                    disabled={isProcessing}
-                  />
-                  <Button
-                    onClick={handleAgentChat}
-                    disabled={!chatMessage.trim() || isProcessing}
-                    className="bg-purple-500 hover:bg-purple-600"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
                 </div>
+              </DialogHeader>
 
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setChatMessage('Analyze my lead conversion rates and suggest improvements')}
-                  >
-                    Lead Analysis
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setChatMessage('Create a content strategy for Q1 2024')}
-                  >
-                    Content Strategy
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setChatMessage('How can I optimize my campaign budget allocation?')}
-                  >
-                    Budget Optimization
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="tasks" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Execute Agent Tasks</CardTitle>
-                <CardDescription>
-                  Run specific tasks with your AI agents
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-3 grid-cols-2">
-                  <Button
-                    variant="outline"
-                    className="h-auto p-4 flex flex-col items-center space-y-2"
-                    onClick={() => executeAgentTask(
-                      agents.find(a => a.role.includes('Lead'))?.id || '',
-                      'lead_analysis',
-                      {
-                        email: 'prospect@company.com',
-                        company: 'Sample Corp',
-                        customerDataset: Array(100).fill({}).map(() => ({
-                          email: 'customer@example.com',
-                          company: 'Example Inc',
-                          revenue: Math.random() * 1000000
-                        }))
-                      }
-                    )}
-                    disabled={isProcessing}
-                  >
-                    <Target className="h-6 w-6 text-blue-500" />
-                    <span className="text-sm">Lead Analysis</span>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    className="h-auto p-4 flex flex-col items-center space-y-2"
-                    onClick={() => executeAgentTask(
-                      agents.find(a => a.role.includes('Content'))?.id || '',
-                      'content_generation',
-                      {
-                        contentType: 'blog_post',
-                        topic: 'AI Marketing Trends 2024',
-                        audience: { segment: 'Marketing Professionals' },
-                        optimizeForSEO: true,
-                        targetKeywords: ['AI marketing', 'automation', 'ROI']
-                      }
-                    )}
-                    disabled={isProcessing}
-                  >
-                    <PenTool className="h-6 w-6 text-green-500" />
-                    <span className="text-sm">Content Generation</span>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    className="h-auto p-4 flex flex-col items-center space-y-2"
-                    onClick={() => executeAgentTask(
-                      agents.find(a => a.role.includes('Optimization'))?.id || '',
-                      'campaign_optimization',
-                      {
-                        campaignData: [
-                          { name: 'Search Ads', spend: 50000, conversions: 245, ctr: 0.045 },
-                          { name: 'Social Media', spend: 30000, conversions: 156, ctr: 0.032 },
-                          { name: 'Display Ads', spend: 20000, conversions: 89, ctr: 0.018 }
-                        ],
-                        totalBudget: 100000,
-                        timeframe: '30d'
-                      }
-                    )}
-                    disabled={isProcessing}
-                  >
-                    <TrendingUp className="h-6 w-6 text-orange-500" />
-                    <span className="text-sm">Campaign Optimization</span>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    className="h-auto p-4 flex flex-col items-center space-y-2"
-                    onClick={() => executeAgentTask(
-                      agents.find(a => a.role.includes('Customer'))?.id || '',
-                      'customer_segmentation',
-                      {
-                        customerData: Array(500).fill({}).map(() => ({
-                          id: Math.random().toString(),
-                          email: 'customer@example.com',
-                          ltv: Math.random() * 10000,
-                          engagementScore: Math.random() * 100,
-                          lastActivity: new Date()
-                        })),
-                        criteria: { method: 'behavioral', includeChurnRisk: true }
-                      }
-                    )}
-                    disabled={isProcessing}
-                  >
-                    <Users className="h-6 w-6 text-purple-500" />
-                    <span className="text-sm">Customer Segmentation</span>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Task Results</CardTitle>
-                <CardDescription>
-                  View results from recently executed tasks
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-64">
-                  <div className="space-y-2">
-                    {agents.flatMap(agent => agent.completedTasks)
-                      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-                      .slice(0, 10)
-                      .map((task) => (
-                        <div key={task.id} className="p-3 border rounded-lg">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium text-sm">{task.description}</span>
-                            {getTaskStatusIcon(task.status)}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {task.createdAt.toLocaleString()}
-                          </div>
-                          {task.result && (
-                            <div className="mt-2 text-xs">
-                              <Badge className="bg-green-100 text-green-800">
-                                Task completed successfully
-                              </Badge>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="workflows" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Agent Workflows</span>
-                <Button
-                  onClick={createSampleWorkflow}
-                  disabled={isProcessing}
-                  className="bg-purple-500 hover:bg-purple-600"
-                >
-                  <Zap className="h-4 w-4 mr-2" />
-                  Run Sample Workflow
-                </Button>
-              </CardTitle>
-              <CardDescription>
-                Orchestrate multiple agents to work together on complex marketing tasks
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
               <div className="space-y-4">
-                {workflows.length > 0 ? (
-                  workflows.map((workflow) => (
-                    <div key={workflow.id} className="p-4 border rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">{workflow.name}</h4>
-                        <Badge
-                          variant={workflow.status === 'completed' ? 'default' : 'secondary'}
-                          className={cn(
-                            workflow.status === 'completed' ? 'bg-green-100 text-green-800' : '',
-                            workflow.status === 'running' ? 'bg-blue-100 text-blue-800' : '',
-                            workflow.status === 'failed' ? 'bg-red-100 text-red-800' : ''
-                          )}
-                        >
-                          {workflow.status}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-3">{workflow.description}</p>
+                <div className="rounded-xl border border-border/60 p-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Task for {taskAgent}
+                  </p>
+                  <Textarea
+                    value={taskDraft}
+                    onChange={(event) => setTaskDraft(event.target.value)}
+                    placeholder={`Example: ${EMPLOYEE_PROFILES[taskAgent].executes[0]}`}
+                    className="min-h-28 border-border/70 bg-background text-foreground"
+                  />
+                </div>
 
-                      <div className="flex items-center space-x-4 text-xs text-muted-foreground">
-                        <span>{workflow.agents.length} agents</span>
-                        <span>{workflow.tasks.length} tasks</span>
-                        <span>Created: {workflow.createdAt.toLocaleDateString()}</span>
-                      </div>
-
-                      {workflow.tasks.length > 0 && (
-                        <div className="mt-3">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <span className="text-sm font-medium">Task Progress:</span>
-                            <Progress
-                              value={(workflow.tasks.filter(t => t.status === 'completed').length / workflow.tasks.length) * 100}
-                              className="flex-1 h-2"
-                            />
-                          </div>
-                        </div>
-                      )}
+                {planPreview && (
+                  <div className="space-y-4 rounded-xl border border-orange-200/70 bg-orange-50/50 p-4 dark:border-orange-900/50 dark:bg-orange-950/10">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Plan summary
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-foreground">{planPreview.summary}</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center text-muted-foreground py-8">
-                    <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>No workflows created yet</p>
-                    <p className="text-xs">Click "Run Sample Workflow" to see agents in action</p>
+
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Actionable tasks for the taskboard
+                      </p>
+                      <div className="mt-3 max-h-[36vh] space-y-2 overflow-y-auto pr-1">
+                        {planPreview.tasks.map((task, index) => (
+                          <div
+                            key={`${task.label}-${index}`}
+                            className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-background/80 p-3"
+                          >
+                            <p className="text-sm text-foreground">{task.label}</p>
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                              {task.horizon}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={resetTaskModal}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={createTaskPlan}
+                    disabled={isPlanningTask || !taskDraft.trim()}
+                  >
+                    {isPlanningTask ? 'Planning...' : planPreview ? 'Refresh Plan' : 'Create Plan'}
+                  </Button>
+                  <Button
+                    className="bg-orange-500 text-white hover:bg-orange-600"
+                    onClick={approveTaskPlan}
+                    disabled={!planPreview?.tasks.length}
+                  >
+                    Approve Plan
+                  </Button>
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>
-            Common agentic AI operations for your marketing platform
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-3">
-            <Button
-              variant="outline"
-              className="h-auto p-4 flex flex-col items-center space-y-2"
-              onClick={() => {
-                const leadAgent = agents.find(a => a.role.includes('Lead'));
-                if (leadAgent) {
-                  setChatMessage('Analyze our top 100 leads and identify the best prospects for immediate outreach');
-                  setSelectedAgent(leadAgent);
-                  setActiveTab('chat');
-                }
-              }}
-            >
-              <Target className="h-6 w-6 text-blue-500" />
-              <span className="text-sm text-center">Analyze Top Leads</span>
-            </Button>
-
-            <Button
-              variant="outline"
-              className="h-auto p-4 flex flex-col items-center space-y-2"
-              onClick={() => {
-                const contentAgent = agents.find(a => a.role.includes('Content'));
-                if (contentAgent) {
-                  setChatMessage('Create a week\'s worth of social media content for our AI marketing platform');
-                  setSelectedAgent(contentAgent);
-                  setActiveTab('chat');
-                }
-              }}
-            >
-              <PenTool className="h-6 w-6 text-green-500" />
-              <span className="text-sm text-center">Generate Content</span>
-            </Button>
-
-            <Button
-              variant="outline"
-              className="h-auto p-4 flex flex-col items-center space-y-2"
-              onClick={() => {
-                const optimizerAgent = agents.find(a => a.role.includes('Optimization'));
-                if (optimizerAgent) {
-                  setChatMessage('Review our current campaign performance and suggest budget optimizations');
-                  setSelectedAgent(optimizerAgent);
-                  setActiveTab('chat');
-                }
-              }}
-            >
-              <TrendingUp className="h-6 w-6 text-orange-500" />
-              <span className="text-sm text-center">Optimize Campaigns</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

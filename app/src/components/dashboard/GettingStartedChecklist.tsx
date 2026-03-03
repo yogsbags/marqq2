@@ -5,12 +5,50 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { fetchJson } from '@/components/modules/company-intelligence/api';
 import { toast } from 'sonner';
 
 const DISMISSED_KEY = 'torqq_checklist_dismissed';
 
 interface GettingStartedChecklistProps {
   onNavigate: (moduleId: string) => void;
+}
+
+function queueCompanyIntelAutorun(companyName: string, websiteUrl: string, companyId?: string) {
+  try {
+    sessionStorage.setItem('torqq_company_intel_autorun', JSON.stringify({
+      companyName,
+      websiteUrl,
+      companyId,
+    }));
+  } catch {
+    // non-blocking
+  }
+}
+
+function normalizeWebsiteUrl(url: string) {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return url.trim().replace(/\/$/, '');
+  }
+}
+
+function deriveCompanyName(baseName: string | undefined, websiteUrl: string) {
+  let derivedName = baseName || 'Company';
+  try {
+    const hostname = new URL(websiteUrl.startsWith('http') ? websiteUrl : `https://${websiteUrl}`).hostname
+      .replace(/^www\./, '').split('.')[0];
+    if (hostname) derivedName = hostname.charAt(0).toUpperCase() + hostname.slice(1);
+  } catch {
+    // keep fallback
+  }
+  return derivedName;
+}
+
+function isNetworkFetchError(error: unknown) {
+  return error instanceof TypeError && error.message === 'Failed to fetch';
 }
 
 export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistProps) {
@@ -22,6 +60,7 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
   );
   const [websiteUrl, setWebsiteUrl] = useState(activeWorkspace?.website_url ?? '');
   const [savingUrl, setSavingUrl] = useState(false);
+  const [showCompanyIntelCta, setShowCompanyIntelCta] = useState(false);
   const [hasIntegration, setHasIntegration] = useState(false);
   const [hasAgentRun, setHasAgentRun] = useState(false);
   const [allDoneShown, setAllDoneShown] = useState(false);
@@ -43,7 +82,10 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
       try {
         const res = await fetch(`/api/agents/status?workspaceId=${activeWorkspace.id}`);
         const d = await res.json();
-        setHasAgentRun((d?.total ?? 0) > 0);
+        const agents = d?.agents ?? {};
+        setHasAgentRun(
+          Object.values(agents).some((agent: any) => !!agent?.last_run)
+        );
       } catch { /* ignore */ }
     }
   }, [user?.id, activeWorkspace?.id]);
@@ -52,7 +94,7 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
 
   const step1Complete = Boolean(activeWorkspace?.website_url);
   const step2Complete = hasIntegration;
-  const step3Complete = hasAgentRun;
+  const step3Complete = step1Complete && hasAgentRun;
   const completedCount = [step1Complete, step2Complete, step3Complete].filter(Boolean).length;
   const allComplete = completedCount === 3;
 
@@ -73,7 +115,53 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
     setSavingUrl(true);
     try {
       await updateWebsiteUrl(url);
-      toast.success('Website URL saved — your agents will research this automatically');
+      const derivedName = deriveCompanyName(activeWorkspace?.name, url);
+      queueCompanyIntelAutorun(derivedName, url)
+      void (async () => {
+        try {
+          const normalizedUrl = normalizeWebsiteUrl(url);
+          const existing = await fetchJson<{ companies: Array<{ id: string; websiteUrl: string | null }> }>('/api/company-intel/companies');
+          let companyId = existing.companies.find((company) => (
+            company.websiteUrl && normalizeWebsiteUrl(company.websiteUrl) === normalizedUrl
+          ))?.id;
+
+          if (!companyId) {
+            const created = await fetchJson<{ company: { id: string } }>('/api/company-intel/companies', {
+              method: 'POST',
+              body: JSON.stringify({ companyName: derivedName, websiteUrl: url })
+            });
+            companyId = created.company.id;
+          }
+
+          if (companyId) {
+            queueCompanyIntelAutorun(derivedName, url, companyId)
+            await fetchJson(`/api/company-intel/companies/${companyId}/generate-all`, {
+              method: 'POST',
+              body: JSON.stringify({
+                inputs: {
+                  goal: 'Increase qualified leads',
+                  geo: 'India',
+                  timeframe: '90 days',
+                  channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
+                  notes: 'Keep it compliance-safe (no guaranteed returns).'
+                }
+              })
+            });
+            await fetchJson('/api/agents/zara/mark-run', {
+              method: 'POST',
+              body: JSON.stringify({ durationMs: 0 })
+            });
+            setHasAgentRun(true);
+          }
+        } catch (backgroundError) {
+          if (!isNetworkFetchError(backgroundError)) {
+            console.error('Background company intel sync failed:', backgroundError);
+          }
+        }
+      })();
+
+      toast.success('Website URL saved. Company intelligence is being populated in the background.')
+      setShowCompanyIntelCta(true);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to save');
     } finally {
@@ -97,7 +185,7 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
             {completedCount}/3
           </span>
           <div className="text-left">
-            <p className="font-semibold text-sm">Let's get started, {firstName} 👋</p>
+            <p className="font-semibold text-sm">Let's get started, {firstName}</p>
             <p className="text-xs text-muted-foreground">
               Follow these steps to get the most out of Torqq
             </p>
@@ -120,7 +208,7 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
       {!collapsed && !allComplete && (
         <div className="divide-y">
           {/* Step 1 */}
-          <div className={cn('px-5 py-4 flex gap-4', step1Complete && 'opacity-60')}>
+          <div className="px-5 py-4 flex gap-4">
             <div className="mt-0.5 shrink-0">
               {step1Complete
                 ? <CheckCircle2 className="h-5 w-5 text-green-500" />
@@ -129,7 +217,7 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm">Enter your website URL</p>
               <p className="text-xs text-muted-foreground mb-2">
-                Your agents will research your brand automatically
+                Strategy agent (Zara) will research and analyze your brand automatically
               </p>
               {!step1Complete && (
                 <div className="flex gap-2">
@@ -146,6 +234,24 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
                     disabled={savingUrl || !websiteUrl.trim()}
                   >
                     {savingUrl ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              )}
+              {(step1Complete || showCompanyIntelCta) && (
+                <div className="mt-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="bg-orange-500 hover:bg-orange-600 text-white"
+                    onClick={() => {
+                      if (activeWorkspace?.website_url) {
+                        const derivedName = deriveCompanyName(activeWorkspace.name, activeWorkspace.website_url);
+                        queueCompanyIntelAutorun(derivedName, activeWorkspace.website_url)
+                      }
+                      onNavigate('company-intelligence');
+                    }}
+                  >
+                    Show Company Intel →
                   </Button>
                 </div>
               )}
@@ -166,30 +272,28 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
               </p>
             </div>
             {!step2Complete && (
-              <Button variant="outline" size="sm" onClick={() => onNavigate('settings')}>
+              <Button variant="outline" size="sm" onClick={() => onNavigate('settings-accounts')}>
                 + Connect
               </Button>
             )}
           </div>
 
           {/* Step 3 */}
-          <div className={cn('px-5 py-4 flex items-center gap-4', step3Complete && 'opacity-60')}>
+          <div className="px-5 py-4 flex items-center gap-4">
             <div className="shrink-0">
               {step3Complete
                 ? <CheckCircle2 className="h-5 w-5 text-green-500" />
                 : <Bot className="h-5 w-5 text-purple-500" />}
             </div>
             <div className="flex-1">
-              <p className="font-medium text-sm">Run your first agent</p>
+              <p className="font-medium text-sm">Run your first AI agent</p>
               <p className="text-xs text-muted-foreground">
-                Ask Zara, Maya or any agent to start working
+                Ask Maya, Riya or any agent to start working
               </p>
             </div>
-            {!step3Complete && (
-              <Button variant="outline" size="sm" onClick={() => onNavigate('home')}>
-                → Run
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={() => onNavigate('home')}>
+              {step3Complete ? '→ Open' : '→ Run'}
+            </Button>
           </div>
         </div>
       )}

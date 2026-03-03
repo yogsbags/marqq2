@@ -1,0 +1,9 @@
+{
+  "connectors": ["gsc", "ga4", "semrush", "ahrefs", "google_sheets"],
+  "permissions": "read",
+  "description": "Maya owns SEO — she reads search console, rankings, and content analytics.",
+  "recipes": {
+    "weekly_seo_snapshot":    "rcp_2__AtkdEC1Or",
+    "keyword_rank_movement": "rcp_ne1Z2nd5CCHG"
+  }
+}

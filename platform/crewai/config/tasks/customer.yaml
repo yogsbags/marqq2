@@ -1,0 +1,44 @@
+profile_aggregation_task:
+  description: >
+    Aggregate customer profiles from all data sources.
+    Customer IDs: {customer_ids}
+    Data sources: CRM, email, social, support, product usage
+
+    Return unified 360-degree customer profiles with interaction history, preferences, and behavior.
+  expected_output: >
+    Unified customer profiles with complete interaction history and attributes in JSON format
+  agent: profile_aggregator
+  output_json: true
+
+journey_mapping_task:
+  description: >
+    Map customer journeys across all stages.
+    Customer segment: {customer_segment}
+
+    Identify touchpoints, conversion paths, friction points, and opportunities.
+  expected_output: >
+    Customer journey maps with stages, touchpoints, and optimization opportunities in JSON format
+  agent: journey_mapper
+  output_json: true
+
+prediction_task:
+  description: >
+    Predict customer behavior and lifetime value.
+    Customer profiles: {customer_profiles}
+
+    Calculate churn risk, upsell potential, and CLV.
+  expected_output: >
+    Predictive scores with churn risk, expansion probability, and lifetime value in JSON format
+  agent: prediction_agent
+  output_json: true
+
+insights_generation_task:
+  description: >
+    Generate actionable customer insights.
+    Unified data: {unified_data}
+
+    Identify segments, patterns, and personalization opportunities.
+  expected_output: >
+    Customer insights with segmentation, patterns, and recommendations in JSON format
+  agent: insights_generator
+  output_json: true

@@ -15,6 +15,7 @@ interface WorkspaceContextType {
   switchWorkspace: (id: string) => void;
   createWorkspace: (name: string) => Promise<Workspace>;
   updateWebsiteUrl: (url: string) => Promise<void>;
+  clearWebsiteUrl: () => Promise<void>;
   refreshWorkspaces: () => Promise<void>;
   isLoading: boolean;
 }
@@ -82,10 +83,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setActiveWorkspace(prev => prev?.id === workspace.id ? ({ ...prev, website_url: workspace.website_url } as Workspace) : prev);
   };
 
+  const clearWebsiteUrl = async () => {
+    if (!activeWorkspace || !user?.id) return;
+    const res = await fetch(`/api/workspaces/${activeWorkspace.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id, website_url: null }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Failed to clear website URL');
+    const { workspace } = await res.json();
+    setWorkspaces(prev => prev.map(w => w.id === workspace.id ? { ...w, website_url: workspace.website_url } : w));
+    setActiveWorkspace(prev => prev?.id === workspace.id ? ({ ...prev, website_url: workspace.website_url } as Workspace) : prev);
+  };
+
   return (
     <WorkspaceContext.Provider value={{
       workspaces, activeWorkspace, switchWorkspace,
-      createWorkspace, updateWebsiteUrl,
+      createWorkspace, updateWebsiteUrl, clearWebsiteUrl,
       refreshWorkspaces: fetchWorkspaces, isLoading,
     }}>
       {children}

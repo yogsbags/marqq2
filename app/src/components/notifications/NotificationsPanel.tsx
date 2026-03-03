@@ -46,12 +46,12 @@ interface AgentNotification {
 }
 
 const AGENT_COLOURS: Record<string, string> = {
-  zara:  'bg-indigo-100 text-indigo-800',
-  maya:  'bg-blue-100 text-blue-800',
-  riya:  'bg-purple-100 text-purple-800',
-  arjun: 'bg-green-100 text-green-800',
-  dev:   'bg-orange-100 text-orange-800',
-  priya: 'bg-red-100 text-red-800',
+  zara:  'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300',
+  maya:  'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  riya:  'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  arjun: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  dev:   'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+  priya: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
 };
 
 const AGENT_INITIALS: Record<string, string> = {
@@ -416,7 +416,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
             )}
           >
             AI Team {agentNotifs.filter((n) => !n.read).length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs">
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 text-xs">
                 {agentNotifs.filter((n) => !n.read).length}
               </span>
             )}
@@ -431,7 +431,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
             )}
           >
             Competitors {alerts.filter((a) => !a.read).length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs">
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 text-xs">
                 {alerts.filter((a) => !a.read).length}
               </span>
             )}
@@ -653,7 +653,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
                                 href={alert.source_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="h-6 w-6 flex items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                className="h-6 w-6 flex items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:hover:text-blue-300 rounded"
                                 title="View source"
                                 onClick={(e) => e.stopPropagation()}
                               >
@@ -664,7 +664,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
                                   variant="ghost"
                                   size="icon"
                                   onClick={(e) => { e.stopPropagation(); markAsRead(alert.id); }}
-                                  className="h-6 w-6 text-gray-500 hover:text-green-600 hover:bg-green-50"
+                                  className="h-6 w-6 text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 dark:hover:text-green-300"
                                   title="Mark as read"
                                 >
                                   <CheckCircle className="h-3 w-3" />
@@ -674,7 +674,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
                                   variant="ghost"
                                   size="icon"
                                   onClick={(e) => { e.stopPropagation(); markAsUnread(alert.id); }}
-                                  className="h-6 w-6 text-gray-500 hover:text-blue-600 hover:bg-blue-50"
+                                  className="h-6 w-6 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
                                   title="Mark as unread"
                                 >
                                   <MarkAsUnread className="h-3 w-3" />
@@ -684,7 +684,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
                                 variant="ghost"
                                 size="icon"
                                 onClick={(e) => { e.stopPropagation(); archiveAlert(alert.id); }}
-                                className="h-6 w-6 text-gray-500 hover:text-red-600 hover:bg-red-50"
+                                className="h-6 w-6 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:hover:text-red-300"
                                 title="Archive alert"
                               >
                                 <Trash2 className="h-3 w-3" />
@@ -710,7 +710,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
                 variant="ghost"
                 size="sm"
                 onClick={clearAllNotifications}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Clear All

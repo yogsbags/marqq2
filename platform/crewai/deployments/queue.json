@@ -1,0 +1,77 @@
+[
+  {
+    "id": "dep-1772542272556-g2uqxi",
+    "agentName": "zara",
+    "agentTarget": "company_intel_marketing_strategy",
+    "workspaceId": "538f0e2d-c1fc-4c30-8570-e3beb4a1011d",
+    "sectionId": "kpis",
+    "sectionTitle": "KPI Plan",
+    "summary": "Set a review loop for content reach and WhatsApp response quality.",
+    "bullets": [
+      "Review LinkedIn reach weekly.",
+      "Track WhatsApp response rate by audience segment."
+    ],
+    "tasks": [
+      {
+        "label": "[GTM \u2022 KPI Plan] Review LinkedIn reach weekly",
+        "horizon": "week"
+      }
+    ],
+    "source": "gtm-wizard-test-memory-fix",
+    "status": "completed",
+    "createdAt": "2026-03-03T12:51:12.556Z",
+    "scheduledFor": "next_cron_run",
+    "pickedAt": "2026-03-03T12:51:40.480439+00:00",
+    "completedAt": "2026-03-03T12:54:47.720365+00:00"
+  },
+  {
+    "id": "dep-1772541807875-sbou0q",
+    "agentName": "zara",
+    "agentTarget": "company_intel_marketing_strategy",
+    "workspaceId": "538f0e2d-c1fc-4c30-8570-e3beb4a1011d",
+    "sectionId": "content",
+    "sectionTitle": "Content Strategy",
+    "summary": "Build a trust-led content engine around market research and investor education.",
+    "bullets": [
+      "Publish weekly LinkedIn market notes from PL analysts.",
+      "Repurpose research into WhatsApp and email digests."
+    ],
+    "tasks": [
+      {
+        "label": "[GTM \u2022 Content Strategy] Publish weekly analyst market notes",
+        "horizon": "week"
+      }
+    ],
+    "source": "gtm-wizard-test-fresh",
+    "status": "completed",
+    "createdAt": "2026-03-03T12:43:27.875Z",
+    "scheduledFor": "next_cron_run",
+    "pickedAt": "2026-03-03T12:43:50.002671+00:00",
+    "completedAt": "2026-03-03T12:45:50.879024+00:00"
+  },
+  {
+    "id": "dep-1772541694906-qwn1cz",
+    "agentName": "zara",
+    "agentTarget": "company_intel_marketing_strategy",
+    "workspaceId": "538f0e2d-c1fc-4c30-8570-e3beb4a1011d",
+    "sectionId": "channels",
+    "sectionTitle": "Channel Strategy",
+    "summary": "Focus first on LinkedIn and WhatsApp for PL Capital distribution.",
+    "bullets": [
+      "Prioritize LinkedIn thought leadership for HNI and institutional trust.",
+      "Use WhatsApp for advisor follow-up and research distribution."
+    ],
+    "tasks": [
+      {
+        "label": "[GTM \u2022 Channel Strategy] Launch LinkedIn thought leadership cadence",
+        "horizon": "week"
+      }
+    ],
+    "source": "gtm-wizard-test",
+    "status": "completed",
+    "createdAt": "2026-03-03T12:41:34.906Z",
+    "scheduledFor": "next_cron_run",
+    "pickedAt": "2026-03-03T12:42:15.563831+00:00",
+    "completedAt": "2026-03-03T12:42:51.866614+00:00"
+  }
+]

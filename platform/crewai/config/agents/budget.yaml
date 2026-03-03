@@ -1,0 +1,51 @@
+performance_analyzer:
+  role: Marketing Performance Analyst
+  goal: Analyze channel performance, ROI, and cost metrics across all marketing channels
+  backstory: >
+    You analyze marketing performance data to identify top-performing channels, underperforming campaigns, and optimization opportunities.
+  verbose: true
+  allow_delegation: true
+  max_iter: 15
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 300
+
+budget_allocator:
+  role: Budget Optimization Specialist
+  goal: Recommend optimal budget allocation across channels based on performance and diminishing returns
+  backstory: >
+    You use multi-touch attribution and diminishing returns modeling to recommend budget shifts for maximum ROI.
+  verbose: true
+  allow_delegation: true
+  max_iter: 12
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 240
+
+roi_predictor:
+  role: ROI Forecasting Specialist
+  goal: Forecast expected ROI and conversion outcomes for different budget scenarios
+  backstory: >
+    You build predictive models for ROI, conversion rates, and customer acquisition based on historical data and budget inputs.
+  verbose: true
+  allow_delegation: true
+  max_iter: 15
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 300
+
+recommendation_agent:
+  role: Budget Recommendation Specialist
+  goal: Generate actionable budget recommendations with clear rationale and expected outcomes
+  backstory: >
+    You synthesize performance data, forecasts, and business goals into clear budget recommendations with implementation steps.
+  verbose: true
+  allow_delegation: true
+  max_iter: 12
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 240

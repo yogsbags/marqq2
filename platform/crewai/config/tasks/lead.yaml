@@ -1,0 +1,170 @@
+lead_scoring_task:
+  description: >
+    Score leads based on ICP criteria and conversion probability.
+
+    Lead data: {lead_data}
+    ICP criteria: {icp_criteria}
+
+    Analyze and score each lead on:
+    1. Firmographic fit (company size, industry, revenue, location)
+    2. Technographic fit (tech stack, tools used, integration potential)
+    3. Behavioral signals (website visits, content downloads, email engagement)
+    4. Buying signals (budget authority, timeline urgency, pain points)
+    5. Engagement level (responsiveness, meeting attendance, demo requests)
+
+    For each lead provide:
+    - Overall score (0-100)
+    - Tier classification (Hot: 80-100, Warm: 50-79, Cold: 0-49)
+    - Score breakdown by category
+    - Conversion probability percentage
+    - Next best action recommendation
+    - Expected deal value estimate
+
+    Use historical conversion data to calibrate scoring accuracy.
+  expected_output: >
+    Structured lead scores with tier classification, probability estimates,
+    score breakdowns, and recommended next actions in JSON format
+  agent: lead_scorer
+  output_json: true
+
+enrichment_task:
+  description: >
+    Enrich lead data with comprehensive firmographic and technographic information.
+
+    Initial lead data: {lead_data}
+    Enrichment sources: {enrichment_sources}
+
+    Gather and append:
+    1. Company information:
+       - Full legal name, DBA, parent company
+       - Industry classification (NAICS, SIC codes)
+       - Employee count and growth trends
+       - Revenue estimates and funding history
+       - Office locations and headquarters
+
+    2. Tech stack details:
+       - CRM, marketing automation, analytics tools
+       - Cloud infrastructure providers
+       - Communication and collaboration platforms
+       - E-commerce and payment processors
+       - Security and compliance tools
+
+    3. Decision maker contacts:
+       - C-level executives (CEO, CTO, CMO, CFO)
+       - Department heads (Marketing, Sales, IT)
+       - Direct email addresses and phone numbers
+       - LinkedIn profiles and social presence
+       - Recent job changes or promotions
+
+    4. Business intelligence:
+       - Recent news mentions and press releases
+       - Product launches and expansions
+       - Merger/acquisition activity
+       - Customer reviews and satisfaction scores
+
+    Use Apollo, Clearbit, LinkedIn, and web research to ensure data accuracy.
+    Verify all contact information before including.
+  expected_output: >
+    Fully enriched lead profiles with firmographic data, tech stack details,
+    decision maker contacts, and business intelligence in structured JSON format
+  agent: enrichment_agent
+  output_json: true
+
+icp_matching_task:
+  description: >
+    Match enriched leads against Ideal Customer Profile criteria with precision scoring.
+
+    Enriched lead data: {enriched_lead_data}
+    ICP definition: {icp_definition}
+
+    Evaluate leads against ICP criteria:
+
+    1. Company characteristics:
+       - Size match (employee count range)
+       - Industry vertical alignment
+       - Revenue bracket fit
+       - Geographic location preference
+       - Growth stage compatibility
+
+    2. Technical fit:
+       - Existing tech stack compatibility
+       - Integration requirements alignment
+       - Technical maturity level
+       - Infrastructure readiness
+
+    3. Budget indicators:
+       - Revenue signals (funding, growth)
+       - Department budget authority
+       - Purchase timing indicators
+       - Budget allocation patterns
+
+    4. Pain point alignment:
+       - Problem severity match
+       - Current solution gaps
+       - Urgency indicators
+       - Business impact potential
+
+    For each lead provide:
+    - ICP match score (0-100)
+    - Match category (Perfect: 90-100, Strong: 70-89, Moderate: 50-69, Weak: 0-49)
+    - Criteria breakdown with individual scores
+    - Fit rationale with specific evidence
+    - Disqualification flags if any
+    - Recommended engagement approach
+  expected_output: >
+    ICP match scores with category classification, detailed breakdown,
+    rationale, and engagement recommendations in JSON format
+  agent: icp_matcher
+  output_json: true
+
+segmentation_task:
+  description: >
+    Segment scored and matched leads into actionable groups for targeted outreach.
+
+    Scored leads: {scored_leads}
+    ICP matched leads: {icp_matched_leads}
+    Segmentation strategy: {segmentation_strategy}
+
+    Create segments based on:
+
+    1. Engagement readiness:
+       - Sales Ready: High score + strong ICP match + active engagement
+       - Nurture Ready: Medium score + moderate match + some engagement
+       - Long-term Nurture: Lower score but good fit + minimal engagement
+       - Disqualified: Poor fit or negative signals
+
+    2. Industry verticals:
+       - Group by primary industry
+       - Sub-segment by specific use cases
+       - Account for industry-specific buying cycles
+
+    3. Company size tiers:
+       - Enterprise (1000+ employees)
+       - Mid-Market (100-999 employees)
+       - SMB (10-99 employees)
+       - Startup (1-9 employees)
+
+    4. Buying stage:
+       - Problem Aware: Recognize pain but no solution research
+       - Solution Aware: Researching solutions actively
+       - Product Aware: Evaluating specific products
+       - Decision Ready: Budget approved, comparing vendors
+
+    5. Geographic regions:
+       - Group by time zone for outreach timing
+       - Consider regional compliance (GDPR, data residency)
+       - Account for cultural nuances
+
+    For each segment provide:
+       - Segment name and description
+       - Lead count and percentage of total
+       - Average score and ICP match
+       - Recommended outreach channel (email, LinkedIn, phone, ads)
+       - Messaging framework and value proposition
+       - Estimated conversion rate and timeline
+       - Nurture sequence recommendation
+  expected_output: >
+    Lead segments with detailed profiles, size metrics, engagement strategies,
+    messaging frameworks, and conversion estimates in JSON format
+  agent: segmentation_agent
+  output_json: true

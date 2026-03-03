@@ -1,0 +1,10 @@
+{
+  "connectors": ["google_ads", "meta_ads", "linkedin_ads", "ga4"],
+  "permissions": "read",
+  "description": "Zara runs paid campaigns — she reads ad performance and budgets across channels.",
+  "recipes": {
+    "weekly_ad_performance": "rcp_RVBR4msMc_A0",
+    "budget_pacing_check":   "rcp_loCrioVj6pav",
+    "campaign_anomaly_scan": "rcp_Qf8yHRhkp8Sp"
+  }
+}

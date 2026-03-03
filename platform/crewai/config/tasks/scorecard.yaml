@@ -1,0 +1,49 @@
+metrics_collection_task:
+  description: >
+    Collect real-time metrics from all platforms.
+    Platforms: {platforms}
+    Metrics: {metrics}
+    Timeframe: {timeframe}
+
+    Return current values, trends, and comparisons to previous periods.
+  expected_output: >
+    Collected metrics with current values, trends, and period comparisons in JSON format
+  agent: metrics_collector
+  output_json: true
+
+anomaly_detection_task:
+  description: >
+    Detect anomalies in performance metrics.
+    Metrics data: {metrics_data}
+    Sensitivity: {sensitivity}
+
+    Identify spikes, drops, and unusual patterns with severity levels.
+  expected_output: >
+    Detected anomalies with severity, affected metrics, and potential causes in JSON format
+  agent: anomaly_detector
+  output_json: true
+
+dashboard_building_task:
+  description: >
+    Build performance dashboard.
+    Metrics: {metrics}
+    KPIs: {kpis}
+    Visualization preferences: {viz_preferences}
+
+    Create dashboard layout with charts, summaries, and goal tracking.
+  expected_output: >
+    Dashboard configuration with widgets, visualizations, and layout in JSON format
+  agent: dashboard_builder
+  output_json: true
+
+alert_generation_task:
+  description: >
+    Generate alerts for critical events.
+    Anomalies: {anomalies}
+    Thresholds: {alert_thresholds}
+
+    Create alerts with severity, recommended actions, and notification channels.
+  expected_output: >
+    Generated alerts with severity, actions, and notification config in JSON format
+  agent: alert_generator
+  output_json: true

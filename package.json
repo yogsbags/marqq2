@@ -14,8 +14,7 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node server.js",
-    "postinstall": "npm --prefix platform/content-engine ci --omit=dev"
+    "start": "node server.js"
   },
   "dependencies": {
     "@deepgram/sdk": "^4.0.0",
@@ -61,6 +60,7 @@
     "@radix-ui/react-toggle-group": "^1.1.0",
     "@radix-ui/react-tooltip": "^1.1.2",
     "@supabase/supabase-js": "^2.90.1",
+    "bullmq": "^5.70.1",
     "class-variance-authority": "^0.7.0",
     "cloudinary": "^2.8.0",
     "clsx": "^2.1.1",
@@ -72,6 +72,7 @@
     "google-auth-library": "^10.3.0",
     "groq-sdk": "^0.37.0",
     "input-otp": "^1.2.4",
+    "ioredis": "^5.9.3",
     "livekit-client": "^2.9.7",
     "livekit-server-sdk": "^2.9.7",
     "lucide-react": "^0.446.0",
@@ -96,6 +97,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.11.1",
+    "@playwright/test": "^1.58.2",
     "@types/node": "^22.7.3",
     "@types/react": "^18.3.9",
     "@types/react-dom": "^18.3.0",

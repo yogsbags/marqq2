@@ -1,11 +1,52 @@
 {
-  "updated_at": null,
+  "updated_at": "2026-03-03T16:42:36.952Z",
   "agents": {
-    "zara":  { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "09:15 IST daily" },
-    "maya":  { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "06:00 IST daily" },
-    "arjun": { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "07:00 IST daily" },
-    "priya": { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "08:00 IST daily" },
-    "riya":  { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "08:00 IST Mon/Wed/Fri" },
-    "dev":   { "status": "idle", "last_run": null, "duration_ms": null, "next_run": "09:00 IST Monday" }
+    "zara": {
+      "status": "completed",
+      "last_run": "2026-03-03T16:42:36.952Z",
+      "duration_ms": 0
+    },
+    "maya": {
+      "status": "idle",
+      "last_run": null,
+      "duration_ms": null,
+      "next_run": "06:00 IST daily"
+    },
+    "riya": {
+      "status": "idle",
+      "last_run": null,
+      "duration_ms": null,
+      "next_run": "08:00 IST Mon/Wed/Fri"
+    },
+    "arjun": {
+      "status": "idle",
+      "last_run": null,
+      "duration_ms": null,
+      "next_run": "07:00 IST daily"
+    },
+    "dev": {
+      "status": "idle",
+      "last_run": null,
+      "duration_ms": null,
+      "next_run": "09:00 IST Monday"
+    },
+    "priya": {
+      "status": "idle",
+      "last_run": null,
+      "duration_ms": null,
+      "next_run": "08:00 IST daily"
+    },
+    "kiran": {
+      "status": "completed",
+      "last_run": "2026-03-03T07:08:05.449Z",
+      "duration_ms": 653,
+      "next_run": "07:30 IST daily"
+    },
+    "sam": {
+      "status": "idle",
+      "last_run": null,
+      "duration_ms": null,
+      "next_run": "08:30 IST Tue/Thu"
+    }
   }
 }

@@ -1,0 +1,8 @@
+{
+  "connectors": ["ga4", "google_sheets"],
+  "permissions": "read",
+  "description": "Sam monitors email campaigns — he reads open rates, CTR, deliverability signals, and list health.",
+  "recipes": {
+    "email_health_check": "rcp_jErka5Wrgf6E"
+  }
+}

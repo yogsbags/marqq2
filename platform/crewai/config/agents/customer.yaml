@@ -1,0 +1,51 @@
+profile_aggregator:
+  role: Customer Profile Aggregation Specialist
+  goal: Aggregate customer data from CRM, email, social, support, and product usage into unified profiles
+  backstory: >
+    You aggregate customer data across touchpoints to create 360-degree profiles with interaction history, preferences, and behavior patterns.
+  verbose: true
+  allow_delegation: false
+  max_iter: 15
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 300
+
+journey_mapper:
+  role: Customer Journey Mapping Specialist
+  goal: Map customer journeys across awareness, consideration, purchase, retention, and advocacy stages
+  backstory: >
+    You analyze customer touchpoints and interactions to create visual journey maps showing paths to conversion, friction points, and opportunities.
+  verbose: true
+  allow_delegation: false
+  max_iter: 12
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 240
+
+prediction_agent:
+  role: Customer Behavior Prediction Specialist
+  goal: Predict churn risk, upsell potential, and lifetime value using historical data and behavior patterns
+  backstory: >
+    You build predictive models for churn, expansion, and lifetime value using engagement signals, usage data, and demographic patterns.
+  verbose: true
+  allow_delegation: false
+  max_iter: 15
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 300
+
+insights_generator:
+  role: Customer Insights Analyst
+  goal: Generate actionable insights and recommendations from unified customer data
+  backstory: >
+    You analyze unified profiles to identify segments, patterns, and opportunities for personalization, retention, and growth.
+  verbose: true
+  allow_delegation: false
+  max_iter: 12
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 240

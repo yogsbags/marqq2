@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { BRAND } from '@/lib/brand';
 import { useEffect, useMemo, useState } from 'react';
 import {
   HiChat as Bot,
@@ -48,15 +49,17 @@ function parseCompanyIntelPageFromHash(): string {
 }
 
 const COMPANY_INTEL_SUBMENU = [
-  { id: 'overview', title: 'Company Snapshot' },
+  { id: 'overview', title: 'Company Overview' },
   { id: 'competitor_intelligence', title: 'Competitor Intelligence' },
   { id: 'website_audit', title: 'Website Audit' },
   { id: 'opportunities', title: 'Opportunities' },
-  { id: 'client_profiling', title: 'Client Profiling Analytics' },
-  { id: 'partner_profiling', title: 'Partner Profiling Analytics' },
-  { id: 'icps', title: 'Best-Fit Customer Profiles' },
-  { id: 'social_calendar', title: 'Social Media Content Calendar' },
+  { id: 'client_profiling', title: 'Client Profiling' },
+  { id: 'partner_profiling', title: 'Partner Profiling' },
+  { id: 'icps', title: 'Ideal Customer Profiles' },
+  { id: 'social_calendar', title: 'Social Calendar' },
   { id: 'marketing_strategy', title: 'Marketing Strategy' },
+  { id: 'positioning_messaging', title: 'Positioning & Messaging' },
+  { id: 'pricing_intelligence', title: 'Pricing Intelligence' },
   { id: 'content_strategy', title: 'Content Strategy' },
   { id: 'channel_strategy', title: 'Channel Strategy' },
   { id: 'lookalike_audiences', title: 'Lookalike Audiences' },
@@ -70,8 +73,8 @@ const navigationItems = [
     icon: Home,
   },
   {
-    id: null,
-    title: 'Dashboard',
+    id: 'dashboard',
+    title: 'AI Team',
     icon: LayoutDashboard,
   },
   {
@@ -141,6 +144,7 @@ const bottomItems = [
 
 export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCollapse, conversations, activeConversationId, onConversationSelect }: SidebarProps) {
   const [companyIntelPage, setCompanyIntelPage] = useState<string>(() => parseCompanyIntelPageFromHash());
+  const [companyIntelOpen, setCompanyIntelOpen] = useState<boolean>(selectedModule === 'company-intelligence');
   const [historyOpen, setHistoryOpen] = useState(true);
 
   useEffect(() => {
@@ -149,9 +153,19 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
     return () => window.removeEventListener('hashchange', handler);
   }, []);
 
+  useEffect(() => {
+    if (collapsed) {
+      setCompanyIntelOpen(false);
+      return;
+    }
+    if (selectedModule === 'company-intelligence') {
+      setCompanyIntelOpen(true);
+    }
+  }, [collapsed, selectedModule]);
+
   const companySubmenuVisible = useMemo(
-    () => selectedModule === 'company-intelligence' && !collapsed,
-    [selectedModule, collapsed]
+    () => selectedModule === 'company-intelligence' && companyIntelOpen && !collapsed,
+    [selectedModule, companyIntelOpen, collapsed]
   );
 
   const navigateCompanyIntel = (pageId: string) => {
@@ -166,21 +180,23 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
     )}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b">
-        {!collapsed && (
-          <div className="flex items-center space-x-2 flex-1">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-orange-400 to-orange-700 opacity-80"></div>
-              <div className="relative">
-                <div className="w-5 h-5 relative">
-                  <div className="absolute top-0 left-0 w-2.5 h-2.5 bg-white rounded-full opacity-90"></div>
-                  <div className="absolute top-0.5 right-0 w-1.5 h-1.5 bg-white rounded-full opacity-70"></div>
-                  <div className="absolute bottom-0 left-0.5 w-2 h-2 bg-white rounded-full opacity-80"></div>
-                  <div className="absolute bottom-0.5 right-0.5 w-1 h-1 bg-white rounded-full opacity-60"></div>
-                </div>
-              </div>
-            </div>
-            <h1 className="text-lg font-bold bg-gradient-to-r from-orange-500 to-orange-600 bg-clip-text text-transparent">
-              Torqq AI
+        {collapsed ? (
+          <div className="flex items-center justify-center flex-1">
+            <img
+              src={BRAND.logoSrc}
+              alt={`${BRAND.name} logo`}
+              className="block h-9 w-9 rounded-md"
+            />
+          </div>
+        ) : (
+          <div className="flex items-center space-x-3 flex-1 min-w-0">
+            <img
+              src={BRAND.logoSrc}
+              alt={`${BRAND.name} logo`}
+              className="block h-11 w-11 rounded-md flex-shrink-0"
+            />
+            <h1 className="font-brand text-2xl font-bold bg-gradient-to-r from-orange-500 to-orange-600 bg-clip-text text-transparent truncate">
+              {BRAND.name}
             </h1>
           </div>
         )}
@@ -201,11 +217,11 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
                     <Button
                       variant={isHomeActive ? "default" : "ghost"}
                       className={cn(
-                        "flex-1 justify-start transition-all duration-200 hover:scale-[1.02]",
+                        "flex-1 justify-start transition-colors duration-200",
                         collapsed ? "px-2" : "px-3 py-2.5",
                         isHomeActive
                           ? "bg-orange-500 text-white hover:bg-orange-600"
-                          : "bg-transparent text-gray-700 hover:bg-orange-50 hover:text-orange-700 dark:text-gray-300 dark:hover:bg-orange-900/20 dark:hover:text-orange-400 focus:outline-none focus:ring-0"
+                          : "bg-transparent text-foreground/70 hover:bg-orange-500/10 hover:text-orange-500 focus:outline-none focus:ring-0"
                       )}
                       onClick={() => onModuleSelect(item.id)}
                     >
@@ -246,19 +262,25 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
                 <Button
                   variant={isSelected ? "default" : "ghost"}
                   className={cn(
-                    "w-full justify-start transition-all duration-200 hover:scale-[1.02]",
+                        "w-full justify-start transition-colors duration-200 focus-visible:ring-0 focus-visible:outline-none",
                     collapsed ? "px-2" : "px-3 py-2.5",
                     isSelected
                       ? "bg-orange-500 text-white hover:bg-orange-600"
-                      : "bg-transparent text-gray-700 hover:bg-orange-50 hover:text-orange-700 dark:text-gray-300 dark:hover:bg-orange-900/20 dark:hover:text-orange-400 focus:outline-none focus:ring-0"
+                      : "bg-transparent text-foreground/70 hover:bg-orange-500/10 hover:text-orange-500 focus:outline-none focus:ring-0"
                   )}
                   onClick={() => {
                     if (isCompanyRoot) {
-                      navigateCompanyIntel('overview');
+                      if (selectedModule === 'company-intelligence' && companyIntelOpen) {
+                        setCompanyIntelOpen(false);
+                        return;
+                      }
+                      setCompanyIntelOpen(true);
+                      navigateCompanyIntel(companyIntelPage || 'overview');
                       return;
                     }
                     onModuleSelect(item.id);
                   }}
+                  data-tour={item.id === 'company-intelligence' ? 'nav-company-intel' : item.id === 'dashboard' ? 'nav-dashboard' : undefined}
                 >
                   {item.icon && (
                     <item.icon className={cn(
@@ -281,10 +303,10 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
                           variant="ghost"
                           size="sm"
                           className={cn(
-                            "w-full justify-start text-xs",
+                            "w-full justify-start text-xs focus-visible:ring-0 focus-visible:outline-none",
                             isActive
-                              ? "bg-orange-50 text-orange-700 hover:bg-orange-100"
-                              : "text-gray-600 hover:bg-orange-50 hover:text-orange-700 dark:text-gray-400 dark:hover:bg-orange-900/20 dark:hover:text-orange-400"
+                              ? "bg-orange-500/15 text-orange-500 hover:bg-orange-500/20"
+                              : "text-muted-foreground hover:bg-orange-500/10 hover:text-orange-500"
                           )}
                           onClick={() => navigateCompanyIntel(sub.id)}
                         >
@@ -307,13 +329,14 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
               key={item.id}
               variant={selectedModule === item.id ? "default" : "ghost"}
               className={cn(
-                "w-full justify-start transition-all duration-200 hover:scale-[1.02]",
+                "w-full justify-start transition-colors duration-200 focus-visible:ring-0 focus-visible:outline-none",
                 collapsed ? "px-2" : "px-3 py-2.5",
                 selectedModule === item.id
                   ? "bg-orange-500 text-white hover:bg-orange-600"
-                  : "bg-transparent text-gray-700 hover:bg-orange-50 hover:text-orange-700 dark:text-gray-300 dark:hover:bg-orange-900/20 dark:hover:text-orange-400"
+                  : "bg-transparent text-foreground/70 hover:bg-orange-500/10 hover:text-orange-500"
               )}
               onClick={() => onModuleSelect(item.id)}
+              data-tour={item.id === 'settings' ? 'nav-settings' : undefined}
             >
               <item.icon className={cn(
                 "h-4 w-4",

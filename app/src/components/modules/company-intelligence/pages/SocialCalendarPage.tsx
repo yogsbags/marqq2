@@ -87,7 +87,7 @@ export function SocialCalendarPage({ artifact }: Props) {
         <CardHeader>
           <CardTitle className="text-base">No calendar yet</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-gray-700">Generate to get a multi-week content calendar with hooks, CTAs, and asset notes.</CardContent>
+        <CardContent className="text-sm text-muted-foreground">Generate to get a multi-week content calendar with hooks, CTAs, and asset notes.</CardContent>
       </Card>
     )
   }
@@ -106,11 +106,11 @@ export function SocialCalendarPage({ artifact }: Props) {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <div className="md:col-span-1">
-                <div className="text-xs text-gray-600 mb-1">Channel</div>
+                <div className="text-xs text-muted-foreground mb-1">Channel</div>
                 <select
                   value={filterChannel}
                   onChange={(e) => setFilterChannel(e.target.value)}
-                  className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm text-gray-800"
+                  className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm text-foreground"
                 >
                   <option value="">All</option>
                   {channels.map((c) => (
@@ -121,11 +121,11 @@ export function SocialCalendarPage({ artifact }: Props) {
                 </select>
               </div>
               <div className="md:col-span-1">
-                <div className="text-xs text-gray-600 mb-1">Format</div>
+                <div className="text-xs text-muted-foreground mb-1">Format</div>
                 <select
                   value={filterFormat}
                   onChange={(e) => setFilterFormat(e.target.value)}
-                  className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm text-gray-800"
+                  className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm text-foreground"
                 >
                   <option value="">All</option>
                   {formats.map((f) => (
@@ -136,7 +136,7 @@ export function SocialCalendarPage({ artifact }: Props) {
                 </select>
               </div>
               <div className="md:col-span-1">
-                <div className="text-xs text-gray-600 mb-1">Quick search (hook/pillar)</div>
+                <div className="text-xs text-muted-foreground mb-1">Quick search (hook/pillar)</div>
                 <Input
                   placeholder="Optional (client-side)"
                   onChange={(e) => {
@@ -154,15 +154,15 @@ export function SocialCalendarPage({ artifact }: Props) {
                 <div key={idx} className="border rounded-md p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-semibold text-sm">{String(it?.date || '—')}</div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-muted-foreground">
                       {String(it?.channel || '—')} • {String(it?.format || '—')}
                     </div>
                   </div>
-                  <div className="text-sm text-gray-900 mt-2">{String(it?.hook || '')}</div>
-                  <div className="text-xs text-gray-700 mt-1">Pillar: {String(it?.pillar || '—')}</div>
-                  <div className="text-xs text-gray-700 mt-1">CTA: {String(it?.cta || '—')}</div>
-                  <div className="text-xs text-gray-600 mt-2">{String(it?.assetNotes || '')}</div>
-                  <div className="text-xs text-gray-600 mt-1">{String(it?.complianceNote || '')}</div>
+                  <div className="text-sm text-foreground mt-2">{String(it?.hook || '')}</div>
+                  <div className="text-xs text-muted-foreground mt-1">Pillar: {String(it?.pillar || '—')}</div>
+                  <div className="text-xs text-muted-foreground mt-1">CTA: {String(it?.cta || '—')}</div>
+                  <div className="text-xs text-muted-foreground mt-2">{String(it?.assetNotes || '')}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{String(it?.complianceNote || '')}</div>
                 </div>
               ))}
             </div>
@@ -179,7 +179,7 @@ export function SocialCalendarPage({ artifact }: Props) {
             <div>Weeks: {String(data.weeks || '—')}</div>
             <div>Channels: {(Array.isArray(data.channels) ? data.channels : []).join(', ') || '—'}</div>
             <div>Cadence: {String(data.cadence?.postsPerWeek || '—')} posts/week</div>
-            <div className="mt-2 text-xs text-gray-600">
+            <div className="mt-2 text-xs text-muted-foreground">
               Themes: {(Array.isArray(data.themes) ? data.themes : []).slice(0, 8).join(' • ') || '—'}
             </div>
           </CardContent>

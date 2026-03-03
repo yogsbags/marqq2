@@ -8,7 +8,7 @@
 - **Groq** - Primary LLM provider
   - SDK/Client: Custom `groqService.ts`
   - Auth: `GROQ_API_KEY`
-  - Models: llama-3.3-70b-versatile, compound-beta
+  - Models: llama-3.3-70b-versatile, groq/compound
   - Usage: Chat, content generation, analysis
 
 - **Google Gemini** - Secondary LLM, video generation

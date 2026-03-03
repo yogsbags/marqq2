@@ -1,4 +1,5 @@
 import { AgentDashboard } from '@/components/agents/AgentDashboard';
+import { ProductTour } from '@/components/tour/ProductTour';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { ChatHome } from '@/components/chat/ChatHome';
@@ -13,6 +14,7 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
 import { dashboardData } from '@/data/dashboardData';
+import { BRAND } from '@/lib/brand';
 import type { Conversation } from '@/types/chat';
 import { useEffect, useState } from 'react';
 import './App.css';
@@ -20,23 +22,33 @@ import './App.css';
 // Update document title based on current view
 function updateDocumentTitle(selectedModule: string | null) {
   if (selectedModule === 'home') {
-    document.title = 'Home - Torqq AI';
+    document.title = `Home - ${BRAND.titleSuffix}`;
     return;
   }
   if (selectedModule === 'dashboard') {
-    document.title = 'AI Team Dashboard - Torqq AI';
+    document.title = `AI Team Dashboard - ${BRAND.titleSuffix}`;
     return;
   }
-  if (selectedModule === 'settings') {
-    document.title = 'Settings - Torqq AI';
+  if (selectedModule === 'settings' || selectedModule === 'settings-accounts') {
+    document.title = `Settings - ${BRAND.titleSuffix}`;
   } else if (selectedModule === 'help') {
-    document.title = 'Help & Support - Torqq AI';
+    document.title = `Help & Support - ${BRAND.titleSuffix}`;
   } else if (selectedModule) {
     const module = dashboardData.modules.find(m => m.id === selectedModule);
-    document.title = module ? `${module.name} - Torqq AI` : 'Torqq AI - Marketing Intelligence Platform';
+    document.title = module ? `${module.name} - ${BRAND.titleSuffix}` : `${BRAND.titleSuffix} - ${BRAND.platformTagline}`;
   } else {
-    document.title = 'Torqq AI - Marketing Intelligence Platform';
+    document.title = `${BRAND.titleSuffix} - ${BRAND.platformTagline}`;
   }
+}
+
+function ensureFavicon() {
+  let link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  link.href = BRAND.logoSrc;
 }
 
 function AuthScreen() {
@@ -106,6 +118,7 @@ function Dashboard() {
   // Set initial document title
   useEffect(() => {
     updateDocumentTitle(selectedModule);
+    ensureFavicon();
   }, [selectedModule]);
 
   const currentModule = selectedModule
@@ -125,6 +138,7 @@ function Dashboard() {
     }
 
     if (selectedModule === 'settings') return <SettingsPanel />;
+    if (selectedModule === 'settings-accounts') return <SettingsPanel initialTab="accounts" />;
     if (selectedModule === 'help') return <HelpPanel />;
     if (selectedModule === 'dashboard') return <AgentDashboard />;
 
@@ -166,6 +180,7 @@ function Dashboard() {
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
   const [isOnboarded, setIsOnboarded] = useState(() => localStorage.getItem('torqq_onboarded') === '1');
+  const [showTour, setShowTour] = useState(() => localStorage.getItem('torqq_tour_done') !== '1');
 
   if (isLoading) {
     return (
@@ -179,10 +194,22 @@ function AppContent() {
   }
 
   if (isAuthenticated && !isOnboarded) {
-    return <OnboardingFlow onComplete={() => setIsOnboarded(true)} />;
+    return (
+      <OnboardingFlow
+        onComplete={() => {
+          setIsOnboarded(true);
+          setShowTour(true);
+        }}
+      />
+    );
   }
 
-  return isAuthenticated ? <Dashboard /> : <AuthScreen />;
+  return isAuthenticated ? (
+    <>
+      <Dashboard />
+      {showTour && <ProductTour onDone={() => setShowTour(false)} />}
+    </>
+  ) : <AuthScreen />;
 }
 
 function App() {

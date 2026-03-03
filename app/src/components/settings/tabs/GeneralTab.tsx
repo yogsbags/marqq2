@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -12,27 +12,45 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Moon, Sun, User, Bell, Shield, Database, Bot } from 'lucide-react';
 
-type IntegrationConnector = {
-  id: string;
-  name: string;
-  status: 'available' | 'configured' | 'not_configured';
-  notes?: string;
-  connected?: boolean;
-  connectedAt?: string | null;
-};
-
 export function GeneralTab() {
   const { theme, setTheme } = useTheme();
   const { user } = useAuth();
-  const [integrations, setIntegrations] = useState<IntegrationConnector[]>([]);
-  const [integrationsLoading, setIntegrationsLoading] = useState(false);
-  const [integrationActionId, setIntegrationActionId] = useState<string | null>(null);
 
   // AI Team Context form
   const [agentCtx, setAgentCtx] = useState({
     company: '', industry: '', icp: '', competitors: '', campaigns: '', keywords: '', goals: '',
   });
   const [ctxSaving, setCtxSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/agents/context?userId=${encodeURIComponent(user.id)}`);
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || cancelled) return;
+
+        setAgentCtx({
+          company: String(data.company || ''),
+          industry: String(data.industry || ''),
+          icp: String(data.icp || ''),
+          competitors: String(data.competitors || ''),
+          campaigns: String(data.campaigns || ''),
+          keywords: String(data.keywords || ''),
+          goals: String(data.goals || ''),
+        });
+      } catch {
+        // ignore hydration failures; form remains editable
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const saveAgentContext = async () => {
     if (!user?.id) { toast.error('Sign in to save agent context'); return; }
@@ -55,76 +73,6 @@ export function GeneralTab() {
       setCtxSaving(false);
     }
   };
-
-  const loadIntegrations = useCallback(async () => {
-    if (!user?.id) {
-      setIntegrations([]);
-      return;
-    }
-    setIntegrationsLoading(true);
-    try {
-      const resp = await fetch(`/api/integrations?userId=${encodeURIComponent(user.id)}`);
-      const json = await resp.json().catch(() => null);
-      if (!resp.ok) throw new Error(json?.error || json?.details || 'request failed');
-      setIntegrations(Array.isArray(json?.connectors) ? json.connectors : []);
-    } catch (error: any) {
-      console.warn('Integrations unavailable:', error?.message);
-      setIntegrations([]);
-    } finally {
-      setIntegrationsLoading(false);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    loadIntegrations();
-  }, [loadIntegrations]);
-
-  async function connectIntegration(connectorId: string) {
-    if (!user?.id) return;
-    setIntegrationActionId(connectorId);
-    try {
-      const resp = await fetch('/api/integrations/connect', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.id,
-          connectorId,
-          authType: 'oauth'
-        })
-      });
-      const json = await resp.json().catch(() => null);
-      if (!resp.ok) throw new Error(json?.error || json?.details || 'connect failed');
-      await loadIntegrations();
-      toast.success('Integration connected');
-    } catch (error: any) {
-      toast.error(`Connect failed: ${error?.message || 'unknown error'}`);
-    } finally {
-      setIntegrationActionId(null);
-    }
-  }
-
-  async function disconnectIntegration(connectorId: string) {
-    if (!user?.id) return;
-    setIntegrationActionId(connectorId);
-    try {
-      const resp = await fetch('/api/integrations/disconnect', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.id,
-          connectorId
-        })
-      });
-      const json = await resp.json().catch(() => null);
-      if (!resp.ok) throw new Error(json?.error || json?.details || 'disconnect failed');
-      await loadIntegrations();
-      toast.success('Integration disconnected');
-    } catch (error: any) {
-      toast.error(`Disconnect failed: ${error?.message || 'unknown error'}`);
-    } finally {
-      setIntegrationActionId(null);
-    }
-  }
 
   return (
     <div className="space-y-6">
@@ -267,59 +215,6 @@ export function GeneralTab() {
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Integrations</CardTitle>
-          <CardDescription>
-            Connect ad, analytics, and commerce data sources for deterministic planning and forecasting.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {!user?.id ? (
-            <div className="text-sm text-muted-foreground">Sign in to manage integrations.</div>
-          ) : integrationsLoading ? (
-            <div className="text-sm text-muted-foreground">Loading integrations...</div>
-          ) : integrations.length ? (
-            integrations.map((connector) => (
-              <div key={connector.id} className="border rounded-lg p-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-medium">{connector.name}</div>
-                  {connector.notes ? <div className="text-xs text-muted-foreground mt-1">{connector.notes}</div> : null}
-                  {connector.connectedAt ? (
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Connected: {new Date(connector.connectedAt).toLocaleString()}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={connector.connected ? 'default' : 'secondary'}>
-                    {connector.connected ? 'Connected' : 'Not connected'}
-                  </Badge>
-                  {connector.connected ? (
-                    <Button
-                      variant="outline"
-                      disabled={integrationActionId === connector.id}
-                      onClick={() => disconnectIntegration(connector.id)}
-                    >
-                      Disconnect
-                    </Button>
-                  ) : (
-                    <Button
-                      disabled={integrationActionId === connector.id}
-                      onClick={() => connectIntegration(connector.id)}
-                    >
-                      Connect
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="text-sm text-muted-foreground">No integrations available.</div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* AI Team Context */}
       <Card>

@@ -4,12 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Sparkles, Plus, Trash2, TrendingUp, DollarSign, Target } from 'lucide-react';
+import { Check, Loader2, Sparkles, Plus, Trash2, TrendingUp, DollarSign, Target } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useGtmContext } from '@/lib/gtmContext';
 import { GtmContextBanner } from '@/components/ui/gtm-context-banner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { savePricingIntelligence, loadPricingIntelligence, createAutoSave } from '@/lib/persistence';
+import type { ArtifactRecord } from '../api';
 
 interface CompetitorPricing {
   id: string;
@@ -43,7 +44,11 @@ interface PriceElasticity {
   elasticity: string;
 }
 
-export function PricingIntelligencePage() {
+interface Props {
+  artifact?: ArtifactRecord | null;
+}
+
+export function PricingIntelligencePage({ artifact }: Props = {}) {
   const { toast } = useToast();
   const { context: gtmCtx, dismiss: dismissGtm } = useGtmContext('company_intel_pricing');
 
@@ -79,24 +84,74 @@ export function PricingIntelligencePage() {
     []
   );
 
-  // Load saved data on mount
+  // Load saved data on mount; fall back to AI artifact if no saved data
   useEffect(() => {
     loadPricingIntelligence()
       .then(data => {
-        if (data) {
-          setCompetitors(data.competitiveMatrix || []);
-          setValueMetrics(data.valueMetrics || []);
-          setRecommendation(data.recommendations || undefined);
-          setElasticityData(data.elasticityData || []);
+        const hasSavedContent = !!(
+          (data?.competitiveMatrix?.length ?? 0) > 0 ||
+          (data?.valueMetrics?.length ?? 0) > 0 ||
+          data?.recommendations?.recommendedModel?.trim()
+        );
+        if (hasSavedContent) {
+          setCompetitors(data!.competitiveMatrix || []);
+          setValueMetrics(data!.valueMetrics || []);
+          setRecommendation(data!.recommendations || undefined);
+          setElasticityData(data!.elasticityData || []);
+        } else if (artifact?.data) {
+          // No saved data — seed from AI-generated artifact
+          const d = artifact.data as {
+            pricingModelSummary?: string;
+            publicPricingVisibility?: string;
+            competitorBenchmarks?: Array<{ name?: string; pricingModel?: string; startingPoint?: string; notes?: string }>;
+            packagingRecommendations?: Array<{ offer?: string; targetCustomer?: string; pricingApproach?: string; rationale?: string }>;
+            valueMetrics?: string[];
+            risks?: string[];
+            nextQuestions?: string[];
+          };
+          if (d.competitorBenchmarks?.length) {
+            setCompetitors(
+              d.competitorBenchmarks.map((b, i) => ({
+                id: `comp-${i}-${Date.now()}`,
+                competitor: b.name || '',
+                startingPrice: b.startingPoint || '',
+                tier1: '',
+                tier2: '',
+                tier3: '',
+                pricingModel: b.pricingModel || '',
+                notes: b.notes || '',
+              }))
+            );
+          }
+          if (d.valueMetrics?.length) setValueMetrics(d.valueMetrics);
+          if (d.pricingModelSummary || d.packagingRecommendations?.length) {
+            setRecommendation({
+              recommendedModel: d.pricingModelSummary || '',
+              rationale: d.publicPricingVisibility || '',
+              suggestedTiers: (d.packagingRecommendations || []).map((r) => ({
+                name: r.offer || '',
+                price: r.pricingApproach || '',
+                features: r.rationale ? [r.rationale] : [],
+                targetCustomer: r.targetCustomer || '',
+              })),
+              valueMetrics: d.valueMetrics || [],
+              implementationSteps: d.nextQuestions || [],
+            });
+          }
         }
       })
       .catch(err => {
         console.error('Failed to load pricing intelligence data:', err);
       });
-  }, []);
+  }, [artifact]);
 
-  // Auto-save on state changes
+  // Auto-save on state changes — skip if nothing to save yet
   useEffect(() => {
+    const hasContent =
+      competitors.length > 0 ||
+      valueMetrics.length > 0 ||
+      !!recommendation?.recommendedModel?.trim();
+    if (!hasContent) return;
     autoSave({
       competitiveMatrix: competitors,
       valueMetrics,
@@ -139,7 +194,7 @@ export function PricingIntelligencePage() {
       setDataSource(data.dataSource);
 
       toast({
-        title: 'Live Data Retrieved ✓',
+        title: 'Live Data Retrieved',
         description: `Added ${data.competitors.length} competitor profiles with current pricing from web`,
       });
     } catch (error) {
@@ -342,7 +397,7 @@ export function PricingIntelligencePage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Pricing Intelligence</h2>
+          <h2 className="text-2xl font-bold text-foreground">Pricing Intelligence</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Real-time competitive pricing analysis powered by live web data
           </p>
@@ -394,7 +449,7 @@ export function PricingIntelligencePage() {
           </Button>
 
           {/* Manual Add Competitor */}
-          <div className="grid grid-cols-2 gap-3 p-4 bg-gray-50 dark:bg-gray-800 rounded">
+          <div className="grid grid-cols-2 gap-3 p-4 bg-muted rounded">
             <Input
               placeholder="Competitor Name"
               value={newCompetitor.competitor}
@@ -454,7 +509,7 @@ export function PricingIntelligencePage() {
               <h4 className="font-semibold text-sm">Competitive Landscape ({competitors.length} competitors)</h4>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 dark:bg-gray-800">
+                  <thead className="bg-muted">
                     <tr>
                       <th className="text-left p-2">Competitor</th>
                       <th className="text-left p-2">Starting</th>
@@ -560,7 +615,7 @@ export function PricingIntelligencePage() {
               {valueMetrics.map((metric, index) => (
                 <div
                   key={index}
-                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded"
+                  className="flex items-center justify-between p-3 bg-muted rounded"
                 >
                   <span className="text-sm">{metric}</span>
                   <Button
@@ -635,7 +690,7 @@ export function PricingIntelligencePage() {
                           <ul className="text-sm space-y-1">
                             {tier.features.map((feature, i) => (
                               <li key={i} className="flex items-start gap-2">
-                                <span className="text-green-600">✓</span>
+                                <Check className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
                                 <span>{feature}</span>
                               </li>
                             ))}
@@ -708,7 +763,7 @@ export function PricingIntelligencePage() {
           {elasticityData.length > 0 && (
             <div className="overflow-x-auto mt-6">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-800">
+                <thead className="bg-muted">
                   <tr>
                     <th className="text-left p-2">Segment</th>
                     <th className="text-left p-2">Price Point</th>

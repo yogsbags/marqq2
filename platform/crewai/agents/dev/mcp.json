@@ -1,0 +1,8 @@
+{
+  "connectors": ["google_ads", "meta_ads", "ga4", "shopify", "google_sheets"],
+  "permissions": "read",
+  "description": "Dev monitors performance — he reads cross-channel metrics and flags anomalies.",
+  "recipes": {
+    "channel_roi_report": "rcp_B-2pZerGvmha"
+  }
+}

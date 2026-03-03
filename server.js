@@ -110,7 +110,7 @@ async function serveFrontend(req, res) {
 }
 
 function startBackend() {
-  const backendScript = path.join(__dirname, 'enhanced-bulk-generator-frontend', 'backend-server.js')
+  const backendScript = path.join(__dirname, 'platform', 'content-engine', 'backend-server.js')
   const child = spawn(process.execPath, [backendScript], {
     env: { ...process.env },
     stdio: 'inherit'
@@ -129,7 +129,7 @@ function startVoicebotAgent() {
     return null
   }
 
-  const agentScript = path.join(__dirname, 'voicebot-agent.js')
+  const agentScript = path.join(__dirname, 'platform', 'voicebot', 'agent.js')
   const child = spawn(process.execPath, [agentScript, 'start'], {
     env: { ...process.env },
     stdio: 'inherit'

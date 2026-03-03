@@ -1,0 +1,47 @@
+performance_analysis_task:
+  description: >
+    Analyze marketing performance across all channels.
+    Timeframe: {timeframe}
+    Channels: {channels}
+
+    Calculate ROI, CAC, conversion rates, and channel efficiency metrics.
+  expected_output: >
+    Performance analysis with ROI, CAC, conversion rates per channel in JSON format
+  agent: performance_analyzer
+  output_json: true
+
+budget_allocation_task:
+  description: >
+    Recommend optimal budget allocation.
+    Current budget: {current_budget}
+    Performance data: {performance_data}
+
+    Use diminishing returns modeling to recommend budget shifts.
+  expected_output: >
+    Budget allocation recommendations with expected ROI lift in JSON format
+  agent: budget_allocator
+  output_json: true
+
+roi_forecasting_task:
+  description: >
+    Forecast ROI for budget scenarios.
+    Proposed budgets: {proposed_budgets}
+
+    Predict conversion outcomes and revenue impact.
+  expected_output: >
+    ROI forecasts with confidence intervals per scenario in JSON format
+  agent: roi_predictor
+  output_json: true
+
+recommendation_task:
+  description: >
+    Generate actionable budget recommendations.
+    Analysis: {analysis}
+    Forecasts: {forecasts}
+    Business goals: {business_goals}
+
+    Provide clear recommendations with implementation steps.
+  expected_output: >
+    Budget recommendations with rationale and implementation plan in JSON format
+  agent: recommendation_agent
+  output_json: true

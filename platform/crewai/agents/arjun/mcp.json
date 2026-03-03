@@ -1,0 +1,9 @@
+{
+  "connectors": ["hubspot", "zoho_crm", "gmail", "google_sheets"],
+  "permissions": "read-write",
+  "description": "Arjun runs lead gen — he reads CRM data, enriches leads, and sends sequences.",
+  "recipes": {
+    "lead_pipeline_status": "rcp_c1F5QUt_IMzs",
+    "stale_deals_alert":    "rcp_pJUTRw_4jA1k"
+  }
+}

@@ -10,7 +10,6 @@ import {
   HiChat as Bot,
   HiUser as User,
   HiTrash as Trash2,
-  HiPaperClip as Paperclip,
   HiDocumentText as FileText,
   HiPhotograph as Image,
   HiTable as FileSpreadsheet,
@@ -26,6 +25,8 @@ import { addAiTask, extractActionItems } from '@/lib/taskStore';
 import { markdownToRichText } from '@/lib/markdown';
 import { GTMWizard } from '@/components/gtm/GTMWizard';
 import { GettingStartedChecklist } from '@/components/dashboard/GettingStartedChecklist';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { Map, DollarSign, PenLine, Target, Paperclip } from 'lucide-react';
 
 // -- localStorage helpers
 
@@ -75,6 +76,8 @@ const SLASH_COMMANDS = [
   { command: '/campaign',    description: 'Ask Zara (Campaign Strategist) for campaign recommendations', action: 'agent-zara'  },
   { command: '/competitors', description: 'Ask Dev (Performance Analyst) for competitor analysis',       action: 'agent-dev'   },
   { command: '/brief',       description: 'Ask Priya (Brand Intelligence) for a brand brief',            action: 'agent-priya' },
+  { command: '/social',      description: 'Ask Kiran (Social Intelligence) for organic social performance', action: 'agent-kiran' },
+  { command: '/email',       description: 'Ask Sam (Email Monitor) for email channel health',              action: 'agent-sam'   },
   { command: '/help', description: 'Show available slash commands', action: 'help' },
 ];
 
@@ -83,9 +86,11 @@ const SLASH_AGENTS: Record<string, { name: string; label: string; defaultQuery: 
   '/seo':         { name: 'maya',  label: 'Maya · SEO & LLMO Monitor',   defaultQuery: 'Give me our top 5 ranking changes and 3 keyword opportunities today.' },
   '/leads':       { name: 'arjun', label: 'Arjun · Lead Intelligence',    defaultQuery: 'What are today\'s top lead insights and recommended outreach actions?' },
   '/content':     { name: 'riya',  label: 'Riya · Content Producer',      defaultQuery: 'Suggest 3 content pieces we should publish this week based on current trends.' },
-  '/campaign':    { name: 'zara',  label: 'Zara · Campaign Strategist',   defaultQuery: 'Review our active campaigns and give me your top 3 strategic recommendations.' },
-  '/competitors': { name: 'dev',   label: 'Dev · Performance Analyst',    defaultQuery: 'Give me a competitor landscape summary and our key performance gaps.' },
-  '/brief':       { name: 'priya', label: 'Priya · Brand Intelligence',   defaultQuery: 'Provide a brand intelligence brief covering sentiment and messaging alignment.' },
+  '/campaign':    { name: 'zara',  label: 'Zara · Campaign Strategist',    defaultQuery: 'Review our active campaigns and give me your top 3 strategic recommendations.' },
+  '/competitors': { name: 'dev',   label: 'Dev · Performance Analyst',     defaultQuery: 'Give me a competitor landscape summary and our key performance gaps.' },
+  '/brief':       { name: 'priya', label: 'Priya · Brand Intelligence',    defaultQuery: 'Provide a brand intelligence brief covering sentiment and messaging alignment.' },
+  '/social':      { name: 'kiran', label: 'Kiran · Social Intelligence',   defaultQuery: 'Give me our organic social performance this week — reach, engagement, and top post.' },
+  '/email':       { name: 'sam',   label: 'Sam · Email Marketing Monitor', defaultQuery: 'What is our email channel health this week — sessions, engagement rate, and any anomalies?' },
 };
 
 // -- Guided goal detection
@@ -150,6 +155,7 @@ interface ChatHomeProps {
 // -- Component
 
 export function ChatHome({ onModuleSelect, activeConversationId, onConversationsChange }: ChatHomeProps) {
+  const { clearWebsiteUrl } = useWorkspace();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
@@ -247,6 +253,29 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
     setCurrentConvId(null);
   };
 
+  const handleDeleteConversation = async () => {
+    try {
+      if (currentConvId) {
+        const conversations = loadConversations().filter((conversation) => conversation.id !== currentConvId);
+        saveConversations(conversations);
+      }
+
+      try {
+        sessionStorage.removeItem('torqq_company_intel_autorun');
+      } catch {
+        // non-blocking
+      }
+
+      await clearWebsiteUrl();
+      setMessages(initialMessages);
+      setCurrentConvId(null);
+      onConversationsChange?.();
+      toast.success('Home screen reset');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to reset home screen');
+    }
+  };
+
   // -- Input handling
 
   const handleInputChange = (value: string) => {
@@ -317,7 +346,7 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
         window.location.hash = 'auto-start';
         onModuleSelect(moduleId);
       } else if (cmd.action === 'agents') {
-        onModuleSelect('agent-dashboard');
+        onModuleSelect('dashboard');
       } else if (cmd.action === 'workflows') {
         onModuleSelect('workflow-builder');
       }
@@ -663,7 +692,13 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
   return (
     <>
       {gtmActive && (
-        <GTMWizard onClose={() => setGtmActive(false)} />
+        <GTMWizard
+          onClose={() => setGtmActive(false)}
+          onNavigate={(moduleId) => {
+            setGtmActive(false);
+            onModuleSelect?.(moduleId);
+          }}
+        />
       )}
       <div className={cn('flex flex-col h-full bg-white dark:bg-gray-900', gtmActive && 'hidden')}>
         {/* Top bar */}
@@ -673,7 +708,7 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleNewConversation}
+              onClick={() => handleNewConversation()}
               className="text-xs h-7"
             >
               New chat
@@ -681,7 +716,9 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleNewConversation}
+              onClick={() => {
+                void handleDeleteConversation();
+              }}
               className="text-xs h-7 text-gray-400"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -777,28 +814,28 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
                   onClick={() => setGtmActive(true)}
                   className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20 hover:text-orange-700 transition-all duration-150 text-left"
                 >
-                  <span className="text-base leading-none">🗺️</span>
+                  <Map className="h-4 w-4 flex-shrink-0" />
                   <span>Create GTM Strategy</span>
                 </button>
                 <button
                   onClick={() => setInputValue('/budget-optimization')}
                   className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20 hover:text-orange-700 transition-all duration-150 text-left"
                 >
-                  <span className="text-base leading-none">💰</span>
+                  <DollarSign className="h-4 w-4 flex-shrink-0" />
                   <span>Budget Analysis</span>
                 </button>
                 <button
                   onClick={() => setInputValue('/ai-content')}
                   className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20 hover:text-orange-700 transition-all duration-150 text-left"
                 >
-                  <span className="text-base leading-none">✍️</span>
+                  <PenLine className="h-4 w-4 flex-shrink-0" />
                   <span>Content Calendar</span>
                 </button>
                 <button
                   onClick={() => setInputValue('/lead-intelligence')}
                   className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20 hover:text-orange-700 transition-all duration-150 text-left"
                 >
-                  <span className="text-base leading-none">🎯</span>
+                  <Target className="h-4 w-4 flex-shrink-0" />
                   <span>Lead Intelligence</span>
                 </button>
               </div>
@@ -872,7 +909,7 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
                   variant="ghost"
                   size="sm"
                   onClick={removeSelectedFile}
-                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -882,13 +919,13 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
 
           <div className="flex space-x-2">
             <Button
-              variant="outline"
+              variant="default"
               size="icon"
               onClick={() => fileInputRef.current?.click()}
-              className="flex-shrink-0 hover:bg-orange-50 hover:border-orange-200 bg-white border-gray-300 text-gray-700"
+              className="flex-shrink-0 border-0 bg-transparent p-0 text-orange-500 shadow-none hover:bg-transparent hover:text-orange-600 dark:text-orange-300 dark:hover:text-orange-200"
               title="Upload file (CSV, PDF, Images)"
             >
-              <Paperclip className="h-4 w-4 text-gray-700" style={{ display: 'block' }} />
+              <Paperclip className="h-5 w-5" strokeWidth={2.2} />
             </Button>
 
             <input
@@ -900,6 +937,7 @@ export function ChatHome({ onModuleSelect, activeConversationId, onConversations
             />
 
             <Input
+              data-tour="chat-input"
               value={inputValue}
               onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyPress}

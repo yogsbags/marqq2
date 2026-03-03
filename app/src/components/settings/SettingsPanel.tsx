@@ -15,8 +15,12 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'billing',  label: 'Billing',  icon: <CreditCard className="h-4 w-4" /> },
 ];
 
-export function SettingsPanel() {
-  const [activeTab, setActiveTab] = useState<TabId>('general');
+interface SettingsPanelProps {
+  initialTab?: TabId;
+}
+
+export function SettingsPanel({ initialTab = 'general' }: SettingsPanelProps) {
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
 
   const renderTab = () => {
     switch (activeTab) {

@@ -1,0 +1,98 @@
+discover_company_task:
+  description: >
+    Analyze this request and extract company information:
+    "{user_request}"
+
+    Extract:
+    - Company name
+    - Industry
+    - Competitors to analyze
+    - Region focus
+
+    Return a structured summary with the company name, industry, and list of competitors.
+  expected_output: >
+    Structured company and competitor information in JSON format with company name, industry, and competitor list
+  agent: research_agent
+
+research_competitors_task:
+  description: >
+    Research competitors for {company_name} in the {region} market.
+
+    Use web search to find:
+    1. Top 5-10 competitors in {region} market
+    2. Recent news and announcements (last 30 days)
+    3. Pricing information
+    4. Product/service offerings
+    5. Market positioning
+
+    Focus region: {region}
+
+    Return comprehensive competitor intelligence with sources.
+  expected_output: >
+    List of competitors with detailed intelligence including company names, URLs,
+    product offerings, pricing, recent news, and market positioning
+  agent: research_agent
+
+analyze_competitors_task:
+  description: >
+    Generate competitive intelligence analysis for discovered competitors.
+
+    For each competitor:
+    1. Create battlecard (strengths, weaknesses, differentiators)
+    2. Analyze pricing strategy
+    3. Identify market gaps
+    4. Assess competitive threats
+
+    Use web search for current data.
+    Return structured analysis in JSON format.
+  expected_output: >
+    Competitive intelligence battlecards and analysis in JSON format with strengths,
+    weaknesses, pricing analysis, market gaps, and competitive threats for each competitor
+  agent: competitor_analysis_agent
+
+activate_monitoring_task:
+  description: >
+    Set up automated monitoring for discovered competitors.
+
+    For each competitor:
+    1. Create monitoring config in Supabase
+    2. Configure alert types: news, funding, product_launch, pricing_change
+    3. Set alert frequency: realtime
+    4. Trigger n8n workflow activation
+
+    User ID: {user_id}
+
+    Return monitoring activation status with list of competitors being monitored.
+  expected_output: >
+    Monitoring activation confirmation in JSON format with list of competitors,
+    their monitoring config IDs, and n8n workflow trigger status
+  agent: monitoring_agent
+
+generate_insights_task:
+  description: >
+    Generate strategic insights from competitive analysis.
+
+    Analyze all gathered intelligence and provide:
+    1. Key findings (top 3-5 insights)
+    2. Opportunities (market gaps, weaknesses to exploit)
+    3. Threats (competitive advantages to counter)
+    4. Actionable recommendations with priority levels
+
+    Return structured insights in JSON format matching the schema:
+    {
+      "keyFindings": [],
+      "opportunities": [],
+      "threats": [],
+      "recommendations": [{
+        "area": "product|pricing|marketing|sales",
+        "priority": "high|medium|low",
+        "action": "specific action",
+        "rationale": "why this matters"
+      }],
+      "marketGaps": []
+    }
+  expected_output: >
+    Strategic insights and recommendations in JSON format with keyFindings,
+    opportunities, threats, prioritized recommendations, and market gaps
+  agent: insights_agent
+  output_json: true

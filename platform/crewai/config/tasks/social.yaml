@@ -1,0 +1,257 @@
+campaign_planning_task:
+  description: >
+    Design a multi-platform social media campaign.
+
+    Campaign brief: {campaign_brief}
+    Target platforms: {platforms}
+    Campaign duration: {duration_days} days
+    Budget: {budget}
+
+    Create a comprehensive campaign plan including:
+
+    1. Campaign objectives:
+       - Primary goal (awareness, consideration, conversion)
+       - Secondary goals
+       - SMART objectives with measurable targets
+       - Success criteria and KPIs
+
+    2. Target audience:
+       - Audience persona (demographics, interests, pain points)
+       - Platform-specific targeting parameters
+       - Lookalike/custom audience strategies
+       - Geographic and language targeting
+
+    3. Content strategy:
+       - Content themes and pillars
+       - Content types per platform (videos, carousels, posts)
+       - Posting frequency and schedule
+       - Content mix ratio (educational, promotional, entertaining)
+
+    4. Platform approach:
+       - LinkedIn: Thought leadership, industry insights, B2B messaging
+       - Instagram: Visual storytelling, lifestyle content, engagement tactics
+       - YouTube: Long-form educational, tutorials, product deep-dives
+       - Facebook: Community building, user-generated content, groups
+       - Twitter: Real-time engagement, trending topics, quick updates
+
+    5. Budget allocation:
+       - Organic vs paid distribution split
+       - Budget per platform based on audience size and engagement
+       - Boosting strategy for top performers
+       - Influencer/partnership budget allocation
+
+    6. Content calendar:
+       - Week-by-week content schedule
+       - Key dates and events to leverage
+       - Content production timeline
+       - Approval and review process
+
+    7. KPI framework:
+       - Reach and impressions targets
+       - Engagement rate benchmarks (likes, comments, shares)
+       - Click-through rate goals
+       - Conversion targets (leads, signups, sales)
+       - Cost per result thresholds
+
+    Return a detailed campaign plan with clear action items and success metrics.
+  expected_output: >
+    Comprehensive campaign plan with objectives, audience targeting, content strategy,
+    platform approach, budget allocation, content calendar, and KPI framework in JSON format
+  agent: campaign_planner
+  output_json: true
+
+script_writing_task:
+  description: >
+    Write platform-optimized scripts for campaign content.
+
+    Campaign plan: {campaign_plan}
+    Content type: {content_type}
+    Platform: {platform}
+    Video duration: {video_duration} seconds
+
+    Create scripts following this structure:
+
+    1. Hook (0-3 seconds):
+       - Bold statement or question to stop scroll
+       - Pattern interrupt (unexpected visual or statement)
+       - Direct benefit promise ("Learn how to...")
+
+    2. Introduction (3-10 seconds):
+       - Introduce topic and speaker
+       - Establish credibility
+       - Preview value proposition
+
+    3. Main content (bulk of video):
+       - Key points with supporting evidence
+       - Visual examples and demonstrations
+       - Transitions between sections
+       - B-roll suggestions for each segment
+
+    4. Social proof (if applicable):
+       - Customer testimonials
+       - Data points and statistics
+       - Case study highlights
+       - Before/after transformations
+
+    5. Call-to-action (final 5-10 seconds):
+       - Clear next step (comment, share, visit link)
+       - Urgency or incentive (limited time, exclusive access)
+       - Engagement prompt (ask question, poll, challenge)
+
+    For each script provide:
+    - Talking points and exact phrases
+    - Visual cues and B-roll suggestions
+    - Caption overlay text
+    - Music mood and style recommendation
+    - Hashtag suggestions
+    - Platform-specific caption text
+
+    Platform optimization:
+    - LinkedIn: Professional, value-driven, thought leadership tone
+    - Instagram: Casual, visual, aspirational, emoji-friendly
+    - YouTube: Educational, detailed, SEO-optimized title and description
+    - Facebook: Conversational, community-focused, discussion prompts
+    - Twitter: Concise, trending-aware, thread-ready format
+
+    Return complete scripts with all elements ready for production.
+  expected_output: >
+    Platform-optimized scripts with hooks, talking points, B-roll cues, captions,
+    hashtags, and CTAs in structured JSON format
+  agent: script_writer
+  output_json: true
+
+video_production_task:
+  description: >
+    Produce high-quality video content for social media campaign.
+
+    Script: {script}
+    Platform: {platform}
+    Video style: {video_style}
+    Duration: {video_duration} seconds
+
+    Video production workflow:
+
+    1. Storyboarding:
+       - Break script into visual scenes
+       - Assign timing to each scene
+       - Identify B-roll and visual elements
+       - Plan transitions and effects
+
+    2. Video generation:
+       Primary: Google Veo 3.1 scene extension
+       - Generate 8-second base clip
+       - Chain extensions for longer duration
+       - Maintain visual continuity
+
+       Fallback: Fal AI or Replicate
+       - Fast generation for tight deadlines
+       - Cost-effective for high-volume campaigns
+
+    3. Avatar integration (if needed):
+       - Generate HeyGen AI spokesperson video
+       - Match avatar to brand personality
+       - Select appropriate voice (Indian accents available)
+       - Position avatar (full screen, picture-in-picture, split screen)
+
+    4. Compositing with Shotstack:
+       Track 1 (Background): B-roll footage or scene clips
+       Track 2 (Foreground): Avatar or product demonstrations
+       Track 3 (Captions): Text overlays with key messages
+       Track 4 (Branding): Logo, lower thirds, end card
+       Track 5 (Audio): Background music + voiceover
+
+    5. Platform-specific exports:
+       - LinkedIn: 16:9, 1080p, MP4, professional tone
+       - Instagram Feed: 1:1, 1080x1080, MP4, vibrant colors
+       - Instagram Reels: 9:16, 1080x1920, MP4, vertical mobile
+       - YouTube: 16:9, 1080p-4K, MP4, SEO-optimized
+       - Twitter: 16:9, 720p, MP4, fast-loading
+
+    6. Quality checks:
+       - Audio levels and clarity
+       - Visual quality and resolution
+       - Caption readability and accuracy
+       - Branding consistency
+       - File size optimization for platform
+
+    Return video files with metadata and platform-specific variations.
+  expected_output: >
+    Completed video files for each platform with metadata, captions, thumbnails,
+    and production notes in JSON format
+  agent: video_producer
+  output_json: true
+
+publishing_task:
+  description: >
+    Publish campaign content to all specified platforms.
+
+    Campaign content: {campaign_content}
+    Platforms: {platforms}
+    Publishing schedule: {schedule}
+
+    Publishing workflow for each platform:
+
+    1. Pre-publishing preparation:
+       - Verify all assets (videos, images, captions) are ready
+       - Confirm file formats and sizes meet platform requirements
+       - Test all links and UTM parameters
+       - Schedule posts in platform-native schedulers or via Zapier
+
+    2. LinkedIn publishing:
+       - Post type: Video, article, carousel, or text post
+       - Headline: Professional, value-driven (max 200 characters)
+       - Body: Detailed context, industry insights, call-to-action
+       - Hashtags: 3-5 professional hashtags (#MarketingAutomation, #B2BSaaS)
+       - Tags: Mention relevant connections or company pages
+       - First comment: Pin links, resources, or discussion prompts
+       - Timing: Weekdays 7-9 AM or 12-1 PM
+
+    3. Instagram publishing:
+       - Feed post: 1:1 aspect ratio, vibrant visuals
+       - Caption: Hook + value + CTA (max 2200 characters, front-load key info)
+       - Hashtags: 15-20 mix of popular and niche tags
+       - Location: Tag relevant location for discovery
+       - Alt text: Accessibility description for images
+       - Reels: 9:16, trending audio, text overlays
+       - Stories: Cross-promote feed posts, polls, questions
+       - Timing: Daily 11 AM - 1 PM or 7-9 PM
+
+    4. YouTube publishing:
+       - Title: SEO-optimized, keyword-rich (max 60 characters)
+       - Description: Detailed with timestamps, links, keywords (first 2 lines critical)
+       - Tags: 10-15 relevant tags for discovery
+       - Thumbnail: Custom, high-contrast, text overlay, 1280x720
+       - Chapters: Add timestamps for video sections
+       - End screen: Subscribe button, suggested videos
+       - Cards: Links to related content
+       - Timing: Weekday afternoons or weekends
+
+    5. Facebook publishing:
+       - Post type: Video, carousel, or link post
+       - Caption: Conversational, community-focused
+       - Tags: Tag relevant pages, groups, or events
+       - Cross-post: Share to relevant groups with context
+       - Engagement: Monitor and respond to comments quickly
+       - Timing: Weekdays 1-3 PM
+
+    6. Twitter publishing:
+       - Format: Single tweet or thread for longer content
+       - Copy: Concise, front-loaded value (max 280 characters)
+       - Media: Attach video (max 2:20 duration) or images
+       - Hashtags: 1-2 trending or campaign-specific tags
+       - Threads: Break complex topics into sequential tweets
+       - Timing: Weekdays 8-10 AM or 6-9 PM
+
+    7. Post-publishing actions:
+       - Monitor initial engagement (first hour critical)
+       - Respond to comments and questions promptly
+       - Boost high-performing posts with paid promotion
+       - Track UTM parameters for campaign attribution
+       - Document performance for optimization
+
+    Return publishing confirmation with post IDs, URLs, and initial metrics.
+  expected_output: >
+    Publishing confirmation with post IDs, URLs, timestamps, and initial performance
+    metrics for each platform in JSON format
+  agent: publisher
+  output_json: true

@@ -12,8 +12,11 @@ Environment variables required:
     GROQ_API_KEY          - for LLM calls inside CrewAI
     SUPABASE_URL          - your Supabase project URL
     SUPABASE_SERVICE_KEY  - service role key (bypasses RLS)
-    AGENT_USER_ID         - Supabase user UUID to scope notifications to
-                            (find in Supabase Dashboard → Authentication → Users)
+    AGENT_WORKSPACE_ID    - Workspace UUID this scheduler instance runs for.
+                            Used as the Composio entityId (scopes connected accounts)
+                            and to filter agent_notifications in the UI.
+                            Find in Supabase Dashboard → Table Editor → workspaces.
+                            One scheduler process per workspace / tenant deployment.
 """
 
 import os
@@ -43,12 +46,14 @@ BASE_DIR = Path(__file__).parent
 AGENTS_DIR = BASE_DIR / "agents"
 HEARTBEAT_FILE = BASE_DIR / "heartbeat" / "status.json"
 CLIENT_CONTEXT_DIR = BASE_DIR / "client_context"
+DEPLOYMENT_QUEUE_FILE = BASE_DIR / "deployments" / "queue.json"
+STALE_DEPLOYMENT_TIMEOUT_SECONDS = int(os.getenv("TORQQ_DEPLOYMENT_STALE_SECONDS", "1800"))
 
 # ── Globals (initialised in main) ──────────────────────────────────────────────
 
 orchestrator: CrewOrchestrator = None
 supabase: Client = None
-AGENT_USER_ID: str = None
+AGENT_WORKSPACE_ID: str | None = None
 
 # ── Filesystem helpers ─────────────────────────────────────────────────────────
 
@@ -69,11 +74,12 @@ def load_memory(agent_name: str) -> str:
     return memory_file.read_text(encoding="utf-8")
 
 
-def load_client_context() -> str:
+def load_client_context(workspace_id: str | None = None) -> str:
     """Load client business context for current user."""
-    if not AGENT_USER_ID:
+    effective_workspace_id = workspace_id or AGENT_WORKSPACE_ID
+    if not effective_workspace_id:
         return ""
-    ctx_file = CLIENT_CONTEXT_DIR / f"{AGENT_USER_ID}.md"
+    ctx_file = CLIENT_CONTEXT_DIR / f"{effective_workspace_id}.md"
     if ctx_file.exists():
         return ctx_file.read_text(encoding="utf-8")
     # Fall back to template
@@ -125,17 +131,103 @@ def update_heartbeat(agent_name: str, status: str, duration_ms: int = None, erro
     HEARTBEAT_FILE.write_text(json.dumps(data, indent=2))
 
 
+def load_deployment_queue() -> list[dict]:
+    """Load queued GTM deployments created from the frontend."""
+    if not DEPLOYMENT_QUEUE_FILE.exists():
+        return []
+    try:
+        raw = json.loads(DEPLOYMENT_QUEUE_FILE.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, list) else []
+    except Exception:
+        return []
+
+
+def save_deployment_queue(entries: list[dict]) -> None:
+    DEPLOYMENT_QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DEPLOYMENT_QUEUE_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+
+
+def mark_stale_processing_deployments(queue: list[dict]) -> bool:
+    now = datetime.now(timezone.utc)
+    changed = False
+
+    for entry in queue:
+        if entry.get("status") != "processing":
+            continue
+
+        picked_at = entry.get("pickedAt")
+        if not picked_at:
+            continue
+
+        try:
+            picked_dt = datetime.fromisoformat(picked_at.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+
+        age_seconds = (now - picked_dt).total_seconds()
+        if age_seconds < STALE_DEPLOYMENT_TIMEOUT_SECONDS:
+            continue
+
+        entry["status"] = "failed"
+        entry["failedAt"] = now.isoformat()
+        entry["error"] = f"Marked failed after exceeding stale timeout of {STALE_DEPLOYMENT_TIMEOUT_SECONDS} seconds."
+        changed = True
+
+    return changed
+
+
+def pull_pending_deployments(agent_name: str) -> list[dict]:
+    """Mark queued deployments for an agent as processing and return them."""
+    queue = load_deployment_queue()
+    if mark_stale_processing_deployments(queue):
+        save_deployment_queue(queue)
+    picked: list[dict] = []
+
+    for entry in queue:
+      if entry.get("agentName") == agent_name and entry.get("status") == "pending":
+        entry["status"] = "processing"
+        entry["pickedAt"] = datetime.now(timezone.utc).isoformat()
+        picked.append(entry)
+
+    if picked:
+      save_deployment_queue(queue)
+
+    return picked
+
+
+def update_deployment_status(deployment_id: str, status: str, error: str | None = None) -> None:
+    queue = load_deployment_queue()
+    changed = False
+    for entry in queue:
+        if entry.get("id") != deployment_id:
+            continue
+        entry["status"] = status
+        if status == "completed":
+            entry["completedAt"] = datetime.now(timezone.utc).isoformat()
+        elif status == "failed":
+            entry["failedAt"] = datetime.now(timezone.utc).isoformat()
+            if error:
+                entry["error"] = error[:500]
+        changed = True
+        break
+
+    if changed:
+        save_deployment_queue(queue)
+
+
 # ── Supabase helpers ───────────────────────────────────────────────────────────
 
-def write_notification(agent_name: str, agent_role: str, task_type: str, result: dict, status: str, duration_ms: int) -> None:
+def write_notification(agent_name: str, agent_role: str, task_type: str, result: dict, status: str, duration_ms: int, workspace_id: str | None = None) -> None:
     """Insert one row into agent_notifications."""
-    if not supabase or not AGENT_USER_ID:
+    effective_workspace_id = workspace_id or AGENT_WORKSPACE_ID
+    if not supabase or not effective_workspace_id:
         logger.warning("Supabase not configured — skipping notification write")
         return
 
     try:
         supabase.table("agent_notifications").insert({
-            "user_id": AGENT_USER_ID,
+            "user_id": effective_workspace_id,
+            "workspace_id": effective_workspace_id,
             "agent_name": agent_name,
             "agent_role": agent_role,
             "task_type": task_type,
@@ -158,16 +250,20 @@ AGENT_ROLES = {
     "maya":  "SEO & LLMO Monitor",
     "riya":  "Content Planner",
     "arjun": "Lead Scout",
+    "kiran": "Social Media Intelligence",
     "dev":   "Campaign Analyzer",
     "priya": "Competitor Watcher",
+    "sam":   "Email Marketing Monitor",
 }
 
 AGENT_CREWS = {
     "maya":  "content",
     "riya":  "content",
     "arjun": "lead",
+    "kiran": "content",   # social fits closest to content crew
     "dev":   "budget",
     "priya": "competitor",
+    "sam":   "content",   # email fits closest to content crew
     "zara":  "company",   # orchestrator uses company crew for synthesis
 }
 
@@ -190,8 +286,39 @@ def run_agent(agent_name: str, task_type: str) -> None:
     client_context = load_client_context()
     crew_module = AGENT_CREWS.get(agent_name, "company")
     role = AGENT_ROLES.get(agent_name, agent_name)
+    queued_deployments = pull_pending_deployments(agent_name)
 
     try:
+        for deployment in queued_deployments:
+            deployment_workspace_id = deployment.get("workspaceId") or AGENT_WORKSPACE_ID
+            deployment_client_context = load_client_context(deployment_workspace_id)
+            deployment_request = "\n".join([
+                f"Execute the approved GTM deployment for section: {deployment.get('sectionTitle', deployment.get('sectionId', 'Unknown section'))}",
+                f"Summary: {deployment.get('summary', '')}",
+                "Tasks:",
+                *[f"- {bullet}" for bullet in deployment.get("bullets", [])],
+            ]).strip()
+
+            deployment_result = orchestrator.execute_for_scheduler(
+                crew_module=crew_module,
+                task_type=deployment_request,
+                system_context=soul,
+                prior_memory=memory,
+                client_context=deployment_client_context,
+            )
+            deployment_duration = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+            write_notification(
+                agent_name,
+                role,
+                f"scheduled_gtm_deployment:{deployment.get('sectionId', 'unknown')}",
+                deployment_result,
+                "success",
+                deployment_duration,
+                workspace_id=deployment_workspace_id,
+            )
+            update_memory(agent_name, deployment_result)
+            update_deployment_status(deployment.get("id", ""), "completed")
+
         result = orchestrator.execute_for_scheduler(
             crew_module=crew_module,
             task_type=task_type,
@@ -209,6 +336,9 @@ def run_agent(agent_name: str, task_type: str) -> None:
         duration = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
         error_str = str(e)
         logger.error(f"❌ {agent_name} failed: {error_str}")
+        for deployment in queued_deployments:
+            if deployment.get("status") == "processing":
+                update_deployment_status(deployment.get("id", ""), "failed", error=error_str)
         write_notification(agent_name, role, task_type,
                            {"title": f"{agent_name.title()} run failed",
                             "summary": f"Error: {error_str[:300]}",
@@ -251,6 +381,20 @@ def build_scheduler() -> BackgroundScheduler:
         id="riya_mwf", replace_existing=True
     )
 
+    # Kiran — Social Media Intelligence — daily 07:30 IST
+    scheduler.add_job(
+        lambda: run_agent("kiran", "daily_social_pulse"),
+        CronTrigger(hour=7, minute=30, timezone="Asia/Kolkata"),
+        id="kiran_daily", replace_existing=True
+    )
+
+    # Sam — Email Marketing Monitor — Tue/Thu 08:30 IST
+    scheduler.add_job(
+        lambda: run_agent("sam", "email_health_check"),
+        CronTrigger(day_of_week="tue,thu", hour=8, minute=30, timezone="Asia/Kolkata"),
+        id="sam_tuth", replace_existing=True
+    )
+
     # Dev — Campaign Analyzer — Monday 09:00 IST
     scheduler.add_job(
         lambda: run_agent("dev", "weekly_campaign_review"),
@@ -272,7 +416,7 @@ def build_scheduler() -> BackgroundScheduler:
 
 if __name__ == "__main__":
     # Validate required env vars
-    required = ["GROQ_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "AGENT_USER_ID"]
+    required = ["GROQ_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY"]
     missing = [v for v in required if not os.getenv(v)]
     if missing:
         raise EnvironmentError(f"Missing required env vars: {', '.join(missing)}")
@@ -280,7 +424,7 @@ if __name__ == "__main__":
     # Initialise globals
     orchestrator = CrewOrchestrator(groq_api_key=os.getenv("GROQ_API_KEY"))
     supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
-    AGENT_USER_ID = os.environ["AGENT_USER_ID"]
+    AGENT_WORKSPACE_ID = os.getenv("AGENT_WORKSPACE_ID")
 
     # Build and start scheduler
     scheduler = build_scheduler()
@@ -289,8 +433,10 @@ if __name__ == "__main__":
     logger.info("🤖 Autonomous AI employees online")
     logger.info("   Maya:  daily 06:00 IST")
     logger.info("   Arjun: daily 07:00 IST")
+    logger.info("   Kiran: daily 07:30 IST")
     logger.info("   Priya: daily 08:00 IST")
     logger.info("   Riya:  Mon/Wed/Fri 08:00 IST")
+    logger.info("   Sam:   Tue/Thu 08:30 IST")
     logger.info("   Dev:   Monday 09:00 IST")
     logger.info("   Zara:  daily 09:15 IST (synthesis)")
     logger.info("Press Ctrl+C to stop.")

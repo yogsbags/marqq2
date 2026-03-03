@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { TaskItem } from './TaskItem';
 import type { Task } from '@/types/chat';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 type Horizon = 'day' | 'week' | 'month';
 
@@ -32,6 +33,14 @@ function saveTasks(tasks: Task[]) {
 export function Taskboard() {
   const [tasks, setTasks] = useState<Task[]>(loadTasks);
   const [horizon, setHorizon] = useState<Horizon>('day');
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Reload when ChatHome adds an AI task
+  useEffect(() => {
+    const handler = () => setTasks(loadTasks());
+    window.addEventListener('torqq:task-added', handler);
+    return () => window.removeEventListener('torqq:task-added', handler);
+  }, []);
   const [newLabel, setNewLabel] = useState('');
   const [adding, setAdding] = useState(false);
 
@@ -72,11 +81,33 @@ export function Taskboard() {
   const pending = visibleTasks.filter(t => !t.completed);
   const completed = visibleTasks.filter(t => t.completed);
 
+  if (collapsed) {
+    return (
+      <div className="w-8 flex-shrink-0 flex flex-col border-l bg-white dark:bg-gray-950 h-full">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="flex-1 flex flex-col items-center justify-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-orange-500 dark:hover:text-orange-400 transition-colors"
+          title="Show tasks"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          <span className="rotate-90 whitespace-nowrap">Tasks</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-[280px] flex-shrink-0 flex flex-col border-l bg-white dark:bg-gray-950 h-full">
+    <div className="w-[280px] flex-shrink-0 flex flex-col border-l bg-white dark:bg-gray-950 h-full transition-all duration-300">
       {/* Header */}
-      <div className="px-4 pt-4 pb-2">
+      <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Tasks</h2>
+        <button
+          onClick={() => setCollapsed(true)}
+          className="mb-3 inline-flex items-center justify-center rounded-md p-1 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          title="Hide tasks"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
 
         {/* Horizon tabs */}
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-0.5 rounded-lg">

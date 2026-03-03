@@ -1,0 +1,48 @@
+firmographic_research_task:
+  description: >
+    Gather comprehensive firmographic data for: {company_name}
+
+    Collect detailed company information from public sources.
+
+    Return structured data with company basics, size metrics, financial data, industry classification, and corporate structure.
+  expected_output: >
+    Firmographic company profile with size, revenue, industry, location, and corporate structure in JSON format
+  agent: firmographic_analyst
+  output_json: true
+
+tech_stack_analysis_task:
+  description: >
+    Identify technology stack for: {company_name}
+
+    Map all technologies in use including CRM, marketing automation, analytics, cloud infrastructure, and security tools.
+
+    Return detailed tech stack with tool names, versions, and integration points.
+  expected_output: >
+    Complete technology stack profile with tools, categories, and integration analysis in JSON format
+  agent: tech_stack_analyst
+  output_json: true
+
+org_chart_mapping_task:
+  description: >
+    Map organizational structure for: {company_name}
+
+    Build comprehensive org chart showing C-suite, department heads, team leads, and reporting relationships.
+
+    Return org chart with hierarchy, team sizes, and recent hires.
+  expected_output: >
+    Organizational chart with hierarchy, headcount, and stakeholder mapping in JSON format
+  agent: org_chart_mapper
+  output_json: true
+
+decision_maker_identification_task:
+  description: >
+    Identify key decision makers for: {company_name}
+    Target departments: {target_departments}
+
+    Find verified contacts for budget holders and influencers.
+
+    Return contact list with names, titles, emails, phones, and engagement signals.
+  expected_output: >
+    Decision maker contacts with verified information and engagement signals in JSON format
+  agent: decision_maker_identifier
+  output_json: true

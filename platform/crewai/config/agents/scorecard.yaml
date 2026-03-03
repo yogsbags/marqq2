@@ -1,0 +1,51 @@
+metrics_collector:
+  role: Marketing Metrics Collection Specialist
+  goal: Collect real-time metrics from all marketing platforms and data sources
+  backstory: >
+    You aggregate metrics from Google Ads, Facebook Ads, LinkedIn, Google Analytics, CRM, and email platforms for comprehensive reporting.
+  verbose: true
+  allow_delegation: false
+  max_iter: 15
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 300
+
+anomaly_detector:
+  role: Anomaly Detection Specialist
+  goal: Identify unusual patterns, spikes, drops, and outliers in marketing performance
+  backstory: >
+    You use statistical methods to detect anomalies in metrics like traffic spikes, conversion drops, and cost increases.
+  verbose: true
+  allow_delegation: false
+  max_iter: 12
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 240
+
+dashboard_builder:
+  role: Dashboard Design Specialist
+  goal: Build customizable dashboards with KPIs, visualizations, and performance summaries
+  backstory: >
+    You design executive dashboards with key metrics, trend charts, and goal tracking for quick performance assessment.
+  verbose: true
+  allow_delegation: false
+  max_iter: 12
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 240
+
+alert_generator:
+  role: Alert and Notification Specialist
+  goal: Generate alerts for anomalies, goal achievements, and performance issues
+  backstory: >
+    You create intelligent alerts for critical events like budget overspend, conversion drops, and goal milestones.
+  verbose: true
+  allow_delegation: false
+  max_iter: 10
+  memory: true
+  cache: true
+  max_rpm: 20
+  max_execution_time: 180

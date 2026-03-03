@@ -1,0 +1,8 @@
+{
+  "connectors": ["facebook_pages", "instagram", "linkedin", "ga4"],
+  "permissions": "read",
+  "description": "Kiran monitors organic social — she reads page insights, engagement rates, and social referral traffic.",
+  "recipes": {
+    "social_media_pulse": "rcp_FjcF2joGU3Fv"
+  }
+}

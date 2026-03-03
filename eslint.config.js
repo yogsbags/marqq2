@@ -9,8 +9,7 @@ export default tseslint.config(
     ignores: [
       'dist',
       'node_modules',
-      'enhanced-bulk-generator-frontend/**',
-      'social-media-frontend/**',
+      'platform/**',
     ],
   },
   {
