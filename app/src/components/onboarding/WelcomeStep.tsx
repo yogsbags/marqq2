@@ -1,4 +1,5 @@
 import OnboardingContainer from './OnboardingContainer';
+import { BRAND } from '@/lib/brand';
 import { OnboardingStep } from './types';
 
 interface WelcomeStepProps {
@@ -12,7 +13,7 @@ export function WelcomeStep({ onStart, onSkip, steps }: WelcomeStepProps) {
     <OnboardingContainer ariaLabel="Welcome step">
       <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 w-full max-w-[500px]">
         <div className="font-mono text-[10px] text-[#FF6521] tracking-[0.18em] uppercase mb-7">
-          Welcome to Torqq AI
+          Welcome to {BRAND.name}
         </div>
 
         <h1 className="font-syne text-[56px] font-extrabold leading-[1.04] text-[#EDEDF3] m-0 mb-[22px] tracking-[-0.01em]">

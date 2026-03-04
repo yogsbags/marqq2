@@ -1,6 +1,7 @@
 import { AGENTS } from './constants';
 import { Phase } from './types';
 import { Check } from 'lucide-react';
+import { BRAND } from '@/lib/brand';
 
 interface AgentGridProps {
   phase: Phase;
@@ -16,7 +17,7 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
       }`}>
       {/* Logo */}
       <div className="font-syne text-[18px] font-extrabold tracking-[0.1em] text-[#FF6521] mb-11">
-        TORQQ AI
+        {BRAND.name.toUpperCase()}
       </div>
 
       {/* Section label */}

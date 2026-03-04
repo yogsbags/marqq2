@@ -120,7 +120,7 @@ export function OverviewPage({
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 shrink-0 border border-border/60 bg-background/80 text-muted-foreground hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive dark:bg-card/80"
+                            className="h-8 w-8 shrink-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-destructive"
                             aria-label={`Delete ${c.companyName}`}
                             title={`Delete ${c.companyName}`}
                             onClick={() => {
