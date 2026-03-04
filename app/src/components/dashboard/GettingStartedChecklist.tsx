@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { BRAND } from '@/lib/brand';
 import { fetchJson } from '@/components/modules/company-intelligence/api';
 import { toast } from 'sonner';
 
@@ -187,7 +188,7 @@ export function GettingStartedChecklist({ onNavigate }: GettingStartedChecklistP
           <div className="text-left">
             <p className="font-semibold text-sm">Let's get started, {firstName}</p>
             <p className="text-xs text-muted-foreground">
-              Follow these steps to get the most out of Torqq
+              Follow these steps to get the most out of {BRAND.name}
             </p>
           </div>
         </div>
