@@ -14,11 +14,17 @@
 
 import express from "express";
 import Groq from "groq-sdk";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { createClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import { AccessToken, AgentDispatchClient, RoomServiceClient } from "livekit-server-sdk";
+import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
     enqueueGeneration,
+    generateArtifactWithGroq,
+    normalizeArtifact,
     registerArtifactCallback,
     registerArtifactFailCallback,
     startWorker,
@@ -42,11 +48,23 @@ const HEARTBEAT_PATH = join(CREWAI_DIR, "heartbeat", "status.json");
 const AGENTS_DIR = join(CREWAI_DIR, "agents");
 const CTX_DIR = join(CREWAI_DIR, "client_context");
 const DEPLOYMENT_QUEUE_PATH = join(CREWAI_DIR, "deployments", "queue.json");
+const COMPANY_INTEL_KB_ROOT = join(__dirname, "data", "company-intel-kb");
+const VOICEBOT_KB_ROOT = join(__dirname, "data", "voicebot-kb");
 
-const VALID_AGENTS = new Set(["zara", "maya", "riya", "arjun", "dev", "priya"]);
+const VALID_AGENTS = new Set([
+  "zara",
+  "maya",
+  "riya",
+  "arjun",
+  "dev",
+  "priya",
+  "tara",
+  "neel",
+  "isha",
+]);
 const AGENT_PROFILES = {
   zara: {
-    title: "Campaign Strategist",
+    title: "Strategy & Monetization",
     personality:
       "Decisive, commercially sharp, and biased toward clear GTM tradeoffs rather than vague planning.",
     executes: [
@@ -76,7 +94,7 @@ const AGENT_PROFILES = {
     ],
   },
   arjun: {
-    title: "Lead Intelligence",
+    title: "Sales & RevOps",
     personality:
       "Analytical and conversion-oriented, with a strong bias toward qualification, prioritization, and pipeline efficiency.",
     executes: [
@@ -86,7 +104,7 @@ const AGENT_PROFILES = {
     ],
   },
   dev: {
-    title: "Performance Analyst",
+    title: "Paid & Distribution",
     personality:
       "Numerate, pragmatic, and focused on budget efficiency, signal quality, and measurable performance improvement.",
     executes: [
@@ -96,13 +114,43 @@ const AGENT_PROFILES = {
     ],
   },
   priya: {
-    title: "Brand Intelligence",
+    title: "Conversion Optimization",
     personality:
       "Research-led, positioning-aware, and strong at turning messy market inputs into sharper differentiation.",
     executes: [
       "Generate company intelligence and competitor analysis",
       "Refine messaging, positioning, and audience hypotheses",
       "Support brand, market, and narrative decisions",
+    ],
+  },
+  tara: {
+    title: "Measurement & Testing",
+    personality:
+      "Experiment-oriented and rigorous, focused on attribution quality, incrementality, and decision-ready KPI movement.",
+    executes: [
+      "Build measurement plans with cross-channel attribution guardrails",
+      "Design experiment loops and testing cadences for key campaigns",
+      "Turn scorecard outputs into prioritized optimization tasks",
+    ],
+  },
+  neel: {
+    title: "Retention",
+    personality:
+      "Lifecycle-focused operator who improves activation, engagement, and repeat conversion through focused follow-up systems.",
+    executes: [
+      "Build retention and re-engagement task plans from audience insights",
+      "Translate segment behavior into lifecycle content and outreach actions",
+      "Operationalize post-conversion and nurture workflows",
+    ],
+  },
+  isha: {
+    title: "Growth Engineering",
+    personality:
+      "Systems thinker with an automation mindset, focused on scalable workflows, integrations, and compounding growth loops.",
+    executes: [
+      "Design cross-workflow automation and orchestration tasks",
+      "Turn strategic opportunities into scalable growth loops",
+      "Bridge content, channel, and partner workflows into one operating system",
     ],
   },
 };
@@ -124,6 +172,58 @@ const AGENT_PLAN_GROQ_MODELS = [
 ];
 const STALE_DEPLOYMENT_TIMEOUT_MS =
   Number(process.env.TORQQ_DEPLOYMENT_STALE_SECONDS || 1800) * 1000;
+const SARVAM_API_BASE = process.env.SARVAM_API_BASE || "https://api.sarvam.ai";
+const SARVAM_TTS_ENDPOINT =
+  process.env.SARVAM_TTS_ENDPOINT || `${SARVAM_API_BASE}/text-to-speech/stream`;
+const SARVAM_STT_ENDPOINT =
+  process.env.SARVAM_STT_ENDPOINT || `${SARVAM_API_BASE}/speech-to-text`;
+const SARVAM_TTS_MODEL = process.env.SARVAM_TTS_MODEL || "bulbul:v3";
+const SARVAM_STT_MODEL = process.env.SARVAM_STT_MODEL || "saaras:v3";
+const VOICEBOT_DIALOGUE_MODELS = [
+  process.env.GROQ_VOICEBOT_MODEL || "groq/compound",
+  "llama-3.3-70b-versatile",
+];
+const voicebotSessions = new Map();
+const LIVEKIT_URL = process.env.LIVEKIT_URL || process.env.LIVEKIT_WS_URL || "";
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "";
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || "";
+const LIVEKIT_AGENT_NAME = process.env.LIVEKIT_AGENT_NAME || "martech-voicebot";
+
+const COMPANY_INTEL_KB_CATEGORIES = new Set([
+  "brand_guidelines",
+  "product_service_docs",
+  "company_ppts",
+]);
+
+function loadEnvFileIntoProcess(envPath) {
+  try {
+    const raw = fs.readFileSync(envPath, "utf8");
+    raw.split("\n").forEach((line) => {
+      const match = line.match(/^([^#=]+)=(.*)$/);
+      if (!match) return;
+      const key = match[1].trim();
+      const value = match[2].trim().replace(/^["']|["']$/g, "");
+      if (!process.env[key]) process.env[key] = value;
+    });
+  } catch {
+    // ignore missing env files
+  }
+}
+
+loadEnvFileIntoProcess(join(__dirname, "..", "..", ".env"));
+loadEnvFileIntoProcess(join(__dirname, "..", "..", ".env.local"));
+loadEnvFileIntoProcess(join(CREWAI_DIR, ".env"));
+
+const supabaseServiceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  "";
+const supabaseAdminClient =
+  process.env.VITE_SUPABASE_URL && supabaseServiceKey
+    ? createClient(process.env.VITE_SUPABASE_URL, supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      })
+    : null;
 
 function defaultHeartbeatState() {
   return {
@@ -135,6 +235,9 @@ function defaultHeartbeatState() {
       arjun: { status: "idle", last_run: null, duration_ms: null },
       dev: { status: "idle", last_run: null, duration_ms: null },
       priya: { status: "idle", last_run: null, duration_ms: null },
+      tara: { status: "idle", last_run: null, duration_ms: null },
+      neel: { status: "idle", last_run: null, duration_ms: null },
+      isha: { status: "idle", last_run: null, duration_ms: null },
     },
   };
 }
@@ -207,6 +310,15 @@ async function readDeploymentQueue() {
     const entries = Array.isArray(parsed) ? parsed : [];
     if (markStaleProcessingDeployments(entries)) {
       await writeDeploymentQueue(entries);
+      await Promise.all(
+        entries
+          .filter((entry) => entry?.status === "failed" && entry?.failedAt)
+          .map((entry) =>
+            syncCompanyActionStatusFromDeployment(entry, "failed", {
+              error: entry?.error || "Deployment timed out before completion.",
+            }),
+          ),
+      );
     }
     return entries;
   } catch {
@@ -217,6 +329,590 @@ async function readDeploymentQueue() {
 async function writeDeploymentQueue(entries) {
   await mkdir(dirname(DEPLOYMENT_QUEUE_PATH), { recursive: true });
   await writeFile(DEPLOYMENT_QUEUE_PATH, JSON.stringify(entries, null, 2), "utf-8");
+}
+
+function companyKbDir(companyId) {
+  return join(COMPANY_INTEL_KB_ROOT, companyId);
+}
+
+function voicebotKbDir() {
+  return VOICEBOT_KB_ROOT;
+}
+
+function companyKbManifestPath(companyId) {
+  return join(companyKbDir(companyId), "manifest.json");
+}
+
+function companyAssetManifestPath(companyId) {
+  return join(companyKbDir(companyId), "assets.json");
+}
+
+function voicebotKbManifestPath() {
+  return join(voicebotKbDir(), "manifest.json");
+}
+
+function companyActionStatusPath(companyId) {
+  return join(companyKbDir(companyId), "action-status.json");
+}
+
+function sanitizeKnowledgeBaseFilename(name) {
+  const trimmed = String(name || "file").trim() || "file";
+  return trimmed.replace(/[^a-zA-Z0-9._ -]/g, "_");
+}
+
+function sanitizeVoicebotSessionId(sessionId) {
+  return String(sessionId || "").trim().slice(0, 80);
+}
+
+function pickSarvamLanguageCode(language) {
+  return language === "hi" ? "hi-IN" : "en-IN";
+}
+
+function pickSarvamSpeaker(language, gender) {
+  if (language === "hi" && gender === "female") {
+    return process.env.SARVAM_TTS_HI_FEMALE_SPEAKER || "priya";
+  }
+  if (language === "hi" && gender === "male") {
+    return process.env.SARVAM_TTS_HI_MALE_SPEAKER || "shubh";
+  }
+  if (gender === "male") {
+    return process.env.SARVAM_TTS_EN_MALE_SPEAKER || "shubh";
+  }
+  return process.env.SARVAM_TTS_EN_FEMALE_SPEAKER || "priya";
+}
+
+function mimeTypeToExtension(mimeType = "") {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.includes("webm")) return "webm";
+  if (mime.includes("wav")) return "wav";
+  if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "mp3";
+  if (mime.includes("mp4") || mime.includes("m4a")) return "m4a";
+  return "bin";
+}
+
+function trimSessionHistory(messages) {
+  return messages.slice(-12);
+}
+
+function extractJsonCandidate(raw) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const candidate = extractJsonObject(raw);
+    if (!candidate) return null;
+    return JSON.parse(candidate);
+  }
+}
+
+async function readVoicebotKbManifest() {
+  try {
+    const raw = await readFile(voicebotKbManifestPath(), "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeVoicebotKbManifest(entries) {
+  const dir = voicebotKbDir();
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    voicebotKbManifestPath(),
+    JSON.stringify(entries, null, 2),
+    "utf-8",
+  );
+}
+
+async function searchVoicebotKnowledgeBase(query, limit = 6) {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  if (!normalizedQuery) return [];
+  const entries = await readVoicebotKbManifest();
+  const tokens = normalizedQuery.split(/\s+/).filter((token) => token.length > 2);
+  const ranked = [];
+
+  for (const entry of entries) {
+    try {
+      const content = await readFile(entry.path, "utf-8");
+      const haystack = content.toLowerCase();
+      let score = 0;
+      for (const token of tokens) {
+        if (haystack.includes(token)) score += 1;
+      }
+      if (!score && !haystack.includes(normalizedQuery)) continue;
+      if (!score) score = 1;
+      const matchIndex = Math.max(
+        0,
+        haystack.indexOf(tokens[0] || normalizedQuery),
+      );
+      const snippet = content
+        .slice(Math.max(0, matchIndex - 120), matchIndex + 320)
+        .replace(/\s+/g, " ")
+        .trim();
+      ranked.push({
+        fileId: entry.id,
+        fileName: entry.name,
+        score,
+        snippet,
+      });
+    } catch {
+      // ignore unreadable file
+    }
+  }
+
+  return ranked.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+function getVoicebotSession(sessionId) {
+  const safeSessionId = sanitizeVoicebotSessionId(sessionId) || randomUUID();
+  const existing = voicebotSessions.get(safeSessionId);
+  if (existing) return existing;
+  const created = { id: safeSessionId, messages: [] };
+  voicebotSessions.set(safeSessionId, created);
+  return created;
+}
+
+async function synthesizeSpeechWithSarvam({
+  text,
+  language = "en",
+  gender = "female",
+}) {
+  if (!process.env.SARVAM_API_KEY) {
+    throw new Error("SARVAM_API_KEY is not configured");
+  }
+
+  const response = await fetch(SARVAM_TTS_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "api-subscription-key": process.env.SARVAM_API_KEY,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      text: String(text || "").trim(),
+      target_language_code: pickSarvamLanguageCode(language),
+      speaker: pickSarvamSpeaker(language, gender),
+      model: SARVAM_TTS_MODEL,
+      pace: 1,
+      speech_sample_rate: 22050,
+      output_audio_codec: "mp3",
+      enable_preprocessing: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(
+      `Sarvam TTS failed with ${response.status}${details ? `: ${details}` : ""}`,
+    );
+  }
+
+  const audioBuffer = Buffer.from(await response.arrayBuffer());
+  return {
+    provider: "sarvam",
+    model: SARVAM_TTS_MODEL,
+    speaker: pickSarvamSpeaker(language, gender),
+    mimeType: "audio/mpeg",
+    audioBase64: audioBuffer.toString("base64"),
+  };
+}
+
+async function transcribeSpeechWithSarvam({
+  audioBase64,
+  mimeType = "audio/webm",
+  language = "en",
+}) {
+  if (!process.env.SARVAM_API_KEY) {
+    throw new Error("SARVAM_API_KEY is not configured");
+  }
+
+  const audioBuffer = Buffer.from(String(audioBase64 || ""), "base64");
+  if (!audioBuffer.length) {
+    throw new Error("No audio payload received");
+  }
+
+  const form = new FormData();
+  form.set(
+    "file",
+    new Blob([audioBuffer], { type: mimeType }),
+    `utterance.${mimeTypeToExtension(mimeType)}`,
+  );
+  form.set("model", SARVAM_STT_MODEL);
+  form.set("mode", "transcribe");
+  form.set("language_code", pickSarvamLanguageCode(language));
+
+  const response = await fetch(SARVAM_STT_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "api-subscription-key": process.env.SARVAM_API_KEY,
+    },
+    body: form,
+  });
+
+  const rawText = await response.text().catch(() => "");
+  let json = null;
+  try {
+    json = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    json = null;
+  }
+  if (!response.ok) {
+    throw new Error(
+      json?.error ||
+        json?.message ||
+        rawText ||
+        `Sarvam STT failed with ${response.status}`,
+    );
+  }
+
+  return {
+    provider: "sarvam",
+    model: SARVAM_STT_MODEL,
+    transcript: String(json?.transcript || "").trim(),
+    languageCode: json?.language_code || pickSarvamLanguageCode(language),
+    raw: json,
+  };
+}
+
+async function runVoicebotDialogue({
+  sessionId,
+  userText,
+  language = "en",
+}) {
+  const session = getVoicebotSession(sessionId);
+  const citations = await searchVoicebotKnowledgeBase(userText, 3);
+  const kbContext = citations.length
+    ? citations
+        .map(
+          (item) =>
+            `FILE: ${item.fileName}\nSNIPPET: ${String(item.snippet || "").slice(0, 500)}`,
+        )
+        .join("\n\n")
+    : "No uploaded knowledge-base snippets matched this query.";
+
+  const systemMessage = `You are a client-facing AI voicebot assistant for a marketing platform.
+Answer conversationally and briefly, suitable for spoken delivery.
+
+Rules:
+- Keep responses to 2-4 short sentences.
+- If the user asks about company-specific details, use the knowledge-base snippets when available.
+- If knowledge-base snippets are available, ground the answer in them first instead of saying information is unavailable.
+- Do not claim certainty when the knowledge base does not support it.
+- If language is Hindi, answer in Hindi. Otherwise answer in Indian English.
+- End with one natural next-step question only when it helps move the conversation forward.
+
+Knowledge base context:
+${kbContext}`;
+
+  const messageHistory = trimSessionHistory([
+    ...session.messages,
+    { role: "user", content: String(userText || "").trim() },
+  ]);
+
+  let lastError = null;
+  for (const model of VOICEBOT_DIALOGUE_MODELS) {
+    try {
+      const completion = await groq.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: systemMessage },
+          ...messageHistory,
+          {
+            role: "user",
+            content: `Language: ${language === "hi" ? "Hindi" : "English"}\nUser message: ${String(userText || "").trim()}`,
+          },
+        ],
+        temperature: 0.4,
+        ...(model === "groq/compound"
+          ? {
+              max_completion_tokens: 500,
+            }
+          : {
+              max_tokens: 500,
+            }),
+      });
+
+      const assistantText = String(
+        completion.choices[0]?.message?.content || "",
+      ).trim();
+      session.messages = trimSessionHistory([
+        ...messageHistory,
+        { role: "assistant", content: assistantText },
+      ]);
+      voicebotSessions.set(session.id, session);
+      return { sessionId: session.id, assistantText, citations };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Voicebot dialogue failed");
+}
+
+async function readKnowledgeBaseManifest(companyId) {
+  try {
+    const raw = await readFile(companyKbManifestPath(companyId), "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeKnowledgeBaseManifest(companyId, entries) {
+  const dir = companyKbDir(companyId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    companyKbManifestPath(companyId),
+    JSON.stringify(entries, null, 2),
+    "utf-8",
+  );
+}
+
+async function readCompanyAssetManifest(companyId) {
+  try {
+    const raw = await readFile(companyAssetManifestPath(companyId), "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeCompanyAssetManifest(companyId, entries) {
+  const dir = companyKbDir(companyId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    companyAssetManifestPath(companyId),
+    JSON.stringify(entries, null, 2),
+    "utf-8",
+  );
+}
+
+async function readCompanyActionStatus(companyId) {
+  try {
+    const raw = await readFile(companyActionStatusPath(companyId), "utf-8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeCompanyActionStatus(companyId, value) {
+  const dir = companyKbDir(companyId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    companyActionStatusPath(companyId),
+    JSON.stringify(value, null, 2),
+    "utf-8",
+  );
+}
+
+async function setCompanyActionStatus(companyId, pageId, patch = {}) {
+  if (!companyId || !pageId) return null;
+  const current = await readCompanyActionStatus(companyId);
+  const previous =
+    current[pageId] && typeof current[pageId] === "object" ? current[pageId] : {};
+  const next = {
+    ...previous,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  current[pageId] = next;
+  await writeCompanyActionStatus(companyId, current);
+  return next;
+}
+
+async function syncCompanyActionStatusFromDeployment(deployment, nextStatus, options = {}) {
+  const companyId =
+    typeof deployment?.companyId === "string" && deployment.companyId.trim()
+      ? deployment.companyId.trim()
+      : null;
+  const pageId =
+    typeof deployment?.sectionId === "string" && deployment.sectionId.trim()
+      ? deployment.sectionId.trim()
+      : null;
+
+  if (!companyId || !pageId || deployment?.source !== "company-intelligence") {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  const patch = {
+    status: nextStatus,
+    mode: deployment?.scheduleMode || null,
+    agentName: deployment?.agentName || null,
+  };
+
+  if (nextStatus === "completed") {
+    patch.lastRunAt = now;
+    patch.lastOutcome = "completed";
+    patch.error = null;
+  } else if (nextStatus === "failed") {
+    patch.lastRunAt = now;
+    patch.lastOutcome = "failed";
+    patch.error = options?.error ? String(options.error).slice(0, 500) : null;
+  } else if (nextStatus === "running") {
+    patch.error = null;
+  }
+
+  return setCompanyActionStatus(companyId, pageId, patch);
+}
+
+async function createAgentNotification(notification) {
+  if (!supabaseAdminClient || !notification?.user_id) return null;
+  try {
+    const { data, error } = await supabaseAdminClient
+      .from("agent_notifications")
+      .insert(notification)
+      .select()
+      .single();
+    if (error) {
+      console.warn("[AgentNotification] insert failed:", error.message);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.warn("[AgentNotification] insert failed:", err.message);
+    return null;
+  }
+}
+
+async function readSavedAgentContext(userId) {
+  if (!userId) {
+    return {
+      userId: "",
+      company: "",
+      industry: "",
+      icp: "",
+      competitors: "",
+      campaigns: "",
+      keywords: "",
+      goals: "",
+    };
+  }
+
+  try {
+    const raw = await readFile(join(CTX_DIR, `${userId}.md`), "utf-8");
+    const matchField = (label) => {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = raw.match(new RegExp(`\\*\\*${escaped}\\*\\*:\\s*(.*)`));
+      const value = match?.[1]?.trim() || "";
+      return value === "—" ? "" : value;
+    };
+
+    return {
+      userId,
+      company: matchField("Company"),
+      industry: matchField("Industry"),
+      icp: matchField("Target ICP"),
+      competitors: matchField("Top Competitors"),
+      campaigns: matchField("Current Campaigns"),
+      keywords: matchField("Active Keywords"),
+      goals: matchField("Key Goals this Quarter"),
+    };
+  } catch {
+    return {
+      userId,
+      company: "",
+      industry: "",
+      icp: "",
+      competitors: "",
+      campaigns: "",
+      keywords: "",
+      goals: "",
+    };
+  }
+}
+
+function summarizeArtifactData(data) {
+  const collected = [];
+  const visit = (value, depth = 0) => {
+    if (depth > 2 || collected.length >= 6) return;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) collected.push(trimmed.slice(0, 180));
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, depth + 1));
+      return;
+    }
+    if (value && typeof value === "object") {
+      Object.values(value).forEach((item) => visit(item, depth + 1));
+    }
+  };
+  visit(data);
+  return collected.slice(0, 3);
+}
+
+async function assembleMarketingContext({ userId = "", workspaceId = "", companyId = "" } = {}) {
+  const agentContext = await readSavedAgentContext(userId);
+  let workspace = null;
+  let company = null;
+  let companyArtifacts = {};
+  let knowledgeBase = [];
+
+  if (workspaceId && supabase) {
+    try {
+      const { data } = await supabase
+        .from("workspaces")
+        .select("id,name,website_url")
+        .eq("id", workspaceId)
+        .single();
+      workspace = data || null;
+    } catch {
+      workspace = null;
+    }
+  }
+
+  if (companyId) {
+    const entry = await ensureCompanyEntry(companyId);
+    if (entry?.company) {
+      company = entry.company;
+      companyArtifacts = entry.artifacts || {};
+      knowledgeBase = await readKnowledgeBaseManifest(companyId);
+    }
+  }
+
+  const artifactSummaries = Object.entries(companyArtifacts || {})
+    .map(([type, artifact]) => ({
+      type,
+      updatedAt: artifact?.updatedAt || null,
+      preview: summarizeArtifactData(artifact?.data),
+    }))
+    .filter((item) => item.preview.length);
+
+  return {
+    userId: userId || null,
+    workspace: workspace
+      ? {
+          id: workspace.id,
+          name: workspace.name,
+          websiteUrl: workspace.website_url || null,
+        }
+      : null,
+    agentContext,
+    company: company
+      ? {
+          id: company.id,
+          companyName: company.companyName,
+          websiteUrl: company.websiteUrl || null,
+          profile: company.profile || {},
+        }
+      : null,
+    artifacts: artifactSummaries,
+    knowledgeBase: knowledgeBase.map((file) => ({
+      id: file.id,
+      category: file.category,
+      name: file.name,
+      mime: file.mime,
+      size: file.size,
+      createdAt: file.createdAt,
+    })),
+  };
 }
 
 const app = express();
@@ -306,36 +1002,290 @@ app.get("/api/agents/context", async (req, res) => {
     return res.status(400).json({ error: "userId is required" });
   }
 
+  res.json(await readSavedAgentContext(userId));
+});
+
+app.get("/api/marketing-context", async (req, res) => {
   try {
-    const raw = await readFile(join(CTX_DIR, `${userId}.md`), "utf-8");
-    const matchField = (label) => {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = raw.match(new RegExp(`\\*\\*${escaped}\\*\\*:\\s*(.*)`));
-      const value = match?.[1]?.trim() || "";
-      return value === "—" ? "" : value;
-    };
+    const context = await assembleMarketingContext({
+      userId: String(req.query.userId || "").trim(),
+      workspaceId: String(req.query.workspaceId || "").trim(),
+      companyId: String(req.query.companyId || "").trim(),
+    });
+    res.json(context);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/voicebot/kb/files", async (_req, res) => {
+  try {
+    const files = await readVoicebotKbManifest();
+    res.json({
+      files: files
+        .map((file) => ({
+          id: file.id,
+          name: file.name,
+          mime: file.mime,
+          size: file.size,
+          createdAt: file.createdAt,
+        }))
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/voicebot/kb/upload", async (req, res) => {
+  const { files } = req.body || {};
+  if (!Array.isArray(files) || !files.length) {
+    return res.status(400).json({ error: "files array is required" });
+  }
+
+  try {
+    const dir = voicebotKbDir();
+    const existing = await readVoicebotKbManifest();
+    const created = [];
+    const rejected = [];
+    await mkdir(dir, { recursive: true });
+
+    for (const file of files) {
+      const name = sanitizeKnowledgeBaseFilename(file?.name || "file.txt");
+      const mime = String(file?.mime || "text/plain");
+      const base64 = String(file?.base64 || "");
+      const size = Number(file?.size) || 0;
+      if (!base64) {
+        rejected.push({ name, reason: "Missing base64 payload" });
+        continue;
+      }
+
+      const id = randomUUID();
+      const filePath = join(dir, `${id}-${name}`);
+      await writeFile(filePath, Buffer.from(base64, "base64"));
+      created.push({
+        id,
+        name,
+        mime,
+        size,
+        createdAt: new Date().toISOString(),
+        path: filePath,
+      });
+    }
+
+    await writeVoicebotKbManifest([...created, ...existing]);
+    res.json({
+      files: created.map((file) => ({
+        id: file.id,
+        name: file.name,
+        mime: file.mime,
+        size: file.size,
+        createdAt: file.createdAt,
+      })),
+      rejected,
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.delete("/api/voicebot/kb/files/:id", async (req, res) => {
+  try {
+    const files = await readVoicebotKbManifest();
+    const target = files.find((file) => file.id === req.params.id);
+    if (!target) return res.status(404).json({ error: "File not found" });
+    const remaining = files.filter((file) => file.id !== req.params.id);
+    if (target.path) {
+      try {
+        await unlink(target.path);
+      } catch {
+        // ignore
+      }
+    }
+    await writeVoicebotKbManifest(remaining);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/voicebot/kb/search", async (req, res) => {
+  const query = String(req.body?.query || "").trim();
+  const limit = Math.min(Math.max(Number(req.body?.limit) || 6, 1), 10);
+  if (!query) return res.status(400).json({ error: "query is required" });
+
+  try {
+    const results = await searchVoicebotKnowledgeBase(query, limit);
+    res.json({ results });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/voicebot/stt", async (req, res) => {
+  const { audioBase64, mimeType, language } = req.body || {};
+  if (!audioBase64) {
+    return res.status(400).json({ error: "audioBase64 is required" });
+  }
+
+  try {
+    const transcript = await transcribeSpeechWithSarvam({
+      audioBase64,
+      mimeType: String(mimeType || "audio/webm"),
+      language: language === "hi" ? "hi" : "en",
+    });
+    res.json(transcript);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/voicebot/tts", async (req, res) => {
+  const { text, language, gender } = req.body || {};
+  if (!String(text || "").trim()) {
+    return res.status(400).json({ error: "text is required" });
+  }
+
+  try {
+    const result = await synthesizeSpeechWithSarvam({
+      text,
+      language: language === "hi" ? "hi" : "en",
+      gender: gender === "male" ? "male" : "female",
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/video-gen/generate-audio", async (req, res) => {
+  const { text, language, gender } = req.body || {};
+  if (!String(text || "").trim()) {
+    return res.status(400).json({ error: "text is required" });
+  }
+
+  try {
+    const result = await synthesizeSpeechWithSarvam({
+      text,
+      language: language === "hi" ? "hi" : "en",
+      gender: gender === "male" ? "male" : "female",
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/voicebot/dialogue", async (req, res) => {
+  const { sessionId, userText, language } = req.body || {};
+  if (!String(userText || "").trim()) {
+    return res.status(400).json({ error: "userText is required" });
+  }
+
+  try {
+    const result = await runVoicebotDialogue({
+      sessionId,
+      userText,
+      language: language === "hi" ? "hi" : "en",
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/voicebot/livekit/config", async (_req, res) => {
+  const configured = Boolean(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
+  res.json({
+    configured,
+    livekitUrl: LIVEKIT_URL || null,
+    providers: {
+      stt: { provider: "sarvam", configured: Boolean(process.env.SARVAM_API_KEY) },
+      tts: { provider: "sarvam", configured: Boolean(process.env.SARVAM_API_KEY) },
+      llm: { provider: "openai", configured: Boolean(process.env.OPENAI_API_KEY) },
+    },
+    agentName: LIVEKIT_AGENT_NAME,
+  });
+});
+
+app.post("/api/voicebot/livekit/token", async (req, res) => {
+  if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    return res.status(400).json({ error: "LiveKit env is not configured" });
+  }
+
+  const roomName = String(req.body?.roomName || "").trim();
+  const participantName = String(req.body?.participantName || "User").trim() || "User";
+  const identity =
+    String(req.body?.identity || "").trim() ||
+    `voice-${participantName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+
+  if (!roomName) {
+    return res.status(400).json({ error: "roomName is required" });
+  }
+
+  try {
+    const roomClient = new RoomServiceClient(
+      LIVEKIT_URL,
+      LIVEKIT_API_KEY,
+      LIVEKIT_API_SECRET,
+    );
+    await roomClient.createRoom({ name: roomName }).catch(() => null);
+
+    const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+      identity,
+      name: participantName,
+    });
+    token.addGrant({
+      roomJoin: true,
+      room: roomName,
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+    });
 
     res.json({
-      userId,
-      company: matchField("Company"),
-      industry: matchField("Industry"),
-      icp: matchField("Target ICP"),
-      competitors: matchField("Top Competitors"),
-      campaigns: matchField("Current Campaigns"),
-      keywords: matchField("Active Keywords"),
-      goals: matchField("Key Goals this Quarter"),
+      livekitUrl: LIVEKIT_URL,
+      roomName,
+      identity,
+      participantName,
+      token: await token.toJwt(),
     });
-  } catch {
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/voicebot/livekit/dispatch", async (req, res) => {
+  if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    return res.status(400).json({ error: "LiveKit env is not configured" });
+  }
+
+  const roomName = String(req.body?.roomName || "").trim();
+  if (!roomName) {
+    return res.status(400).json({ error: "roomName is required" });
+  }
+
+  try {
+    const dispatchClient = new AgentDispatchClient(
+      LIVEKIT_URL,
+      LIVEKIT_API_KEY,
+      LIVEKIT_API_SECRET,
+    );
+    const dispatch = await dispatchClient.createDispatch(roomName, LIVEKIT_AGENT_NAME, {
+      metadata: JSON.stringify({
+        language: req.body?.language === "hi" ? "hi" : "en",
+        gender: req.body?.gender === "male" ? "male" : "female",
+      }),
+    });
+
     res.json({
-      userId,
-      company: "",
-      industry: "",
-      icp: "",
-      competitors: "",
-      campaigns: "",
-      keywords: "",
-      goals: "",
+      ok: true,
+      dispatchId: dispatch?.id || null,
+      roomName,
+      agentName: LIVEKIT_AGENT_NAME,
     });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
   }
 });
 
@@ -369,11 +1319,13 @@ app.post("/api/agents/deployments", async (req, res) => {
     agentName,
     agentTarget,
     workspaceId,
+    companyId,
     sectionId,
     sectionTitle,
     summary,
     bullets,
     tasks,
+    scheduleMode,
     source = "gtm-wizard",
   } = req.body ?? {};
 
@@ -391,11 +1343,13 @@ app.post("/api/agents/deployments", async (req, res) => {
       agentName,
       agentTarget: agentTarget || null,
       workspaceId: typeof workspaceId === "string" && workspaceId.trim() ? workspaceId.trim() : null,
+      companyId: typeof companyId === "string" && companyId.trim() ? companyId.trim() : null,
       sectionId,
       sectionTitle,
       summary: typeof summary === "string" ? summary : "",
       bullets: Array.isArray(bullets) ? bullets : [],
       tasks: Array.isArray(tasks) ? tasks : [],
+      scheduleMode: typeof scheduleMode === "string" && scheduleMode.trim() ? scheduleMode.trim() : null,
       source,
       status: "pending",
       createdAt: new Date().toISOString(),
@@ -433,7 +1387,7 @@ app.get("/api/agents/:name/memory", async (req, res) => {
 
 app.post("/api/agents/:name/plan", async (req, res) => {
   const { name } = req.params;
-  const { task } = req.body;
+  const { task, marketingContext } = req.body || {};
 
   if (!VALID_AGENTS.has(name)) {
     return res.status(404).json({ error: "Unknown agent" });
@@ -451,6 +1405,7 @@ app.post("/api/agents/:name/plan", async (req, res) => {
         personality: "Execution-focused marketing operator.",
         executes: [],
       },
+      marketingContext || null,
     );
     res.json(plan);
   } catch (error) {
@@ -759,7 +1714,7 @@ function extractJsonObject(text) {
   return text.slice(start, end + 1);
 }
 
-async function generateAgentTaskPlan(agentName, task, profile) {
+async function generateAgentTaskPlan(agentName, task, profile, marketingContext = null) {
   let lastError = null;
 
   const messages = [
@@ -794,6 +1749,7 @@ Rules:
         agentPersonality: profile.personality,
         agentCapabilities: profile.executes,
         userTask: task,
+        marketingContext,
       }),
     },
   ];
@@ -1207,6 +2163,252 @@ app.get("/api/company-intel/companies/:id", async (req, res) => {
   res.json({ company: entry.company, artifacts: entry.artifacts });
 });
 
+app.get("/api/company-intel/companies/:id/knowledge-base", async (req, res) => {
+  const entry = await ensureCompanyEntry(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Company not found" });
+  const files = await readKnowledgeBaseManifest(req.params.id);
+  res.json({
+    files: files.sort((a, b) =>
+      String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")),
+    ),
+  });
+});
+
+app.get("/api/company-intel/companies/:id/assets", async (req, res) => {
+  const entry = await ensureCompanyEntry(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Company not found" });
+  const assets = await readCompanyAssetManifest(req.params.id);
+  res.json({
+    assets: assets.sort((a, b) =>
+      String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")),
+    ),
+  });
+});
+
+app.get("/api/company-intel/companies/:id/action-status", async (req, res) => {
+  const entry = await ensureCompanyEntry(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Company not found" });
+  const status = await readCompanyActionStatus(req.params.id);
+  res.json({ status });
+});
+
+app.post("/api/company-intel/companies/:id/knowledge-base", async (req, res) => {
+  const entry = await ensureCompanyEntry(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Company not found" });
+
+  const { category, name, mime, size, base64 } = req.body || {};
+  if (!COMPANY_INTEL_KB_CATEGORIES.has(category)) {
+    return res.status(400).json({ error: "Valid category required" });
+  }
+  if (!name || !base64) {
+    return res.status(400).json({ error: "name and base64 are required" });
+  }
+
+  try {
+    const id = randomUUID();
+    const safeName = sanitizeKnowledgeBaseFilename(name);
+    const dir = companyKbDir(req.params.id);
+    const filePath = join(dir, `${id}-${safeName}`);
+    await mkdir(dir, { recursive: true });
+    await writeFile(filePath, Buffer.from(base64, "base64"));
+
+    const existing = await readKnowledgeBaseManifest(req.params.id);
+    const file = {
+      id,
+      category,
+      name: safeName,
+      mime: mime || "application/octet-stream",
+      size: Number(size) || 0,
+      createdAt: new Date().toISOString(),
+      path: filePath,
+    };
+
+    existing.unshift(file);
+    await writeKnowledgeBaseManifest(req.params.id, existing);
+    res.json({
+      file: {
+        id: file.id,
+        category: file.category,
+        name: file.name,
+        mime: file.mime,
+        size: file.size,
+        createdAt: file.createdAt,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/company-intel/companies/:id/assets", async (req, res) => {
+  const entry = await ensureCompanyEntry(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Company not found" });
+
+  const { assets, userId } = req.body || {};
+  if (!Array.isArray(assets) || !assets.length) {
+    return res.status(400).json({ error: "assets array required" });
+  }
+
+  try {
+    const existing = await readCompanyAssetManifest(req.params.id);
+    const createdAt = new Date().toISOString();
+    const normalized = assets
+      .filter((asset) => asset && typeof asset === "object")
+      .map((asset) => ({
+        id: randomUUID(),
+        companyId: req.params.id,
+        sourceModule: String(asset.sourceModule || "unknown"),
+        sourceWorkflow: String(asset.sourceWorkflow || "unknown"),
+        title: String(asset.title || "Generated asset"),
+        summary: String(asset.summary || "Generated marketing collateral"),
+        kind: String(asset.kind || "text"),
+        format: String(asset.format || "text"),
+        agentName: String(asset.agentName || "zara"),
+        deliveryMode: String(asset.deliveryMode || "run_now"),
+        model: String(asset.model || "workflow-native"),
+        createdAt,
+        archived: false,
+        url: asset.url || null,
+        content: asset.content || null,
+        metadata: asset.metadata || null,
+      }));
+
+    const merged = [...normalized, ...existing];
+    await writeCompanyAssetManifest(req.params.id, merged);
+
+    if (userId) {
+      for (const asset of normalized) {
+        const sourceLabelMap = {
+          "ai-content": "AI Content",
+          "seo-llmo": "SEO/LLMO",
+          "budget-optimization": "Budget Optimization",
+          "performance-scorecard": "Performance Scorecard",
+          "lead-intelligence": "Lead Intelligence",
+        };
+        const capabilityIdMap = {
+          "ai-content": "ai_content",
+          "seo-llmo": "seo_llmo",
+          "budget-optimization": "budget_optimization",
+          "performance-scorecard": "performance_scorecard",
+          "lead-intelligence": "lead_intelligence",
+        };
+        const sourceLabel =
+          sourceLabelMap[asset.sourceModule] || asset.sourceModule;
+        const capabilityId =
+          asset?.metadata?.capabilityId ||
+          capabilityIdMap[asset.sourceModule] ||
+          null;
+        await createAgentNotification({
+          user_id: userId,
+          agent_name: asset.agentName,
+          agent_role: AGENT_PROFILES[asset.agentName]?.title || "Workflow Agent",
+          task_type: "asset_ready",
+          title: `${sourceLabel}: ${asset.title}`,
+          summary: `${asset.title} was added to Assets for ${entry.company.companyName}.`,
+          full_output: {
+            companyId: req.params.id,
+            assetId: asset.id,
+            sourceModule: asset.sourceModule,
+            capabilityId,
+            kind: asset.kind,
+            format: asset.format,
+          },
+          action_items: [
+            {
+              label: "Open asset",
+              priority: "medium",
+              url: `#ci=assets&companyId=${encodeURIComponent(req.params.id)}&assetId=${encodeURIComponent(asset.id)}`,
+              capabilityId,
+            },
+          ],
+          status: "success",
+          read: false,
+        });
+      }
+    }
+
+    res.json({ assets: normalized });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.patch("/api/company-intel/companies/:id/action-status", async (req, res) => {
+  const entry = await ensureCompanyEntry(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Company not found" });
+  const { pageId, status, mode, agentName } = req.body || {};
+  if (!pageId) return res.status(400).json({ error: "pageId is required" });
+
+  try {
+    const next = await setCompanyActionStatus(req.params.id, pageId, {
+      status: String(status || "idle"),
+      mode: mode || null,
+      agentName: agentName || null,
+    });
+    res.json({ status: next });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.patch("/api/company-intel/companies/:id/assets/:assetId", async (req, res) => {
+  const entry = await ensureCompanyEntry(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Company not found" });
+  const { archived } = req.body || {};
+  try {
+    const assets = await readCompanyAssetManifest(req.params.id);
+    const target = assets.find((asset) => asset.id === req.params.assetId);
+    if (!target) return res.status(404).json({ error: "Asset not found" });
+    target.archived = Boolean(archived);
+    await writeCompanyAssetManifest(req.params.id, assets);
+    res.json({ asset: target });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.delete("/api/company-intel/companies/:id/assets/:assetId", async (req, res) => {
+  const entry = await ensureCompanyEntry(req.params.id);
+  if (!entry) return res.status(404).json({ error: "Company not found" });
+  try {
+    const assets = await readCompanyAssetManifest(req.params.id);
+    const remaining = assets.filter((asset) => asset.id !== req.params.assetId);
+    await writeCompanyAssetManifest(req.params.id, remaining);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.delete(
+  "/api/company-intel/companies/:id/knowledge-base/:fileId",
+  async (req, res) => {
+    const entry = await ensureCompanyEntry(req.params.id);
+    if (!entry) return res.status(404).json({ error: "Company not found" });
+
+    try {
+      const files = await readKnowledgeBaseManifest(req.params.id);
+      const file = files.find((item) => item.id === req.params.fileId);
+      if (!file) {
+        return res.status(404).json({ error: "File not found" });
+      }
+
+      const remaining = files.filter((item) => item.id !== req.params.fileId);
+      if (file.path) {
+        try {
+          await unlink(file.path);
+        } catch {
+          // non-blocking
+        }
+      }
+      await writeKnowledgeBaseManifest(req.params.id, remaining);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  },
+);
+
 app.patch("/api/company-intel/companies/:id/artifacts", async (req, res) => {
   const entry = await ensureCompanyEntry(req.params.id);
   if (!entry) return res.status(404).json({ error: "Company not found" });
@@ -1242,6 +2444,7 @@ app.delete("/api/company-intel/companies/:id", async (req, res) => {
         .eq("company_id", companyId);
       await supabase.from("companies").delete().eq("id", companyId);
     }
+    fs.rmSync(companyKbDir(companyId), { recursive: true, force: true });
     _companies.delete(companyId);
     res.json({ ok: true });
   } catch (err) {
@@ -1266,42 +2469,30 @@ app.post("/api/company-intel/companies/:id/generate", async (req, res) => {
 
     const now = new Date().toISOString();
     let directGroqError = null;
+    try {
+      const directGroqData = await generateArtifactWithGroq(
+        type,
+        entry.company.companyName,
+        {
+          ...(inputs || {}),
+          websiteUrl: entry.company.websiteUrl,
+          companyProfile: entry.company.profile,
+        },
+        {
+          websiteUrl: entry.company.websiteUrl,
+          companyProfile: entry.company.profile,
+          existingArtifacts: entry.artifacts || {},
+        },
+      );
 
-    for (const model of COMPANY_INTEL_GROQ_MODELS) {
-      try {
-        const completion = await groq.chat.completions.create({
-          model,
-          messages: [
-            {
-              role: "system",
-              content: `You are an expert marketing strategist. Generate ${type} for ${entry.company.companyName}. Output JSON only.`,
-            },
-            { role: "user", content: `Inputs: ${JSON.stringify(inputs)}` },
-          ],
-          temperature: 0.3,
-          ...(model === "groq/compound"
-            ? {
-                max_completion_tokens: 1024,
-                top_p: 1,
-                compound_custom: {
-                  tools: {
-                    enabled_tools: ["web_search", "visit_website"],
-                  },
-                },
-              }
-            : {
-                response_format: { type: "json_object" },
-              }),
-        });
-        const data = JSON.parse(
-          completion.choices[0]?.message?.content?.trim() || "{}",
-        );
-        entry.artifacts[type] = { type, updatedAt: now, data };
-        directGroqError = null;
-        break;
-      } catch (err) {
-        directGroqError = err instanceof Error ? err : new Error(String(err));
-      }
+      entry.artifacts[type] = {
+        type,
+        updatedAt: now,
+        data: normalizeArtifact(type, directGroqData),
+      };
+      directGroqError = null;
+    } catch (err) {
+      directGroqError = err instanceof Error ? err : new Error(String(err));
     }
 
     if (directGroqError) {

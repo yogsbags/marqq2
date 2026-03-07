@@ -145,8 +145,8 @@ export function LiveKitVoiceSession() {
             LiveKit URL: <span className="font-mono">{config?.livekitUrl || '—'}</span>
           </div>
           <div className="text-xs text-gray-600">
-            Providers: STT Deepgram ({config?.providers?.stt?.configured ? 'ok' : 'missing'}) • TTS Cartesia • LLM OpenAI (
-            {config?.providers?.llm?.configured ? 'ok' : 'missing'})
+            Realtime room status: current LiveKit stack • LLM OpenAI ({config?.providers?.llm?.configured ? 'ok' : 'missing'}) •
+            Simulator + preview speech now use Sarvam
           </div>
         </CardContent>
       </Card>

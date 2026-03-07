@@ -13,6 +13,14 @@ type KbFile = {
   createdAt: string
 }
 
+async function fileToBase64(file: File) {
+  const arrayBuffer = await file.arrayBuffer()
+  let binary = ''
+  const bytes = new Uint8Array(arrayBuffer)
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return window.btoa(binary)
+}
+
 export function KnowledgeBaseUploader() {
   const [files, setFiles] = useState<KbFile[]>([])
   const [loading, setLoading] = useState(false)
@@ -33,9 +41,19 @@ export function KnowledgeBaseUploader() {
     if (!selected.length) return
     setLoading(true)
     try {
-      const form = new FormData()
-      for (const f of selected) form.append('files', f)
-      const resp = await fetch('/api/voicebot/kb/upload', { method: 'POST', body: form })
+      const files = await Promise.all(
+        selected.map(async (file) => ({
+          name: file.name,
+          mime: file.type || 'application/octet-stream',
+          size: file.size,
+          base64: await fileToBase64(file)
+        }))
+      )
+      const resp = await fetch('/api/voicebot/kb/upload', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ files })
+      })
       const json = await resp.json().catch(() => ({}))
       if (!resp.ok) throw new Error(json?.error || json?.details || 'Upload failed')
       const rejected = Array.isArray(json?.rejected) ? json.rejected : []
@@ -109,4 +127,3 @@ export function KnowledgeBaseUploader() {
     </Card>
   )
 }
-

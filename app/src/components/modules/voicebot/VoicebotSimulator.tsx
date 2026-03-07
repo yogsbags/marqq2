@@ -11,6 +11,14 @@ type DialogueResponse = {
   citations?: Array<{ fileId: string; fileName: string }>
 }
 
+async function blobToBase64(blob: Blob) {
+  const arrayBuffer = await blob.arrayBuffer()
+  let binary = ''
+  const bytes = new Uint8Array(arrayBuffer)
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return window.btoa(binary)
+}
+
 export function VoicebotSimulator() {
   const [language, setLanguage] = useState<'en' | 'hi'>('en')
   const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('female')
@@ -68,11 +76,16 @@ export function VoicebotSimulator() {
   async function runSttAndRespond(blob: Blob) {
     setWorking(true)
     try {
-      const form = new FormData()
-      form.append('audio', new File([blob], 'utterance.webm', { type: blob.type || 'audio/webm' }))
-      form.append('language', language)
-
-      const sttResp = await fetch('/api/voicebot/stt', { method: 'POST', body: form })
+      const audioBase64 = await blobToBase64(blob)
+      const sttResp = await fetch('/api/voicebot/stt', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          audioBase64,
+          mimeType: blob.type || 'audio/webm',
+          language
+        })
+      })
       const sttJson = await sttResp.json().catch(() => ({}))
       if (!sttResp.ok) throw new Error(sttJson?.error || sttJson?.details || 'STT failed')
       const text = String(sttJson?.transcript || '').trim()
@@ -91,16 +104,16 @@ export function VoicebotSimulator() {
       setAssistantText(dlgJson.assistantText)
       setCitations(Array.isArray(dlgJson.citations) ? dlgJson.citations : [])
 
-      const tts = await fetch('/api/video-gen/generate-audio', {
+      const tts = await fetch('/api/voicebot/tts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: dlgJson.assistantText, language, gender: voiceGender })
       })
       const ttsJson = await tts.json().catch(() => ({}))
       if (!tts.ok) throw new Error(ttsJson?.error || ttsJson?.message || 'TTS failed')
-      const audioBase64 = ttsJson?.audioBase64
-      if (!audioBase64) throw new Error('No audio returned')
-      const audio = new Audio(`data:audio/wav;base64,${audioBase64}`)
+      const returnedAudioBase64 = ttsJson?.audioBase64
+      if (!returnedAudioBase64) throw new Error('No audio returned')
+      const audio = new Audio(`data:${ttsJson?.mimeType || 'audio/mpeg'};base64,${returnedAudioBase64}`)
       await audio.play()
     } catch (err: any) {
       toast.error(err?.message || 'Voicebot simulator failed')
@@ -129,7 +142,7 @@ export function VoicebotSimulator() {
       setAssistantText(dlgJson.assistantText)
       setCitations(Array.isArray(dlgJson.citations) ? dlgJson.citations : [])
 
-      const tts = await fetch('/api/video-gen/generate-audio', {
+      const tts = await fetch('/api/voicebot/tts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: dlgJson.assistantText, language, gender: voiceGender })
@@ -138,7 +151,7 @@ export function VoicebotSimulator() {
       if (!tts.ok) throw new Error(ttsJson?.error || ttsJson?.message || 'TTS failed')
       const audioBase64 = ttsJson?.audioBase64
       if (!audioBase64) throw new Error('No audio returned')
-      const audio = new Audio(`data:audio/wav;base64,${audioBase64}`)
+      const audio = new Audio(`data:${ttsJson?.mimeType || 'audio/mpeg'};base64,${audioBase64}`)
       await audio.play()
       setManualText('')
     } catch (err: any) {
@@ -151,7 +164,7 @@ export function VoicebotSimulator() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Voicebot Simulator (Deepgram + GPT‑4o + Cartesia)</CardTitle>
+        <CardTitle className="text-base">Voicebot Simulator (Sarvam + Groq)</CardTitle>
         <CardDescription className="text-sm">
           Test the same workflow steps, but with real STT/TTS + dialogue + KB tool calling.
         </CardDescription>
@@ -171,8 +184,8 @@ export function VoicebotSimulator() {
             onChange={(e) => setVoiceGender(e.target.value === 'male' ? 'male' : 'female')}
             className="px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm text-gray-800"
           >
-            <option value="female">Female (Cartesia)</option>
-            <option value="male">Male (Cartesia)</option>
+            <option value="female">Female (Sarvam)</option>
+            <option value="male">Male (Sarvam)</option>
           </select>
           <Badge className="bg-gray-100 text-gray-800">Session: {sessionId ? sessionId.slice(0, 8) : 'new'}</Badge>
         </div>
@@ -221,4 +234,3 @@ export function VoicebotSimulator() {
     </Card>
   )
 }
-

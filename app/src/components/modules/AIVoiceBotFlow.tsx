@@ -264,7 +264,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
   const previewVoice = async () => {
     try {
       setPreviewLoading(true);
-      const resp = await fetch('/api/video-gen/generate-audio', {
+      const resp = await fetch('/api/voicebot/tts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -279,7 +279,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
       }
       const audioBase64 = json?.audioBase64;
       if (!audioBase64) throw new Error('No audio returned');
-      const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
+      const audio = new Audio(`data:${json?.mimeType || 'audio/mpeg'};base64,${audioBase64}`);
       await audio.play();
       toast.success('Playing voice preview');
     } catch (err: any) {
@@ -648,8 +648,8 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
                         value={voiceGender}
                         onChange={(e) => setVoiceGender(e.target.value === 'male' ? 'male' : 'female')}
                       >
-                        <option value="female">{voiceLanguage === 'hi' ? 'Hindi Female (Cartesia)' : 'English Female (Cartesia)'}</option>
-                        <option value="male">{voiceLanguage === 'hi' ? 'Hindi Male (Cartesia)' : 'English Male (Cartesia)'}</option>
+                        <option value="female">{voiceLanguage === 'hi' ? 'Hindi Female (Sarvam)' : 'English Female (Sarvam)'}</option>
+                        <option value="male">{voiceLanguage === 'hi' ? 'Hindi Male (Sarvam)' : 'English Male (Sarvam)'}</option>
                       </select>
                     </div>
                     <div>
@@ -695,9 +695,9 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={previewVoice} disabled={previewLoading || !previewText.trim()}>
                   <Volume2 className="h-4 w-4 mr-2" />
-                  {previewLoading ? 'Generating…' : 'Preview Cartesia Voice'}
+                  {previewLoading ? 'Generating…' : 'Preview Sarvam Voice'}
                 </Button>
-                <Badge className="bg-gray-100 text-gray-800">TTS model: sonic-3-2025-10-27</Badge>
+                <Badge className="bg-gray-100 text-gray-800">TTS model: bulbul:v3</Badge>
               </div>
 
               {/* Voice Bot Capabilities */}
@@ -738,8 +738,8 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
               <div className="pt-4 border-t">
                 <h4 className="font-medium mb-2">LiveKit Realtime (preview)</h4>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Connect to a LiveKit room with mic audio. (Agent STT/TTS + GPT-4o dialogue will be wired to this session.)
-                </p>
+                Connect to a LiveKit room with mic audio. Simulator preview uses Sarvam STT/TTS; the realtime room remains on the current LiveKit agent stack.
+              </p>
                 <LiveKitVoiceSession />
               </div>
 
