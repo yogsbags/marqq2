@@ -33,12 +33,12 @@ Transform 11 isolated, cold-start agents into a 12-agent Marketing Brain OS: sha
   3. `GET /api/mkg/:companyId` returns the full MKG document; `PATCH /api/mkg/:companyId` applies a patch and returns the updated document.
   4. `MKGService.isStale(field)` returns true for fields where confidence < 0.6 or data is older than 30 days.
   5. The `product-marketing-context` skill file is loaded as the first skill on every agent run (verified by log output).
-**Plans:** TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 01-01: Supabase migration — create `company_mkg`, `agent_run_outputs` tables with RLS
-- [ ] 01-02: MKGService TypeScript class — read, patch, isStale, getExpiredFields
-- [ ] 01-03: REST endpoints + product-marketing-context skill loading
+- [ ] 01-01-PLAN.md — Supabase migration: create `company_mkg` and `agent_run_outputs` tables with RLS and indexes
+- [ ] 01-02-PLAN.md — MKGService JS module (read, patch, isStale, getExpiredFields) + 00-product-marketing-context.md skill in all 11 agent directories
+- [ ] 01-03-PLAN.md — REST endpoints (GET + PATCH /api/mkg/:companyId) added to backend-server.js
 
 ---
 
@@ -181,7 +181,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. MKG Foundation | 0/3 | Not started | - |
+| 1. MKG Foundation | 0/3 | Planned | - |
 | 2. Agent Contract Standard | 0/3 | Not started | - |
 | 3. Veena — Company Intelligence | 0/3 | Not started | - |
 | 4. 12-Agent Rewrite | 0/3 | Not started | - |
