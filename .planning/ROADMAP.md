@@ -109,11 +109,11 @@ Plans:
   3. Signal evaluation uses per-company diff-from-baseline stored in MKG, not a global absolute threshold — confirmed by MKG `baselines` field being read during evaluation.
   4. Triggered hook runs call the existing `POST /api/agents/:name/run` endpoint and include `triggered_by: signal` metadata in the run payload.
   5. Scheduled hooks (e.g., veena weekly refresh Mon 06:00 IST) fire at the correct time — confirmed by `agent_tasks` timestamp matching the cron schedule.
-**Plans:** 1/3 plans complete
+**Plans:** 2/3 plans complete
 
 Plans:
 - [x] 05-01: hooks.json config file — scheduled + signal_triggers + chat_triggers
-- [ ] 05-02: HooksEngine class — signal evaluation loop, diff-from-baseline, Supabase agent_signals read
+- [x] 05-02: HooksEngine class — signal evaluation loop, diff-from-baseline, Supabase agent_signals read
 - [ ] 05-03: Hook dispatch integration with existing SSE run endpoint
 
 ---
@@ -185,7 +185,7 @@ Plans:
 | 2. Agent Contract Standard | 3/3 | ✓ Complete | 2026-03-10 |
 | 3. Veena — Company Intelligence | 2/3 | In Progress | - |
 | 4. 12-Agent Rewrite | 3/3 | ✓ Complete | 2026-03-10 |
-| 5. Hooks System | 1/3 | In Progress | - |
+| 5. Hooks System | 2/3 | In Progress | - |
 | 6. Data Pipeline | 3/3 | ✓ Complete | 2026-03-10 |
 | 7. Swarm Layer | 0/3 | Not started | - |
 | 8. Outcome Ledger | 0/3 | Not started | - |

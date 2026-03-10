@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 05
 current_phase_name: Hooks System
-current_plan: 1
+current_plan: 2
 status: in_progress
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-10T12:09:59Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-10T12:17:00Z"
 last_activity: 2026-03-10
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 18
-  completed_plans: 14
-  percent: 78
+  completed_plans: 15
+  percent: 83
 ---
 
 # Project State
@@ -24,27 +24,27 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-10)
 
 **Core value:** Every agent run must move a business metric, verified through an outcome ledger that learns per company over time.
-**Current focus:** Phase 5 — Hooks System (plan 05-01 complete, 2 plans remaining)
+**Current focus:** Phase 5 — Hooks System (plans 05-01 and 05-02 complete, 1 plan remaining)
 
 ## Current Position
 
 Current Phase: 05
 Current Phase Name: Hooks System
 Total Phases: 8
-Current Plan: 1
+Current Plan: 2
 Total Plans in Phase: 3
 Phase: 5 of 8 (Hooks System)
-Plan: 1 of 3 complete in current phase (05-01 complete; 05-02 and 05-03 remaining)
+Plan: 2 of 3 complete in current phase (05-01 and 05-02 complete; 05-03 remaining)
 Status: Phase 5 in progress
 Last Activity: 2026-03-10
-Last activity: 2026-03-10 — Completed 05-01-PLAN.md (hooks inventory, loader validation, and Wave 0 tests)
+Last activity: 2026-03-10 — Completed 05-02-PLAN.md (signal persistence, diff evaluation, and engine tests)
 
-Progress: [████████░░] 78%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: 3.9 min
 - Total execution time: 0.94 hours
 
@@ -56,11 +56,11 @@ Progress: [████████░░] 78%
 | 02-agent-contract-standard | 3 | 11 min | 3.7 min |
 | 03-veena-company-intelligence | 2 | 12 min | 6 min |
 | 04-12-agent-rewrite | 1 | 15 min | 15 min |
-| 05-hooks-system | 1 | 4 min | 4 min |
+| 05-hooks-system | 2 | 8 min | 4 min |
 | 06-data-pipeline | 3 | 21 min | 7 min |
 
 **Recent Trend:**
-- Last 5 plans: 05-01 (4 min), 06-03 (5 min), 06-02 (4 min), 06-01 (12 min), 04-01 (15 min)
+- Last 5 plans: 05-02 (4 min), 05-01 (4 min), 06-03 (5 min), 06-02 (4 min), 06-01 (12 min)
 - Trend: —
 
 *Updated after each plan completion*
@@ -70,6 +70,7 @@ Progress: [████████░░] 78%
 | Phase 03-veena-company-intelligence P02 | 6 min | 2 tasks | 3 files |
 | Phase 04-12-agent-rewrite P01 | 15 min | 2 tasks | 22 files |
 | Phase 05-hooks-system P01 | 4 min | 3 tasks | 6 files |
+| Phase 05-hooks-system P02 | 4 min | 3 tasks | 5 files |
 | Phase 06-data-pipeline P01 | 12 min | 2 tasks | 5 files |
 | Phase 06-data-pipeline P02 | 4 min | 2 tasks | 2 files |
 | Phase 06 P03 | 5 min | 2 tasks | 5 files |
@@ -116,6 +117,7 @@ Recent decisions affecting current work:
 - [Phase 06]: Anomaly narration remains severity-first: only high or critical anomalies call Groq, and prompts/MKG patches use KPI summaries only. — This preserves the safe-read boundary from company_kpi_daily and prevents low-signal anomalies from spending tokens or exposing raw payload data.
 - [Phase 05-hooks-system]: hooks.json is now the only checked-in Phase 5 hook inventory and explicitly reserves chat_triggers as an empty array for later work.
 - [Phase 05-hooks-system]: Hooks config validation rejects malformed cron, duplicate ids, unknown agents, and missing HOOKS-02 mappings before later runtime dispatch code starts.
+- [Phase 05-hooks-system]: HooksEngine claims pending agent_signals rows, evaluates company-specific baselines from MKG, and emits normalized dispatch batches without directly calling the run endpoint.
 
 ### Pending Todos
 
@@ -128,6 +130,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-10T12:09:59Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-03-10T12:17:00Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
