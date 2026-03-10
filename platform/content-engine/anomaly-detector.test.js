@@ -166,7 +166,7 @@ test("detectCompanyAnomalies silently patches MKG for low and medium anomalies w
 });
 
 test("detectCompanyAnomalies narrates only high and critical anomalies after severity assignment", async () => {
-  const kpis = buildHistory([4.0, 4.1, 4.0, 4.2, 4.1, 4.0, 1.8]);
+  const kpis = buildHistory([4.0, 4.1, 4.0, 4.2, 4.1, 4.0, 2.6]);
   const client = createPipelineClient(kpis);
   const calls = [];
 
