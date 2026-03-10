@@ -175,6 +175,53 @@ test("tick moves matching signals to triggered and preserves dispatch order", as
   assert.equal(supabase.rows[0].status, "triggered");
 });
 
+test("pct_increase_gte matches when current value rises by threshold or more", () => {
+  const result = evaluateSignalAgainstBaseline({
+    currentValue: 130,
+    baselineValue: 100,
+    operator: "pct_increase_gte",
+    threshold: 25,
+  });
+
+  assert.equal(result.matched, true);
+  assert.equal(result.deltaPct, 30);
+});
+
+test("pct_increase_gte does not match when rise is below threshold", () => {
+  const result = evaluateSignalAgainstBaseline({
+    currentValue: 110,
+    baselineValue: 100,
+    operator: "pct_increase_gte",
+    threshold: 25,
+  });
+
+  assert.equal(result.matched, false);
+  assert.equal(result.reason, "below_threshold");
+});
+
+test("changed_from_baseline matches when current differs from baseline", () => {
+  const result = evaluateSignalAgainstBaseline({
+    currentValue: 2,
+    baselineValue: 1,
+    operator: "changed_from_baseline",
+    threshold: 1,
+  });
+
+  assert.equal(result.matched, true);
+});
+
+test("changed_from_baseline does not match when current equals baseline", () => {
+  const result = evaluateSignalAgainstBaseline({
+    currentValue: 1,
+    baselineValue: 1,
+    operator: "changed_from_baseline",
+    threshold: 1,
+  });
+
+  assert.equal(result.matched, false);
+  assert.equal(result.reason, "below_threshold");
+});
+
 test("tick ignores signals whose diff does not meet the threshold", async () => {
   const supabase = createSupabaseStub([
     {
