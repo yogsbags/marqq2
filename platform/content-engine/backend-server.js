@@ -15,12 +15,16 @@
 import express from "express";
 import Groq from "groq-sdk";
 import { createClient } from "@supabase/supabase-js";
+import { GoogleAuth } from "google-auth-library";
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { AccessToken, AgentDispatchClient, RoomServiceClient } from "livekit-server-sdk";
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { WebSocketServer } from "ws";
 import {
     enqueueGeneration,
     generateArtifactWithGroq,
@@ -39,6 +43,7 @@ import {
     saveCompany,
     supabase,
 } from "./supabase.js";
+import { MKGService } from "./mkg-service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,6 +55,7 @@ const CTX_DIR = join(CREWAI_DIR, "client_context");
 const DEPLOYMENT_QUEUE_PATH = join(CREWAI_DIR, "deployments", "queue.json");
 const COMPANY_INTEL_KB_ROOT = join(__dirname, "data", "company-intel-kb");
 const VOICEBOT_KB_ROOT = join(__dirname, "data", "voicebot-kb");
+const VOICEBOT_CALLS_ROOT = join(__dirname, "data", "voicebot-calls");
 
 const VALID_AGENTS = new Set([
   "zara",
@@ -184,10 +190,51 @@ const VOICEBOT_DIALOGUE_MODELS = [
   "llama-3.3-70b-versatile",
 ];
 const voicebotSessions = new Map();
+const twilioMediaSessions = new Map();
 const LIVEKIT_URL = process.env.LIVEKIT_URL || process.env.LIVEKIT_WS_URL || "";
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "";
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || "";
 const LIVEKIT_AGENT_NAME = process.env.LIVEKIT_AGENT_NAME || "martech-voicebot";
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
+const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER || "";
+const TWILIO_PUBLIC_BASE_URL =
+  process.env.TWILIO_PUBLIC_BASE_URL || process.env.PUBLIC_BASE_URL || "";
+const TWILIO_MEDIA_STREAM_WSS_URL =
+  process.env.TWILIO_MEDIA_STREAM_WSS_URL || "";
+const TWILIO_DEFAULT_STATUS_CALLBACK =
+  process.env.TWILIO_STATUS_CALLBACK_URL || "";
+const GOOGLE_SHEETS_SPREADSHEET_ID =
+  process.env.GOOGLE_SHEETS_SPREADSHEET_ID ||
+  process.env.SPREADSHEET_ID ||
+  "";
+const LEADS_DB_BASE_URL = String(process.env.LEADS_DB_BASE_URL || "").replace(/\/$/, "");
+const LEADS_DB_BEARER_TOKEN = process.env.LEADS_DB_BEARER_TOKEN || "";
+const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN || "";
+const HUBSPOT_API_BASE =
+  process.env.HUBSPOT_API_BASE || "https://api.hubapi.com";
+const TWILIO_OUTBOUND_GREETING =
+  process.env.TWILIO_OUTBOUND_GREETING ||
+  "Hello, this is the AI calling assistant from your marketing team.";
+const TWILIO_SILENCE_FRAME_THRESHOLD = Number(
+  process.env.TWILIO_SILENCE_FRAME_THRESHOLD || 18,
+);
+const TWILIO_SPEECH_RMS_THRESHOLD = Number(
+  process.env.TWILIO_SPEECH_RMS_THRESHOLD || 350,
+);
+const TWILIO_BARGE_IN_FRAMES = Number(
+  process.env.TWILIO_BARGE_IN_FRAMES || 4,
+);
+const TWILIO_TTS_PACE = Number(process.env.TWILIO_TTS_PACE || 1.1);
+const TWILIO_MIN_UTTERANCE_SAMPLES = Number(
+  process.env.TWILIO_MIN_UTTERANCE_SAMPLES || 6400,
+);
+const TWILIO_INTERRUPT_SILENCE_FRAMES = Number(
+  process.env.TWILIO_INTERRUPT_SILENCE_FRAMES || 10,
+);
+const TWILIO_MAX_CONVERSATION_TURNS = Number(
+  process.env.TWILIO_MAX_CONVERSATION_TURNS || 24,
+);
 
 const COMPANY_INTEL_KB_CATEGORIES = new Set([
   "brand_guidelines",
@@ -474,6 +521,895 @@ function getVoicebotSession(sessionId) {
   return created;
 }
 
+function voicebotCallsDir() {
+  return VOICEBOT_CALLS_ROOT;
+}
+
+function voicebotCallPath(callSid) {
+  return join(voicebotCallsDir(), `${String(callSid || "unknown")}.json`);
+}
+
+function normalizeShortText(value, fallback = "unknown") {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text || fallback;
+}
+
+function summarizeLeadQualification(turns = []) {
+  const joined = turns
+    .map((turn) => `${turn.role}: ${turn.text}`)
+    .join(" \n")
+    .toLowerCase();
+  const patterns = {
+    need: ["need", "problem", "challenge", "pain", "struggling", "looking for", "want to improve"],
+    timing: ["this month", "next month", "this quarter", "urgent", "soon", "immediately", "timeline"],
+    authority: ["i handle", "i decide", "decision maker", "team lead", "founder", "head of", "manager"],
+    budget: ["budget", "cost", "price", "spend", "allocation", "approved"],
+    nextStep: ["send", "demo", "meeting", "call back", "follow up", "proposal", "share details"],
+  };
+
+  const scoreBucket = {};
+  for (const [key, tokens] of Object.entries(patterns)) {
+    scoreBucket[key] = tokens.some((token) => joined.includes(token));
+  }
+
+  let total = 0;
+  total += scoreBucket.need ? 25 : 0;
+  total += scoreBucket.timing ? 20 : 0;
+  total += scoreBucket.authority ? 20 : 0;
+  total += scoreBucket.budget ? 15 : 0;
+  total += scoreBucket.nextStep ? 20 : 0;
+
+  return {
+    heuristicScore: total,
+    detectedSignals: Object.entries(scoreBucket)
+      .filter(([, matched]) => matched)
+      .map(([key]) => key),
+  };
+}
+
+async function searchCompanySalesContext(companyId, query, limit = 5) {
+  if (!companyId) return [];
+  const normalizedQuery = normalizeShortText(query, "").toLowerCase();
+  if (!normalizedQuery) return [];
+
+  const tokens = normalizedQuery.split(/\s+/).filter((token) => token.length > 2);
+  const ranked = [];
+  const entry = await ensureCompanyEntry(companyId);
+
+  if (entry?.company?.profile) {
+    const profileText = JSON.stringify(entry.company.profile, null, 2);
+    const haystack = profileText.toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+      if (haystack.includes(token)) score += 2;
+    }
+    if (score) {
+      ranked.push({
+        source: "company_profile",
+        fileName: `${entry.company.companyName || "Company"} profile`,
+        score,
+        snippet: profileText.slice(0, 700),
+      });
+    }
+  }
+
+  if (entry?.artifacts && typeof entry.artifacts === "object") {
+    for (const [type, artifact] of Object.entries(entry.artifacts)) {
+      const artifactText = JSON.stringify(artifact?.data || artifact || {}, null, 2);
+      const haystack = artifactText.toLowerCase();
+      let score = 0;
+      for (const token of tokens) {
+        if (haystack.includes(token)) score += 1;
+      }
+      if (!score) continue;
+      ranked.push({
+        source: `artifact:${type}`,
+        fileName: type,
+        score,
+        snippet: artifactText.slice(0, 700),
+      });
+    }
+  }
+
+  const files = await readKnowledgeBaseManifest(companyId);
+  for (const file of files) {
+    try {
+      const content = await readFile(file.path, "utf-8");
+      const haystack = content.toLowerCase();
+      let score = 0;
+      for (const token of tokens) {
+        if (haystack.includes(token)) score += 2;
+      }
+      if (!score && !haystack.includes(normalizedQuery)) continue;
+      ranked.push({
+        source: "company_kb",
+        fileName: file.name,
+        score: score || 1,
+        snippet: content.slice(0, 700).replace(/\s+/g, " ").trim(),
+      });
+    } catch {
+      // ignore unreadable file
+    }
+  }
+
+  return ranked.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+async function buildCompanySalesContext(companyId) {
+  if (!companyId) {
+    return {
+      companyName: "the company",
+      salesContext: "No company-specific context is available for this call.",
+    };
+  }
+
+  const entry = await ensureCompanyEntry(companyId);
+  const company = entry?.company || null;
+  const profile = company?.profile || {};
+  const artifacts = entry?.artifacts || {};
+
+  const positioning = profile?.summary || profile?.positioning || "";
+  const offerings = Array.isArray(profile?.offerings)
+    ? profile.offerings.slice(0, 6)
+    : Array.isArray(profile?.products)
+      ? profile.products.slice(0, 6)
+      : [];
+  const audiences = Array.isArray(profile?.targetAudience)
+    ? profile.targetAudience.slice(0, 6)
+    : Array.isArray(profile?.icp)
+      ? profile.icp.slice(0, 6)
+      : [];
+  const proofPoints = Array.isArray(profile?.proofPoints)
+    ? profile.proofPoints.slice(0, 4)
+    : [];
+  const artifactPreviews = Object.entries(artifacts)
+    .slice(0, 8)
+    .map(([type, artifact]) => `${type}: ${summarizeArtifactData(artifact?.data).slice(0, 220)}`)
+    .filter(Boolean);
+
+  const salesContext = [
+    `Company: ${company?.companyName || "the company"}`,
+    company?.websiteUrl ? `Website: ${company.websiteUrl}` : "",
+    positioning ? `Positioning: ${positioning}` : "",
+    offerings.length ? `Offerings: ${offerings.join("; ")}` : "",
+    audiences.length ? `Target audiences: ${audiences.join("; ")}` : "",
+    proofPoints.length ? `Proof points: ${proofPoints.join("; ")}` : "",
+    artifactPreviews.length ? `Relevant company intelligence:\n- ${artifactPreviews.join("\n- ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    companyName: company?.companyName || "the company",
+    salesContext: salesContext || "No company-specific context is available for this call.",
+  };
+}
+
+async function scoreVoicebotCall({
+  companyId,
+  companyName,
+  leadId,
+  leadName,
+  callSid,
+  turns = [],
+}) {
+  const transcriptText = turns.map((turn) => `${turn.role}: ${turn.text}`).join("\n");
+  const heuristic = summarizeLeadQualification(turns);
+  const salesContext = await buildCompanySalesContext(companyId);
+
+  const fallback = {
+    callSid,
+    leadId: leadId || null,
+    leadName: leadName || null,
+    companyId: companyId || null,
+    companyName: companyName || salesContext.companyName,
+    status: heuristic.heuristicScore >= 60 ? "qualified" : heuristic.heuristicScore >= 35 ? "nurture" : "disqualified",
+    fitScore: heuristic.heuristicScore,
+    intentScore: heuristic.heuristicScore,
+    urgencyScore: heuristic.detectedSignals.includes("timing") ? 70 : 35,
+    authorityScore: heuristic.detectedSignals.includes("authority") ? 70 : 35,
+    budgetScore: heuristic.detectedSignals.includes("budget") ? 65 : 30,
+    leadTemperature: heuristic.heuristicScore >= 70 ? "hot" : heuristic.heuristicScore >= 40 ? "warm" : "cold",
+    detectedSignals: heuristic.detectedSignals,
+    objections: [],
+    nextAction: heuristic.heuristicScore >= 60 ? "Route to human closer for follow-up" : "Continue nurture and gather more qualification data",
+    humanCloserBrief: "Outbound salesbot call completed. Review transcript and follow up based on qualification signals.",
+    recommendedCrmUpdate: {
+      lifecycleStage: heuristic.heuristicScore >= 60 ? "sales_qualified_lead" : "marketing_qualified_lead",
+      ownerQueue: heuristic.heuristicScore >= 60 ? "human_closers" : "nurture_queue",
+      disposition: heuristic.heuristicScore >= 60 ? "follow_up_required" : "needs_more_qualification",
+    },
+  };
+
+  if (!transcriptText.trim()) return fallback;
+
+  try {
+    const completion = await groq.chat.completions.create({
+      model: VOICEBOT_DIALOGUE_MODELS[0] || "groq/compound",
+      messages: [
+        {
+          role: "system",
+          content: `You score outbound sales qualification calls for ${salesContext.companyName}.
+Return valid JSON only.
+
+Decide whether the lead should be handed to a human closer.
+Use the transcript and company context. Be conservative about qualification.
+
+JSON schema:
+{
+  "status": "qualified" | "nurture" | "disqualified",
+  "fitScore": number,
+  "intentScore": number,
+  "urgencyScore": number,
+  "authorityScore": number,
+  "budgetScore": number,
+  "leadTemperature": "hot" | "warm" | "cold",
+  "detectedSignals": ["string"],
+  "objections": ["string"],
+  "nextAction": "string",
+  "humanCloserBrief": "string",
+  "recommendedCrmUpdate": {
+    "lifecycleStage": "string",
+    "ownerQueue": "string",
+    "disposition": "string"
+  }
+}`,
+        },
+        {
+          role: "user",
+          content: `Company sales context:\n${salesContext.salesContext}\n\nLead: ${leadName || "Unknown"} (${leadId || "no lead id"})\nCall SID: ${callSid}\n\nTranscript:\n${transcriptText}`,
+        },
+      ],
+      temperature: 0.2,
+      max_completion_tokens: 600,
+      response_format: { type: "json_object" },
+    });
+
+    const parsed = extractJsonCandidate(completion.choices[0]?.message?.content || "");
+    if (!parsed || typeof parsed !== "object") {
+      return fallback;
+    }
+
+    return {
+      ...fallback,
+      ...parsed,
+      callSid,
+      leadId: leadId || null,
+      leadName: leadName || null,
+      companyId: companyId || null,
+      companyName: companyName || salesContext.companyName,
+      detectedSignals: Array.isArray(parsed.detectedSignals)
+        ? parsed.detectedSignals.map((item) => normalizeShortText(item, "")).filter(Boolean)
+        : fallback.detectedSignals,
+      objections: Array.isArray(parsed.objections)
+        ? parsed.objections.map((item) => normalizeShortText(item, "")).filter(Boolean)
+        : [],
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+async function persistVoicebotCallRecord(record) {
+  const safeCallSid = normalizeShortText(record?.callSid, randomUUID());
+  const dir = voicebotCallsDir();
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    voicebotCallPath(safeCallSid),
+    JSON.stringify(
+      {
+        ...record,
+        persistedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+    "utf-8",
+  );
+}
+
+function splitLeadName(fullName = "") {
+  const parts = normalizeShortText(fullName, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) {
+    return { firstName: "Lead", lastName: "" };
+  }
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
+async function hubspotRequest(path, options = {}) {
+  if (!HUBSPOT_ACCESS_TOKEN) {
+    throw new Error("HUBSPOT_ACCESS_TOKEN is not configured");
+  }
+
+  const response = await fetch(`${HUBSPOT_API_BASE}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${HUBSPOT_ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const raw = await response.text().catch(() => "");
+  let json = null;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      json?.message || raw || `HubSpot request failed with ${response.status}`,
+    );
+  }
+
+  return json;
+}
+
+async function upsertHubspotContactForVoiceCall({
+  phoneNumber,
+  leadName,
+  companyName,
+  websiteUrl,
+}) {
+  const { firstName, lastName } = splitLeadName(leadName);
+  const normalizedPhone = normalizeShortText(phoneNumber, "");
+  let existingContactId = null;
+
+  if (normalizedPhone) {
+    try {
+      const search = await hubspotRequest("/crm/v3/objects/contacts/search", {
+        method: "POST",
+        body: JSON.stringify({
+          filterGroups: [
+            {
+              filters: [
+                {
+                  propertyName: "phone",
+                  operator: "EQ",
+                  value: normalizedPhone,
+                },
+              ],
+            },
+          ],
+          properties: ["firstname", "lastname", "phone", "company", "website"],
+          limit: 1,
+        }),
+      });
+      existingContactId = search?.results?.[0]?.id || null;
+    } catch (error) {
+      console.warn("[HubSpot] contact search failed:", String(error));
+    }
+  }
+
+  const properties = {
+    firstname: firstName,
+    lastname: lastName || undefined,
+    phone: normalizedPhone || undefined,
+    company: companyName || undefined,
+    website: websiteUrl || undefined,
+  };
+
+  if (existingContactId) {
+    return hubspotRequest(`/crm/v3/objects/contacts/${existingContactId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ properties }),
+    });
+  }
+
+  return hubspotRequest("/crm/v3/objects/contacts", {
+    method: "POST",
+    body: JSON.stringify({ properties }),
+  });
+}
+
+function buildHubspotVoicebotNote({
+  companyName,
+  phoneNumber,
+  scorecard,
+  turns = [],
+}) {
+  const transcript = turns
+    .map((turn) => `${turn.role === "assistant" ? "Salesbot" : "Lead"}: ${turn.text}`)
+    .join("\n");
+  const detectedSignals = Array.isArray(scorecard?.detectedSignals)
+    ? scorecard.detectedSignals.join(", ")
+    : "";
+  const objections = Array.isArray(scorecard?.objections)
+    ? scorecard.objections.join(", ")
+    : "";
+
+  return [
+    `Voicebot qualification call for ${companyName || "company"}`,
+    phoneNumber ? `Lead phone: ${phoneNumber}` : "",
+    `Status: ${scorecard?.status || "unknown"}`,
+    `Temperature: ${scorecard?.leadTemperature || "unknown"}`,
+    `Fit score: ${scorecard?.fitScore ?? "n/a"}`,
+    `Intent score: ${scorecard?.intentScore ?? "n/a"}`,
+    `Urgency score: ${scorecard?.urgencyScore ?? "n/a"}`,
+    `Authority score: ${scorecard?.authorityScore ?? "n/a"}`,
+    `Budget score: ${scorecard?.budgetScore ?? "n/a"}`,
+    detectedSignals ? `Detected signals: ${detectedSignals}` : "",
+    objections ? `Objections: ${objections}` : "",
+    scorecard?.nextAction ? `Recommended next action: ${scorecard.nextAction}` : "",
+    scorecard?.humanCloserBrief ? `Closer brief: ${scorecard.humanCloserBrief}` : "",
+    transcript ? `Transcript:\n${transcript}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function syncVoicebotCallToHubspot({
+  companyId,
+  leadName,
+  leadPhone,
+  scorecard,
+  turns,
+}) {
+  if (!HUBSPOT_ACCESS_TOKEN) return null;
+  const entry = companyId ? await ensureCompanyEntry(companyId) : null;
+  const companyName = entry?.company?.companyName || "the company";
+  const websiteUrl = entry?.company?.websiteUrl || "";
+
+  const contact = await upsertHubspotContactForVoiceCall({
+    phoneNumber: leadPhone,
+    leadName,
+    companyName,
+    websiteUrl,
+  });
+
+  const note = await hubspotRequest("/crm/v3/objects/notes", {
+    method: "POST",
+    body: JSON.stringify({
+      properties: {
+        hs_note_body: buildHubspotVoicebotNote({
+          companyName,
+          phoneNumber: leadPhone,
+          scorecard,
+          turns,
+        }),
+        hs_timestamp: new Date().toISOString(),
+      },
+      associations: contact?.id
+        ? [
+            {
+              to: { id: String(contact.id) },
+              types: [
+                {
+                  associationCategory: "HUBSPOT_DEFINED",
+                  associationTypeId: 202,
+                },
+              ],
+            },
+          ]
+        : [],
+    }),
+  });
+
+  return {
+    contactId: contact?.id || null,
+    noteId: note?.id || null,
+  };
+}
+
+async function getGoogleSheetsClient() {
+  const scopes = ["https://www.googleapis.com/auth/spreadsheets"];
+  const refreshToken =
+    process.env.GOOGLE_REFRESH_TOKEN || process.env.GOOGLE_SHEETS_REFRESH_TOKEN;
+
+  if (
+    refreshToken &&
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET
+  ) {
+    const auth = new GoogleAuth({
+      credentials: {
+        type: "authorized_user",
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        refresh_token: refreshToken,
+      },
+      scopes,
+    });
+    return auth.getClient();
+  }
+
+  if (process.env.GOOGLE_CREDENTIALS_JSON) {
+    const auth = new GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
+      scopes,
+    });
+    return auth.getClient();
+  }
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    const auth = new GoogleAuth({ scopes });
+    return auth.getClient();
+  }
+
+  throw new Error("Google Sheets credentials are not configured");
+}
+
+async function ensureGoogleSheetExists(client, spreadsheetId, title) {
+  const spreadsheet = await client.request({
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+    method: "GET",
+  });
+  const existingTitles = new Set(
+    (spreadsheet.data?.sheets || []).map((sheet) => sheet.properties?.title).filter(Boolean),
+  );
+
+  if (existingTitles.has(title)) return;
+
+  await client.request({
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    method: "POST",
+    data: {
+      requests: [
+        {
+          addSheet: {
+            properties: { title },
+          },
+        },
+      ],
+    },
+  });
+}
+
+function buildVoicebotSheetRow({
+  companyName,
+  companyId,
+  callSid,
+  leadId,
+  leadName,
+  leadPhone,
+  leadEmail = "",
+  scorecard,
+  turns = [],
+}) {
+  const { firstName, lastName } = splitLeadName(leadName);
+  return [
+    new Date().toISOString(),
+    companyName || "",
+    companyId || "",
+    callSid || "",
+    leadId || "",
+    firstName || "",
+    lastName || "",
+    leadName || "",
+    leadPhone || "",
+    leadEmail || "",
+    scorecard?.status || "",
+    scorecard?.leadTemperature || "",
+    scorecard?.fitScore ?? "",
+    scorecard?.intentScore ?? "",
+    scorecard?.urgencyScore ?? "",
+    scorecard?.authorityScore ?? "",
+    scorecard?.budgetScore ?? "",
+    Array.isArray(scorecard?.detectedSignals) ? scorecard.detectedSignals.join(", ") : "",
+    Array.isArray(scorecard?.objections) ? scorecard.objections.join(", ") : "",
+    scorecard?.nextAction || "",
+    scorecard?.humanCloserBrief || "",
+    turns.map((turn) => `${turn.role}: ${turn.text}`).join("\n"),
+  ];
+}
+
+async function readGoogleSheetValues(client, spreadsheetId, sheetName, range = "A1:Z200") {
+  const response = await client.request({
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${sheetName}!${range}`)}`,
+    method: "GET",
+  });
+  return Array.isArray(response.data?.values) ? response.data.values : [];
+}
+
+async function resolveDefaultLeadFromGoogleSheets(client, spreadsheetId) {
+  const values = await readGoogleSheetValues(client, spreadsheetId, "Leads");
+  if (!values.length) return null;
+  const headers = values[0].map((value) => String(value || "").trim().toLowerCase());
+  const rows = values.slice(1);
+  const getIndex = (name) => headers.indexOf(name);
+  const firstNameIndex = getIndex("first_name");
+  const lastNameIndex = getIndex("last_name");
+  const leadNameIndex = getIndex("lead_name");
+  const phoneIndex = getIndex("lead_phone");
+  const emailIndex = getIndex("email_id");
+
+  for (const row of rows) {
+    const phone = String(row[phoneIndex] || "").trim();
+    if (!phone) continue;
+    const firstName = String(row[firstNameIndex] || "").trim();
+    const lastName = String(row[lastNameIndex] || "").trim();
+    const combinedName = String(row[leadNameIndex] || "").trim() || [firstName, lastName].filter(Boolean).join(" ").trim();
+    return {
+      leadName: combinedName,
+      firstName,
+      lastName,
+      leadPhone: phone,
+      leadEmail: String(row[emailIndex] || "").trim(),
+    };
+  }
+
+  return null;
+}
+
+function mapFetchedLeadToSheetRow(lead = {}) {
+  const leadName = String(lead.full_name || "").trim();
+  const { firstName, lastName } = splitLeadName(leadName);
+  const cityState = [lead.city, lead.state].filter(Boolean).join(", ");
+  const qualificationNotes = [
+    lead.designation ? `designation=${lead.designation}` : "",
+    lead.seniority ? `seniority=${lead.seniority}` : "",
+    lead.industry ? `industry=${lead.industry}` : "",
+    cityState ? `location=${cityState}` : "",
+    lead.quality != null ? `quality=${lead.quality}` : "",
+    lead.signal_count != null ? `signals=${lead.signal_count}` : "",
+    "source=leads_db",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  return [
+    new Date().toISOString(),
+    String(lead.company || "").trim(),
+    "",
+    "",
+    String(lead.lead_id || lead.phone_e164 || "").trim(),
+    firstName,
+    lastName,
+    leadName,
+    String(lead.phone_e164 || "").trim(),
+    String(lead.email || "").trim(),
+    "queued",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "pending_salesbot_call",
+    qualificationNotes,
+    "",
+  ];
+}
+
+async function pullIcpLeadsToGoogleSheets(fetchPayload = {}) {
+  if (!GOOGLE_SHEETS_SPREADSHEET_ID) {
+    throw new Error("GOOGLE_SHEETS_SPREADSHEET_ID is not configured");
+  }
+
+  const leadsResponse = await callLeadsDb("/fetch", {
+    output_format: "json",
+    ...fetchPayload,
+  });
+  const leads = Array.isArray(leadsResponse?.leads) ? leadsResponse.leads : [];
+  const client = await getGoogleSheetsClient();
+  const sheetName = "Leads";
+
+  await ensureGoogleSheetExists(client, GOOGLE_SHEETS_SPREADSHEET_ID, sheetName);
+
+  const existing = await readGoogleSheetValues(
+    client,
+    GOOGLE_SHEETS_SPREADSHEET_ID,
+    sheetName,
+    "A1:V5000",
+  ).catch(() => []);
+  const headers = Array.isArray(existing[0]) ? existing[0].map((value) => String(value || "").trim().toLowerCase()) : [];
+  const phoneIndex = headers.indexOf("lead_phone");
+  const existingPhones = new Set(
+    existing
+      .slice(1)
+      .map((row) => String(row[phoneIndex >= 0 ? phoneIndex : 8] || "").trim())
+      .filter(Boolean),
+  );
+
+  const rowsToAppend = [];
+  let skippedDuplicates = 0;
+  for (const lead of leads) {
+    const phone = String(lead?.phone_e164 || "").trim();
+    if (!phone) continue;
+    if (existingPhones.has(phone)) {
+      skippedDuplicates += 1;
+      continue;
+    }
+    existingPhones.add(phone);
+    rowsToAppend.push(mapFetchedLeadToSheetRow(lead));
+  }
+
+  if (rowsToAppend.length) {
+    await client.request({
+      url: `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEETS_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      method: "POST",
+      data: { values: rowsToAppend },
+    });
+  }
+
+  return {
+    fetched: leads.length,
+    appended: rowsToAppend.length,
+    skippedDuplicates,
+    tableUsed: leadsResponse?.table_used || null,
+    sheetName,
+  };
+}
+
+function mapLeadSheetRowsToQueue(values = []) {
+  if (!Array.isArray(values) || values.length < 2) {
+    return { leads: [], summary: { total: 0, queued: 0, qualified: 0, nurture: 0, disqualified: 0, handoffReady: 0 } };
+  }
+
+  const headers = values[0].map((value) => String(value || "").trim());
+  const rows = values.slice(1);
+  const leads = rows.map((row, index) => {
+    const record = {};
+    headers.forEach((header, columnIndex) => {
+      record[header] = row[columnIndex] ?? "";
+    });
+    return {
+      id: String(record.call_sid || record.lead_id || record.lead_phone || `lead-${index + 1}`),
+      timestamp: String(record.timestamp || ""),
+      companyName: String(record.company_name || ""),
+      companyId: String(record.company_id || ""),
+      callSid: String(record.call_sid || ""),
+      leadId: String(record.lead_id || ""),
+      firstName: String(record.first_name || ""),
+      lastName: String(record.last_name || ""),
+      leadName: String(record.lead_name || "").trim() || [record.first_name, record.last_name].filter(Boolean).join(" ").trim(),
+      leadPhone: String(record.lead_phone || ""),
+      emailId: String(record.email_id || ""),
+      qualificationStatus: String(record.qualification_status || ""),
+      leadTemperature: String(record.lead_temperature || ""),
+      fitScore: Number(record.fit_score || 0) || null,
+      intentScore: Number(record.intent_score || 0) || null,
+      urgencyScore: Number(record.urgency_score || 0) || null,
+      authorityScore: Number(record.authority_score || 0) || null,
+      budgetScore: Number(record.budget_score || 0) || null,
+      detectedSignals: String(record.detected_signals || ""),
+      objections: String(record.objections || ""),
+      nextAction: String(record.next_action || ""),
+      closerBrief: String(record.closer_brief || ""),
+      transcript: String(record.transcript || ""),
+    };
+  });
+
+  const summary = leads.reduce(
+    (acc, lead) => {
+      acc.total += 1;
+      const status = String(lead.qualificationStatus || "").toLowerCase();
+      if (status === "queued") acc.queued += 1;
+      if (status === "qualified") acc.qualified += 1;
+      if (status === "nurture") acc.nurture += 1;
+      if (status === "disqualified") acc.disqualified += 1;
+      if (lead.nextAction === "pending_salesbot_call" || status === "qualified") acc.handoffReady += 1;
+      return acc;
+    },
+    { total: 0, queued: 0, qualified: 0, nurture: 0, disqualified: 0, handoffReady: 0 },
+  );
+
+  return { leads, summary };
+}
+
+async function syncVoicebotCallToGoogleSheets({
+  companyId,
+  leadId,
+  leadName,
+  leadPhone,
+  leadEmail = "",
+  callSid,
+  scorecard,
+  turns,
+}) {
+  if (!GOOGLE_SHEETS_SPREADSHEET_ID) return null;
+  const client = await getGoogleSheetsClient();
+  const entry = companyId ? await ensureCompanyEntry(companyId) : null;
+  const companyName = entry?.company?.companyName || "Unknown Company";
+  const sheetName = "Leads";
+
+  await ensureGoogleSheetExists(client, GOOGLE_SHEETS_SPREADSHEET_ID, sheetName);
+
+  const header = [
+    "timestamp",
+    "company_name",
+    "company_id",
+    "call_sid",
+    "lead_id",
+    "first_name",
+    "last_name",
+    "lead_name",
+    "lead_phone",
+    "email_id",
+    "qualification_status",
+    "lead_temperature",
+    "fit_score",
+    "intent_score",
+    "urgency_score",
+    "authority_score",
+    "budget_score",
+    "detected_signals",
+    "objections",
+    "next_action",
+    "closer_brief",
+    "transcript",
+  ];
+
+  const row = buildVoicebotSheetRow({
+    companyName,
+    companyId,
+    callSid,
+    leadId,
+    leadName,
+    leadPhone,
+    leadEmail,
+    scorecard,
+    turns,
+  });
+
+  let hasExistingRows = false;
+  try {
+    const existing = await client.request({
+      url: `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEETS_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:A2`,
+      method: "GET",
+    });
+    hasExistingRows = Array.isArray(existing.data?.values) && existing.data.values.length > 0;
+  } catch {
+    hasExistingRows = false;
+  }
+
+  await client.request({
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEETS_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    method: "POST",
+    data: {
+      values: hasExistingRows ? [row] : [header, row],
+    },
+  });
+
+  return {
+    spreadsheetId: GOOGLE_SHEETS_SPREADSHEET_ID,
+    sheetName,
+    rowLogged: true,
+  };
+}
+
+async function callLeadsDb(path, payload, method = "POST") {
+  if (!LEADS_DB_BASE_URL || !LEADS_DB_BEARER_TOKEN) {
+    throw new Error("Leads database env is not configured");
+  }
+
+  const response = await fetch(`${LEADS_DB_BASE_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${LEADS_DB_BEARER_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    ...(method === "GET" ? {} : { body: JSON.stringify(payload || {}) }),
+  });
+
+  const raw = await response.text().catch(() => "");
+  let json = null;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      json?.message || raw || `Leads DB request failed with ${response.status}`,
+    );
+  }
+
+  return json;
+}
+
 async function synthesizeSpeechWithSarvam({
   text,
   language = "en",
@@ -494,7 +1430,7 @@ async function synthesizeSpeechWithSarvam({
       target_language_code: pickSarvamLanguageCode(language),
       speaker: pickSarvamSpeaker(language, gender),
       model: SARVAM_TTS_MODEL,
-      pace: 1,
+      pace: TWILIO_TTS_PACE,
       speech_sample_rate: 22050,
       output_audio_codec: "mp3",
       enable_preprocessing: true,
@@ -579,28 +1515,48 @@ async function runVoicebotDialogue({
   sessionId,
   userText,
   language = "en",
+  interruptionMode = false,
+  companyId = "",
+  leadName = "",
 }) {
   const session = getVoicebotSession(sessionId);
-  const citations = await searchVoicebotKnowledgeBase(userText, 3);
+  const [genericCitations, companyCitations, companySalesContext] = await Promise.all([
+    searchVoicebotKnowledgeBase(userText, 2),
+    searchCompanySalesContext(companyId, userText, 4),
+    buildCompanySalesContext(companyId),
+  ]);
+  const citations = genericCitations.concat(companyCitations);
   const kbContext = citations.length
     ? citations
         .map(
           (item) =>
-            `FILE: ${item.fileName}\nSNIPPET: ${String(item.snippet || "").slice(0, 500)}`,
+            `SOURCE: ${item.fileName}\nSNIPPET: ${String(item.snippet || "").slice(0, 500)}`,
         )
         .join("\n\n")
-    : "No uploaded knowledge-base snippets matched this query.";
+    : "No directly relevant snippets matched this turn.";
 
-  const systemMessage = `You are a client-facing AI voicebot assistant for a marketing platform.
+  const systemMessage = `You are an outbound AI sales development representative calling on behalf of ${companySalesContext.companyName}.
+You are qualifying a lead over a live phone call so a human closer can take over only when the opportunity is real.
 Answer conversationally and briefly, suitable for spoken delivery.
 
 Rules:
 - Keep responses to 2-4 short sentences.
-- If the user asks about company-specific details, use the knowledge-base snippets when available.
-- If knowledge-base snippets are available, ground the answer in them first instead of saying information is unavailable.
+- You are on a phone call right now. Never say you did not call, never say this is only a text chat, and never break call context.
+- You represent ${companySalesContext.companyName}. Speak in first person plural when describing the company ("we", "our"), not as a detached assistant.
+- Do not repeat greetings after the opening unless the caller explicitly asks if you can hear them.
+- Your main goal is qualification, not support. Progress toward fit, need, urgency, authority, budget comfort, and next step.
+- Ask at most one qualification question at a time.
+- If the lead asks about company-specific details, use the company context and snippets when available.
+- If supporting snippets are available, ground the answer in them first instead of saying information is unavailable.
 - Do not claim certainty when the knowledge base does not support it.
+- If the lead is clearly not a fit, close politely and avoid forcing the conversation.
+- If the lead sounds qualified, steer toward a concrete next step for a human closer.
 - If language is Hindi, answer in Hindi. Otherwise answer in Indian English.
 - End with one natural next-step question only when it helps move the conversation forward.
+${interruptionMode ? "- The caller interrupted the previous reply. Respond extremely quickly: 1-2 short spoken sentences, ideally under 20 words total.\n- Do not restate context unless absolutely necessary." : ""}
+
+Company sales context:
+${companySalesContext.salesContext}
 
 Knowledge base context:
 ${kbContext}`;
@@ -620,7 +1576,7 @@ ${kbContext}`;
           ...messageHistory,
           {
             role: "user",
-            content: `Language: ${language === "hi" ? "Hindi" : "English"}\nUser message: ${String(userText || "").trim()}`,
+            content: `Language: ${language === "hi" ? "Hindi" : "English"}\nLead name: ${leadName || "Unknown"}\nUser message: ${String(userText || "").trim()}`,
           },
         ],
         temperature: 0.4,
@@ -629,7 +1585,7 @@ ${kbContext}`;
               max_completion_tokens: 500,
             }
           : {
-              max_tokens: 500,
+              max_tokens: interruptionMode ? 120 : 500,
             }),
       });
 
@@ -648,6 +1604,263 @@ ${kbContext}`;
   }
 
   throw lastError || new Error("Voicebot dialogue failed");
+}
+
+function encodeTwilioBasicAuth() {
+  return `Basic ${Buffer.from(
+    `${process.env.TWILIO_ACCOUNT_SID || ""}:${process.env.TWILIO_AUTH_TOKEN || ""}`,
+  ).toString("base64")}`;
+}
+
+function getTwilioWebhookBaseUrl() {
+  return String(
+    process.env.TWILIO_PUBLIC_BASE_URL || process.env.PUBLIC_BASE_URL || "",
+  ).replace(/\/$/, "");
+}
+
+function getTwilioMediaStreamUrl() {
+  if (process.env.TWILIO_MEDIA_STREAM_WSS_URL) {
+    return process.env.TWILIO_MEDIA_STREAM_WSS_URL;
+  }
+  const baseUrl = getTwilioWebhookBaseUrl();
+  if (!baseUrl) return "";
+  return baseUrl
+    .replace(/^http:\/\//i, "ws://")
+      .replace(/^https:\/\//i, "wss://")
+    .concat("/api/voicebot/twilio/media-stream");
+}
+
+function createWavBufferFromPcm16(int16Samples, sampleRate = 8000, channels = 1) {
+  const pcmBuffer = Buffer.from(
+    int16Samples.buffer,
+    int16Samples.byteOffset,
+    int16Samples.byteLength,
+  );
+  const header = Buffer.alloc(44);
+  const byteRate = sampleRate * channels * 2;
+  const blockAlign = channels * 2;
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcmBuffer.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcmBuffer.length, 40);
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+function decodeMuLawSample(muLawByte) {
+  const MULAW_BIAS = 0x84;
+  let value = ~muLawByte & 0xff;
+  const sign = value & 0x80;
+  const exponent = (value >> 4) & 0x07;
+  const mantissa = value & 0x0f;
+  let sample = ((mantissa << 3) + MULAW_BIAS) << exponent;
+  sample -= MULAW_BIAS;
+  return sign ? -sample : sample;
+}
+
+function encodeMuLawSample(sample) {
+  const MULAW_MAX = 0x1fff;
+  const MULAW_BIAS = 33;
+  let pcm = Math.max(-32124, Math.min(32124, Number(sample) || 0));
+  let sign = pcm < 0 ? 0x80 : 0;
+  if (sign) pcm = -pcm;
+  pcm += MULAW_BIAS;
+
+  let exponent = 7;
+  for (let mask = 0x4000; (pcm & mask) === 0 && exponent > 0; mask >>= 1) {
+    exponent -= 1;
+  }
+  let mantissa = (pcm >> (exponent + 3)) & 0x0f;
+  let muLaw = ~(sign | (exponent << 4) | mantissa);
+  return muLaw & 0xff;
+}
+
+function decodeTwilioMediaPayload(payload) {
+  const bytes = Buffer.from(String(payload || ""), "base64");
+  const pcm = new Int16Array(bytes.length);
+  for (let i = 0; i < bytes.length; i += 1) {
+    pcm[i] = decodeMuLawSample(bytes[i]);
+  }
+  return pcm;
+}
+
+function computeRms(int16Samples) {
+  if (!int16Samples?.length) return 0;
+  let sum = 0;
+  for (let i = 0; i < int16Samples.length; i += 1) {
+    const sample = int16Samples[i];
+    sum += sample * sample;
+  }
+  return Math.sqrt(sum / int16Samples.length);
+}
+
+async function runFfmpeg(args) {
+  await new Promise((resolve, reject) => {
+    const proc = spawn("ffmpeg", ["-y", ...args], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    proc.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(stderr || `ffmpeg exited with code ${code}`));
+    });
+  });
+}
+
+async function convertMp3Base64ToTwilioMediaChunks(audioBase64) {
+  const id = randomUUID();
+  const inputPath = join(tmpdir(), `${id}.mp3`);
+  const outputPath = join(tmpdir(), `${id}.mulaw`);
+
+  try {
+    await writeFile(inputPath, Buffer.from(String(audioBase64 || ""), "base64"));
+    await runFfmpeg([
+      "-i",
+      inputPath,
+      "-ar",
+      "8000",
+      "-ac",
+      "1",
+      "-f",
+      "mulaw",
+      outputPath,
+    ]);
+    const muLaw = await readFile(outputPath);
+    const chunks = [];
+    const chunkSize = 160;
+    for (let offset = 0; offset < muLaw.length; offset += chunkSize) {
+      chunks.push(muLaw.subarray(offset, offset + chunkSize).toString("base64"));
+    }
+    return chunks;
+  } finally {
+    await Promise.allSettled([unlink(inputPath), unlink(outputPath)]);
+  }
+}
+
+async function pushTwilioAudio(ws, streamSid, audioBase64) {
+  const chunks = await convertMp3Base64ToTwilioMediaChunks(audioBase64);
+  for (const payload of chunks) {
+    ws.send(
+      JSON.stringify({
+        event: "media",
+        streamSid,
+        media: { payload },
+      }),
+    );
+  }
+  console.log(`[TwilioMediaStream] queued ${chunks.length} outbound audio chunks`, {
+    streamSid,
+  });
+  ws.send(
+    JSON.stringify({
+      event: "mark",
+      streamSid,
+      mark: { name: `done-${Date.now()}` },
+    }),
+  );
+}
+
+async function generateTwilioAssistantReply({
+  ws,
+  session,
+  utterance,
+}) {
+  if (!utterance?.length) return;
+  if (session.processingReply) return;
+  session.processingReply = true;
+
+  try {
+    const wavBuffer = createWavBufferFromPcm16(utterance, 8000, 1);
+    console.log("[TwilioMediaStream] finalizing user utterance", {
+      streamSid: session.streamSid,
+      pcmSamples: utterance.length,
+    });
+    const stt = await transcribeSpeechWithSarvam({
+      audioBase64: wavBuffer.toString("base64"),
+      mimeType: "audio/wav",
+      language: session.language,
+    });
+    const transcript = String(stt?.transcript || "").trim();
+    console.log("[TwilioMediaStream] transcript ready", {
+      streamSid: session.streamSid,
+      transcript,
+    });
+    if (!transcript) return;
+    if (utterance.length < TWILIO_MIN_UTTERANCE_SAMPLES && transcript.length < 8) {
+      console.log("[TwilioMediaStream] dropped micro-utterance", {
+        streamSid: session.streamSid,
+        transcript,
+        pcmSamples: utterance.length,
+      });
+      return;
+    }
+    if (session.lastTranscript && transcript.toLowerCase() === session.lastTranscript.toLowerCase()) {
+      console.log("[TwilioMediaStream] dropped duplicate transcript", {
+        streamSid: session.streamSid,
+        transcript,
+      });
+      return;
+    }
+    session.turns.push({
+      role: "lead",
+      text: transcript,
+      createdAt: new Date().toISOString(),
+      interruptedBot: Boolean(session.interruptedTurn),
+    });
+    if (session.turns.length > TWILIO_MAX_CONVERSATION_TURNS) {
+      session.turns = session.turns.slice(-TWILIO_MAX_CONVERSATION_TURNS);
+    }
+
+    const dialogue = await runVoicebotDialogue({
+      sessionId: session.dialogueSessionId,
+      userText: transcript,
+      language: session.language,
+      interruptionMode: Boolean(session.interruptedTurn),
+      companyId: session.companyId,
+      leadName: session.leadName,
+    });
+    session.dialogueSessionId = dialogue.sessionId;
+    session.lastTranscript = transcript;
+    session.lastAssistantText = dialogue.assistantText;
+    session.interruptedTurn = false;
+    session.turns.push({
+      role: "assistant",
+      text: dialogue.assistantText,
+      createdAt: new Date().toISOString(),
+    });
+    if (session.turns.length > TWILIO_MAX_CONVERSATION_TURNS) {
+      session.turns = session.turns.slice(-TWILIO_MAX_CONVERSATION_TURNS);
+    }
+    console.log("[TwilioMediaStream] assistant reply ready", {
+      streamSid: session.streamSid,
+      assistantText: dialogue.assistantText,
+    });
+
+    const speech = await synthesizeSpeechWithSarvam({
+      text: dialogue.assistantText,
+      language: session.language,
+      gender: session.gender,
+    });
+    session.assistantSpeaking = true;
+    await pushTwilioAudio(ws, session.streamSid, speech.audioBase64);
+  } finally {
+    session.processingReply = false;
+  }
 }
 
 async function readKnowledgeBaseManifest(companyId) {
@@ -917,6 +2130,7 @@ async function assembleMarketingContext({ userId = "", workspaceId = "", company
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 const COMPANY_INTEL_ARTIFACT_TYPES = [
   "competitor_intelligence",
@@ -1289,6 +2503,313 @@ app.post("/api/voicebot/livekit/dispatch", async (req, res) => {
   }
 });
 
+app.get("/api/voicebot/twilio/config", (_req, res) => {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID || "";
+  const authToken = process.env.TWILIO_AUTH_TOKEN || "";
+  const phoneNumber = process.env.TWILIO_PHONE_NUMBER || "";
+  const googleSheetsConnected = Boolean(
+    GOOGLE_SHEETS_SPREADSHEET_ID &&
+      (process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+        process.env.GOOGLE_CREDENTIALS_JSON ||
+        process.env.GOOGLE_REFRESH_TOKEN ||
+        process.env.GOOGLE_SHEETS_REFRESH_TOKEN),
+  );
+  res.json({
+    configured: Boolean(
+      accountSid && authToken && phoneNumber && getTwilioMediaStreamUrl(),
+    ),
+    accountSidPresent: Boolean(accountSid),
+    authTokenPresent: Boolean(authToken),
+    phoneNumber: phoneNumber || null,
+    publicBaseUrl: getTwilioWebhookBaseUrl() || null,
+    mediaStreamUrl: getTwilioMediaStreamUrl() || null,
+    googleSheetsConnected,
+  });
+});
+
+app.post("/api/voicebot/twilio/calls", async (req, res) => {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID || "";
+  const authToken = process.env.TWILIO_AUTH_TOKEN || "";
+  const phoneNumber = process.env.TWILIO_PHONE_NUMBER || "";
+  const defaultStatusCallback =
+    process.env.TWILIO_STATUS_CALLBACK_URL || "";
+  const defaultGreeting =
+    process.env.TWILIO_OUTBOUND_GREETING || TWILIO_OUTBOUND_GREETING;
+
+  if (!accountSid || !authToken || !phoneNumber) {
+    return res.status(400).json({ error: "Twilio env is not configured" });
+  }
+  if (!getTwilioWebhookBaseUrl()) {
+    return res
+      .status(400)
+      .json({ error: "TWILIO_PUBLIC_BASE_URL or PUBLIC_BASE_URL is required" });
+  }
+  if (!getTwilioMediaStreamUrl()) {
+    return res
+      .status(400)
+      .json({ error: "TWILIO_MEDIA_STREAM_WSS_URL or public base URL is required" });
+  }
+
+  const {
+    to,
+    companyId = "",
+    campaignId = "",
+    leadId = "",
+    leadName = "",
+    leadPhone = "",
+    leadEmail = "",
+    language = "en",
+    gender = "female",
+    openingLine = defaultGreeting,
+  } = req.body || {};
+
+  try {
+    const client = GOOGLE_SHEETS_SPREADSHEET_ID ? await getGoogleSheetsClient().catch(() => null) : null;
+    const fallbackLead = !String(to || "").trim() && client
+      ? await resolveDefaultLeadFromGoogleSheets(client, GOOGLE_SHEETS_SPREADSHEET_ID).catch(() => null)
+      : null;
+    const targetPhone = String(to || fallbackLead?.leadPhone || "").trim();
+    const resolvedLeadPhone = String(leadPhone || fallbackLead?.leadPhone || targetPhone).trim();
+    const resolvedLeadName = String(leadName || fallbackLead?.leadName || "").trim();
+    const resolvedLeadEmail = String(leadEmail || fallbackLead?.leadEmail || "").trim();
+
+    if (!targetPhone) {
+      return res.status(400).json({ error: "to is required" });
+    }
+
+    const twimlUrl = new URL(
+      "/api/voicebot/twilio/twiml",
+      `${getTwilioWebhookBaseUrl()}/`,
+    );
+    twimlUrl.searchParams.set("companyId", String(companyId || ""));
+    twimlUrl.searchParams.set("campaignId", String(campaignId || ""));
+    twimlUrl.searchParams.set("leadId", String(leadId || ""));
+    twimlUrl.searchParams.set("leadName", resolvedLeadName);
+    twimlUrl.searchParams.set("leadPhone", resolvedLeadPhone);
+    twimlUrl.searchParams.set("leadEmail", resolvedLeadEmail);
+    twimlUrl.searchParams.set("language", language === "hi" ? "hi" : "en");
+    twimlUrl.searchParams.set("gender", gender === "male" ? "male" : "female");
+    twimlUrl.searchParams.set("openingLine", String(openingLine || TWILIO_OUTBOUND_GREETING));
+
+    const statusCallbackUrl = new URL(
+      "/api/voicebot/twilio/status",
+      `${getTwilioWebhookBaseUrl()}/`,
+    );
+
+    const form = new URLSearchParams({
+      To: targetPhone,
+      From: phoneNumber,
+      Url: twimlUrl.toString(),
+      StatusCallback: defaultStatusCallback || statusCallbackUrl.toString(),
+      StatusCallbackMethod: "POST",
+      StatusCallbackEvent: ["initiated", "ringing", "answered", "completed"].join(" "),
+      MachineDetection: "Enable",
+      AsyncAmd: "true",
+    });
+
+    const response = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`,
+      {
+        method: "POST",
+        headers: {
+          authorization: encodeTwilioBasicAuth(),
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: form.toString(),
+      },
+    );
+    const json = await response.json().catch(() => null);
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error:
+          json?.message || json?.error || `Twilio call creation failed with ${response.status}`,
+        details: json,
+      });
+    }
+
+    res.status(201).json({
+      sid: json?.sid || null,
+      status: json?.status || null,
+      to: json?.to || targetPhone,
+      from: json?.from || phoneNumber,
+      leadName: resolvedLeadName || null,
+      leadPhone: resolvedLeadPhone || null,
+      leadEmail: resolvedLeadEmail || null,
+      twimlUrl: twimlUrl.toString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.all("/api/voicebot/twilio/twiml", (req, res) => {
+  const source = req.method === "POST" ? req.body || {} : req.query || {};
+  const defaultGreeting =
+    process.env.TWILIO_OUTBOUND_GREETING || TWILIO_OUTBOUND_GREETING;
+  const language = source.language === "hi" ? "hi" : "en";
+  const gender = source.gender === "male" ? "male" : "female";
+  const openingLine = String(source.openingLine || defaultGreeting).trim();
+  const streamUrl = getTwilioMediaStreamUrl();
+
+  if (!streamUrl) {
+    return res.status(500).type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>Voice streaming is not configured.</Say>
+  <Hangup />
+</Response>`);
+  }
+
+  const safeParam = (value) =>
+    String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .slice(0, 500);
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${safeParam(streamUrl)}">
+      <Parameter name="companyId" value="${safeParam(source.companyId)}" />
+      <Parameter name="campaignId" value="${safeParam(source.campaignId)}" />
+      <Parameter name="leadId" value="${safeParam(source.leadId)}" />
+      <Parameter name="leadName" value="${safeParam(source.leadName)}" />
+      <Parameter name="leadPhone" value="${safeParam(source.leadPhone)}" />
+      <Parameter name="leadEmail" value="${safeParam(source.leadEmail)}" />
+      <Parameter name="language" value="${safeParam(language)}" />
+      <Parameter name="gender" value="${safeParam(gender)}" />
+      <Parameter name="openingLine" value="${safeParam(openingLine)}" />
+    </Stream>
+  </Connect>
+</Response>`;
+
+  res.type("text/xml").send(xml);
+});
+
+app.post("/api/voicebot/twilio/status", (req, res) => {
+  console.log("[TwilioStatus]", {
+    callSid: req.body?.CallSid || null,
+    callStatus: req.body?.CallStatus || null,
+    answeredBy: req.body?.AnsweredBy || null,
+    to: req.body?.To || null,
+    from: req.body?.From || null,
+    timestamp: new Date().toISOString(),
+  });
+  res.json({ ok: true });
+});
+
+app.get("/api/voicebot/twilio/calls", async (_req, res) => {
+  try {
+    const dir = voicebotCallsDir();
+    await mkdir(dir, { recursive: true });
+    const files = (await readdir(dir))
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .reverse()
+      .slice(0, 50);
+    const calls = await Promise.all(
+      files.map(async (file) => {
+        const raw = await readFile(join(dir, file), "utf-8");
+        return JSON.parse(raw);
+      }),
+    );
+    res.json({ calls });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.get("/api/voicebot/twilio/calls/:callSid", async (req, res) => {
+  try {
+    const raw = await readFile(voicebotCallPath(req.params.callSid), "utf-8");
+    res.json({ call: JSON.parse(raw) });
+  } catch {
+    res.status(404).json({ error: "Call not found" });
+  }
+});
+
+app.get("/api/leads-db/metadata", async (_req, res) => {
+  try {
+    const data = await callLeadsDb("/metadata", null, "GET");
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/leads-db/fetch", async (req, res) => {
+  try {
+    const data = await callLeadsDb("/fetch", req.body || {});
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/leads-db/pull-to-sheets", async (req, res) => {
+  try {
+    const result = await pullIcpLeadsToGoogleSheets(req.body || {});
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.get("/api/leads-sheet/queue", async (req, res) => {
+  try {
+    if (!GOOGLE_SHEETS_SPREADSHEET_ID) {
+      return res.status(400).json({ error: "GOOGLE_SHEETS_SPREADSHEET_ID is not configured" });
+    }
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 200));
+    const client = await getGoogleSheetsClient();
+    const values = await readGoogleSheetValues(
+      client,
+      GOOGLE_SHEETS_SPREADSHEET_ID,
+      "Leads",
+      `A1:V${limit + 1}`,
+    );
+    const queue = mapLeadSheetRowsToQueue(values);
+    res.json(queue);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/leads-db/icp-size", async (req, res) => {
+  try {
+    const data = await callLeadsDb("/icp/size", req.body || {});
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/leads-db/enrich/phone", async (req, res) => {
+  try {
+    const data = await callLeadsDb("/enrich/phone", req.body || {});
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/leads-db/enrich/email", async (req, res) => {
+  try {
+    const data = await callLeadsDb("/enrich/email", req.body || {});
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+app.post("/api/leads-db/enrich/bulk", async (req, res) => {
+  try {
+    const data = await callLeadsDb("/enrich/bulk", req.body || {});
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
 app.get("/api/agents/deployments", async (_req, res) => {
   try {
     const queue = await readDeploymentQueue();
@@ -1512,14 +3033,255 @@ app.post("/api/agents/:name/run", async (req, res) => {
 
 // ── Start ──────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
+function attachTwilioMediaStreamServer(server) {
+  const mediaWss = new WebSocketServer({
+    server,
+    path: "/api/voicebot/twilio/media-stream",
+  });
+
+  mediaWss.on("connection", (ws) => {
+    const session = {
+      streamSid: null,
+      callSid: null,
+      dialogueSessionId: randomUUID(),
+      language: "en",
+      gender: "female",
+      leadId: null,
+      leadName: null,
+      leadPhone: null,
+      leadEmail: null,
+      companyId: null,
+      campaignId: null,
+      openingLine:
+        process.env.TWILIO_OUTBOUND_GREETING || TWILIO_OUTBOUND_GREETING,
+      utteranceFrames: [],
+      turns: [],
+      speechStarted: false,
+      silenceFrames: 0,
+      bargeInFrames: 0,
+      processingReply: false,
+      assistantSpeaking: false,
+      interruptedTurn: false,
+      lastTranscript: "",
+      lastAssistantText: "",
+      callScore: null,
+    };
+
+    ws.on("message", async (rawMessage) => {
+      try {
+        const payload = JSON.parse(rawMessage.toString());
+        if (payload.event === "start") {
+          session.streamSid = payload.start?.streamSid || payload.streamSid || null;
+          session.callSid = payload.start?.callSid || null;
+          const customParameters = payload.start?.customParameters || {};
+          session.language =
+            customParameters.language === "hi" ? "hi" : "en";
+          session.gender =
+            customParameters.gender === "male" ? "male" : "female";
+          session.companyId = customParameters.companyId || null;
+          session.campaignId = customParameters.campaignId || null;
+          session.leadId = customParameters.leadId || null;
+          session.leadName = customParameters.leadName || null;
+          session.leadPhone = customParameters.leadPhone || null;
+          session.leadEmail = customParameters.leadEmail || null;
+          session.openingLine =
+            String(
+              customParameters.openingLine ||
+                process.env.TWILIO_OUTBOUND_GREETING ||
+                TWILIO_OUTBOUND_GREETING,
+            ).trim() ||
+            process.env.TWILIO_OUTBOUND_GREETING ||
+            TWILIO_OUTBOUND_GREETING;
+          twilioMediaSessions.set(session.streamSid, session);
+          console.log("[TwilioMediaStream] stream started", {
+            streamSid: session.streamSid,
+            callSid: session.callSid,
+            companyId: session.companyId,
+            leadId: session.leadId,
+            leadName: session.leadName,
+            leadPhone: session.leadPhone,
+            leadEmail: session.leadEmail,
+            language: session.language,
+          });
+
+          session.turns.push({
+            role: "assistant",
+            text: session.openingLine,
+            createdAt: new Date().toISOString(),
+            type: "opening_line",
+          });
+          const greeting = await synthesizeSpeechWithSarvam({
+            text: session.openingLine,
+            language: session.language,
+            gender: session.gender,
+          });
+          session.assistantSpeaking = true;
+          await pushTwilioAudio(ws, session.streamSid, greeting.audioBase64);
+          return;
+        }
+
+        if (payload.event === "media") {
+          if (payload.media?.track && payload.media.track !== "inbound") {
+            return;
+          }
+          const pcmFrame = decodeTwilioMediaPayload(payload.media?.payload);
+          const rms = computeRms(pcmFrame);
+
+          if (rms >= TWILIO_SPEECH_RMS_THRESHOLD) {
+            if (session.assistantSpeaking) {
+              session.bargeInFrames += 1;
+              if (session.bargeInFrames >= TWILIO_BARGE_IN_FRAMES) {
+                session.assistantSpeaking = false;
+                session.bargeInFrames = 0;
+                session.interruptedTurn = true;
+                ws.send(
+                  JSON.stringify({
+                    event: "clear",
+                    streamSid: session.streamSid,
+                  }),
+                );
+                console.log("[TwilioMediaStream] barge-in detected; cleared bot audio", {
+                  streamSid: session.streamSid,
+                });
+              }
+            } else {
+              session.bargeInFrames = 0;
+            }
+            session.speechStarted = true;
+            session.silenceFrames = 0;
+            session.utteranceFrames.push(pcmFrame);
+            return;
+          }
+
+          session.bargeInFrames = 0;
+          if (!session.speechStarted) {
+            return;
+          }
+
+          session.silenceFrames += 1;
+          session.utteranceFrames.push(pcmFrame);
+
+          const silenceThreshold = session.interruptedTurn
+            ? TWILIO_INTERRUPT_SILENCE_FRAMES
+            : TWILIO_SILENCE_FRAME_THRESHOLD;
+
+          if (session.silenceFrames >= silenceThreshold) {
+            const utterance = Int16Array.from(
+              session.utteranceFrames.flatMap((frame) => Array.from(frame)),
+            );
+            session.utteranceFrames = [];
+            session.speechStarted = false;
+            session.silenceFrames = 0;
+            await generateTwilioAssistantReply({ ws, session, utterance });
+          }
+          return;
+        }
+
+        if (payload.event === "mark") {
+          session.assistantSpeaking = false;
+          session.bargeInFrames = 0;
+          return;
+        }
+
+        if (payload.event === "stop") {
+          if (session.utteranceFrames.length && !session.processingReply) {
+            const utterance = Int16Array.from(
+              session.utteranceFrames.flatMap((frame) => Array.from(frame)),
+            );
+            session.utteranceFrames = [];
+            await generateTwilioAssistantReply({ ws, session, utterance });
+          }
+          const companySalesContext = await buildCompanySalesContext(session.companyId);
+          const callScore = await scoreVoicebotCall({
+            companyId: session.companyId,
+            companyName: companySalesContext.companyName,
+            leadId: session.leadId,
+            leadName: session.leadName,
+            callSid: session.callSid,
+            turns: session.turns,
+          });
+          session.callScore = callScore;
+          let googleSheetsSync = null;
+          try {
+            googleSheetsSync = await syncVoicebotCallToGoogleSheets({
+              companyId: session.companyId,
+              leadId: session.leadId,
+              leadName: session.leadName,
+              leadPhone: session.leadPhone,
+              leadEmail: session.leadEmail,
+              callSid: session.callSid,
+              scorecard: callScore,
+              turns: session.turns,
+            });
+          } catch (error) {
+            console.warn("[GoogleSheets] voicebot sync failed:", String(error));
+          }
+          await persistVoicebotCallRecord({
+            streamSid: session.streamSid,
+            callSid: session.callSid,
+            companyId: session.companyId,
+            companyName: companySalesContext.companyName,
+            campaignId: session.campaignId,
+            leadId: session.leadId,
+            leadName: session.leadName,
+            leadPhone: session.leadPhone,
+            leadEmail: session.leadEmail,
+            language: session.language,
+            openingLine: session.openingLine,
+            turns: session.turns,
+            scorecard: callScore,
+            googleSheetsSync,
+            lastTranscript: session.lastTranscript,
+            lastAssistantText: session.lastAssistantText,
+            endedAt: new Date().toISOString(),
+          });
+          if (session.streamSid) {
+            twilioMediaSessions.delete(session.streamSid);
+          }
+          console.log("[TwilioMediaStream] stream stopped", {
+            streamSid: session.streamSid,
+            callSid: session.callSid,
+            lastTranscript: session.lastTranscript,
+            lastAssistantText: session.lastAssistantText,
+            callScore,
+            googleSheetsSync,
+          });
+          try {
+            ws.close();
+          } catch {
+            // ignore
+          }
+        }
+      } catch (error) {
+        console.warn("[TwilioMediaStream] message handling failed:", error);
+      }
+    });
+
+    ws.on("close", () => {
+      if (session.streamSid) {
+        twilioMediaSessions.delete(session.streamSid);
+      }
+    });
+  });
+}
+
+const server = app.listen(PORT, () => {
   console.log(`[content-engine] Listening on port ${PORT}`);
   startWorker();
 });
+attachTwilioMediaStreamServer(server);
 
 // ── GET /api/integrations ──────────────────────────────────────────────────
 // Stub endpoint — returns static connector catalog until live integrations are wired.
 app.get("/api/integrations", (_req, res) => {
+  const hubspotConnected = Boolean(HUBSPOT_ACCESS_TOKEN);
+  const googleSheetsConnected = Boolean(
+    GOOGLE_SHEETS_SPREADSHEET_ID &&
+      (process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+        process.env.GOOGLE_CREDENTIALS_JSON ||
+        process.env.GOOGLE_REFRESH_TOKEN ||
+        process.env.GOOGLE_SHEETS_REFRESH_TOKEN),
+  );
   const connectors = [
     // Advertising & acquisition
     {
@@ -1571,9 +3333,11 @@ app.get("/api/integrations", (_req, res) => {
     {
       id: "hubspot",
       name: "HubSpot",
-      status: "not_configured",
-      connected: false,
-      notes: "Sync contacts, deals, and marketing events from HubSpot.",
+      status: hubspotConnected ? "connected" : "not_configured",
+      connected: hubspotConnected,
+      notes: hubspotConnected
+        ? "Private app token configured. Voicebot qualification notes can sync to contacts."
+        : "Sync contacts, deals, and marketing events from HubSpot.",
     },
     {
       id: "salesforce",
@@ -1602,10 +3366,11 @@ app.get("/api/integrations", (_req, res) => {
     {
       id: "google_sheets",
       name: "Google Sheets",
-      status: "not_configured",
-      connected: false,
-      notes:
-        "Import marketing and reporting data from Google Sheets workbooks.",
+      status: googleSheetsConnected ? "connected" : "not_configured",
+      connected: googleSheetsConnected,
+      notes: googleSheetsConnected
+        ? "Voicebot lead qualification rows can sync into the configured spreadsheet."
+        : "Import marketing and reporting data from Google Sheets workbooks.",
     },
     {
       id: "microsoft_sheets",
