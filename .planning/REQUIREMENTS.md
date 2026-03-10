@@ -52,9 +52,9 @@
 
 - [ ] **PIPE-01**: Supabase migration creates `connector_raw_snapshots`, `company_kpi_daily`, `company_anomalies` tables
 - [ ] **PIPE-02**: `KPIAggregator` service runs post-connector-fetch: raw → SQL aggregation → KPI view (no raw data reaches LLM)
-- [ ] **PIPE-03**: Anomaly detector compares today's KPIs vs 7-day and 30-day baseline; writes to `company_anomalies` with severity (low/medium/high/critical)
-- [ ] **PIPE-04**: Only `high` and `critical` anomalies trigger LLM narration; `low/medium` written to MKG silently
-- [ ] **PIPE-05**: `company_kpi_daily` view exposed via `GET /api/kpis/:companyId?days=30` for frontend charts
+- [x] **PIPE-03**: Anomaly detector compares today's KPIs vs 7-day and 30-day baseline; writes to `company_anomalies` with severity (low/medium/high/critical)
+- [x] **PIPE-04**: Only `high` and `critical` anomalies trigger LLM narration; `low/medium` written to MKG silently
+- [x] **PIPE-05**: `company_kpi_daily` view exposed via `GET /api/kpis/:companyId?days=30` for frontend charts
 
 ### Swarm Layer — Competitive Intelligence
 
@@ -136,9 +136,9 @@
 | HOOKS-05 | Phase 5 — Hooks System | Pending |
 | PIPE-01 | Phase 6 — Data Pipeline | Pending |
 | PIPE-02 | Phase 6 — Data Pipeline | Pending |
-| PIPE-03 | Phase 6 — Data Pipeline | Pending |
-| PIPE-04 | Phase 6 — Data Pipeline | Pending |
-| PIPE-05 | Phase 6 — Data Pipeline | Pending |
+| PIPE-03 | Phase 6 — Data Pipeline | Complete |
+| PIPE-04 | Phase 6 — Data Pipeline | Complete |
+| PIPE-05 | Phase 6 — Data Pipeline | Complete |
 | SWARM-01 | Phase 7 — Swarm Layer | Pending |
 | SWARM-02 | Phase 7 — Swarm Layer | Pending |
 | SWARM-03 | Phase 7 — Swarm Layer | Pending |

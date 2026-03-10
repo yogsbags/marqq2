@@ -15,7 +15,7 @@ Transform 11 isolated, cold-start agents into a 12-agent Marketing Brain OS: sha
 - [ ] **Phase 3: Veena — Company Intelligence** - New orchestrator agent owns MKG; fires full onboarding chain on new company signal
 - [ ] **Phase 4: 12-Agent Rewrite** - All 11 existing agents rewritten per 12-node marketing framework; APScheduler updated
 - [ ] **Phase 5: Hooks System** - Signal-driven and scheduled triggers evaluated every heartbeat; hooks.json as config
-- [ ] **Phase 6: Data Pipeline** - Connector raw data → SQL aggregation → KPI views → anomaly detection → MKG narration
+- [x] **Phase 6: Data Pipeline** - Connector raw data → SQL aggregation → KPI views → anomaly detection → MKG narration ✓ 2026-03-10
 - [ ] **Phase 7: Swarm Layer** - Priya competitive intelligence via ConcurrentWorkflow + SpreadsheetSwarm + Watchdog patterns
 - [ ] **Phase 8: Outcome Ledger** - Predicted vs actual metric tracking; per-company calibration loop closes via Arjun
 
@@ -128,12 +128,12 @@ Plans:
   3. The anomaly detector produces a record in `company_anomalies` with severity assigned (low/medium/high/critical) when today's KPI deviates from 7-day or 30-day baseline.
   4. Only `high` and `critical` severity anomalies trigger an LLM narration call; `low/medium` anomalies are written to MKG silently — confirmed by log showing skipped LLM calls for low/medium.
   5. `GET /api/kpis/:companyId?days=30` returns a structured array of daily KPI rows for the requested window.
-**Plans:** TBD
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 06-01: Supabase migration — raw snapshot, KPI, anomalies tables + RLS
 - [x] 06-02: KPIAggregator service — raw → SQL aggregation → KPI view
-- [ ] 06-03: Anomaly detector + LLM narration gate + KPI REST endpoint
+- [x] 06-03: Anomaly detector + LLM narration gate + KPI REST endpoint
 
 ---
 
@@ -186,6 +186,6 @@ Plans:
 | 3. Veena — Company Intelligence | 2/3 | In Progress | - |
 | 4. 12-Agent Rewrite | 2/3 | In Progress | - |
 | 5. Hooks System | 0/3 | Not started | - |
-| 6. Data Pipeline | 2/3 | In Progress | - |
+| 6. Data Pipeline | 3/3 | ✓ Complete | 2026-03-10 |
 | 7. Swarm Layer | 0/3 | Not started | - |
 | 8. Outcome Ledger | 0/3 | Not started | - |
