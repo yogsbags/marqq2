@@ -1,0 +1,116 @@
+{
+  "phase": "04-12-agent-rewrite",
+  "generated_on": "2026-03-10",
+  "agents": [
+    {
+      "agent": "isha",
+      "phase4_role": "Market Research",
+      "local_skills": ["00-product-marketing-context.md", "01-market-map.md", "02-segment-research.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "market-map", "local_file": "01-market-map.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "segment-research", "local_file": "02-segment-research.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "neel",
+      "phase4_role": "Strategy",
+      "local_skills": ["00-product-marketing-context.md", "01-strategy-brief.md", "02-channel-prioritization.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "strategy-brief", "local_file": "01-strategy-brief.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "channel-prioritization", "local_file": "02-channel-prioritization.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "tara",
+      "phase4_role": "Offer Engineering",
+      "local_skills": ["00-product-marketing-context.md", "01-offer-design.md", "02-cta-architecture.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "offer-design", "local_file": "01-offer-design.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "cta-architecture", "local_file": "02-cta-architecture.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "zara",
+      "phase4_role": "Distribution",
+      "local_skills": ["00-product-marketing-context.md", "01-distribution-plan.md", "02-launch-sequencing.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "distribution-plan", "local_file": "01-distribution-plan.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "launch-sequencing", "local_file": "02-launch-sequencing.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "maya",
+      "phase4_role": "SEO/Content",
+      "local_skills": ["00-product-marketing-context.md", "01-seo-audit.md", "02-content-gap-map.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "seo-audit", "local_file": "01-seo-audit.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "content-gap-map", "local_file": "02-content-gap-map.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "riya",
+      "phase4_role": "Content Creation",
+      "local_skills": ["00-product-marketing-context.md", "01-content-brief.md", "02-campaign-asset-pack.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "content-brief", "local_file": "01-content-brief.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "campaign-asset-pack", "local_file": "02-campaign-asset-pack.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "arjun",
+      "phase4_role": "Funnel/Leads",
+      "local_skills": ["00-product-marketing-context.md", "01-funnel-diagnosis.md", "02-lead-prioritization.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "funnel-diagnosis", "local_file": "01-funnel-diagnosis.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "lead-prioritization", "local_file": "02-lead-prioritization.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "dev",
+      "phase4_role": "Analytics",
+      "local_skills": ["00-product-marketing-context.md", "01-kpi-diagnostic.md", "02-baseline-analysis.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "kpi-diagnostic", "local_file": "01-kpi-diagnostic.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "baseline-analysis", "local_file": "02-baseline-analysis.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "priya",
+      "phase4_role": "Competitive Intelligence",
+      "local_skills": ["00-product-marketing-context.md", "01-competitor-watch.md", "02-narrative-shift.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "competitor-watch", "local_file": "01-competitor-watch.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "narrative-shift", "local_file": "02-narrative-shift.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "kiran",
+      "phase4_role": "Lifecycle/Social",
+      "local_skills": ["00-product-marketing-context.md", "01-lifecycle-pulse.md", "02-social-engagement.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "lifecycle-pulse", "local_file": "01-lifecycle-pulse.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "social-engagement", "local_file": "02-social-engagement.md", "provenance": "imported-phase-04" }
+      ]
+    },
+    {
+      "agent": "sam",
+      "phase4_role": "Messaging",
+      "local_skills": ["00-product-marketing-context.md", "01-message-system.md", "02-nurture-copy.md"],
+      "sources": [
+        { "marketingskills_name": "product-marketing-context", "local_file": "00-product-marketing-context.md", "provenance": "reused-local" },
+        { "marketingskills_name": "message-system", "local_file": "01-message-system.md", "provenance": "imported-phase-04" },
+        { "marketingskills_name": "nurture-copy", "local_file": "02-nurture-copy.md", "provenance": "imported-phase-04" }
+      ]
+    }
+  ]
+}
