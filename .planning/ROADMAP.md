@@ -90,10 +90,10 @@ Plans:
   3. Each agent's `skills/` directory contains `product-marketing-context` as the first-loaded skill plus node-specific skills from the marketingskills 31-skill library.
   4. Running any of the 12 agents via `POST /api/agents/:name/run` returns a valid AgentRunOutput with a non-empty `context_patch` — confirmed for all 12 agents.
   5. APScheduler cron jobs reflect the new IST schedules (weekly briefs, daily monitors) per the hooks.json design; backend `VALID_AGENTS` includes veena + all 11.
-**Plans:** TBD
+**Plans:** 1/3 plans complete
 
 Plans:
-- [ ] 04-01: Rewrite SOUL.md + MEMORY.md for all 11 agents (aligned to framework roles)
+- [x] 04-01: Rewrite SOUL.md + MEMORY.md for all 11 agents (aligned to framework roles)
 - [ ] 04-02: Rewrite mcp.json + skills/ for all 11 agents (connectors + marketingskills mapping)
 - [ ] 04-03: APScheduler + backend VALID_AGENTS update
 
@@ -184,7 +184,7 @@ Plans:
 | 1. MKG Foundation | 3/3 | ✓ Complete | 2026-03-10 |
 | 2. Agent Contract Standard | 3/3 | ✓ Complete | 2026-03-10 |
 | 3. Veena — Company Intelligence | 2/3 | In Progress | - |
-| 4. 12-Agent Rewrite | 0/3 | Not started | - |
+| 4. 12-Agent Rewrite | 1/3 | In Progress | - |
 | 5. Hooks System | 0/3 | Not started | - |
 | 6. Data Pipeline | 1/3 | In Progress | - |
 | 7. Swarm Layer | 0/3 | Not started | - |
