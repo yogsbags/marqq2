@@ -3,36 +3,79 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Try to load .env manually if process.env misses it (e.g. not running via Vite)
-if (!process.env.VITE_SUPABASE_URL) {
+function loadEnvIfNeeded(env = process.env) {
+  if (env.VITE_SUPABASE_URL || env.SUPABASE_URL) return
+
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url))
     const envPath = path.join(__dirname, '..', '..', '.env')
-    if (fs.existsSync(envPath)) {
-      const envFile = fs.readFileSync(envPath, 'utf8')
-      envFile.split('\n').forEach(line => {
-        const match = line.match(/^([^#=]+)=(.*)$/)
-        if (match) {
-          const key = match[1].trim()
-          const value = match[2].trim().replace(/^["']|["']$/g, '')
-          if (!process.env[key]) process.env[key] = value
-        }
-      })
-    }
-  } catch (e) {
+    if (!fs.existsSync(envPath)) return
+
+    const envFile = fs.readFileSync(envPath, 'utf8')
+    envFile.split('\n').forEach(line => {
+      const match = line.match(/^([^#=]+)=(.*)$/)
+      if (!match) return
+
+      const key = match[1].trim()
+      const value = match[2].trim().replace(/^["']|["']$/g, '')
+      if (!env[key]) env[key] = value
+    })
+  } catch {
     // ignore
   }
 }
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+function resolveSupabaseConfig(env = process.env) {
+  return {
+    supabaseUrl: env.VITE_SUPABASE_URL || env.SUPABASE_URL || null,
+    supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || null,
+    supabaseServiceKey: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || null,
+  }
+}
 
-export const supabase = (supabaseUrl && supabaseAnonKey)
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null
+export function createSupabaseClients(options = {}) {
+  const env = options.env || process.env
+  const logger = options.logger || console
+  const clientFactory = options.clientFactory || createClient
+  const {
+    supabaseUrl,
+    supabaseAnonKey,
+    supabaseServiceKey,
+  } = resolveSupabaseConfig(env)
 
-if (!supabase) {
-  console.warn('⚠️  Supabase omitted from backend-server: Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Falling back to in-memory state.')
+  const anonClient = (supabaseUrl && supabaseAnonKey)
+    ? clientFactory(supabaseUrl, supabaseAnonKey)
+    : null
+
+  if (!anonClient) {
+    logger.warn('⚠️  Supabase omitted from backend-server: Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Falling back to in-memory state.')
+  }
+
+  const adminClient = (supabaseUrl && supabaseServiceKey)
+    ? clientFactory(supabaseUrl, supabaseServiceKey)
+    : null
+
+  if (supabaseUrl && !supabaseServiceKey) {
+    logger.warn('⚠️  Supabase service-role client unavailable: Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_KEY. Phase 6 pipeline writes will remain disabled until a service key is configured.')
+  }
+
+  return {
+    supabase: anonClient,
+    supabaseAdmin: adminClient,
+    pipelineSupabase: adminClient,
+  }
+}
+
+loadEnvIfNeeded()
+
+const clients = createSupabaseClients()
+
+export const supabase = clients.supabase
+export const supabaseAdmin = clients.supabaseAdmin
+export const pipelineSupabase = clients.pipelineSupabase
+
+export function getPipelineWriteClient() {
+  return pipelineSupabase
 }
 
 function normalizeWebsiteUrl(url) {
