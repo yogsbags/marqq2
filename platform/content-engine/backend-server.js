@@ -45,6 +45,11 @@ import {
 } from "./supabase.js";
 import { MKGService } from "./mkg-service.js";
 import { extractContract, validateContract } from "./contract-validator.js";
+import {
+  buildContextPatchFromCrawl,
+  crawlCompanyForMKG,
+  initializeMKGTemplate,
+} from "./veena-crawler.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -3041,6 +3046,179 @@ async function writeTasksCreated(contract) {
     console.error("[contract] writeTasksCreated failed:", err);
   }
 }
+
+// ── POST /api/agents/veena/onboard ───────────────────────────────────────────
+// Triggers the full sequential onboarding chain: veena crawl → agent_tasks for
+// isha/neel/zara.
+// Body: { company_id: string, website_url?: string, company_name?: string }
+// Response: 202 immediately — crawl runs in background; poll GET /api/mkg/:companyId.
+//
+// Idempotent: if an onboard_crawl task already exists for this company_id in
+// status running or done, returns the existing run_id rather than starting a duplicate.
+app.post("/api/agents/veena/onboard", async (req, res) => {
+  const { company_id, website_url, company_name } = req.body || {};
+  if (!company_id?.trim()) {
+    return res.status(400).json({ error: "company_id is required" });
+  }
+
+  const companyId = company_id.trim();
+
+  if (supabase) {
+    try {
+      const { data: existing } = await supabase
+        .from("agent_tasks")
+        .select("triggered_by_run_id, status")
+        .eq("company_id", companyId)
+        .eq("task_type", "onboard_crawl")
+        .in("status", ["running", "done"])
+        .maybeSingle();
+      if (existing?.triggered_by_run_id) {
+        return res.status(200).json({
+          run_id: existing.triggered_by_run_id,
+          message: "Onboarding already in progress or complete for this company",
+        });
+      }
+    } catch (err) {
+      console.warn("[veena/onboard] idempotency check failed:", err.message);
+    }
+  }
+
+  const onboardRunId = randomUUID();
+  res.status(202).json({
+    run_id: onboardRunId,
+    onboard_run_id: onboardRunId,
+    message: `Onboarding started. Poll GET /api/mkg/${companyId} to track progress.`,
+  });
+
+  setImmediate(async () => {
+    const targetWebsiteUrl =
+      website_url?.trim() || `https://${companyId.replace(/^https?:\/\//i, "")}.com`;
+    const veenaRunId = randomUUID();
+    const chainBaseTime = Date.now();
+    let crawlResult = null;
+    let contextPatch = {};
+    let crawlError = null;
+
+    try {
+      await initializeMKGTemplate(companyId);
+      console.log(`[veena/onboard] MKG template initialized for ${companyId}`);
+
+      if (supabase) {
+        const { error } = await supabase.from("agent_tasks").insert({
+          agent_name: "veena",
+          task_type: "onboard_crawl",
+          status: "running",
+          company_id: companyId,
+          triggered_by_run_id: onboardRunId,
+          description: `Onboarding crawl for ${company_name || companyId}`,
+          priority: "high",
+        });
+        if (error) {
+          console.error("[veena/onboard] Failed to insert veena task:", error);
+        }
+      }
+
+      try {
+        crawlResult = await crawlCompanyForMKG(targetWebsiteUrl);
+        contextPatch = buildContextPatchFromCrawl(crawlResult, "veena", veenaRunId);
+        await MKGService.patch(companyId, contextPatch);
+        console.log(`[veena/onboard] Crawl complete for ${companyId} — MKG patched`);
+
+        await saveAgentRunOutput(
+          {
+            agent: "veena",
+            task: "company_onboard_crawl",
+            company_id: companyId,
+            run_id: veenaRunId,
+            timestamp: new Date().toISOString(),
+            input: {
+              website_url: website_url || null,
+              company_name: company_name || null,
+            },
+            artifact: {
+              data: crawlResult,
+              summary: `Bootstrapped MKG from ${targetWebsiteUrl}`,
+              confidence: 0.7,
+            },
+            context_patch: {
+              writes_to: Object.keys(contextPatch),
+              patch: contextPatch,
+            },
+            handoff_notes:
+              "MKG initialized from website crawl. Isha, Neel, and Zara are queued for onboarding briefings.",
+            missing_data: [],
+            tasks_created: [
+              {
+                agent_name: "isha",
+                task_type: "onboard_briefing",
+                description: "Onboarding market research briefing",
+                priority: "high",
+              },
+              {
+                agent_name: "neel",
+                task_type: "onboard_briefing",
+                description: "Onboarding strategy briefing",
+                priority: "high",
+              },
+              {
+                agent_name: "zara",
+                task_type: "onboard_briefing",
+                description: "Onboarding distribution briefing",
+                priority: "high",
+              },
+            ],
+            outcome_prediction: null,
+          },
+          JSON.stringify(crawlResult)
+        );
+      } catch (err) {
+        crawlError = err;
+        console.error(`[veena/onboard] Crawl failed for ${companyId}:`, err.message);
+      }
+
+      if (supabase) {
+        const { error } = await supabase
+          .from("agent_tasks")
+          .update({
+            status: crawlError ? "failed" : "done",
+            error_message: crawlError ? String(crawlError) : null,
+            completed_at: new Date().toISOString(),
+            triggered_by_run_id: veenaRunId,
+          })
+          .eq("company_id", companyId)
+          .eq("task_type", "onboard_crawl")
+          .eq("agent_name", "veena")
+          .eq("triggered_by_run_id", onboardRunId);
+        if (error) {
+          console.error("[veena/onboard] Failed to update veena task:", error);
+        }
+      }
+
+      if (supabase) {
+        const chainRows = ["isha", "neel", "zara"].map((agentName, index) => ({
+          agent_name: agentName,
+          task_type: "onboard_briefing",
+          status: "scheduled",
+          company_id: companyId,
+          triggered_by_run_id: veenaRunId,
+          description: `Onboarding briefing for ${company_name || companyId}`,
+          priority: "high",
+          scheduled_for: new Date(chainBaseTime + (index + 1) * 60000).toISOString(),
+        }));
+        const { error } = await supabase.from("agent_tasks").insert(chainRows);
+        if (error) {
+          console.error("[veena/onboard] Failed to write chain tasks:", error);
+        } else {
+          console.log(
+            `[veena/onboard] Chain tasks written: isha, neel, zara queued for ${companyId}`
+          );
+        }
+      }
+    } catch (outerErr) {
+      console.error("[veena/onboard] Unhandled background error:", outerErr);
+    }
+  });
+});
 
 // ── POST /api/agents/:name/run ─────────────────────────────────────────────────
 // Runs an agent interactively (triggered by slash commands in ChatHome).
