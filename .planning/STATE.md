@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 08
 current_phase_name: Outcome Ledger
-current_plan: 0
-status: ready_for_execution
-stopped_at: Completed 07-03-PLAN.md
+current_plan: 3
+status: ready_for_verification
+stopped_at: Completed 08-03-PLAN.md
 last_updated: "2026-03-10T13:55:00Z"
 last_activity: 2026-03-10
 progress:
@@ -24,29 +24,29 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-10)
 
 **Core value:** Every agent run must move a business metric, verified through an outcome ledger that learns per company over time.
-**Current focus:** Phase 8 — Outcome Ledger (Phase 7 complete and verified)
+**Current focus:** Phase 8 — Outcome Ledger (all 3 plans complete, ready for verification)
 
 ## Current Position
 
 Current Phase: 08
 Current Phase Name: Outcome Ledger
 Total Phases: 8
-Current Plan: 0
+Current Plan: 3
 Total Plans in Phase: 3
 Phase: 8 of 8 (Outcome Ledger)
-Plan: 0 of 3 complete in current phase
-Status: Phase 7 complete and verified; ready to execute Phase 8
+Plan: 3 of 3 complete in current phase (08-01, 08-02, 08-03 complete)
+Status: Phase 8 complete, ready for verification
 Last Activity: 2026-03-10
-Last activity: 2026-03-10 — Completed 07-03-PLAN.md (SpreadsheetSwarm, competitive intelligence persistence, and signal emission)
+Last activity: 2026-03-10 — Completed 08-03-PLAN.md (outcomes API, calibration prompt injection, and test-mode coverage)
 
 Progress: [████████░░] 83%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
-- Average duration: 3.9 min
-- Total execution time: 0.94 hours
+- Total plans completed: 20
+- Average duration: 4.2 min
+- Total execution time: 1.39 hours
 
 **By Phase:**
 
@@ -58,9 +58,10 @@ Progress: [████████░░] 83%
 | 04-12-agent-rewrite | 1 | 15 min | 15 min |
 | 05-hooks-system | 3 | 15 min | 5 min |
 | 06-data-pipeline | 3 | 21 min | 7 min |
+| 08-outcome-ledger | 3 | 42 min | 14 min |
 
 **Recent Trend:**
-- Last 5 plans: 05-03 (7 min), 05-02 (4 min), 05-01 (4 min), 06-03 (5 min), 06-02 (4 min)
+- Last 5 plans: 08-03 (14 min), 08-02 (10 min), 08-01 (18 min), 05-03 (7 min), 05-02 (4 min)
 - Trend: —
 
 *Updated after each plan completion*
@@ -75,6 +76,9 @@ Progress: [████████░░] 83%
 | Phase 06-data-pipeline P01 | 12 min | 2 tasks | 5 files |
 | Phase 06-data-pipeline P02 | 4 min | 2 tasks | 2 files |
 | Phase 06 P03 | 5 min | 2 tasks | 5 files |
+| Phase 08-outcome-ledger P01 | 18 min | 4 tasks | 4 files |
+| Phase 08-outcome-ledger P02 | 10 min | 3 tasks | 2 files |
+| Phase 08-outcome-ledger P03 | 14 min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -120,11 +124,15 @@ Recent decisions affecting current work:
 - [Phase 05-hooks-system]: Hooks config validation rejects malformed cron, duplicate ids, unknown agents, and missing HOOKS-02 mappings before later runtime dispatch code starts.
 - [Phase 05-hooks-system]: HooksEngine claims pending agent_signals rows, evaluates company-specific baselines from MKG, and emits normalized dispatch batches without directly calling the run endpoint.
 - [Phase 05-hooks-system]: Hook-triggered runs now flow through the existing SSE agent route, and scheduler jobs load from hooks.json instead of hard-coded cron literals.
+- [Phase 08-outcome-ledger]: Outcome verification writes to a dedicated `outcome_ledger` table and computes accuracy from signed variance against the prediction reference value.
+- [Phase 08-outcome-ledger]: Calibration notes are stored as machine-readable markdown blocks inside agent MEMORY.md files so prompts stay human-readable while tests can parse exact note payloads.
+- [Phase 08-outcome-ledger]: The Python verifier supports `--dry-run` without optional dotenv/supabase packages, but non-dry-run execution still requires the full scheduler environment.
 
 ### Pending Todos
 
 - Run database/migrations/mkg-foundation.sql in Supabase SQL Editor (human step — migration NOT yet applied)
 - Run database/migrations/agent-contract.sql in Supabase SQL Editor after agent-employees.sql (human step — migration NOT yet applied)
+- Run database/migrations/outcome-ledger.sql in Supabase SQL Editor (human step — migration NOT yet applied)
 
 ### Blockers/Concerns
 
@@ -132,6 +140,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-10T12:33:00Z
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-03-10T13:41:58Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None

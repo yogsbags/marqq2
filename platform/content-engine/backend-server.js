@@ -21,7 +21,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { AccessToken, AgentDispatchClient, RoomServiceClient } from "livekit-server-sdk";
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { WebSocketServer } from "ws";
@@ -54,6 +54,7 @@ import {
 import { HooksEngine } from "./hooks-engine.js";
 import { listCompanyKpis } from "./kpi-aggregator.js";
 import { detectCompanyAnomalies } from "./anomaly-detector.js";
+import { getLatestCalibrationNote } from "./calibration-writer.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -63,7 +64,9 @@ const IS_MAIN_MODULE = process.argv[1]
 // Paths relative to this file (platform/content-engine/)
 const CREWAI_DIR = join(__dirname, "..", "crewai");
 const HEARTBEAT_PATH = join(CREWAI_DIR, "heartbeat", "status.json");
-const AGENTS_DIR = join(CREWAI_DIR, "agents");
+const AGENTS_DIR = process.env.TORQQ_AGENTS_DIR
+  ? resolve(process.env.TORQQ_AGENTS_DIR)
+  : join(CREWAI_DIR, "agents");
 const CTX_DIR = join(CREWAI_DIR, "client_context");
 const DEPLOYMENT_QUEUE_PATH = join(CREWAI_DIR, "deployments", "queue.json");
 const COMPANY_INTEL_KB_ROOT = join(__dirname, "data", "company-intel-kb");
@@ -252,6 +255,7 @@ const NIGHTLY_ANOMALY_SCHEDULE_UTC =
 const KPI_DAYS_DEFAULT = 30;
 const KPI_DAYS_MIN = 1;
 const KPI_DAYS_MAX = 90;
+const OUTCOME_DAYS_ALLOWED = new Set([7, 30, 90]);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "" });
 const COMPANY_INTEL_GROQ_MODELS = [
   process.env.GROQ_COMPANY_INTEL_MODEL || "groq/compound",
@@ -344,13 +348,14 @@ function extractDeclaredMkgFields(soulText, marker) {
     .filter((value) => MKG_TOP_LEVEL_FIELDS.includes(value));
 }
 
-function buildTestModeContract({
+export function buildTestModeContract({
   name,
   companyId,
   runId,
   soulText,
   query,
   triggerContext = null,
+  calibrationNote = null,
 }) {
   const writesTo =
     extractDeclaredMkgFields(soulText, "writes_to_mkg").slice(0, 2);
@@ -384,6 +389,7 @@ function buildTestModeContract({
       data: {
         mode: "test",
         agent: name,
+        ...(calibrationNote?.text ? { calibration_note: calibrationNote.text } : {}),
         ...(triggerContext ? { trigger_context: triggerContext } : {}),
       },
       summary: `Test mode generated a deterministic AgentRunOutput for ${name}.`,
@@ -398,6 +404,31 @@ function buildTestModeContract({
     tasks_created: [],
     outcome_prediction: null,
   };
+}
+
+export async function loadAgentPromptContext(agentName, companyId, options = {}) {
+  const agentsDir = options.agentsDir || AGENTS_DIR;
+  const memoryPath = join(agentsDir, agentName, "memory", "MEMORY.md");
+  let memory = "";
+
+  try {
+    memory = await readFile(memoryPath, "utf-8");
+  } catch {
+    // Agent memory is optional.
+  }
+
+  let calibrationNote = null;
+  if (companyId) {
+    try {
+      calibrationNote = await getLatestCalibrationNote(agentName, companyId, {
+        agentsDir,
+      });
+    } catch (error) {
+      console.warn(`[calibration] failed to load note for ${agentName}/${companyId}:`, error);
+    }
+  }
+
+  return { memory, calibrationNote };
 }
 
 async function finalizeAgentRunResponse({
@@ -2385,6 +2416,131 @@ export function parseKpiDays(value) {
   return days;
 }
 
+function pickSafeOutcomeRow(row) {
+  const fields = [
+    "run_id",
+    "company_id",
+    "agent",
+    "outcome_metric",
+    "baseline_value",
+    "predicted_value",
+    "actual_value",
+    "variance_pct",
+    "verified_at",
+    "created_at",
+  ];
+
+  return fields.reduce((safeRow, field) => {
+    if (field in row) safeRow[field] = row[field];
+    return safeRow;
+  }, {});
+}
+
+export function parseOutcomeDays(value) {
+  if (value === undefined || value === null || value === "") return 30;
+  if (!/^\d+$/.test(String(value))) return null;
+
+  const days = Number(value);
+  if (!OUTCOME_DAYS_ALLOWED.has(days)) return null;
+  return days;
+}
+
+function computeOutcomeAccuracy(variancePct) {
+  if (typeof variancePct !== "number" || Number.isNaN(variancePct)) return null;
+  const accuracy = 1 - Math.min(1, Math.abs(variancePct) / 100);
+  return Number(Math.max(0, accuracy).toFixed(2));
+}
+
+async function listOutcomeLedgerRows(companyId, { days, client = supabase } = {}) {
+  if (!client) {
+    throw new Error("Outcome ledger reads require a Supabase client.");
+  }
+
+  const cutoffIso = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+  let query = client
+    .from("outcome_ledger")
+    .select("*")
+    .eq("company_id", companyId);
+
+  if (typeof query.gte === "function") {
+    query = query.gte("verified_at", cutoffIso);
+  }
+
+  if (typeof query.order === "function") {
+    query = query.order("verified_at", { ascending: false });
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return Array.isArray(data) ? data : [];
+}
+
+export function createOutcomesRouteHandler(dependencies = {}) {
+  const listOutcomeRowsImpl = dependencies.listOutcomeRowsImpl
+    || ((companyId, options) => listOutcomeLedgerRows(
+      companyId,
+      { ...options, client: dependencies.client || supabase },
+    ));
+
+  return async function handleGetOutcomes(req, res) {
+    const { companyId } = req.params;
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(companyId || "")) {
+      return res.status(400).json({ error: "invalid companyId" });
+    }
+
+    const days = parseOutcomeDays(req.query?.days);
+    if (days === null) {
+      return res.status(400).json({ error: "days must be one of 7, 30, or 90" });
+    }
+
+    try {
+      const rows = await listOutcomeRowsImpl(companyId, { days });
+      const safeRows = rows.map(pickSafeOutcomeRow);
+      const agents = new Map();
+
+      for (const row of safeRows) {
+        const accuracy = computeOutcomeAccuracy(row.variance_pct);
+        const current = agents.get(row.agent) || {
+          agent: row.agent,
+          accuracy_sum: 0,
+          accuracy_count: 0,
+          last_verified: row.verified_at,
+          variance_pct: row.variance_pct,
+        };
+
+        if (accuracy !== null) {
+          current.accuracy_sum += accuracy;
+          current.accuracy_count += 1;
+        }
+        if (!current.last_verified || String(row.verified_at).localeCompare(String(current.last_verified)) > 0) {
+          current.last_verified = row.verified_at;
+          current.variance_pct = row.variance_pct;
+        }
+
+        agents.set(row.agent, current);
+      }
+
+      return res.json({
+        companyId,
+        days,
+        rows: safeRows,
+        agents: [...agents.values()].map((entry) => ({
+          agent: entry.agent,
+          accuracy: entry.accuracy_count
+            ? Number((entry.accuracy_sum / entry.accuracy_count).toFixed(2))
+            : null,
+          last_verified: entry.last_verified,
+          variance_pct: entry.variance_pct,
+        })),
+      });
+    } catch (err) {
+      console.error("GET /api/outcomes error:", err);
+      return res.status(500).json({ error: String(err?.message || err) });
+    }
+  };
+}
+
 export function createKpiRouteHandler(dependencies = {}) {
   const listCompanyKpisImpl = dependencies.listCompanyKpisImpl || listCompanyKpis;
 
@@ -2567,6 +2723,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/api/kpis/:companyId", createKpiRouteHandler());
+app.get("/api/outcomes/:companyId", createOutcomesRouteHandler());
 
 // ── GET /api/agents/status ─────────────────────────────────────────────────────
 // Returns heartbeat/status.json (updated by Python scheduler after each run).
@@ -3657,12 +3814,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
 
   // Load MEMORY.md
   const memoryPath = join(AGENTS_DIR, name, "memory", "MEMORY.md");
-  let memory = "";
-  try {
-    memory = await readFile(memoryPath, "utf-8");
-  } catch {
-    /* no memory yet */
-  }
+  const { memory, calibrationNote } = await loadAgentPromptContext(name, companyId);
 
   // Load skills from agents/{name}/skills/*.md (sorted, 00- prefix loads first)
   let skillsBlock = "";
@@ -3738,6 +3890,7 @@ Replace ALL placeholder values with your actual outputs.
   const fullSystem = [
     systemPrompt,
     memory ? `\n\n## Your Recent Memory\n${memory}` : "",
+    calibrationNote?.text ? `\n\n## Latest Calibration Note\n${calibrationNote.text}` : "",
     skillsBlock,
     runContextBlock,
     contractInstruction,  // always last
@@ -3760,6 +3913,7 @@ Replace ALL placeholder values with your actual outputs.
         runId,
         soulText: systemPrompt,
         query,
+        calibrationNote,
         triggerContext: triggered_by
           ? { triggered_by, trigger_id, hook_id, task_type, trigger_metadata }
           : null,

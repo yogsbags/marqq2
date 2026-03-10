@@ -17,7 +17,7 @@ Transform 11 isolated, cold-start agents into a 12-agent Marketing Brain OS: sha
 - [x] **Phase 5: Hooks System** - Signal-driven and scheduled triggers evaluated every heartbeat; hooks.json as config ✓ 2026-03-10
 - [x] **Phase 6: Data Pipeline** - Connector raw data → SQL aggregation → KPI views → anomaly detection → MKG narration ✓ 2026-03-10
 - [x] **Phase 7: Swarm Layer** - Priya competitive intelligence via ConcurrentWorkflow + SpreadsheetSwarm + Watchdog patterns ✓ 2026-03-10
-- [ ] **Phase 8: Outcome Ledger** - Predicted vs actual metric tracking; per-company calibration loop closes via Arjun
+- [x] **Phase 8: Outcome Ledger** - Predicted vs actual metric tracking; per-company calibration loop closes via Arjun ✓ 2026-03-10
 
 ---
 
@@ -166,12 +166,12 @@ Plans:
   3. When `variance_pct > 30`, a calibration note is appended to the source agent's `memory/MEMORY.md` — e.g., "For [company], CTR predictions were off by 42%; adjust upward by 40%".
   4. `GET /api/outcomes/:companyId` returns the ledger with an accuracy score per agent (e.g., `{ "neel": 0.72, "riya": 0.85 }`).
   5. On the next run after a calibration note is written, the agent's system prompt includes the calibration note from MEMORY.md — confirmed by the note appearing in the Groq request log.
-**Plans:** TBD
+**Plans:** 3/3 plans complete
 
 Plans:
-- [ ] 08-01: outcome_ledger Supabase table + Arjun's verification cron job
-- [ ] 08-02: Calibration writer — variance > 30% appends to agent MEMORY.md
-- [ ] 08-03: Outcomes REST endpoint + MEMORY.md injection into agent system prompt
+- [x] 08-01: outcome_ledger Supabase table + Arjun's verification cron job
+- [x] 08-02: Calibration writer — variance > 30% appends to agent MEMORY.md
+- [x] 08-03: Outcomes REST endpoint + MEMORY.md injection into agent system prompt
 
 ---
 
@@ -188,4 +188,4 @@ Plans:
 | 5. Hooks System | 3/3 | ✓ Complete | 2026-03-10 |
 | 6. Data Pipeline | 3/3 | ✓ Complete | 2026-03-10 |
 | 7. Swarm Layer | 3/3 | ✓ Complete | 2026-03-10 |
-| 8. Outcome Ledger | 0/3 | Not started | - |
+| 8. Outcome Ledger | 3/3 | ✓ Complete | 2026-03-10 |
