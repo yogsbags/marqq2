@@ -1,0 +1,6 @@
+{
+  "connectors": [],
+  "permissions": "read",
+  "description": "Veena crawls company websites to bootstrap the MKG. GA4 and Composio connectors will be added in Phase 4.",
+  "recipes": {}
+}
