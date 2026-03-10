@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: executing
+stopped_at: "Completed 02-02-PLAN.md. Stream-then-extract contract pattern in /api/agents/:name/run complete."
+last_updated: "2026-03-10T09:36:40.911Z"
+last_activity: 2026-03-10 — Completed 02-01-PLAN.md (Agent Contract Schema + Validator)
+progress:
+  total_phases: 8
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 5
+  percent: 83
+---
+
 # Project State
 
 ## Project Reference
@@ -14,7 +30,7 @@ Plan: 1 of 3 in current phase (02-01 complete)
 Status: Phase 2 in progress
 Last activity: 2026-03-10 — Completed 02-01-PLAN.md (Agent Contract Schema + Validator)
 
-Progress: [████░░░░░░] 40%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -35,6 +51,7 @@ Progress: [████░░░░░░] 40%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 02 P02 | 8 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -61,6 +78,9 @@ Recent decisions affecting current work:
 - [Contract]: outcome_prediction left unvalidated (any/null) — stored inside artifact JSONB per research recommendation
 - [DB Schema]: user_id on agent_tasks made nullable — system-generated tasks have no auth.users initiator
 - [DB Schema]: priority column constrained to low/medium/high CHECK with default medium
+- [Phase 02-agent-contract-standard]: max_tokens increased from 4096 to 8192 — long prose + contract JSON block requires the extra headroom
+- [Phase 02-agent-contract-standard]: company_id is optional in run endpoint — existing slash-command callers omitting it continue to work; MKG patch skipped with console.warn
+- [Phase 02-agent-contract-standard]: contractInstruction always injected LAST in system prompt to maximise LLM compliance
 
 ### Pending Todos
 
@@ -73,6 +93,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-10
-Stopped at: Completed 02-01-PLAN.md. Agent Contract Schema + Validator complete.
+Last session: 2026-03-10T09:36:40.908Z
+Stopped at: Completed 02-02-PLAN.md. Stream-then-extract contract pattern in /api/agents/:name/run complete.
 Resume file: None
