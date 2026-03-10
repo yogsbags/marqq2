@@ -14,9 +14,9 @@ Transform 11 isolated, cold-start agents into a 12-agent Marketing Brain OS: sha
 - [x] **Phase 2: Agent Contract Standard** - Every agent run produces validated AgentRunOutput JSON; backend enforces schema (completed 2026-03-10)
 - [ ] **Phase 3: Veena — Company Intelligence** - New orchestrator agent owns MKG; fires full onboarding chain on new company signal
 - [x] **Phase 4: 12-Agent Rewrite** - All 11 existing agents rewritten per 12-node marketing framework; APScheduler updated ✓ 2026-03-10
-- [ ] **Phase 5: Hooks System** - Signal-driven and scheduled triggers evaluated every heartbeat; hooks.json as config
+- [x] **Phase 5: Hooks System** - Signal-driven and scheduled triggers evaluated every heartbeat; hooks.json as config ✓ 2026-03-10
 - [x] **Phase 6: Data Pipeline** - Connector raw data → SQL aggregation → KPI views → anomaly detection → MKG narration ✓ 2026-03-10
-- [ ] **Phase 7: Swarm Layer** - Priya competitive intelligence via ConcurrentWorkflow + SpreadsheetSwarm + Watchdog patterns
+- [x] **Phase 7: Swarm Layer** - Priya competitive intelligence via ConcurrentWorkflow + SpreadsheetSwarm + Watchdog patterns ✓ 2026-03-10
 - [ ] **Phase 8: Outcome Ledger** - Predicted vs actual metric tracking; per-company calibration loop closes via Arjun
 
 ---
@@ -147,12 +147,12 @@ Plans:
   3. SpreadsheetSwarm processes a batch of up to 300 YouTube transcripts using a cheap model for filtering and an analysis model only for synthesis — confirmed by model routing log.
   4. Swarm results are written to Supabase `competitive_intelligence` table keyed by (company_id, competitor_name, week_of).
   5. Priya outputs competitor move records to Supabase `agent_signals`; a `competitor_content_pub` signal dispatches priya then riya via HooksEngine within 60 seconds.
-**Plans:** TBD
+**Plans:** 3/3 plans complete
 
 Plans:
-- [ ] 07-01: swarm-runner.ts — ConcurrentWorkflow, SpreadsheetSwarm, Watchdog patterns
-- [ ] 07-02: Priya swarm config — 10-competitor Watchdog + differential analysis + last_checked tracking
-- [ ] 07-03: Corpus analysis — SpreadsheetSwarm for transcripts/tweets + competitive_intelligence table
+- [x] 07-01: swarm-runner.ts — ConcurrentWorkflow, SpreadsheetSwarm, Watchdog patterns
+- [x] 07-02: Priya swarm config — 10-competitor Watchdog + differential analysis + last_checked tracking
+- [x] 07-03: Corpus analysis — SpreadsheetSwarm for transcripts/tweets + competitive_intelligence table
 
 ---
 
@@ -187,5 +187,5 @@ Plans:
 | 4. 12-Agent Rewrite | 3/3 | ✓ Complete | 2026-03-10 |
 | 5. Hooks System | 3/3 | ✓ Complete | 2026-03-10 |
 | 6. Data Pipeline | 3/3 | ✓ Complete | 2026-03-10 |
-| 7. Swarm Layer | 0/3 | Not started | - |
+| 7. Swarm Layer | 3/3 | ✓ Complete | 2026-03-10 |
 | 8. Outcome Ledger | 0/3 | Not started | - |

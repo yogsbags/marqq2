@@ -58,11 +58,11 @@
 
 ### Swarm Layer — Competitive Intelligence
 
-- [ ] **SWARM-01**: Priya (Competitive Intelligence) uses `ConcurrentWorkflow` pattern — fans out to 10 sub-tasks (one per competitor) then fans in to synthesis
-- [ ] **SWARM-02**: Competitor monitoring uses differential analysis — only process changes since `last_checked` stored in MKG `competitors[n].last_checked`
-- [ ] **SWARM-03**: `SpreadsheetSwarm` pattern for corpus analysis — YouTube transcript batch (up to 300), tweet batch (up to 400) — Haiku for filtering, Sonnet for synthesis
-- [ ] **SWARM-04**: Swarm results written to Supabase `competitive_intelligence` table keyed by (company_id, competitor_name, week_of)
-- [ ] **SWARM-05**: Priya outputs competitor move signals to `agent_signals` table — picked up by HooksEngine on next evaluation cycle
+- [x] **SWARM-01**: Priya (Competitive Intelligence) uses `ConcurrentWorkflow` pattern — fans out to 10 sub-tasks (one per competitor) then fans in to synthesis
+- [x] **SWARM-02**: Competitor monitoring uses differential analysis — only process changes since `last_checked` stored in MKG `competitors[n].last_checked`
+- [x] **SWARM-03**: `SpreadsheetSwarm` pattern for corpus analysis — YouTube transcript batch (up to 300), tweet batch (up to 400) — Haiku for filtering, Sonnet for synthesis
+- [x] **SWARM-04**: Swarm results written to Supabase `competitive_intelligence` table keyed by (company_id, competitor_name, week_of)
+- [x] **SWARM-05**: Priya outputs competitor move signals to `agent_signals` table — picked up by HooksEngine on next evaluation cycle
 
 ### Outcome Ledger
 
@@ -139,11 +139,11 @@
 | PIPE-03 | Phase 6 — Data Pipeline | Complete |
 | PIPE-04 | Phase 6 — Data Pipeline | Complete |
 | PIPE-05 | Phase 6 — Data Pipeline | Complete |
-| SWARM-01 | Phase 7 — Swarm Layer | Pending |
-| SWARM-02 | Phase 7 — Swarm Layer | Pending |
-| SWARM-03 | Phase 7 — Swarm Layer | Pending |
-| SWARM-04 | Phase 7 — Swarm Layer | Pending |
-| SWARM-05 | Phase 7 — Swarm Layer | Pending |
+| SWARM-01 | Phase 7 — Swarm Layer | Complete |
+| SWARM-02 | Phase 7 — Swarm Layer | Complete |
+| SWARM-03 | Phase 7 — Swarm Layer | Complete |
+| SWARM-04 | Phase 7 — Swarm Layer | Complete |
+| SWARM-05 | Phase 7 — Swarm Layer | Complete |
 | LEDGER-01 | Phase 8 — Outcome Ledger | Pending |
 | LEDGER-02 | Phase 8 — Outcome Ledger | Pending |
 | LEDGER-03 | Phase 8 — Outcome Ledger | Pending |
