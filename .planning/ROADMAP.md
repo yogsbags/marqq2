@@ -71,12 +71,12 @@ Plans:
   3. Veena's `AgentRunOutput.context_patch` covers all 12 MKG top-level fields; the MKG is updated immediately after the run.
   4. Emitting a `new_company_onboarded` signal triggers the sequential onboarding chain (veena → isha → neel → zara) — confirmed by Supabase `agent_tasks` records for each step.
   5. A new company's `mkg.json` is pre-populated from the `product-marketing-context` skill template before Veena's first crawl runs.
-**Plans:** TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 03-01: Veena agent files — SOUL.md, mcp.json, skills/, memory/MEMORY.md
-- [ ] 03-02: Company website crawler — extract offers, messaging, CTAs, pricing into MKG fields
-- [ ] 03-03: Onboarding chain trigger — new_company_onboarded signal → sequential agent run
+- [ ] 03-01-PLAN.md — Veena agent files (SOUL.md, mcp.json, skills/, memory/MEMORY.md) + VALID_AGENTS + AGENT_PROFILES registration
+- [ ] 03-02-PLAN.md — veena-crawler.js module (crawlCompanyForMKG, buildContextPatchFromCrawl, initializeMKGTemplate, extractPageSignals) + test-veena-crawl.js
+- [ ] 03-03-PLAN.md — POST /api/agents/veena/onboard endpoint (202 + background crawl + chain tasks) + test-veena-onboard.js + human verify checkpoint
 
 ---
 
@@ -183,7 +183,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. MKG Foundation | 3/3 | ✓ Complete | 2026-03-10 |
 | 2. Agent Contract Standard | 3/3 | ✓ Complete | 2026-03-10 |
-| 3. Veena — Company Intelligence | 0/3 | Not started | - |
+| 3. Veena — Company Intelligence | 0/3 | Planned | - |
 | 4. 12-Agent Rewrite | 0/3 | Not started | - |
 | 5. Hooks System | 0/3 | Not started | - |
 | 6. Data Pipeline | 0/3 | Not started | - |
