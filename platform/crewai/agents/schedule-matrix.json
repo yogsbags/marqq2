@@ -1,0 +1,102 @@
+{
+  "timezone": "Asia/Kolkata",
+  "generated_for_phase": "04-12-agent-rewrite",
+  "agents": [
+    {
+      "agent": "veena",
+      "phase4_role": "Company Intelligence",
+      "cadence_type": "weekly_brief",
+      "cron_ist": "0 6 * * mon",
+      "task_type": "weekly_company_refresh",
+      "rationale": "Refreshes the company knowledge graph before downstream weekly planning agents run."
+    },
+    {
+      "agent": "isha",
+      "phase4_role": "Market Research",
+      "cadence_type": "weekly_brief",
+      "cron_ist": "0 7 * * tue",
+      "task_type": "weekly_market_research",
+      "rationale": "Runs a structured market scan weekly because market movement is strategic, not hourly."
+    },
+    {
+      "agent": "neel",
+      "phase4_role": "Strategy",
+      "cadence_type": "weekly_brief",
+      "cron_ist": "0 8 * * tue",
+      "task_type": "weekly_strategy_review",
+      "rationale": "Reframes positioning and channel decisions after the latest market research is available."
+    },
+    {
+      "agent": "tara",
+      "phase4_role": "Offer Engineering",
+      "cadence_type": "weekly_brief",
+      "cron_ist": "0 9 * * tue",
+      "task_type": "weekly_offer_review",
+      "rationale": "Reviews offer and CTA effectiveness on a weekly cadence aligned to strategy updates."
+    },
+    {
+      "agent": "zara",
+      "phase4_role": "Distribution",
+      "cadence_type": "daily_monitor",
+      "cron_ist": "15 9 * * *",
+      "task_type": "daily_distribution_synthesis",
+      "rationale": "Synthesizes launch and distribution actions daily as channels and assets evolve."
+    },
+    {
+      "agent": "maya",
+      "phase4_role": "SEO/Content",
+      "cadence_type": "daily_monitor",
+      "cron_ist": "0 6 * * *",
+      "task_type": "daily_search_monitor",
+      "rationale": "Monitors search visibility and content opportunity daily because rankings and SERP shifts are continuous."
+    },
+    {
+      "agent": "riya",
+      "phase4_role": "Content Creation",
+      "cadence_type": "weekly_brief",
+      "cron_ist": "0 8 * * mon,wed,fri",
+      "task_type": "editorial_production_cycle",
+      "rationale": "Produces content on a recurring editorial rhythm rather than a generic daily sweep."
+    },
+    {
+      "agent": "arjun",
+      "phase4_role": "Funnel/Leads",
+      "cadence_type": "daily_monitor",
+      "cron_ist": "0 7 * * *",
+      "task_type": "daily_funnel_review",
+      "rationale": "Checks funnel movement and lead quality daily so drop-offs are caught quickly."
+    },
+    {
+      "agent": "dev",
+      "phase4_role": "Analytics",
+      "cadence_type": "weekly_brief",
+      "cron_ist": "0 9 * * mon",
+      "task_type": "weekly_kpi_review",
+      "rationale": "Builds a stable KPI review baseline weekly after enough new data has accumulated."
+    },
+    {
+      "agent": "priya",
+      "phase4_role": "Competitive Intelligence",
+      "cadence_type": "daily_monitor",
+      "cron_ist": "0 8 * * *",
+      "task_type": "daily_competitor_watch",
+      "rationale": "Tracks competitor moves daily because launches and narrative shifts can change fast."
+    },
+    {
+      "agent": "kiran",
+      "phase4_role": "Lifecycle/Social",
+      "cadence_type": "daily_monitor",
+      "cron_ist": "30 7 * * *",
+      "task_type": "daily_lifecycle_pulse",
+      "rationale": "Reviews lifecycle and social engagement signals each day to catch momentum changes early."
+    },
+    {
+      "agent": "sam",
+      "phase4_role": "Messaging",
+      "cadence_type": "weekly_brief",
+      "cron_ist": "30 8 * * tue,thu",
+      "task_type": "messaging_nurture_review",
+      "rationale": "Tunes message systems and nurture copy on a repeatable mid-week cadence."
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 """
 Autonomous AI Digital Employees — Scheduler
 ============================================
-Runs 6 marketing agents on cron schedules (IST timezone).
+Runs the Phase 4 marketing agent roster on IST schedules loaded from
+agents/schedule-matrix.json.
 Writes results to Supabase agent_notifications table.
 Updates heartbeat/status.json after each run.
 
@@ -47,6 +48,7 @@ AGENTS_DIR = BASE_DIR / "agents"
 HEARTBEAT_FILE = BASE_DIR / "heartbeat" / "status.json"
 CLIENT_CONTEXT_DIR = BASE_DIR / "client_context"
 DEPLOYMENT_QUEUE_FILE = BASE_DIR / "deployments" / "queue.json"
+SCHEDULE_MATRIX_FILE = AGENTS_DIR / "schedule-matrix.json"
 STALE_DEPLOYMENT_TIMEOUT_SECONDS = int(os.getenv("TORQQ_DEPLOYMENT_STALE_SECONDS", "1800"))
 
 # ── Globals (initialised in main) ──────────────────────────────────────────────
@@ -72,6 +74,38 @@ def load_memory(agent_name: str) -> str:
     if not memory_file.exists():
         return ""
     return memory_file.read_text(encoding="utf-8")
+
+
+def load_skills(agent_name: str) -> str:
+    """Load agent skills/*.md in lexical order so 00-product-marketing-context.md is first."""
+    skills_dir = AGENTS_DIR / agent_name / "skills"
+    if not skills_dir.exists():
+        return ""
+
+    files = sorted([p for p in skills_dir.iterdir() if p.is_file() and p.suffix == ".md"])
+    if not files:
+        return ""
+
+    sections = []
+    for file in files:
+        sections.append(f"### {file.stem}\n{file.read_text(encoding='utf-8')}")
+
+    return (
+        "\n\n## Your Available Skills\n"
+        "You have the following specialist workflows available. "
+        "When a task matches a skill, follow that skill's process exactly.\n\n"
+        + "\n\n---\n\n".join(sections)
+    )
+
+
+def build_system_context(agent_name: str, soul: str, memory: str, skills: str) -> str:
+    """Assemble the same prompt foundation used by interactive runs."""
+    sections = [soul]
+    if memory:
+        sections.append(f"## Your Recent Memory\n{memory}")
+    if skills:
+        sections.append(skills)
+    return "\n\n".join(section for section in sections if section).strip()
 
 
 def load_client_context(workspace_id: str | None = None) -> str:
@@ -131,6 +165,17 @@ def update_heartbeat(agent_name: str, status: str, duration_ms: int = None, erro
     HEARTBEAT_FILE.write_text(json.dumps(data, indent=2))
 
 
+def load_schedule_matrix() -> list[dict]:
+    if not SCHEDULE_MATRIX_FILE.exists():
+        raise FileNotFoundError(f"Schedule matrix not found: {SCHEDULE_MATRIX_FILE}")
+
+    raw = json.loads(SCHEDULE_MATRIX_FILE.read_text(encoding="utf-8"))
+    entries = raw.get("agents", []) if isinstance(raw, dict) else []
+    if not isinstance(entries, list):
+        raise ValueError("schedule-matrix.json must contain an agents array")
+    return entries
+
+
 def load_deployment_queue() -> list[dict]:
     """Load queued GTM deployments created from the frontend."""
     if not DEPLOYMENT_QUEUE_FILE.exists():
@@ -184,13 +229,13 @@ def pull_pending_deployments(agent_name: str) -> list[dict]:
     picked: list[dict] = []
 
     for entry in queue:
-      if entry.get("agentName") == agent_name and entry.get("status") == "pending":
-        entry["status"] = "processing"
-        entry["pickedAt"] = datetime.now(timezone.utc).isoformat()
-        picked.append(entry)
+        if entry.get("agentName") == agent_name and entry.get("status") == "pending":
+            entry["status"] = "processing"
+            entry["pickedAt"] = datetime.now(timezone.utc).isoformat()
+            picked.append(entry)
 
     if picked:
-      save_deployment_queue(queue)
+        save_deployment_queue(queue)
 
     return picked
 
@@ -246,25 +291,33 @@ def write_notification(agent_name: str, agent_role: str, task_type: str, result:
 # ── Core agent runner ──────────────────────────────────────────────────────────
 
 AGENT_ROLES = {
-    "zara":  "Chief Marketing Orchestrator",
-    "maya":  "SEO & LLMO Monitor",
-    "riya":  "Content Planner",
-    "arjun": "Lead Scout",
-    "kiran": "Social Media Intelligence",
-    "dev":   "Campaign Analyzer",
-    "priya": "Competitor Watcher",
-    "sam":   "Email Marketing Monitor",
+    "veena": "Company Intelligence",
+    "isha":  "Market Research",
+    "neel":  "Strategy",
+    "tara":  "Offer Engineering",
+    "zara":  "Distribution",
+    "maya":  "SEO/Content",
+    "riya":  "Content Creation",
+    "arjun": "Funnel/Leads",
+    "dev":   "Analytics",
+    "priya": "Competitive Intelligence",
+    "kiran": "Lifecycle/Social",
+    "sam":   "Messaging",
 }
 
 AGENT_CREWS = {
+    "veena": "company",
+    "isha":  "company",
+    "neel":  "company",
+    "tara":  "budget",
+    "zara":  "company",
     "maya":  "content",
     "riya":  "content",
     "arjun": "lead",
-    "kiran": "content",   # social fits closest to content crew
+    "kiran": "content",
     "dev":   "budget",
     "priya": "competitor",
-    "sam":   "content",   # email fits closest to content crew
-    "zara":  "company",   # orchestrator uses company crew for synthesis
+    "sam":   "content",
 }
 
 
@@ -283,6 +336,8 @@ def run_agent(agent_name: str, task_type: str) -> None:
 
     soul = load_soul(agent_name)
     memory = load_memory(agent_name)
+    skills = load_skills(agent_name)
+    system_context = build_system_context(agent_name, soul, memory, skills)
     client_context = load_client_context()
     crew_module = AGENT_CREWS.get(agent_name, "company")
     role = AGENT_ROLES.get(agent_name, agent_name)
@@ -302,7 +357,7 @@ def run_agent(agent_name: str, task_type: str) -> None:
             deployment_result = orchestrator.execute_for_scheduler(
                 crew_module=crew_module,
                 task_type=deployment_request,
-                system_context=soul,
+                system_context=system_context,
                 prior_memory=memory,
                 client_context=deployment_client_context,
             )
@@ -322,7 +377,7 @@ def run_agent(agent_name: str, task_type: str) -> None:
         result = orchestrator.execute_for_scheduler(
             crew_module=crew_module,
             task_type=task_type,
-            system_context=soul,
+            system_context=system_context,
             prior_memory=memory,
             client_context=client_context,
         )
@@ -352,64 +407,34 @@ def run_agent(agent_name: str, task_type: str) -> None:
 
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
+    for entry in load_schedule_matrix():
+        agent_name = entry["agent"]
+        cadence_type = entry.get("cadence_type", "event_driven")
+        cron_ist = entry.get("cron_ist")
+        task_type = entry.get("task_type") or cadence_type
 
-    # Maya — SEO Monitor — daily 06:00 IST
-    scheduler.add_job(
-        lambda: run_agent("maya", "daily_seo_check"),
-        CronTrigger(hour=6, minute=0, timezone="Asia/Kolkata"),
-        id="maya_daily", replace_existing=True
-    )
+        if cadence_type == "event_driven" or not cron_ist:
+            logger.info("Skipping cron job for %s (%s)", agent_name, cadence_type)
+            continue
 
-    # Arjun — Lead Scout — daily 07:00 IST
-    scheduler.add_job(
-        lambda: run_agent("arjun", "daily_lead_scout"),
-        CronTrigger(hour=7, minute=0, timezone="Asia/Kolkata"),
-        id="arjun_daily", replace_existing=True
-    )
-
-    # Priya — Competitor Watcher — daily 08:00 IST
-    scheduler.add_job(
-        lambda: run_agent("priya", "daily_competitor_watch"),
-        CronTrigger(hour=8, minute=0, timezone="Asia/Kolkata"),
-        id="priya_daily", replace_existing=True
-    )
-
-    # Riya — Content Planner — Mon/Wed/Fri 08:00 IST
-    scheduler.add_job(
-        lambda: run_agent("riya", "content_plan"),
-        CronTrigger(day_of_week="mon,wed,fri", hour=8, minute=0, timezone="Asia/Kolkata"),
-        id="riya_mwf", replace_existing=True
-    )
-
-    # Kiran — Social Media Intelligence — daily 07:30 IST
-    scheduler.add_job(
-        lambda: run_agent("kiran", "daily_social_pulse"),
-        CronTrigger(hour=7, minute=30, timezone="Asia/Kolkata"),
-        id="kiran_daily", replace_existing=True
-    )
-
-    # Sam — Email Marketing Monitor — Tue/Thu 08:30 IST
-    scheduler.add_job(
-        lambda: run_agent("sam", "email_health_check"),
-        CronTrigger(day_of_week="tue,thu", hour=8, minute=30, timezone="Asia/Kolkata"),
-        id="sam_tuth", replace_existing=True
-    )
-
-    # Dev — Campaign Analyzer — Monday 09:00 IST
-    scheduler.add_job(
-        lambda: run_agent("dev", "weekly_campaign_review"),
-        CronTrigger(day_of_week="mon", hour=9, minute=0, timezone="Asia/Kolkata"),
-        id="dev_weekly", replace_existing=True
-    )
-
-    # Zara — Morning Synthesis — daily 09:15 IST (after all daily agents finish)
-    scheduler.add_job(
-        lambda: run_agent("zara", "morning_synthesis"),
-        CronTrigger(hour=9, minute=15, timezone="Asia/Kolkata"),
-        id="zara_synthesis", replace_existing=True
-    )
+        scheduler.add_job(
+            lambda agent=agent_name, task=task_type: run_agent(agent, task),
+            CronTrigger.from_crontab(cron_ist, timezone="Asia/Kolkata"),
+            id=f"{agent_name}_{cadence_type}",
+            replace_existing=True,
+        )
 
     return scheduler
+
+
+def log_schedule_matrix() -> None:
+    """Print the active schedule matrix so operator logs match runtime reality."""
+    for entry in load_schedule_matrix():
+        agent_name = entry["agent"].title()
+        cadence_type = entry.get("cadence_type", "event_driven")
+        cron_ist = entry.get("cron_ist") or "event-driven"
+        task_type = entry.get("task_type", cadence_type)
+        logger.info("   %s: %s | %s | %s", agent_name, cadence_type, cron_ist, task_type)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
@@ -431,14 +456,8 @@ if __name__ == "__main__":
     scheduler.start()
 
     logger.info("🤖 Autonomous AI employees online")
-    logger.info("   Maya:  daily 06:00 IST")
-    logger.info("   Arjun: daily 07:00 IST")
-    logger.info("   Kiran: daily 07:30 IST")
-    logger.info("   Priya: daily 08:00 IST")
-    logger.info("   Riya:  Mon/Wed/Fri 08:00 IST")
-    logger.info("   Sam:   Tue/Thu 08:30 IST")
-    logger.info("   Dev:   Monday 09:00 IST")
-    logger.info("   Zara:  daily 09:15 IST (synthesis)")
+    logger.info("Active schedule matrix (IST):")
+    log_schedule_matrix()
     logger.info("Press Ctrl+C to stop.")
 
     try:
