@@ -4768,3 +4768,54 @@ app.delete("/api/workspaces/:id/members/:userId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── MKG Endpoints ───────────────────────────────────────────────────────────
+
+// GET /api/mkg/:companyId — return the full MKG document for a company
+// Returns { mkg: { company_id, updated_at, positioning, icp, ... } }
+// If no mkg.json exists yet, returns an empty MKG envelope (all fields null).
+app.get("/api/mkg/:companyId", async (req, res) => {
+  const { companyId } = req.params;
+  if (!companyId?.trim()) {
+    return res.status(400).json({ error: "companyId required" });
+  }
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(companyId)) {
+    return res.status(400).json({ error: "invalid companyId" });
+  }
+  try {
+    const mkg = await MKGService.read(companyId);
+    res.json({ mkg });
+  } catch (err) {
+    console.error("GET /api/mkg error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// PATCH /api/mkg/:companyId — apply a field-level patch to the MKG
+// Body: { fieldName: { value, confidence, last_verified, source_agent, expires_at } }
+// Only the fields present in the body are updated; all other fields are preserved.
+// Returns { mkg: <updated full document> }
+app.patch("/api/mkg/:companyId", async (req, res) => {
+  const { companyId } = req.params;
+  const patch = req.body;
+  if (!companyId?.trim()) {
+    return res.status(400).json({ error: "companyId required" });
+  }
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(companyId)) {
+    return res.status(400).json({ error: "invalid companyId" });
+  }
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    return res.status(400).json({ error: "body must be a patch object { fieldName: { value, confidence, ... } }" });
+  }
+  try {
+    const updated = await MKGService.patch(companyId, patch);
+    res.json({ mkg: updated });
+  } catch (err) {
+    // MKGService.patch throws on invalid companyId (path traversal)
+    if (err.message?.includes("Invalid companyId")) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error("PATCH /api/mkg error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
