@@ -59,6 +59,7 @@ const VOICEBOT_KB_ROOT = join(__dirname, "data", "voicebot-kb");
 const VOICEBOT_CALLS_ROOT = join(__dirname, "data", "voicebot-calls");
 
 const VALID_AGENTS = new Set([
+  "veena",   // Company Intelligence — Phase 3
   "zara",
   "maya",
   "riya",
@@ -159,6 +160,19 @@ const AGENT_PROFILES = {
       "Turn strategic opportunities into scalable growth loops",
       "Bridge content, channel, and partner workflows into one operating system",
     ],
+  },
+  veena: {
+    title: "Company Intelligence",
+    personality:
+      "Methodical and evidence-first — reports only what the website confirms, flags all assumptions explicitly, and never invents data.",
+    executes: [
+      "Crawl company websites to bootstrap the Marketing Knowledge Graph with all 12 fields",
+      "Populate positioning, ICP, competitors, offers, messaging, channels, and funnel from public web signals",
+      "Trigger the sequential onboarding chain (isha, neel, zara) after initial MKG population",
+    ],
+    description: "Crawls company websites to bootstrap the Marketing Knowledge Graph with all 12 fields populated before any other agent runs.",
+    schedule: "Weekly Mon 06:00 IST",
+    writes_to_mkg: ["positioning", "icp", "competitors", "offers", "messaging", "channels", "funnel", "metrics", "baselines", "content_pillars", "campaigns", "insights"],
   },
 };
 const PORT = Number(process.env.BACKEND_PORT || 3008);
