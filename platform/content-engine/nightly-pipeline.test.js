@@ -5,6 +5,7 @@ import { createFixedClock } from "./data-pipeline-test-helpers.js";
 import {
   computeNextNightlyRun,
   createNightlyScheduler,
+  runNightlyAnomalySweep,
 } from "./backend-server.js";
 
 test("computeNextNightlyRun returns the next configured UTC window", () => {
@@ -42,4 +43,42 @@ test("nightly scheduler computes delay and invokes detector runner without sleep
   await scheduledCallback();
   assert.equal(runCount, 1);
   assert.equal(timeouts.length, 2);
+});
+
+test("runNightlyAnomalySweep invokes the detector for blended KPI companies on the target day", async () => {
+  const calls = [];
+  const client = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        order() {
+          return Promise.resolve({
+            data: [
+              { company_id: "acme" },
+              { company_id: "acme" },
+              { company_id: "globex" },
+            ],
+            error: null,
+          });
+        },
+      };
+    },
+  };
+
+  const result = await runNightlyAnomalySweep({
+    client,
+    clock: createFixedClock("2026-03-10T18:30:00.000Z"),
+    async detector(companyId, options) {
+      calls.push({ companyId, metricDate: options.metricDate });
+      return { companyId, anomalies: [] };
+    },
+    logger: { log() {}, warn() {}, error() {} },
+  });
+
+  assert.deepEqual(calls, [
+    { companyId: "acme", metricDate: "2026-03-10" },
+    { companyId: "globex", metricDate: "2026-03-10" },
+  ]);
+  assert.deepEqual(result.companyIds, ["acme", "globex"]);
 });

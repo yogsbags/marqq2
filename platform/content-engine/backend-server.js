@@ -36,6 +36,7 @@ import {
 import {
     clearArtifactsForCompany,
     deleteDuplicateCompaniesByWebsiteUrl,
+    getPipelineWriteClient,
     loadCompanies,
     loadCompanyByWebsiteUrl,
     loadCompanyWithArtifacts,
@@ -50,6 +51,8 @@ import {
   crawlCompanyForMKG,
   initializeMKGTemplate,
 } from "./veena-crawler.js";
+import { listCompanyKpis } from "./kpi-aggregator.js";
+import { detectCompanyAnomalies } from "./anomaly-detector.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -221,6 +224,33 @@ const MKG_TOP_LEVEL_FIELDS = [
   "insights",
 ];
 const PORT = Number(process.env.BACKEND_PORT || 3008);
+const KPI_ROUTE_FIELDS = [
+  "id",
+  "company_id",
+  "metric_date",
+  "source_scope",
+  "currency",
+  "spend",
+  "revenue",
+  "impressions",
+  "clicks",
+  "leads",
+  "conversions",
+  "ctr",
+  "cpc",
+  "cpl",
+  "cpa",
+  "roas",
+  "source_snapshot_ids",
+  "ingested_at",
+  "created_at",
+  "updated_at",
+];
+const NIGHTLY_ANOMALY_SCHEDULE_UTC =
+  process.env.CONTENT_ENGINE_NIGHTLY_SCHEDULE_UTC || "18:30"; // 18:30 UTC == 00:00 IST
+const KPI_DAYS_DEFAULT = 30;
+const KPI_DAYS_MIN = 1;
+const KPI_DAYS_MAX = 90;
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "" });
 const COMPANY_INTEL_GROQ_MODELS = [
   process.env.GROQ_COMPANY_INTEL_MODEL || "groq/compound",
@@ -2307,6 +2337,182 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+function pickSafeKpiApiRow(row) {
+  return KPI_ROUTE_FIELDS.reduce((safeRow, field) => {
+    if (field in row) safeRow[field] = row[field];
+    return safeRow;
+  }, {});
+}
+
+export function parseKpiDays(value) {
+  if (value === undefined || value === null || value === "") return KPI_DAYS_DEFAULT;
+  if (!/^\d+$/.test(String(value))) return null;
+
+  const days = Number(value);
+  if (!Number.isInteger(days) || days < KPI_DAYS_MIN || days > KPI_DAYS_MAX) {
+    return null;
+  }
+
+  return days;
+}
+
+export function createKpiRouteHandler(dependencies = {}) {
+  const listCompanyKpisImpl = dependencies.listCompanyKpisImpl || listCompanyKpis;
+
+  return async function handleGetCompanyKpis(req, res) {
+    const { companyId } = req.params;
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(companyId || "")) {
+      return res.status(400).json({ error: "invalid companyId" });
+    }
+
+    const days = parseKpiDays(req.query?.days);
+    if (days === null) {
+      return res.status(400).json({ error: `days must be an integer between ${KPI_DAYS_MIN} and ${KPI_DAYS_MAX}` });
+    }
+
+    try {
+      const rows = await listCompanyKpisImpl(companyId, { days });
+      return res.json({
+        companyId,
+        days,
+        rows: Array.isArray(rows) ? rows.map(pickSafeKpiApiRow) : [],
+      });
+    } catch (err) {
+      console.error("GET /api/kpis error:", err);
+      return res.status(500).json({ error: String(err?.message || err) });
+    }
+  };
+}
+
+export function parseNightlySchedule(value = NIGHTLY_ANOMALY_SCHEDULE_UTC) {
+  const match = String(value).trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!match) {
+    return { hour: 18, minute: 30, label: "18:30" };
+  }
+
+  return {
+    hour: Number(match[1]),
+    minute: Number(match[2]),
+    label: `${match[1].padStart(2, "0")}:${match[2]}`,
+  };
+}
+
+export function computeNextNightlyRun(now = new Date(), scheduleTime = NIGHTLY_ANOMALY_SCHEDULE_UTC) {
+  const schedule = parseNightlySchedule(scheduleTime);
+  const nextRun = new Date(now);
+  nextRun.setUTCHours(schedule.hour, schedule.minute, 0, 0);
+
+  if (nextRun <= now) {
+    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
+  }
+
+  return nextRun;
+}
+
+async function listNightlyCompanyIds(metricDate, dependencies = {}) {
+  const client = dependencies.client;
+  if (!client) {
+    throw new Error("Nightly anomaly sweep requires a pipeline client.");
+  }
+
+  const { data, error } = await client
+    .from("company_kpi_daily")
+    .select("company_id")
+    .eq("metric_date", metricDate)
+    .eq("source_scope", "blended")
+    .order("company_id", { ascending: true });
+
+  if (error) throw error;
+
+  return [...new Set((Array.isArray(data) ? data : []).map((row) => row.company_id).filter(Boolean))];
+}
+
+export async function runNightlyAnomalySweep(dependencies = {}) {
+  const client = dependencies.client;
+  if (!client) {
+    throw new Error("Nightly anomaly sweep requires a pipeline client.");
+  }
+
+  const clock = dependencies.clock || {
+    now: () => Date.now(),
+    toDate: () => new Date(),
+    iso: () => new Date().toISOString(),
+  };
+  const detector = dependencies.detector || detectCompanyAnomalies;
+  const logger = dependencies.logger || console;
+  const metricDate = (dependencies.metricDate || clock.iso()).slice(0, 10);
+  const companyIds = dependencies.companyIds || await listNightlyCompanyIds(metricDate, { client });
+  const results = [];
+
+  for (const companyId of companyIds) {
+    try {
+      results.push(await detector(companyId, {
+        ...dependencies,
+        client,
+        clock,
+        metricDate,
+      }));
+    } catch (error) {
+      logger.error?.(`[nightly-anomaly] failed for ${companyId}: ${error.message}`);
+    }
+  }
+
+  return {
+    metricDate,
+    companyIds,
+    runs: results,
+  };
+}
+
+export function createNightlyScheduler(dependencies = {}) {
+  const clock = dependencies.clock || {
+    now: () => Date.now(),
+    toDate: () => new Date(),
+    iso: () => new Date().toISOString(),
+  };
+  const logger = dependencies.logger || console;
+  const setTimeoutFn = dependencies.setTimeoutFn || setTimeout;
+  const clearTimeoutFn = dependencies.clearTimeoutFn || clearTimeout;
+  const scheduleTime = dependencies.scheduleTime || NIGHTLY_ANOMALY_SCHEDULE_UTC;
+  const runNow = dependencies.runNow || (() => runNightlyAnomalySweep(dependencies));
+  let timeoutId = null;
+  let nextRunAt = null;
+
+  const scheduleNext = () => {
+    const now = clock.toDate();
+    nextRunAt = computeNextNightlyRun(now, scheduleTime);
+    const delay = Math.max(0, nextRunAt.getTime() - now.getTime());
+    timeoutId = setTimeoutFn(async () => {
+      try {
+        await runNow();
+      } catch (error) {
+        logger.error?.(`[nightly-anomaly] run failed: ${error.message}`);
+      } finally {
+        scheduleNext();
+      }
+    }, delay);
+    logger.log?.(`[nightly-anomaly] next run scheduled for ${nextRunAt.toISOString()} (${scheduleTime} UTC)`);
+    return delay;
+  };
+
+  return {
+    start() {
+      if (timeoutId !== null) return nextRunAt;
+      scheduleNext();
+      return nextRunAt;
+    },
+    stop() {
+      if (timeoutId !== null) {
+        clearTimeoutFn(timeoutId);
+        timeoutId = null;
+      }
+    },
+    getState() {
+      return { nextRunAt, timeoutId };
+    },
+  };
+}
+
 const COMPANY_INTEL_ARTIFACT_TYPES = [
   "competitor_intelligence",
   "website_audit",
@@ -2330,6 +2536,8 @@ const COMPANY_INTEL_ARTIFACT_TYPES = [
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "content-engine" });
 });
+
+app.get("/api/kpis/:companyId", createKpiRouteHandler());
 
 // ── GET /api/agents/status ─────────────────────────────────────────────────────
 // Returns heartbeat/status.json (updated by Python scheduler after each run).
@@ -3798,6 +4006,26 @@ function attachTwilioMediaStreamServer(server) {
 }
 
 let server = null;
+let nightlyScheduler = null;
+
+function startBackendRuntime() {
+  if (server) return { server, nightlyScheduler };
+
+  server = app.listen(PORT, () => {
+    console.log(`[content-engine] Listening on port ${PORT}`);
+    startWorker();
+    if (!nightlyScheduler) {
+      nightlyScheduler = createNightlyScheduler({
+        client: getPipelineWriteClient(),
+        logger: console,
+      });
+    }
+    nightlyScheduler.start();
+  });
+  attachTwilioMediaStreamServer(server);
+
+  return { server, nightlyScheduler };
+}
 
 // ── GET /api/integrations ──────────────────────────────────────────────────
 // Stub endpoint — returns static connector catalog until live integrations are wired.
@@ -5347,3 +5575,9 @@ app.patch("/api/mkg/:companyId", async (req, res) => {
     res.status(500).json({ error: String(err) });
   }
 });
+
+export { app, startBackendRuntime };
+
+if (IS_MAIN_MODULE) {
+  startBackendRuntime();
+}
