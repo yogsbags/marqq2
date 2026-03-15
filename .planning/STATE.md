@@ -37,7 +37,7 @@ Phase: 8 of 8 (Outcome Ledger)
 Plan: 3 of 3 complete in current phase (08-01, 08-02, 08-03 complete)
 Status: Phase 8 complete, ready for verification
 Last Activity: 2026-03-10
-Last activity: 2026-03-15 - Completed quick task 2: Wire Composio connector endpoints and OAuth flow
+Last activity: 2026-03-16 - Completed quick task 4: Build n8n workflows + inject automation data into agent prompts
 
 Progress: [██████████] 100%
 
@@ -146,9 +146,10 @@ Recent decisions affecting current work:
 | 1 | Build Automation Registry system for Marqq agents | 2026-03-15 | accb6ca | [1-build-automation-registry-system-for-mar](./quick/1-build-automation-registry-system-for-mar/) |
 | 2 | Wire Composio connector endpoints and OAuth flow in AccountsTab | 2026-03-15 | c958f45 | [2-wire-composio-connector-endpoints-and-oa](./quick/2-wire-composio-connector-endpoints-and-oa/) |
 | 3 | Consolidate workspace/company — make workspace.id the single source of truth for company_id | 2026-03-16 | f3c4a37 | [3-consolidate-workspace-company-make-works](./quick/3-consolidate-workspace-company-make-works/) |
+| 4 | Build n8n workflows + inject automation data into agent prompts | 2026-03-16 | ab34e73 | platform/content-engine/automations/ |
 
 ## Session Continuity
 
 Last session: 2026-03-16T00:00:00Z
-Stopped at: Completed quick task 3: Consolidate workspace/company — workspace.id as single source of truth
+Stopped at: Completed quick task 4: Build n8n workflows + inject automation data into agent prompts
 Resume file: None
