@@ -147,7 +147,7 @@ Recent decisions affecting current work:
 | 2 | Wire Composio connector endpoints and OAuth flow in AccountsTab | 2026-03-15 | c958f45 | [2-wire-composio-connector-endpoints-and-oa](./quick/2-wire-composio-connector-endpoints-and-oa/) |
 | 3 | Consolidate workspace/company — make workspace.id the single source of truth for company_id | 2026-03-16 | f3c4a37 | [3-consolidate-workspace-company-make-works](./quick/3-consolidate-workspace-company-make-works/) |
 | 4 | Build n8n workflows + inject automation data into agent prompts | 2026-03-16 | ab34e73 | platform/content-engine/automations/ |
-| 5 | Custom n8n MCP server with create_workflow tool | 2026-03-16 | [commit-hash] | platform/mcp-servers/n8n/ |
+| 5 | Custom n8n MCP server with create_workflow tool | 2026-03-16 | 14a3b36 | platform/mcp-servers/n8n/ |
 
 ## Session Continuity
 
