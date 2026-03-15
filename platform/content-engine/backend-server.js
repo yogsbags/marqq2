@@ -790,6 +790,18 @@ async function finalizeAgentRunResponse({
     );
   }
 
+  if (rawContract.scheduled_automations?.length && companyId) {
+    const { upsertScheduledAutomation } = await import('./automations/registry.js');
+    for (const trigger of rawContract.scheduled_automations) {
+      try {
+        await upsertScheduledAutomation(companyId, trigger, rawContract.agent, supabase);
+        console.info('[automations] Scheduled automation upserted:', trigger.automation_id, trigger.cron);
+      } catch (e) {
+        console.warn('[automations] Failed to upsert scheduled automation:', e.message);
+      }
+    }
+  }
+
   res.write(`data: ${JSON.stringify({ contract: rawContract })}\n\n`);
   res.write("data: [DONE]\n\n");
   res.end();
@@ -4001,6 +4013,7 @@ Replace ALL placeholder values with your actual outputs.
 - artifact.data: must contain the structured artifact content for the requested type
 - context_patch.patch: use only valid MKG field names: positioning, icp, competitors, offers, messaging, channels, funnel, metrics, baselines, content_pillars, campaigns, insights
 - automation_triggers: array of { "automation_id": "<id from registry>", "params": {}, "reason": "<why>" } — only include if you need live data or analysis from an automation
+- "scheduled_automations": recurring jobs to schedule, e.g. [{ "automation_id": "fetch_meta_ads", "cron": "0 9 * * *", "params": { "ad_account_id": "act_123" }, "reason": "Daily morning pull" }]. Cron patterns: "0 9 * * *" daily 9am, "0 */6 * * *" every 6h, "*/15 * * * *" every 15min, "0 9 * * 1" weekly Mon 9am. Use [] if no schedule needed.
 - The JSON must be valid JSON (no trailing commas, no comments)
 `;
 
@@ -4053,6 +4066,18 @@ Replace ALL placeholder values with your actual outputs.
     await executeAutomationTriggers(contract, companyId).catch(err =>
       console.warn('[automations] runAgentForArtifact triggers failed:', err)
     );
+  }
+
+  if (contract.scheduled_automations?.length && companyId) {
+    const { upsertScheduledAutomation } = await import('./automations/registry.js');
+    for (const trigger of contract.scheduled_automations) {
+      try {
+        await upsertScheduledAutomation(companyId, trigger, contract.agent, supabase);
+        console.info('[automations] Scheduled automation upserted:', trigger.automation_id, trigger.cron);
+      } catch (e) {
+        console.warn('[automations] Failed to upsert scheduled automation:', e.message);
+      }
+    }
   }
 
   return contract;
@@ -4548,6 +4573,7 @@ Replace ALL placeholder values with your actual outputs.
 - tasks_created: array of { "task_type": "...", "agent_name": "...", "description": "...", "priority": "low|medium|high" }
 - outcome_prediction: optional — include if you can predict a measurable metric change, otherwise keep null
 - automation_triggers: array of { "automation_id": "<id from registry>", "params": {}, "reason": "<why>" } — only include if you need live data or analysis from an automation
+- "scheduled_automations": recurring jobs to schedule, e.g. [{ "automation_id": "fetch_meta_ads", "cron": "0 9 * * *", "params": { "ad_account_id": "act_123" }, "reason": "Daily morning pull" }]. Cron patterns: "0 9 * * *" daily 9am, "0 */6 * * *" every 6h, "*/15 * * * *" every 15min, "0 9 * * 1" weekly Mon 9am. Use [] if no schedule needed.
 - The JSON must be valid JSON (no trailing commas, no comments)
 `;
 
@@ -4701,6 +4727,21 @@ app.get('/api/automations/runs', async (req, res) => {
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
     res.json({ runs: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/automations/run-due — called by n8n Schedule Runner every 15 min
+app.post('/api/automations/run-due', async (req, res) => {
+  const secret = req.headers['x-marqq-secret'] || req.body?.secret;
+  if (process.env.AUTOMATIONS_RUN_SECRET && secret !== process.env.AUTOMATIONS_RUN_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const { runDueScheduledAutomations } = await import('./automations/registry.js');
+    const results = await runDueScheduledAutomations(supabase);
+    res.json({ ran: results.length, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

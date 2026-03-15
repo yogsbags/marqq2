@@ -267,3 +267,189 @@ export async function executeAutomationTriggers(contract, companyId) {
 
   return collected;
 }
+
+/**
+ * computeNextRun — parses a cron string (5 fields) and returns the next Date.
+ *
+ * Supported patterns:
+ *   "*/15 * * * *"   → next 15-min boundary from now
+ *   "0 */N * * *"    → next N-hour boundary (N can be 1-23)
+ *   "0 H * * *"      → today at H:00 UTC if not past, else tomorrow at H:00
+ *   "0 H * * DOW"    → next occurrence of day-of-week (0=Sun) at H:00 UTC
+ *   anything else    → now + 1 hour
+ */
+export function computeNextRun(cronStr) {
+  const now = new Date();
+  const parts = (cronStr || '').trim().split(/\s+/);
+  if (parts.length !== 5) {
+    return new Date(now.getTime() + 60 * 60 * 1000);
+  }
+
+  const [min, hour, dom, month, dow] = parts;
+
+  // */15 * * * * — every 15 minutes
+  if (min.startsWith('*/') && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    const interval = parseInt(min.slice(2), 10);
+    if (!isNaN(interval) && interval > 0) {
+      const ms = interval * 60 * 1000;
+      const next = new Date(Math.ceil(now.getTime() / ms) * ms);
+      return next;
+    }
+  }
+
+  // 0 */N * * * — every N hours
+  if (min === '0' && hour.startsWith('*/') && dom === '*' && month === '*' && dow === '*') {
+    const n = parseInt(hour.slice(2), 10);
+    if (!isNaN(n) && n > 0) {
+      const ms = n * 60 * 60 * 1000;
+      const next = new Date(Math.ceil(now.getTime() / ms) * ms);
+      return next;
+    }
+  }
+
+  // 0 H * * DOW — weekly on specific day-of-week at H:00 UTC
+  if (min === '0' && /^\d+$/.test(hour) && dom === '*' && month === '*' && /^\d+$/.test(dow)) {
+    const h = parseInt(hour, 10);
+    const targetDow = parseInt(dow, 10);
+    const candidate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, 0, 0, 0));
+    let daysAhead = (targetDow - now.getUTCDay() + 7) % 7;
+    if (daysAhead === 0 && candidate <= now) {
+      daysAhead = 7;
+    }
+    candidate.setUTCDate(candidate.getUTCDate() + daysAhead);
+    return candidate;
+  }
+
+  // 0 H * * * — daily at H:00 UTC
+  if (min === '0' && /^\d+$/.test(hour) && dom === '*' && month === '*' && dow === '*') {
+    const h = parseInt(hour, 10);
+    const candidate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, 0, 0, 0));
+    if (candidate <= now) {
+      candidate.setUTCDate(candidate.getUTCDate() + 1);
+    }
+    return candidate;
+  }
+
+  // fallback — now + 1 hour
+  return new Date(now.getTime() + 60 * 60 * 1000);
+}
+
+/**
+ * upsertScheduledAutomation — creates or updates a scheduled automation row in Supabase.
+ *
+ * @param {string} companyId
+ * @param {{ automation_id: string, cron: string, params?: object }} trigger
+ * @param {string|null} agentName
+ * @param {object} supabaseClient - Supabase JS client
+ * @returns {Promise<{ automation_id: string, cron: string, next_run: string }>}
+ */
+export async function upsertScheduledAutomation(companyId, trigger, agentName, supabaseClient) {
+  const entry = REGISTRY.find((r) => r.id === trigger.automation_id);
+  if (!entry) {
+    throw new Error('Unknown automation_id: ' + trigger.automation_id);
+  }
+
+  const nextRun = computeNextRun(trigger.cron);
+
+  const { error } = await supabaseClient
+    .from('scheduled_automations')
+    .upsert(
+      {
+        company_id: companyId,
+        automation_id: trigger.automation_id,
+        cron: trigger.cron,
+        params: trigger.params || {},
+        active: true,
+        next_run: nextRun.toISOString(),
+        updated_at: new Date().toISOString(),
+        created_by_agent: agentName || null,
+      },
+      { onConflict: 'company_id,automation_id' }
+    );
+
+  if (error) {
+    throw new Error('upsertScheduledAutomation DB error: ' + error.message);
+  }
+
+  return {
+    automation_id: trigger.automation_id,
+    cron: trigger.cron,
+    next_run: nextRun.toISOString(),
+  };
+}
+
+/**
+ * runDueScheduledAutomations — queries scheduled_automations for rows with next_run <= now,
+ * executes each, updates last_run and next_run, and logs to automation_runs.
+ *
+ * @param {object} supabaseClient - Supabase JS client
+ * @returns {Promise<Array<{ company_id, automation_id, status }>>}
+ */
+export async function runDueScheduledAutomations(supabaseClient) {
+  const now = new Date().toISOString();
+
+  const { data: dueRows, error: queryErr } = await supabaseClient
+    .from('scheduled_automations')
+    .select('*')
+    .eq('active', true)
+    .lte('next_run', now);
+
+  if (queryErr) {
+    throw new Error('runDueScheduledAutomations query error: ' + queryErr.message);
+  }
+
+  const collected = [];
+
+  for (const row of dueRows || []) {
+    const runId = Math.random().toString(36).slice(2);
+    let result;
+
+    try {
+      result = await executeAutomation(
+        { automation_id: row.automation_id, params: row.params },
+        row.company_id,
+        runId
+      );
+    } catch (execErr) {
+      result = { status: 'error', error: execErr.message };
+    }
+
+    const nextRun = computeNextRun(row.cron);
+    const runNow = new Date().toISOString();
+
+    // Update the scheduled row
+    await supabaseClient
+      .from('scheduled_automations')
+      .update({
+        last_run: runNow,
+        next_run: nextRun.toISOString(),
+        updated_at: runNow,
+      })
+      .eq('id', row.id);
+
+    // Log to automation_runs
+    const registryEntry = REGISTRY.find((r) => r.id === row.automation_id);
+    try {
+      await supabaseClient.from('automation_runs').insert({
+        company_id: row.company_id || null,
+        run_id: runId,
+        automation_id: row.automation_id,
+        automation_name: registryEntry?.name || row.automation_id,
+        status: result.status || 'completed',
+        params: row.params || {},
+        result,
+        triggered_by_agent: row.created_by_agent || null,
+      });
+    } catch (insertErr) {
+      console.warn('[automations] Failed to insert automation_run for scheduled row:', insertErr.message);
+    }
+
+    collected.push({
+      company_id: row.company_id,
+      automation_id: row.automation_id,
+      status: result.status || 'completed',
+    });
+  }
+
+  return collected;
+}
