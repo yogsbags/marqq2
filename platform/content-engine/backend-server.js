@@ -14,6 +14,7 @@
 
 import express from "express";
 import Groq from "groq-sdk";
+import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleAuth } from "google-auth-library";
 import { randomUUID } from "node:crypto";
@@ -31,12 +32,14 @@ import {
     normalizeArtifact,
     registerArtifactCallback,
     registerArtifactFailCallback,
+    saveCompanyIntelArtifactTrace,
     startWorker,
 } from "./queue.js";
 import {
     clearArtifactsForCompany,
     deleteDuplicateCompaniesByWebsiteUrl,
     getPipelineWriteClient,
+    getSupabaseWriteClient,
     loadCompanies,
     loadCompanyByWebsiteUrl,
     loadCompanyWithArtifacts,
@@ -55,6 +58,7 @@ import { HooksEngine } from "./hooks-engine.js";
 import { listCompanyKpis } from "./kpi-aggregator.js";
 import { detectCompanyAnomalies } from "./anomaly-detector.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
+import { REGISTRY, executeAutomationTriggers } from "./automations/registry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -69,6 +73,14 @@ const AGENTS_DIR = process.env.TORQQ_AGENTS_DIR
   : join(CREWAI_DIR, "agents");
 const CTX_DIR = join(CREWAI_DIR, "client_context");
 const DEPLOYMENT_QUEUE_PATH = join(CREWAI_DIR, "deployments", "queue.json");
+const DEPLOYMENT_SCHEDULER_INTERVAL_MS = Math.max(
+  15_000,
+  Number(process.env.AGENT_DEPLOYMENT_SCHEDULER_INTERVAL_MS || 60_000),
+);
+const DEFAULT_MONITOR_RECURRENCE_MINUTES = Math.max(
+  15,
+  Number(process.env.AGENT_MONITOR_RECURRENCE_MINUTES || 1440),
+);
 const COMPANY_INTEL_KB_ROOT = join(__dirname, "data", "company-intel-kb");
 const VOICEBOT_KB_ROOT = join(__dirname, "data", "voicebot-kb");
 const VOICEBOT_CALLS_ROOT = join(__dirname, "data", "voicebot-calls");
@@ -87,24 +99,24 @@ const VALID_AGENTS = new Set([
   "kiran",
   "sam",
 ]);
-// Maps each company-intel artifact type to the agent that owns it
-const ARTIFACT_AGENT_MAP = {
-  competitor_intelligence: { agent: "priya", taskType: "competitor_move_analysis" },
-  website_audit:           { agent: "veena", taskType: "company_intel_bootstrap" },
-  opportunities:           { agent: "isha",  taskType: "market_landscape_bootstrap" },
-  client_profiling:        { agent: "isha",  taskType: "market_landscape_bootstrap" },
-  partner_profiling:       { agent: "isha",  taskType: "market_landscape_bootstrap" },
-  icps:                    { agent: "isha",  taskType: "market_landscape_bootstrap" },
-  social_calendar:         { agent: "kiran", taskType: "daily_lifecycle_check" },
-  marketing_strategy:      { agent: "neel",  taskType: "strategy_bootstrap" },
-  positioning_messaging:   { agent: "neel",  taskType: "strategy_bootstrap" },
-  sales_enablement:        { agent: "sam",   taskType: "weekly_messaging_review" },
-  pricing_intelligence:    { agent: "neel",  taskType: "strategy_bootstrap" },
-  content_strategy:        { agent: "riya",  taskType: "weekly_content_brief" },
-  channel_strategy:        { agent: "zara",  taskType: "distribution_bootstrap" },
-  lookalike_audiences:     { agent: "isha",  taskType: "market_landscape_bootstrap" },
-  lead_magnets:            { agent: "tara",  taskType: "offer_friction_review" },
-};
+// Company-intel artifacts use rubric-controlled direct generation so the UI gets a stable schema.
+const ARTIFACT_AGENT_MAP = {};
+const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+const COMPANY_PROFILE_PRIMARY_PROVIDER = (
+  process.env.COMPANY_PROFILE_PRIMARY_PROVIDER ||
+  process.env.COMPANY_INTEL_PRIMARY_PROVIDER ||
+  "groq"
+).toLowerCase();
+const COMPANY_PROFILE_GEMINI_MODEL =
+  process.env.COMPANY_PROFILE_GEMINI_MODEL ||
+  process.env.COMPANY_INTEL_GEMINI_MODEL ||
+  process.env.GEMINI_PRIMARY_MODEL ||
+  "gemini-3.1-pro-preview";
+const GEMINI_THINKING_LEVEL =
+  process.env.GEMINI_THINKING_LEVEL ||
+  process.env.COMPANY_INTEL_GEMINI_THINKING_LEVEL ||
+  "medium";
 
 function buildAgentQueryForArtifact(type, companyName, inputs) {
   const ctx = companyName
@@ -113,6 +125,19 @@ function buildAgentQueryForArtifact(type, companyName, inputs) {
   const goal = inputs?.goal ? ` Goal: ${inputs.goal}.` : "";
   const geo  = inputs?.geo  ? ` Market: ${inputs.geo}.`  : "";
   const notes = inputs?.notes ? ` Notes: ${inputs.notes}.` : "";
+  const geoFocus = Array.isArray(inputs?.companyProfile?.geoFocus)
+    ? inputs.companyProfile.geoFocus.map((value) => String(value).toLowerCase())
+    : [];
+  const websiteUrl = typeof inputs?.websiteUrl === "string" ? inputs.websiteUrl.toLowerCase() : "";
+  const marketGeo = typeof inputs?.geo === "string" ? inputs.geo.toLowerCase() : "";
+  const indiaContext =
+    geoFocus.includes("india") ||
+    marketGeo.includes("india") ||
+    websiteUrl.endsWith(".in") ||
+    websiteUrl.includes(".in/");
+  const currencyGuard = indiaContext
+    ? " Use INR / Rs / ₹ as the default currency and benchmark against Indian market pricing unless a different currency is explicitly required by the source context."
+    : "";
 
   const templates = {
     competitor_intelligence: `${ctx}Scan for competitor moves, narrative shifts, pricing changes, and market threats. Identify top 3-5 direct competitors and surface actionable competitive intelligence. Return your full analysis plus a structured competitor_intelligence artifact.`,
@@ -125,7 +150,7 @@ function buildAgentQueryForArtifact(type, companyName, inputs) {
     marketing_strategy:      `${ctx}Develop a comprehensive marketing strategy covering positioning, target segments, key messages, channel mix, and 90-day priorities. Return a structured marketing_strategy artifact.`,
     positioning_messaging:   `${ctx}Write a clear positioning statement, core value proposition, and message hierarchy for each ICP segment. Return a structured positioning_messaging artifact.`,
     sales_enablement:        `${ctx}Create sales enablement content: objection handling guide, competitive battlecards, and proof points by persona. Return a structured sales_enablement artifact.`,
-    pricing_intelligence:    `${ctx}Analyse pricing strategy, competitive price positioning, and packaging or bundling recommendations. Return a structured pricing_intelligence artifact.`,
+    pricing_intelligence:    `${ctx}Analyse pricing strategy, competitive price positioning, and packaging or bundling recommendations.${currencyGuard} Return a structured pricing_intelligence artifact.`,
     content_strategy:        `${ctx}Define a content strategy: pillar themes, formats, distribution channels, and a quarterly editorial calendar framework. Return a structured content_strategy artifact.`,
     channel_strategy:        `${ctx}Recommend the optimal channel mix and distribution plan based on ICP and competitive context. Return a structured channel_strategy artifact.`,
     lookalike_audiences:     `${ctx}Define lookalike audience profiles for paid and organic targeting based on best-fit customer patterns. Return a structured lookalike_audiences artifact.`,
@@ -134,6 +159,203 @@ function buildAgentQueryForArtifact(type, companyName, inputs) {
 
   const base = templates[type] || `${ctx}Generate a comprehensive ${type} analysis.`;
   return base + goal + geo + notes;
+}
+
+async function generateJsonWithGemini({ model, systemPrompt, userContent, temperature, maxOutputTokens, label }) {
+  if (!gemini) throw new Error("Gemini API key is not configured");
+
+  console.log(`[Gemini] Trying model "${model}" for ${label}...`);
+  const response = await gemini.models.generateContent({
+    model,
+    contents: [
+      `System instructions:\n${systemPrompt}`,
+      `User input:\n${userContent}`,
+      "Return exactly one valid JSON object and no markdown."
+    ].join("\n\n"),
+    config: {
+      temperature,
+      maxOutputTokens,
+      responseMimeType: "application/json",
+      thinkingConfig: {
+        thinkingLevel: GEMINI_THINKING_LEVEL,
+      },
+    },
+  });
+
+  const raw = typeof response.text === "function" ? await response.text() : response.text;
+  const candidate = extractJsonObject(raw || "");
+  if (!candidate) {
+    throw new Error(`Gemini model "${model}" did not return valid JSON for ${label}`);
+  }
+  console.log(`[Gemini] Model "${model}" succeeded for ${label}.`);
+  return JSON.parse(candidate);
+}
+
+async function generateAgentRunWithGemini({ model, systemPrompt, userQuery }) {
+  if (!gemini) throw new Error("Gemini API key is not configured");
+
+  console.log(`[Gemini] Trying model "${model}" for agent run...`);
+  const response = await gemini.models.generateContent({
+    model,
+    contents: [
+      `System instructions:\n${systemPrompt}`,
+      `User request:\n${userQuery}`,
+    ].join("\n\n"),
+    config: {
+      temperature: 0.4,
+      thinkingConfig: {
+        thinkingLevel: GEMINI_THINKING_LEVEL,
+      },
+    },
+  });
+
+  const text = typeof response.text === "function" ? await response.text() : response.text;
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    throw new Error(`Gemini model "${model}" returned empty output for agent run`);
+  }
+  console.log(`[Gemini] Model "${model}" succeeded for agent run.`);
+  return trimmed;
+}
+
+function hasUsableAgentProse(fullText) {
+  const prose = String(fullText || "").split("---CONTRACT---")[0].trim();
+  return prose.length >= 120 && /[A-Za-z]/.test(prose);
+}
+
+function sanitizeAgentRunFullText(name, taskType, fullText) {
+  const text = String(fullText || "");
+  const contractIndex = text.indexOf("---CONTRACT---");
+  const prose = contractIndex >= 0 ? text.slice(0, contractIndex) : text;
+  const contract = contractIndex >= 0 ? text.slice(contractIndex) : "";
+
+  let sanitized = prose;
+
+  if (name === "zara" && taskType === "distribution_health_check") {
+    sanitized = sanitized
+      .replace(
+        /\*\*1\.\s*Recent Agent Activity\*\*[\s\S]*?(?=\*\*2\.|\*\*Top 3 Priorities|\*\*3\.)/i,
+        "**1. Recent Agent Activity**\n- No verified recent agent activity available in current context.\n\n",
+      )
+      .replace(
+        /\*\*2\.\s*Market[\s\S]*?(?=\*\*3\.|\*\*Top 3 Priorities)/i,
+        "**2. Watch Items (from current company context)**\n- Watch for competitor up-market positioning changes before changing channel mix.\n- Validate search-demand shifts with real SEO or search-console data before reallocating spend.\n- Validate nurture drop-off or lifecycle friction with real CRM/email metrics before changing lifecycle sequences.\n\n",
+      )
+      .replace(/\bobserved today\b/gi, "current-context watch items")
+      .replace(/\bverified\b/gi, "context-grounded");
+  }
+
+  if (name === "kiran" && taskType === "daily_lifecycle_check") {
+    sanitized = sanitized
+      .replace(/\|[^\n]*\|[^\n]*\n(?:\|[^\n]*\|[^\n]*\n)+/g, "")
+      .replace(/\*\*Retention & Social.?Engagement Snapshot\*\*[\s\S]*?(?=\*\*Top Conversation Angles\*\*)/i, "");
+  }
+
+  return `${sanitized.trim()}${contract ? `\n\n${contract.trim()}` : ""}`;
+}
+
+function buildAgentRunGuardrails(name, taskType) {
+  const shared = [
+    "Write for the end user, not for internal review.",
+    "Do not include chain-of-thought, hidden reasoning, or long 'reasoning summary' sections.",
+    "Start with the answer or deliverable immediately.",
+    "Use concise section headers only when they improve readability.",
+    "Do not wrap the whole response in markdown tables unless the user explicitly asked for a table.",
+    "If source data is missing, say exactly what is missing instead of inventing specifics.",
+    "Do not fabricate competitor moves, campaign copy, agent activity, KPI values, search volume, or proof points.",
+    "If you must provide an example because source material is missing, label it explicitly as a sample and keep it separate from factual findings.",
+    "Before the contract block, always include substantive user-facing prose. Do not return only JSON or only the contract.",
+  ];
+
+  const agentSpecific = {
+    priya: [
+      "Only report competitor moves or threats that are grounded in provided company context, saved artifacts, or explicit public-web evidence.",
+      "If no verified competitor move is available, say 'No verified recent competitor move found from current context' and continue with gaps and watch items.",
+      "Never return an empty competitor section.",
+    ],
+    sam: [
+      "Audit only real copy when it is present in context.",
+      "If exact copy is missing, say that the audit is limited and provide optional sample rewrites in a separate 'Sample rewrite' section.",
+      "Do not present invented original copy as if it came from the company.",
+    ],
+    zara: [
+      "Do not fabricate agent activity, market signals, or channel performance.",
+      "If today's activity or signal data is unavailable, say that explicitly and shift to a recommended action brief based on current company context.",
+      "Do not imply that agent activity happened today unless the activity is explicitly present in current context.",
+      "If recent agent activity is not explicitly present, write exactly: 'No verified recent agent activity available in current context.'",
+      "If a market signal is not explicitly verified, label it as a watch item, not as an observed event.",
+      "Do not return the response as raw JSON.",
+      "Do not use words like 'verified', 'observed', 'latest', 'today', or percentage deltas unless those facts are explicitly present in current context.",
+      "If search-trend, CRM, email, or channel metrics are not explicitly present, omit them rather than estimating them.",
+    ],
+    dev: [
+      "Never invent KPI baselines, ROAS, CPA, spend, conversion rate, or variance numbers.",
+      "If exact KPI data is not available, respond with 'Missing KPI dataset for verification' and list the minimum data needed.",
+      "Do not use hypothetical numbers in the main output.",
+    ],
+    arjun: [
+      "Never invent predicted or actual KPI values.",
+      "If verified performance data is missing, respond with 'Missing outcome verification dataset' and list the required inputs.",
+      "Do not score prediction accuracy without real observed metrics.",
+    ],
+    isha: [
+      "Prefer crisp bullet points over long narrative explanation.",
+      "Tie each market signal back to the company context in one sentence.",
+    ],
+    kiran: [
+      "Do not include long reasoning walkthroughs.",
+      "Return the briefing directly: conversation angles, objections, responses, and script outline.",
+      "Keep the response under 700 words before the contract block.",
+      "Use exactly these sections in order: 'Top Conversation Angles', 'Likely Objections & Responses', 'Call Script Outline'.",
+      "Each section must use short bullets, not tables.",
+      "Do not include a reasoning, analysis, or snapshot section before the briefing.",
+    ],
+    neel: [
+      "Avoid long reasoning preambles.",
+      "Lead with the positioning, ICP, channel split, and 90-day plan.",
+    ],
+    tara: [
+      "Lead with the deliverable itself, not the rationale table.",
+    ],
+    maya: [
+      "Keep the preamble short and spend tokens on the actual SEO deliverables.",
+    ],
+  };
+
+  const taskSpecific = {
+    daily_competitor_scan: [
+      "Competitor scans must prefer verified observations over broad market generalities.",
+    ],
+    distribution_health_check: [
+      "When recent activity data is missing, provide a concise action brief instead of a fabricated status digest.",
+      "Do not present synthetic timestamps, synthetic activity logs, or synthetic metric deltas as facts.",
+      "For the 'Recent Agent Activity' section, include only items explicitly present in current context; otherwise output exactly one bullet: 'No verified recent agent activity available in current context.'",
+      "For the 'Market Signals' section, include only signals explicitly supported by current context; otherwise convert them into 'watch items' with that label.",
+    ],
+    daily_lifecycle_check: [
+      "Return a concise operator-ready briefing, not a diagnostic essay.",
+      "If lifecycle metrics are missing, note the gap in one bullet and continue with context-grounded call angles only.",
+    ],
+    nightly_kpi_watch: [
+      "KPI watch outputs require real metric inputs; without them, return a data-gap response instead of analysis.",
+    ],
+    weekly_outcome_verification: [
+      "Outcome verification requires actual and predicted values; without both, return a data-gap response instead of a score.",
+    ],
+    audience_profiles: [
+      "For B2B companies, define ICPs using firmographics such as company size, team maturity, function ownership, workflow complexity, or digital maturity.",
+      "Do not use consumer wealth tiers, net-worth bands, family-office language, HNI/UHNI framing, or investor personas unless the selected company explicitly operates in wealth or investment services.",
+      "If the company profile points to software, AI, SaaS, services, or B2B solutions, keep the ICPs anchored to business buyers and operational use cases.",
+    ],
+  };
+
+  const lines = [
+    "## Response Guardrails",
+    ...shared.map((item) => `- ${item}`),
+    ...(agentSpecific[name] || []).map((item) => `- ${item}`),
+    ...(taskSpecific[taskType] || []).map((item) => `- ${item}`),
+  ];
+  return `\n\n${lines.join("\n")}`;
 }
 
 const AGENT_PROFILES = {
@@ -320,6 +542,19 @@ const AGENT_PLAN_GROQ_MODELS = [
   process.env.GROQ_AGENT_PLAN_MODEL || "groq/compound",
   "llama-3.3-70b-versatile",
 ];
+const AGENT_RUN_GROQ_MODELS = [
+  process.env.GROQ_AGENT_RUN_MODEL || "groq/compound",
+  "llama-3.3-70b-versatile",
+];
+const AGENT_RUN_PRIMARY_PROVIDER = (
+  process.env.AGENT_RUN_PRIMARY_PROVIDER ||
+  process.env.COMPANY_INTEL_PRIMARY_PROVIDER ||
+  "groq"
+).toLowerCase();
+const AGENT_RUN_GEMINI_MODEL =
+  process.env.AGENT_RUN_GEMINI_MODEL ||
+  process.env.GEMINI_PRIMARY_MODEL ||
+  "gemini-3.1-pro-preview";
 const STALE_DEPLOYMENT_TIMEOUT_MS =
   Number(process.env.TORQQ_DEPLOYMENT_STALE_SECONDS || 1800) * 1000;
 const SARVAM_API_BASE = process.env.SARVAM_API_BASE || "https://api.sarvam.ai";
@@ -547,6 +782,12 @@ async function finalizeAgentRunResponse({
     createMissingDataTask(rawContract),
     writeTasksCreated(rawContract),
   ]);
+
+  if (rawContract.automation_triggers?.length) {
+    await executeAutomationTriggers(rawContract, companyId).catch(err =>
+      console.error('[automations] executeAutomationTriggers failed:', err)
+    );
+  }
 
   res.write(`data: ${JSON.stringify({ contract: rawContract })}\n\n`);
   res.write("data: [DONE]\n\n");
@@ -2307,6 +2548,27 @@ async function createAgentNotification(notification) {
   }
 }
 
+async function resolveDeploymentNotificationUserId(deployment) {
+  const workspaceId =
+    typeof deployment?.workspaceId === "string" && deployment.workspaceId.trim()
+      ? deployment.workspaceId.trim()
+      : null;
+  if (!workspaceId || !supabaseAdminClient) return null;
+
+  try {
+    const { data, error } = await supabaseAdminClient
+      .from("workspace_members")
+      .select("user_id, role")
+      .eq("workspace_id", workspaceId)
+      .order("role", { ascending: true });
+    if (error) return null;
+    const owner = (data || []).find((row) => row.role === "owner");
+    return owner?.user_id || data?.[0]?.user_id || null;
+  } catch {
+    return null;
+  }
+}
+
 const EMPTY_CONTEXT = (ref = "") => ({
   userId: ref, workspaceId: ref,
   company: "", websiteUrl: "", industry: "", icp: "", competitors: "", primaryGoal: "", goals: "", campaigns: "", keywords: "",
@@ -3505,6 +3767,8 @@ app.post("/api/agents/deployments", async (req, res) => {
     bullets,
     tasks,
     scheduleMode,
+    recurrenceMinutes,
+    runPrompt,
     source = "gtm-wizard",
   } = req.body ?? {};
 
@@ -3517,6 +3781,7 @@ app.post("/api/agents/deployments", async (req, res) => {
 
   try {
     const queue = await readDeploymentQueue();
+    const isRecurringMonitor = String(scheduleMode || "") === "monitor";
     const entry = {
       id: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       agentName,
@@ -3529,14 +3794,71 @@ app.post("/api/agents/deployments", async (req, res) => {
       bullets: Array.isArray(bullets) ? bullets : [],
       tasks: Array.isArray(tasks) ? tasks : [],
       scheduleMode: typeof scheduleMode === "string" && scheduleMode.trim() ? scheduleMode.trim() : null,
+      recurrenceMinutes: isRecurringMonitor ? Math.max(15, Number(recurrenceMinutes) || DEFAULT_MONITOR_RECURRENCE_MINUTES) : null,
+      runPrompt: typeof runPrompt === "string" ? runPrompt : "",
       source,
-      status: "pending",
+      status: isRecurringMonitor ? "active" : "pending",
       createdAt: new Date().toISOString(),
-      scheduledFor: "next_cron_run",
+      scheduledFor: isRecurringMonitor ? new Date().toISOString() : "next_cron_run",
     };
     queue.unshift(entry);
     await writeDeploymentQueue(queue.slice(0, 200));
+    if (isRecurringMonitor) {
+      await setCompanyActionStatus(entry.companyId, sectionId, {
+        status: "active",
+        mode: entry.scheduleMode,
+        agentName: entry.agentName,
+      });
+    }
     res.status(201).json({ deployment: entry });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.patch("/api/agents/deployments/:id", async (req, res) => {
+  const { action } = req.body ?? {};
+  if (!["pause", "resume", "stop"].includes(String(action || ""))) {
+    return res.status(400).json({ error: "action must be pause, resume, or stop" });
+  }
+
+  try {
+    const queue = await readDeploymentQueue();
+    const entry = queue.find((item) => item?.id === req.params.id);
+    if (!entry) {
+      return res.status(404).json({ error: "Deployment not found" });
+    }
+
+    const now = new Date().toISOString();
+    if (action === "pause") {
+      entry.status = "paused";
+      entry.pausedAt = now;
+      await setCompanyActionStatus(entry.companyId, entry.sectionId, {
+        status: "paused",
+        mode: entry.scheduleMode || null,
+        agentName: entry.agentName || null,
+      });
+    } else if (action === "resume") {
+      entry.status = entry.scheduleMode === "monitor" ? "active" : "pending";
+      entry.resumedAt = now;
+      entry.scheduledFor = now;
+      await setCompanyActionStatus(entry.companyId, entry.sectionId, {
+        status: entry.status,
+        mode: entry.scheduleMode || null,
+        agentName: entry.agentName || null,
+      });
+    } else if (action === "stop") {
+      entry.status = "stopped";
+      entry.stoppedAt = now;
+      await setCompanyActionStatus(entry.companyId, entry.sectionId, {
+        status: "stopped",
+        mode: entry.scheduleMode || null,
+        agentName: entry.agentName || null,
+      });
+    }
+
+    await writeDeploymentQueue(queue);
+    res.json({ deployment: entry });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -3650,12 +3972,14 @@ else in your response.
   "handoff_notes": "",
   "missing_data": [],
   "tasks_created": [],
-  "outcome_prediction": null
+  "outcome_prediction": null,
+  "automation_triggers": []
 }
 
 Replace ALL placeholder values with your actual outputs.
 - artifact.data: must contain the structured artifact content for the requested type
 - context_patch.patch: use only valid MKG field names: positioning, icp, competitors, offers, messaging, channels, funnel, metrics, baselines, content_pillars, campaigns, insights
+- automation_triggers: array of { "automation_id": "<id from registry>", "params": {}, "reason": "<why>" } — only include if you need live data or analysis from an automation
 - The JSON must be valid JSON (no trailing commas, no comments)
 `;
 
@@ -3701,6 +4025,12 @@ Replace ALL placeholder values with your actual outputs.
     } catch (mkgErr) {
       console.warn(`[runAgentForArtifact] MKG patch failed for ${companyId}:`, mkgErr.message);
     }
+  }
+
+  if (contract.automation_triggers?.length) {
+    await executeAutomationTriggers(contract, companyId).catch(err =>
+      console.warn('[automations] runAgentForArtifact triggers failed:', err)
+    );
   }
 
   return contract;
@@ -3994,6 +4324,9 @@ app.post("/api/agents/:name/run", async (req, res) => {
     trigger_metadata,
     offer_focus,
   } = req.body;
+  const workspaceId = typeof req.headers["x-workspace-id"] === "string"
+    ? req.headers["x-workspace-id"].trim()
+    : null;
 
   if (!VALID_AGENTS.has(name)) {
     return res.status(404).json({ error: "Unknown agent" });
@@ -4082,6 +4415,39 @@ app.post("/api/agents/:name/run", async (req, res) => {
     } catch { /* non-blocking */ }
   }
 
+  let workspaceContextBlock = "";
+  if (workspaceId) {
+    try {
+      const marketingContext = await assembleMarketingContext({ workspaceId, companyId: companyId || "" });
+      const lines = ["## Workspace Context"];
+      if (marketingContext.workspace?.name) lines.push(`Workspace: ${marketingContext.workspace.name}`);
+      if (marketingContext.workspace?.websiteUrl) lines.push(`Workspace website: ${marketingContext.workspace.websiteUrl}`);
+
+      const savedContext = marketingContext.agentContext || {};
+      if (!companyId) {
+        if (savedContext.company) lines.push(`Saved company context: ${savedContext.company}`);
+        if (savedContext.industry) lines.push(`Saved industry context: ${savedContext.industry}`);
+        if (savedContext.icp) lines.push(`Saved ICP context: ${savedContext.icp}`);
+        if (savedContext.competitors) lines.push(`Saved competitors context: ${savedContext.competitors}`);
+      }
+      if (savedContext.primary_goal) lines.push(`Saved primary goal: ${savedContext.primary_goal}`);
+      if (savedContext.goals) lines.push(`Saved goals: ${savedContext.goals}`);
+
+      if (!companyId && Array.isArray(marketingContext.artifacts) && marketingContext.artifacts.length) {
+        lines.push(
+          `Available company intelligence:\n- ${marketingContext.artifacts
+            .slice(0, 6)
+            .map((item) => `${item.type}: ${item.preview}`)
+            .join("\n- ")}`
+        );
+      }
+
+      if (lines.length > 1) workspaceContextBlock = "\n\n" + lines.join("\n");
+    } catch {
+      /* non-blocking */
+    }
+  }
+
   // Run context block — injected so LLM echoes correct values into contract JSON
   const triggerContextBlock = triggered_by
     ? `\n## Trigger Context\ntriggered_by: ${triggered_by}\ntrigger_id: ${trigger_id ?? "unknown"}\nhook_id: ${hook_id ?? "unknown"}\ntask_type: ${task_type ?? "unknown"}\ntrigger_metadata: ${JSON.stringify(trigger_metadata || {})}\n`
@@ -4090,6 +4456,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
     ? `\n## Product / Service Focus\nThis run is scoped to a specific product or service. All analysis, copy, and recommendations MUST be anchored to this product — do not generalise to the full company portfolio unless explicitly asked.\nname: ${offer_focus.name}${offer_focus.price_signal ? `\nprice_signal: ${offer_focus.price_signal}` : ""}${offer_focus.tier ? `\ntier: ${offer_focus.tier}` : ""}\n`
     : "";
   const runContextBlock = `\n\n## Run Context\ncompany_id: ${companyId ?? "unknown"}\nrun_id: ${runId}\n${triggerContextBlock}${offerFocusBlock}`;
+  const guardrailsBlock = buildAgentRunGuardrails(name, task_type);
 
   // Contract instruction — always appended LAST so it takes precedence
   const contractInstruction = `
@@ -4124,7 +4491,8 @@ else in your response.
   "handoff_notes": "",
   "missing_data": [],
   "tasks_created": [],
-  "outcome_prediction": null
+  "outcome_prediction": null,
+  "automation_triggers": []
 }
 
 Replace ALL placeholder values with your actual outputs.
@@ -4134,16 +4502,19 @@ Replace ALL placeholder values with your actual outputs.
 - context_patch.patch: use only valid MKG field names: positioning, icp, competitors, offers, messaging, channels, funnel, metrics, baselines, content_pillars, campaigns, insights
 - tasks_created: array of { "task_type": "...", "agent_name": "...", "description": "...", "priority": "low|medium|high" }
 - outcome_prediction: optional — include if you can predict a measurable metric change, otherwise keep null
+- automation_triggers: array of { "automation_id": "<id from registry>", "params": {}, "reason": "<why>" } — only include if you need live data or analysis from an automation
 - The JSON must be valid JSON (no trailing commas, no comments)
 `;
 
   const fullSystem = [
     systemPrompt,
+    workspaceContextBlock,
     mkgBlock,
     memory ? `\n\n## Your Recent Memory\n${memory}` : "",
     calibrationNote?.text ? `\n\n## Latest Calibration Note\n${calibrationNote.text}` : "",
     skillsBlock,
     runContextBlock,
+    guardrailsBlock,
     contractInstruction,  // always last
   ].join("");
 
@@ -4186,26 +4557,66 @@ Replace ALL placeholder values with your actual outputs.
       return;
     }
 
-    const stream = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: fullSystem },
-        { role: "user", content: query },
-      ],
-      stream: true,
-      max_tokens: 8192,  // increased from 4096 — long prose + contract block needs room
-      temperature: 0.4,
-    });
-
-    // Buffer fullText while forwarding prose chunks to the client unchanged
     let fullText = "";
-    for await (const chunk of stream) {
-      const text = chunk.choices[0]?.delta?.content ?? "";
-      if (text) {
-        fullText += text;
-        res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    let lastModelError = null;
+    let completed = false;
+
+    if (AGENT_RUN_PRIMARY_PROVIDER === "gemini") {
+      try {
+        fullText = await generateAgentRunWithGemini({
+          model: AGENT_RUN_GEMINI_MODEL,
+          systemPrompt: fullSystem,
+          userQuery: query,
+        });
+        if (!hasUsableAgentProse(fullText)) {
+          throw new Error("Gemini agent run returned insufficient user-facing prose");
+        }
+        res.write(`data: ${JSON.stringify({ text: fullText })}\n\n`);
+        completed = true;
+      } catch (modelError) {
+        lastModelError = modelError;
+        fullText = "";
       }
     }
+
+    for (const model of completed ? [] : AGENT_RUN_GROQ_MODELS) {
+      try {
+        const stream = await groq.chat.completions.create({
+          model,
+          messages: [
+            { role: "system", content: fullSystem },
+            { role: "user", content: query },
+          ],
+          stream: true,
+          max_tokens: 8192,
+          temperature: 0.4,
+        });
+
+        for await (const chunk of stream) {
+          const text = chunk.choices[0]?.delta?.content ?? "";
+          if (text) {
+            fullText += text;
+            res.write(`data: ${JSON.stringify({ text })}\n\n`);
+          }
+        }
+
+        if (!hasUsableAgentProse(fullText)) {
+          throw new Error(`Groq model "${model}" returned insufficient user-facing prose`);
+        }
+
+        completed = true;
+        break;
+      } catch (modelError) {
+        lastModelError = modelError;
+        fullText = "";
+      }
+    }
+
+    if (!completed) {
+      throw lastModelError || new Error("All agent run models failed");
+    }
+
+    fullText = sanitizeAgentRunFullText(name, task_type, fullText);
 
     await finalizeAgentRunResponse({
       name,
@@ -4223,6 +4634,29 @@ Replace ALL placeholder values with your actual outputs.
     await markAgentHeartbeat(name, "error", Date.now() - startedAt, String(err));
     res.write(`data: ${JSON.stringify({ error: String(err) })}\n\n`);
     res.end();
+  }
+});
+
+// ── Automation Registry Endpoints ─────────────────────────────────────────────
+
+// GET /api/automations/registry — return full catalog
+app.get('/api/automations/registry', (req, res) => {
+  res.json({ automations: REGISTRY });
+});
+
+// GET /api/automations/runs — returns recent runs for a company
+app.get('/api/automations/runs', async (req, res) => {
+  const { company_id, limit = '20' } = req.query;
+  const client = supabaseAdminClient || supabase;
+  if (!client) return res.status(503).json({ error: 'Supabase not configured' });
+  try {
+    let query = client.from('automation_runs').select('*').order('created_at', { ascending: false }).limit(parseInt(limit, 10) || 20);
+    if (company_id) query = query.eq('company_id', company_id);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ runs: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -4463,6 +4897,174 @@ function attachTwilioMediaStreamServer(server) {
 let server = null;
 let nightlyScheduler = null;
 let hooksEngine = null;
+let deploymentScheduler = null;
+let deploymentProcessorRunning = false;
+
+function getDeploymentNextRunAt(recurrenceMinutes = DEFAULT_MONITOR_RECURRENCE_MINUTES) {
+  return new Date(Date.now() + Math.max(1, Number(recurrenceMinutes) || DEFAULT_MONITOR_RECURRENCE_MINUTES) * 60_000).toISOString();
+}
+
+function buildDeploymentRunQuery(entry) {
+  if (typeof entry?.runPrompt === "string" && entry.runPrompt.trim()) {
+    return entry.runPrompt.trim();
+  }
+
+  const bullets = Array.isArray(entry?.bullets) ? entry.bullets.map((value) => String(value).trim()).filter(Boolean) : [];
+  return [
+    `Execute the scheduled deployment for ${entry?.sectionTitle || "this section"}.`,
+    typeof entry?.summary === "string" && entry.summary.trim() ? `Summary: ${entry.summary.trim()}` : null,
+    bullets.length ? `Bullets: ${bullets.join(" | ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function isDeploymentRunnable(entry, now = Date.now()) {
+  if (!entry || !["pending", "active"].includes(String(entry.status || ""))) return false;
+  if (!entry.scheduledFor || entry.scheduledFor === "next_cron_run") return true;
+  const nextTs = Date.parse(String(entry.scheduledFor));
+  return Number.isFinite(nextTs) && nextTs <= now;
+}
+
+async function processDeploymentQueueTick() {
+  if (deploymentProcessorRunning) return;
+  deploymentProcessorRunning = true;
+
+  try {
+    const queue = await readDeploymentQueue();
+    const baseUrl = `http://127.0.0.1:${PORT}`;
+
+    for (const entry of queue) {
+      if (!isDeploymentRunnable(entry)) continue;
+
+      entry.status = "running";
+      entry.startedAt = new Date().toISOString();
+      entry.error = null;
+      await writeDeploymentQueue(queue);
+      await syncCompanyActionStatusFromDeployment(entry, "running");
+
+      try {
+        const response = await fetch(`${baseUrl}/api/agents/${entry.agentName}/run`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(entry.workspaceId ? { "x-workspace-id": entry.workspaceId } : {}),
+          },
+          body: JSON.stringify({
+            company_id: entry.companyId || null,
+            query: buildDeploymentRunQuery(entry),
+            task_type: entry.scheduleMode === "monitor" ? "competitor_monitor" : "scheduled_deployment",
+            deployment_id: entry.id,
+            triggered_by: "scheduled_deployment",
+          }),
+        });
+
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(text || `Scheduled deployment failed with status ${response.status}`);
+        }
+
+        await response.text().catch(() => "");
+        const latestQueue = await readDeploymentQueue();
+        const latestEntry = latestQueue.find((item) => item?.id === entry.id);
+        if (latestEntry && ["paused", "stopped"].includes(String(latestEntry.status || ""))) {
+          continue;
+        }
+        entry.lastRunAt = new Date().toISOString();
+        entry.runCount = Number(entry.runCount || 0) + 1;
+        entry.error = null;
+
+        if (entry.scheduleMode === "monitor" && entry.status !== "stopped") {
+          entry.status = "active";
+          entry.scheduledFor = getDeploymentNextRunAt(entry.recurrenceMinutes);
+        } else {
+          entry.status = "completed";
+          entry.completedAt = new Date().toISOString();
+        }
+
+        await writeDeploymentQueue(queue);
+        await syncCompanyActionStatusFromDeployment(entry, "completed");
+        const notifyUserId = await resolveDeploymentNotificationUserId(entry);
+        if (notifyUserId) {
+          await createAgentNotification({
+            user_id: notifyUserId,
+            agent_name: entry.agentName,
+            agent_role: AGENT_PROFILES[entry.agentName]?.title || "Workflow Agent",
+            task_type: entry.scheduleMode === "monitor" ? "scheduled_monitor_run" : "scheduled_deployment_run",
+            title:
+              entry.scheduleMode === "monitor"
+                ? `${entry.agentName} monitor update: ${entry.agentTarget || entry.sectionTitle || "Scheduled automation"}`
+                : `${entry.agentName} scheduled run completed`,
+            summary:
+              entry.scheduleMode === "monitor"
+                ? `${entry.agentName} completed a scheduled monitor run for ${entry.agentTarget || entry.sectionTitle || "the selected target"}.`
+                : `${entry.agentName} completed the scheduled workflow for ${entry.sectionTitle || "the selected section"}.`,
+            full_output: {
+              deploymentId: entry.id,
+              companyId: entry.companyId || null,
+              sectionId: entry.sectionId || null,
+              agentTarget: entry.agentTarget || null,
+              nextRunAt: entry.scheduledFor || null,
+              scheduleMode: entry.scheduleMode || null,
+            },
+            action_items: [
+              {
+                label: entry.companyId && entry.sectionId ? "Open module" : "View details",
+                priority: "medium",
+                url:
+                  entry.companyId && entry.sectionId
+                    ? `#ci=${encodeURIComponent(entry.sectionId)}&companyId=${encodeURIComponent(entry.companyId)}`
+                    : undefined,
+              },
+            ],
+            status: "success",
+            read: false,
+          });
+        }
+      } catch (error) {
+        const latestQueue = await readDeploymentQueue();
+        const latestEntry = latestQueue.find((item) => item?.id === entry.id);
+        if (latestEntry && ["paused", "stopped"].includes(String(latestEntry.status || ""))) {
+          continue;
+        }
+        entry.lastRunAt = new Date().toISOString();
+        entry.error = String(error?.message || error || "Scheduled deployment failed");
+
+        if (entry.scheduleMode === "monitor" && entry.status !== "stopped") {
+          entry.status = "active";
+          entry.scheduledFor = getDeploymentNextRunAt(entry.recurrenceMinutes);
+        } else {
+          entry.status = "failed";
+          entry.failedAt = new Date().toISOString();
+        }
+
+        await writeDeploymentQueue(queue);
+        await syncCompanyActionStatusFromDeployment(entry, "failed", { error: entry.error });
+      }
+    }
+  } finally {
+    deploymentProcessorRunning = false;
+  }
+}
+
+function startDeploymentScheduler() {
+  if (deploymentScheduler) return;
+  deploymentScheduler = setInterval(() => {
+    processDeploymentQueueTick().catch((error) => {
+      console.error("[deployment-scheduler] tick failed:", error);
+    });
+  }, DEPLOYMENT_SCHEDULER_INTERVAL_MS);
+
+  processDeploymentQueueTick().catch((error) => {
+    console.error("[deployment-scheduler] initial tick failed:", error);
+  });
+}
+
+function stopDeploymentScheduler() {
+  if (!deploymentScheduler) return;
+  clearInterval(deploymentScheduler);
+  deploymentScheduler = null;
+}
 
 function buildHookDispatchQuery(batch, entry) {
   const lines = [
@@ -4569,6 +5171,7 @@ function startBackendRuntime() {
   server = app.listen(PORT, () => {
     console.log(`[content-engine] Listening on port ${PORT}`);
     startWorker();
+    startDeploymentScheduler();
     if (!nightlyScheduler) {
       nightlyScheduler = createNightlyScheduler({
         client: getPipelineWriteClient(),
@@ -4596,6 +5199,7 @@ async function stopBackendRuntime() {
     hooksEngine.stop();
     hooksEngine = null;
   }
+  stopDeploymentScheduler();
   if (nightlyScheduler) {
     nightlyScheduler.stop();
     nightlyScheduler = null;
@@ -4612,14 +5216,8 @@ async function stopBackendRuntime() {
 // ── GET /api/integrations ──────────────────────────────────────────────────
 // Stub endpoint — returns static connector catalog until live integrations are wired.
 app.get("/api/integrations", (_req, res) => {
-  const hubspotConnected = Boolean(HUBSPOT_ACCESS_TOKEN);
-  const googleSheetsConnected = Boolean(
-    GOOGLE_SHEETS_SPREADSHEET_ID &&
-      (process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-        process.env.GOOGLE_CREDENTIALS_JSON ||
-        process.env.GOOGLE_REFRESH_TOKEN ||
-        process.env.GOOGLE_SHEETS_REFRESH_TOKEN),
-  );
+  const hubspotConnected = false;
+  const googleSheetsConnected = false;
   const connectors = [
     // Advertising & acquisition
     {
@@ -4958,6 +5556,52 @@ Rules:
 
 async function generateCompanyProfileWithGroq(userContent) {
   let lastError = null;
+
+  if (COMPANY_PROFILE_PRIMARY_PROVIDER === "gemini") {
+    const systemPrompt = `You are a company research analyst. Given a website URL and homepage signals, generate a structured JSON company profile.
+Extract the real company name from the page signals (prefer og:site_name, then application-name, then <title> without tagline, then <h1>).
+Avoid boilerplate phrasing. Use concrete details visible from the company website whenever possible.
+If details are uncertain, keep them concise and cautious instead of inventing specifics.
+
+IMPORTANT — Social Links: Use web_search to actively find the company's official social media profiles. Search for:
+- "[company name] LinkedIn official page" to find their LinkedIn URL
+- "[company name] Instagram official" to find their Instagram URL
+- "[company name] YouTube channel" to find their YouTube URL
+- "[company name] Twitter OR X official" to find their Twitter/X URL
+Only populate socialLinks with confirmed official profile URLs (e.g. https://linkedin.com/company/..., https://instagram.com/...). Do not guess or fabricate URLs. Leave null only if a profile genuinely cannot be found.
+
+Output JSON only with exactly these fields:
+{
+  "companyName": "official company name as it appears on their website",
+  "summary": "2-3 sentence company overview",
+  "industry": "primary industry sector",
+  "geoFocus": ["primary market 1", "primary market 2"],
+  "offerings": ["product/service name 1", "product/service name 2"],
+  "primaryAudience": ["target customer segment 1", "target customer segment 2"],
+  "productsServices": [{"name":"","category":"","description":"","targetCustomer":"","differentiator":""}],
+  "brandVoice": {"tone":"Professional/Friendly/Technical/etc","style":"Data-driven/Storytelling/Educational/etc"},
+  "keyPages": {"about":null,"productsOrServices":null,"pricing":null,"contact":null},
+  "socialLinks": {"linkedin":null,"instagram":null,"youtube":null,"twitter":null},
+  "logoUrl": null,
+  "sources": []
+}`;
+
+    try {
+      return await generateJsonWithGemini({
+        model: COMPANY_PROFILE_GEMINI_MODEL,
+        systemPrompt,
+        userContent,
+        temperature: 0.35,
+        maxOutputTokens: 1400,
+        label: "company_profile",
+      });
+    } catch (error) {
+      lastError = error;
+      console.warn(
+        `[Gemini] Primary company profile generation failed, falling back to Groq: ${error.message}`,
+      );
+    }
+  }
 
   for (const model of COMPANY_PROFILE_GROQ_MODELS) {
     const messages = [
@@ -5542,12 +6186,17 @@ app.delete("/api/company-intel/companies/:id/artifacts", async (req, res) => {
 app.delete("/api/company-intel/companies/:id", async (req, res) => {
   const companyId = req.params.id;
   try {
-    if (supabase) {
-      await supabase
+    const writeClient = getSupabaseWriteClient() || supabase;
+    if (writeClient) {
+      await writeClient
+        .from("generation_jobs")
+        .delete()
+        .eq("company_id", companyId);
+      await writeClient
         .from("company_artifacts")
         .delete()
         .eq("company_id", companyId);
-      await supabase.from("companies").delete().eq("id", companyId);
+      await writeClient.from("companies").delete().eq("id", companyId);
     }
     fs.rmSync(companyKbDir(companyId), { recursive: true, force: true });
     _companies.delete(companyId);
@@ -5613,12 +6262,14 @@ app.post("/api/company-intel/companies/:id/generate", async (req, res) => {
           companyProfile: entry.company.profile,
         },
         {
+          companyId,
           websiteUrl: entry.company.websiteUrl,
           companyProfile: entry.company.profile,
           existingArtifacts: entry.artifacts || {},
         },
       );
       entry.artifacts[type] = { type, updatedAt: now, data: normalizeArtifact(type, directGroqData) };
+      await saveCompanyIntelArtifactTrace(companyId, type, "final-artifact.json", entry.artifacts[type].data);
       directGroqError = null;
     } catch (err) {
       directGroqError = err instanceof Error ? err : new Error(String(err));
@@ -5655,6 +6306,81 @@ app.post("/api/company-intel/companies/:id/generate", async (req, res) => {
   }
 });
 
+async function generateCompanyIntelArtifact(entry, type, inputs) {
+  if (!hasNonEmptyProfile(entry.company.profile) && entry.company.websiteUrl) {
+    await refreshCompanyProfile(entry, entry.company.companyName);
+  }
+
+  const now = new Date().toISOString();
+  const companyId = entry.company.id;
+
+  const agentMapping = ARTIFACT_AGENT_MAP[type];
+  if (agentMapping) {
+    const enrichedInputs = {
+      ...(inputs || {}),
+      websiteUrl: entry.company.websiteUrl,
+      companyProfile: entry.company.profile,
+    };
+    const query = buildAgentQueryForArtifact(type, entry.company.companyName, enrichedInputs);
+    try {
+      const contract = await runAgentForArtifact(
+        agentMapping.agent,
+        query,
+        companyId,
+        agentMapping.taskType,
+      );
+      const artifactData = contract.artifact?.data || {};
+      entry.artifacts[type] = { type, updatedAt: now, data: artifactData };
+      entry.company.updatedAt = now;
+      await saveArtifact(companyId, entry.artifacts[type]);
+      await saveCompany(entry.company);
+      return entry.artifacts[type];
+    } catch (agentErr) {
+      console.warn(`[generate] Agent "${agentMapping.agent}" failed for ${type}, falling back to direct generation: ${agentErr.message}`);
+    }
+  }
+
+  let directError = null;
+  try {
+    const directData = await generateArtifactWithGroq(type, entry.company.companyName, {
+      ...(inputs || {}),
+      websiteUrl: entry.company.websiteUrl,
+      companyProfile: entry.company.profile,
+    }, {
+      companyId,
+    });
+    entry.artifacts[type] = { type, updatedAt: now, data: normalizeArtifact(type, directData) };
+    await saveCompanyIntelArtifactTrace(companyId, type, "final-artifact.json", entry.artifacts[type].data);
+  } catch (err) {
+    directError = err instanceof Error ? err : new Error(String(err));
+  }
+
+  if (directError) {
+    const CREWAI_URL = process.env.CREWAI_URL || "http://localhost:8002";
+    console.warn(`Direct generation failed, falling back to CrewAI for ${type}: ${directError.message}`);
+    const resp = await fetch(`${CREWAI_URL}/api/crewai/company-intel/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        company_name: entry.company.companyName,
+        company_url: entry.company.websiteUrl,
+        artifact_type: type,
+        inputs,
+        company_profile: entry.company.profile,
+      }),
+    });
+    if (!resp.ok) throw new Error(`CrewAI responded with ${resp.status}`);
+    const crewData = await resp.json();
+    if (crewData.status === "failed") throw new Error(crewData.error || "CrewAI generation failed");
+    entry.artifacts[type] = { type, updatedAt: crewData.generated_at || now, data: crewData.data };
+  }
+
+  entry.company.updatedAt = now;
+  await saveArtifact(companyId, entry.artifacts[type]);
+  await saveCompany(entry.company);
+  return entry.artifacts[type];
+}
+
 app.post("/api/company-intel/companies/:id/generate-all", async (req, res) => {
   const entry = await ensureCompanyEntry(req.params.id);
   if (!entry) return res.status(404).json({ error: "Company not found" });
@@ -5675,6 +6401,7 @@ app.post("/api/company-intel/companies/:id/generate-all", async (req, res) => {
   const companyId = req.params.id;
 
   if (!entry.failedArtifacts) entry.failedArtifacts = new Set();
+  entry.generateAllRunning = true;
 
   // Keep the in-memory _companies map up to date as each artifact finishes or fails.
   registerArtifactCallback(companyId, (_cid, type, artifact) => {
@@ -5686,17 +6413,18 @@ app.post("/api/company-intel/companies/:id/generate-all", async (req, res) => {
     if (e) e.failedArtifacts.add(type);
   });
 
-  // Enqueue each artifact type for background processing
+  // Run sequentially per company so Gemini requests do not all start at once.
   (async () => {
     for (const type of COMPANY_INTEL_ARTIFACT_TYPES) {
       entry.failedArtifacts.delete(type); // Clear prior failure so it can retry
       try {
-        await enqueueGeneration(entry.company, type, inputs);
+        await generateCompanyIntelArtifact(entry, type, inputs);
       } catch (err) {
-        console.warn(`[Generate-all] failed to enqueue ${type}`, err.message);
+        console.warn(`[Generate-all] failed to generate ${type}`, err.message);
         entry.failedArtifacts.add(type);
       }
     }
+    entry.generateAllRunning = false;
   })();
 
   res.status(202).json({ status: "started", total, companyId });
@@ -5711,7 +6439,7 @@ app.get(
       const completed = Object.keys(entry.artifacts).length;
       const failed = entry.failedArtifacts ? entry.failedArtifacts.size : 0;
       const total = COMPANY_INTEL_ARTIFACT_TYPES.length;
-      const done = completed + failed >= total;
+      const done = !entry.generateAllRunning && completed + failed >= total;
       return res.json({
         status: done ? "completed" : "running",
         completed,
@@ -5721,21 +6449,42 @@ app.get(
     }
 
     try {
-      const { data, error } = await supabase
-        .from("generation_jobs")
-        .select("artifact_type,status")
-        .eq("company_id", req.params.id);
+      const [{ data, error }, { data: artifactRows, error: artifactError }] =
+        await Promise.all([
+          supabase
+            .from("generation_jobs")
+            .select("artifact_type,status")
+            .eq("company_id", req.params.id),
+          supabase
+            .from("company_artifacts")
+            .select("artifact_type")
+            .eq("company_id", req.params.id),
+        ]);
 
       if (error) throw error;
+      if (artifactError) throw artifactError;
 
-      const completed = (data || []).filter(
+      const completedFromJobs = (data || []).filter(
         (row) => row.status === "completed",
       ).length;
-      const failed = (data || []).filter(
+      const failedFromJobs = (data || []).filter(
         (row) => row.status === "failed",
       ).length;
+      const processing = (data || []).filter(
+        (row) => row.status === "processing" || row.status === "pending",
+      ).length;
+      const completedFromArtifacts = new Set(
+        (artifactRows || []).map((row) => row.artifact_type).filter(Boolean),
+      ).size;
       const total = COMPANY_INTEL_ARTIFACT_TYPES.length;
-      const done = completed + failed >= total;
+      const completed = Math.max(completedFromJobs, completedFromArtifacts);
+      const failed =
+        completed >= total
+          ? 0
+          : Math.min(failedFromJobs, Math.max(0, total - completed));
+      const done =
+        !entry.generateAllRunning &&
+        (completed >= total || (processing === 0 && completed + failed >= total));
       res.json({
         status: done ? "completed" : "running",
         completed,
@@ -5746,7 +6495,7 @@ app.get(
       const completed = Object.keys(entry.artifacts).length;
       const failed = entry.failedArtifacts ? entry.failedArtifacts.size : 0;
       const total = COMPANY_INTEL_ARTIFACT_TYPES.length;
-      const done = completed + failed >= total;
+      const done = !entry.generateAllRunning && completed + failed >= total;
       res.json({
         status: done ? "completed" : "running",
         completed,
