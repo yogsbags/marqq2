@@ -37,7 +37,7 @@ Phase: 8 of 8 (Outcome Ledger)
 Plan: 3 of 3 complete in current phase (08-01, 08-02, 08-03 complete)
 Status: Phase 8 complete, ready for verification
 Last Activity: 2026-03-10
-Last activity: 2026-03-15 - Completed quick task 1: Build Automation Registry system for Marqq agents
+Last activity: 2026-03-15 - Completed quick task 2: Wire Composio connector endpoints and OAuth flow
 
 Progress: [██████████] 100%
 
@@ -144,6 +144,7 @@ Recent decisions affecting current work:
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 1 | Build Automation Registry system for Marqq agents | 2026-03-15 | accb6ca | [1-build-automation-registry-system-for-mar](./quick/1-build-automation-registry-system-for-mar/) |
+| 2 | Wire Composio connector endpoints and OAuth flow in AccountsTab | 2026-03-15 | c958f45 | [2-wire-composio-connector-endpoints-and-oa](./quick/2-wire-composio-connector-endpoints-and-oa/) |
 
 ## Session Continuity
 
