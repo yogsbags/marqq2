@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -6,8 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { Play, RotateCcw } from 'lucide-react'
 import { useAgentRun } from '@/hooks/useAgentRun'
 import { AgentRunPanel } from './AgentRunPanel'
-import { CompanySelector } from './CompanySelector'
 import { OfferSelector, type Offer } from './OfferSelector'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 
 export interface AgentConfig {
   name: string        // agent key e.g. "isha"
@@ -18,6 +18,7 @@ export interface AgentConfig {
 }
 
 interface AgentModuleShellProps {
+  moduleId?: string
   title: string
   description: string
   agents: AgentConfig[]                                       // 1 or 2 agents
@@ -27,18 +28,39 @@ interface AgentModuleShellProps {
 
 function SingleAgentCard({
   cfg,
+  moduleId,
   companyId,
   selectedOffer,
   renderArtifact,
+  shouldAutoRun = false,
 }: {
   cfg: AgentConfig
+  moduleId?: string
   companyId: string
   selectedOffer: Offer | null
   renderArtifact?: (agent: string, artifact: Record<string, unknown>) => React.ReactNode
+  shouldAutoRun?: boolean
 }) {
   const [query, setQuery] = useState(cfg.defaultQuery)
-  const agentRun = useAgentRun()
+  const persistenceKey = moduleId
+    ? [
+        'marqq_agent_run',
+        moduleId,
+        cfg.name,
+        cfg.taskType,
+        companyId || 'no-company',
+        selectedOffer?.name || 'all-offers',
+      ].join(':')
+    : undefined
+  const agentRun = useAgentRun(undefined, persistenceKey)
   const isIdle = !agentRun.streaming && !agentRun.text && !agentRun.artifact && !agentRun.error
+  const autoRunTriggeredRef = useRef(false)
+
+  useEffect(() => {
+    if (!shouldAutoRun || autoRunTriggeredRef.current) return
+    autoRunTriggeredRef.current = true
+    void agentRun.run(cfg.name, query, cfg.taskType, companyId || undefined, selectedOffer)
+  }, [agentRun, cfg.name, cfg.taskType, companyId, query, selectedOffer, shouldAutoRun])
 
   return (
     <div className="space-y-3">
@@ -52,23 +74,23 @@ function SingleAgentCard({
         <CardContent className="space-y-3">
           {isIdle && (
             <Textarea
-              className="text-sm min-h-[80px] resize-none"
+              className="min-h-[140px] whitespace-pre-wrap break-words text-sm leading-6 resize-y"
               value={query}
               onChange={e => setQuery(e.target.value)}
             />
           )}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               disabled={agentRun.streaming || !query.trim()}
               onClick={() => agentRun.run(cfg.name, query, cfg.taskType, companyId || undefined, selectedOffer)}
-              className="gap-1"
+              className="h-auto min-h-9 max-w-full whitespace-normal text-left leading-5 gap-1"
             >
               <Play className="h-3 w-3" />
               {agentRun.streaming ? 'Running…' : 'Run'}
             </Button>
             {!isIdle && (
-              <Button size="sm" variant="ghost" onClick={agentRun.reset} className="gap-1">
+              <Button size="sm" variant="ghost" onClick={agentRun.reset} className="h-auto min-h-9 whitespace-normal text-left leading-5 gap-1">
                 <RotateCcw className="h-3 w-3" />
                 Reset
               </Button>
@@ -90,14 +112,34 @@ function SingleAgentCard({
 }
 
 export function AgentModuleShell({
+  moduleId,
   title,
   description,
   agents,
   renderArtifact,
   children,
 }: AgentModuleShellProps) {
-  const [companyId, setCompanyId] = useState('')
+  const { activeWorkspace } = useWorkspace()
+  const companyId = activeWorkspace?.id ?? ''
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null)
+  const [autoRunAgentName, setAutoRunAgentName] = useState<string | null>(null)
+
+  useEffect(() => { setSelectedOffer(null) }, [activeWorkspace?.id])
+
+  useEffect(() => {
+    if (!moduleId) return
+    try {
+      const raw = sessionStorage.getItem('marqq_agent_module_autorun')
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (parsed?.moduleId === moduleId && typeof parsed?.agentName === 'string') {
+        setAutoRunAgentName(parsed.agentName)
+        sessionStorage.removeItem('marqq_agent_module_autorun')
+      }
+    } catch {
+      // ignore malformed autorun payloads
+    }
+  }, [moduleId])
 
   return (
     <div className="space-y-6">
@@ -109,10 +151,16 @@ export function AgentModuleShell({
       </div>
 
       <div className="space-y-2">
-        <CompanySelector
-          value={companyId}
-          onChange={id => { setCompanyId(id); setSelectedOffer(null) }}
-        />
+        {activeWorkspace ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Running for:</span>
+            <Badge variant="outline">{activeWorkspace.name}</Badge>
+          </div>
+        ) : (
+          <p className="text-sm text-amber-500">
+            Select or create a workspace in Settings to run agents.
+          </p>
+        )}
         <OfferSelector
           companyId={companyId}
           value={selectedOffer?.name ?? ''}
@@ -125,9 +173,11 @@ export function AgentModuleShell({
           <SingleAgentCard
             key={cfg.name}
             cfg={cfg}
+            moduleId={moduleId}
             companyId={companyId}
             selectedOffer={selectedOffer}
             renderArtifact={renderArtifact}
+            shouldAutoRun={autoRunAgentName === cfg.name}
           />
         ))}
       </div>
