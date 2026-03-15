@@ -59,6 +59,7 @@ import { listCompanyKpis } from "./kpi-aggregator.js";
 import { detectCompanyAnomalies } from "./anomaly-detector.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers } from "./automations/registry.js";
+import { getConnectors, initiateConnection, disconnectConnector } from "./mcp-router.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -5214,179 +5215,31 @@ async function stopBackendRuntime() {
 }
 
 // ── GET /api/integrations ──────────────────────────────────────────────────
-// Stub endpoint — returns static connector catalog until live integrations are wired.
-app.get("/api/integrations", (_req, res) => {
-  const hubspotConnected = false;
-  const googleSheetsConnected = false;
-  const connectors = [
-    // Advertising & acquisition
-    {
-      id: "google_ads",
-      name: "Google Ads",
-      status: "not_configured",
-      connected: false,
-      notes: "Sync campaigns, ad groups, and costs via OAuth.",
-    },
-    {
-      id: "meta_ads",
-      name: "Meta Ads",
-      status: "not_configured",
-      connected: false,
-      notes: "Connect Facebook & Instagram ad accounts via OAuth.",
-    },
-    {
-      id: "linkedin_ads",
-      name: "LinkedIn Ads",
-      status: "not_configured",
-      connected: false,
-      notes: "Bring in LinkedIn campaign performance for B2B funnels.",
-    },
-
-    // Email & messaging
-    {
-      id: "gmail",
-      name: "Gmail",
-      status: "not_configured",
-      connected: false,
-      notes: "Read campaign threads & outbound sequences via read-only OAuth.",
-    },
-    {
-      id: "outlook",
-      name: "Outlook",
-      status: "not_configured",
-      connected: false,
-      notes: "Connect Outlook mailboxes for outreach and campaign monitoring.",
-    },
-
-    // CRM & customer data
-    {
-      id: "zoho_crm",
-      name: "Zoho CRM",
-      status: "not_configured",
-      connected: false,
-      notes: "Sync deals, contacts, and accounts with read-only agent access.",
-    },
-    {
-      id: "hubspot",
-      name: "HubSpot",
-      status: hubspotConnected ? "connected" : "not_configured",
-      connected: hubspotConnected,
-      notes: hubspotConnected
-        ? "Private app token configured. Voicebot qualification notes can sync to contacts."
-        : "Sync contacts, deals, and marketing events from HubSpot.",
-    },
-    {
-      id: "salesforce",
-      name: "Salesforce",
-      status: "not_configured",
-      connected: false,
-      notes: "Enterprise CRM accounts, opportunities, and pipelines.",
-    },
-
-    // Analytics & experimentation
-    {
-      id: "ga4",
-      name: "Google Analytics 4",
-      status: "not_configured",
-      connected: false,
-      notes: "Import web analytics, conversions, and funnel performance.",
-    },
-    {
-      id: "gsc",
-      name: "Google Search Console",
-      status: "not_configured",
-      connected: false,
-      notes:
-        "SEO queries, impressions, and click-through data for content performance.",
-    },
-    {
-      id: "google_sheets",
-      name: "Google Sheets",
-      status: googleSheetsConnected ? "connected" : "not_configured",
-      connected: googleSheetsConnected,
-      notes: googleSheetsConnected
-        ? "Voicebot lead qualification rows can sync into the configured spreadsheet."
-        : "Import marketing and reporting data from Google Sheets workbooks.",
-    },
-    {
-      id: "microsoft_sheets",
-      name: "Microsoft Excel / OneDrive",
-      status: "not_configured",
-      connected: false,
-      notes: "Use Excel files from OneDrive as a marketing data source.",
-    },
-    {
-      id: "semrush",
-      name: "Semrush",
-      status: "not_configured",
-      connected: false,
-      notes: "SEO and PPC competitive intelligence from Semrush.",
-    },
-    {
-      id: "ahrefs",
-      name: "Ahrefs",
-      status: "not_configured",
-      connected: false,
-      notes: "Backlinks, keyword rankings, and content gaps from Ahrefs.",
-    },
-
-    // Engagement & product usage
-    {
-      id: "moengage",
-      name: "MoEngage",
-      status: "not_configured",
-      connected: false,
-      notes:
-        "Stream engagement events and cohorts for activation and retention.",
-    },
-    {
-      id: "mixpanel",
-      name: "Mixpanel",
-      status: "not_configured",
-      connected: false,
-      notes: "Product analytics events, funnels, and retention cohorts.",
-    },
-    {
-      id: "clevertap",
-      name: "CleverTap",
-      status: "not_configured",
-      connected: false,
-      notes: "User engagement journeys, campaigns, and cohort insights.",
-    },
-    {
-      id: "wordpress",
-      name: "WordPress",
-      status: "not_configured",
-      connected: false,
-      notes: "Blog and landing page content for SEO and content performance.",
-    },
-
-    // Commerce & data warehouse
-    {
-      id: "shopify",
-      name: "Shopify",
-      status: "not_configured",
-      connected: false,
-      notes: "Pull orders, products, and revenue for e-commerce analytics.",
-    },
-    {
-      id: "snowflake",
-      name: "Snowflake",
-      status: "not_configured",
-      connected: false,
-      notes: "Connect a read-only warehouse role for advanced modeling.",
-    },
-  ];
-
-  res.json({ connectors, debug: "integrations-static-v2" });
+app.get("/api/integrations", async (req, res) => {
+  const companyId = req.query.companyId || req.query.userId || 'default';
+  try {
+    const connectors = await getConnectors(companyId);
+    res.json({ connectors });
+  } catch (err) {
+    console.error('[integrations] getConnectors error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── POST /api/integrations/connect & /disconnect ──────────────────────────
-app.post("/api/integrations/connect", (_req, res) => {
-  res.status(501).json({ error: "Integrations not yet implemented" });
+app.post("/api/integrations/connect", async (req, res) => {
+  const { companyId, connectorId } = req.body;
+  if (!companyId || !connectorId) return res.status(400).json({ error: 'companyId and connectorId required' });
+  const result = await initiateConnection(companyId, connectorId);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json(result);
 });
-app.post("/api/integrations/disconnect", (_req, res) => {
-  res.status(501).json({ error: "Integrations not yet implemented" });
+app.post("/api/integrations/disconnect", async (req, res) => {
+  const { companyId, connectorId } = req.body;
+  if (!companyId || !connectorId) return res.status(400).json({ error: 'companyId and connectorId required' });
+  const result = await disconnectConnector(companyId, connectorId);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json(result);
 });
 
 // ── Company Intelligence CRUD ──────────────────────────────────────────────
