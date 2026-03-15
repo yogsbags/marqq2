@@ -148,7 +148,7 @@ Recent decisions affecting current work:
 | 3 | Consolidate workspace/company — make workspace.id the single source of truth for company_id | 2026-03-16 | f3c4a37 | [3-consolidate-workspace-company-make-works](./quick/3-consolidate-workspace-company-make-works/) |
 | 4 | Build n8n workflows + inject automation data into agent prompts | 2026-03-16 | ab34e73 | platform/content-engine/automations/ |
 | 5 | Custom n8n MCP server with create_workflow tool | 2026-03-16 | 14a3b36 | platform/mcp-servers/n8n/ |
-| 6 | Agent-scheduled n8n automations with cron scheduling | 2026-03-16 | [commit-hash] | platform/content-engine/automations/ |
+| 6 | Agent-scheduled n8n automations with cron scheduling | 2026-03-16 | 81ddb55 | platform/content-engine/automations/ |
 
 ## Session Continuity
 
