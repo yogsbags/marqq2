@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { getActiveAgentContext } from '@/lib/agentContext';
 
 type Connector = {
   id: string;
@@ -178,20 +178,20 @@ function IntegrationLogo({ id, name }: { id: string; name: string }) {
 }
 
 export function AccountsTab() {
-  const { user } = useAuth();
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!user?.id) return;
+    const { companyId } = getActiveAgentContext();
+    if (!companyId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/integrations?userId=${encodeURIComponent(user.id)}`);
+      const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`);
       const json = await res.json();
       setConnectors(json?.connectors ?? []);
     } catch { setConnectors([]); } finally { setLoading(false); }
-  }, [user?.id]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -217,24 +217,46 @@ export function AccountsTab() {
   }, [connectors]);
 
   const connect = async (id: string) => {
+    const { companyId } = getActiveAgentContext();
+    if (!companyId) { toast.error('Select a company first'); return; }
     setActionId(id);
     try {
       const res = await fetch('/api/integrations/connect', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ userId: user?.id, connectorId: id, authType: 'oauth' }),
+        body: JSON.stringify({ companyId, connectorId: id }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || json?.details || 'connect failed');
-      await load(); toast.success('Connected');
-    } catch (err: any) { toast.error(err?.message || 'Connect failed'); } finally { setActionId(null); }
+      if (!res.ok) throw new Error(json?.error || 'connect failed');
+      if (json.redirectUrl) {
+        const popup = window.open(json.redirectUrl, 'composio_oauth', 'width=600,height=700,left=200,top=100');
+        toast.info('Complete OAuth in the popup window');
+        const poll = setInterval(() => {
+          if (!popup || popup.closed) {
+            clearInterval(poll);
+            setActionId(null);
+            toast.info('Connection cancelled or completed — refreshing status');
+            load();
+          }
+        }, 1500);
+      } else {
+        await load();
+        toast.success('Connected');
+        setActionId(null);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Connect failed');
+      setActionId(null);
+    }
   };
 
   const disconnect = async (id: string) => {
     setActionId(id);
     try {
+      const { companyId } = getActiveAgentContext();
+      if (!companyId) { toast.error('Select a company first'); setActionId(null); return; }
       const res = await fetch('/api/integrations/disconnect', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ userId: user?.id, connectorId: id }),
+        body: JSON.stringify({ companyId, connectorId: id }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || json?.details || 'disconnect failed');
@@ -307,7 +329,7 @@ export function AccountsTab() {
                             disabled={actionId === c.id}
                             onClick={() => connect(c.id)}
                           >
-                            Connect
+                            {actionId === c.id ? 'Connecting…' : 'Connect'}
                           </Button>
                         )}
                       </div>
