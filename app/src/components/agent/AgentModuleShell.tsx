@@ -9,7 +9,11 @@ import { toast } from 'sonner'
 import { useAgentRun } from '@/hooks/useAgentRun'
 import { AgentRunPanel } from './AgentRunPanel'
 import { OfferSelector, type Offer } from './OfferSelector'
+import { AnalyticsDataInput, type AnalyticsResult } from './AnalyticsDataInput'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+
+// Agents that support campaign analytics data input
+const ANALYTICS_AGENT_NAMES = ['dev', 'arjun']
 
 export interface AgentConfig {
   name: string        // agent key e.g. "isha"
@@ -44,6 +48,9 @@ function SingleAgentCard({
   shouldAutoRun?: boolean
 }) {
   const [query, setQuery] = useState(cfg.defaultQuery)
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsResult | null>(null)
+  const showAnalyticsInput = ANALYTICS_AGENT_NAMES.includes(cfg.name.toLowerCase())
+
   const persistenceKey = moduleId
     ? [
         'marqq_agent_run',
@@ -58,11 +65,17 @@ function SingleAgentCard({
   const isIdle = !agentRun.streaming && !agentRun.text && !agentRun.artifact && !agentRun.error
   const autoRunTriggeredRef = useRef(false)
 
+  const buildQueryWithAnalytics = (baseQuery: string) => {
+    if (!analyticsData?.summary) return baseQuery
+    return `${baseQuery}\n\n${analyticsData.summary}`
+  }
+
   useEffect(() => {
     if (!shouldAutoRun || autoRunTriggeredRef.current) return
     autoRunTriggeredRef.current = true
-    void agentRun.run(cfg.name, query, cfg.taskType, companyId || undefined, selectedOffer)
-  }, [agentRun, cfg.name, cfg.taskType, companyId, query, selectedOffer, shouldAutoRun])
+    void agentRun.run(cfg.name, buildQueryWithAnalytics(query), cfg.taskType, companyId || undefined, selectedOffer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoRun])
 
   return (
     <div className="space-y-3">
@@ -81,11 +94,14 @@ function SingleAgentCard({
               onChange={e => setQuery(e.target.value)}
             />
           )}
+          {isIdle && showAnalyticsInput && (
+            <AnalyticsDataInput value={analyticsData} onChange={setAnalyticsData} />
+          )}
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               disabled={agentRun.streaming || !query.trim()}
-              onClick={() => agentRun.run(cfg.name, query, cfg.taskType, companyId || undefined, selectedOffer)}
+              onClick={() => agentRun.run(cfg.name, buildQueryWithAnalytics(query), cfg.taskType, companyId || undefined, selectedOffer)}
               className="h-auto min-h-9 max-w-full whitespace-normal text-left leading-5 gap-1"
             >
               <Play className="h-3 w-3" />

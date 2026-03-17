@@ -13,7 +13,9 @@
  */
 
 import express from "express";
+import multer from "multer";
 import Groq from "groq-sdk";
+import { tracedGroq, tracedLLM, langfuse } from "./langfuse.js";
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleAuth } from "google-auth-library";
@@ -528,7 +530,7 @@ const KPI_DAYS_DEFAULT = 30;
 const KPI_DAYS_MIN = 1;
 const KPI_DAYS_MAX = 90;
 const OUTCOME_DAYS_ALLOWED = new Set([7, 30, 90]);
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || "" });
+const groq = tracedGroq;
 const COMPANY_INTEL_GROQ_MODELS = [
   process.env.GROQ_COMPANY_INTEL_MODEL || "groq/compound",
   "llama-3.3-70b-versatile",
@@ -4492,9 +4494,7 @@ app.post('/api/industry-intel/:companyId/refresh', async (req, res) => {
   const { companyId } = req.params;
   if (!companyId) return res.status(400).json({ error: 'companyId required' });
 
-  const groqClient = new (await import('groq-sdk')).default({
-    apiKey: process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || '',
-  });
+  const groqClient = tracedLLM({ traceName: 'industry-intel', userId: companyId, tags: ['industry-intel'] });
 
   const ctx = await buildIndustryContext(companyId);
 
@@ -4833,6 +4833,13 @@ Replace ALL placeholder values with your actual outputs.
 
     let fullText = "";
     let lastModelError = null;
+    // Langfuse: per-agent traced client so every run is attributed to the agent + company
+    const agentGroq = tracedLLM({
+      traceName: `agent-run:${name}`,
+      sessionId: runId,
+      userId: companyId || undefined,
+      tags: ['agent-run', name],
+    });
     let completed = false;
 
     if (AGENT_RUN_PRIMARY_PROVIDER === "gemini") {
@@ -4855,7 +4862,7 @@ Replace ALL placeholder values with your actual outputs.
 
     for (const model of completed ? [] : AGENT_RUN_GROQ_MODELS) {
       try {
-        const stream = await groq.chat.completions.create({
+        const stream = await agentGroq.chat.completions.create({
           model,
           messages: [
             { role: "system", content: fullSystem },
@@ -6847,17 +6854,219 @@ Respond with ONLY a valid JSON object — no markdown, no code fences — matchi
   }
 });
 
-// Upload endpoints require multipart parsing (multer not installed).
-// Return 501 so the UI shows a clear "not implemented" rather than a 404 HTML error page.
-app.post("/api/budget-optimization/upload", (_req, res) => {
-  res
-    .status(501)
-    .json({ error: "File upload requires multer — run: npm install multer" });
+// ── Campaign Analytics (Dev + Arjun agents) ──────────────────────────────
+// multer storage — memory so we can parse CSV/XLSX in-process
+const analyticsUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /\.(csv|xls|xlsx)$/i.test(file.originalname);
+    cb(ok ? null : new Error("Only CSV / XLS / XLSX files allowed"), ok);
+  },
 });
-app.post("/api/budget-optimization/calibration/upload", (_req, res) => {
-  res
-    .status(501)
-    .json({ error: "File upload requires multer — run: npm install multer" });
+
+const ANALYTICS_SCRIPTS_DIR = join(__dirname, "analytics");
+
+// Composio data-source connectors available for analytics
+const ANALYTICS_COMPOSIO_CONNECTORS = [
+  { id: "google_ads",    name: "Google Ads",    description: "Campaign spend, clicks, conversions, ROAS",      status: "available" },
+  { id: "meta_ads",      name: "Meta Ads",       description: "Facebook/Instagram campaign performance",         status: "available" },
+  { id: "ga4",           name: "Google Analytics 4", description: "Funnel events, sessions, goal completions", status: "available" },
+  { id: "hubspot",       name: "HubSpot",        description: "CRM contacts, deals, pipeline stages",           status: "available" },
+  { id: "salesforce",    name: "Salesforce",     description: "Leads, opportunities, funnel stages",            status: "available" },
+  { id: "linkedin_ads",  name: "LinkedIn Ads",   description: "B2B campaign impressions, leads, CPL",           status: "available" },
+  { id: "manual_csv",    name: "Upload CSV/XLS", description: "Upload any spreadsheet export",                  status: "always_available" },
+];
+
+app.get("/api/analytics/connectors", (_req, res) => {
+  res.json({ connectors: ANALYTICS_COMPOSIO_CONNECTORS });
+});
+
+/** Parse uploaded CSV → array of row objects */
+function parseCsvBuffer(buffer) {
+  const text = buffer.toString("utf8");
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+  return lines.slice(1).map(line => {
+    const values = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
+    const row = {};
+    headers.forEach((h, i) => { row[h] = values[i] ?? ""; });
+    return row;
+  });
+}
+
+/** Infer analytics input type from column names */
+function inferAnalyticsType(rows) {
+  if (!rows.length) return "unknown";
+  const cols = Object.keys(rows[0]).map(k => k.toLowerCase());
+  if (cols.some(c => c.includes("touchpoint") || c.includes("channel") || c.includes("journey"))) return "attribution";
+  if (cols.some(c => c.includes("stage") || c.includes("funnel") || c.includes("conversion"))) return "funnel";
+  if (cols.some(c => c.includes("spend") || c.includes("revenue") || c.includes("roi") || c.includes("roas"))) return "roi";
+  return "roi"; // default
+}
+
+/** Run a Python analytics script and return its JSON output */
+function runPythonAnalytics(scriptName, inputJson) {
+  return new Promise((resolve, reject) => {
+    const tmpFile = join(tmpdir(), `marqq_analytics_${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, JSON.stringify(inputJson));
+    const script = join(ANALYTICS_SCRIPTS_DIR, scriptName);
+    const proc = spawn("python3", [script, tmpFile, "--format", "json"]);
+    let stdout = "", stderr = "";
+    proc.stdout.on("data", d => { stdout += d.toString(); });
+    proc.stderr.on("data", d => { stderr += d.toString(); });
+    proc.on("close", code => {
+      try { fs.unlinkSync(tmpFile); } catch {}
+      if (code !== 0) return reject(new Error(`Analytics script failed: ${stderr.slice(0, 500)}`));
+      try { resolve(JSON.parse(stdout)); }
+      catch { reject(new Error("Analytics script returned non-JSON output")); }
+    });
+  });
+}
+
+/** POST /api/analytics/upload — parse file, auto-detect type, run scripts */
+app.post("/api/analytics/upload", analyticsUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    let rows;
+    const ext = req.file.originalname.split(".").pop().toLowerCase();
+
+    if (ext === "csv") {
+      rows = parseCsvBuffer(req.file.buffer);
+    } else {
+      // XLS/XLSX — use xlsx package if available, else error
+      try {
+        const XLSX = await import("xlsx");
+        const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      } catch {
+        return res.status(422).json({ error: "xlsx package not available — please upload CSV instead" });
+      }
+    }
+
+    if (!rows.length) return res.status(422).json({ error: "File is empty or has no data rows" });
+
+    const analyticsType = (req.body?.type) || inferAnalyticsType(rows);
+    const results = {};
+
+    // Always attempt ROI analysis (most universal for campaign data)
+    if (analyticsType === "roi" || analyticsType === "unknown") {
+      // Transform rows to expected ROI input format
+      const campaigns = rows.map((r, i) => ({
+        name:        r.campaign || r.name || r.Campaign || `Campaign ${i + 1}`,
+        channel:     r.channel || r.Channel || r.source || "unknown",
+        spend:       parseFloat(r.spend || r.Spend || r.cost || r.Cost || "0") || 0,
+        revenue:     parseFloat(r.revenue || r.Revenue || r.conversions_value || "0") || 0,
+        impressions: parseInt(r.impressions || r.Impressions || "0") || 0,
+        clicks:      parseInt(r.clicks || r.Clicks || "0") || 0,
+        leads:       parseInt(r.leads || r.Leads || r.conversions || "0") || 0,
+        customers:   parseInt(r.customers || r.Customers || r.purchases || "0") || 0,
+      }));
+      try {
+        results.roi = await runPythonAnalytics("campaign_roi_calculator.py", { campaigns });
+      } catch (e) {
+        results.roi = { error: e.message };
+      }
+    }
+
+    if (analyticsType === "funnel") {
+      // Try to build funnel from stage columns
+      const stageKeys = Object.keys(rows[0]).filter(k => !isNaN(parseFloat(rows[0][k])));
+      if (stageKeys.length >= 2) {
+        const stages = stageKeys;
+        const counts = rows[0] ? stageKeys.map(k => parseFloat(rows[0][k]) || 0) : [];
+        try {
+          results.funnel = await runPythonAnalytics("funnel_analyzer.py", { funnel: { stages, counts } });
+        } catch (e) {
+          results.funnel = { error: e.message };
+        }
+      }
+    }
+
+    if (analyticsType === "attribution") {
+      // Build journey format
+      const journeys = rows.map((r, i) => ({
+        journey_id: r.journey_id || r.user_id || `j${i + 1}`,
+        touchpoints: [{ channel: r.channel || r.source || "unknown", timestamp: r.date || r.timestamp || new Date().toISOString(), interaction: "click" }],
+        converted: r.converted === "true" || r.converted === "1" || r.status === "converted" || false,
+        revenue: parseFloat(r.revenue || r.value || "0") || 0,
+      }));
+      try {
+        results.attribution = await runPythonAnalytics("attribution_analyzer.py", { journeys });
+      } catch (e) {
+        results.attribution = { error: e.message };
+      }
+    }
+
+    res.json({
+      rowCount: rows.length,
+      analyticsType,
+      fileName: req.file.originalname,
+      results,
+      sample: rows.slice(0, 3),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+/** POST /api/analytics/run — run specific analysis on pre-provided JSON data */
+app.post("/api/analytics/run", express.json(), async (req, res) => {
+  const { type, data } = req.body || {};
+  if (!type || !data) return res.status(400).json({ error: "type and data are required" });
+
+  const scriptMap = {
+    attribution: "attribution_analyzer.py",
+    funnel: "funnel_analyzer.py",
+    roi: "campaign_roi_calculator.py",
+  };
+  const script = scriptMap[type];
+  if (!script) return res.status(400).json({ error: `Unknown type: ${type}. Use attribution, funnel, or roi` });
+
+  try {
+    const result = await runPythonAnalytics(script, data);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Budget optimization upload endpoints (now powered by multer)
+app.post("/api/budget-optimization/upload", analyticsUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    const ext = req.file.originalname.split(".").pop().toLowerCase();
+    let rows;
+    if (ext === "csv") {
+      rows = parseCsvBuffer(req.file.buffer);
+    } else {
+      try {
+        const XLSX = await import("xlsx");
+        const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      } catch {
+        return res.status(422).json({ error: "Upload CSV format for best results" });
+      }
+    }
+    const preview = rows.slice(0, 5);
+    const csvText = [Object.keys(rows[0] || {}).join(","), ...rows.map(r => Object.values(r).join(","))].join("\n");
+    res.json({ rowCount: rows.length, preview, csvText: csvText.slice(0, 8000) });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/budget-optimization/calibration/upload", analyticsUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    res.json({ received: true, fileName: req.file.originalname, size: req.file.size });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // ── Performance Scorecard ──────────────────────────────────────────────────
