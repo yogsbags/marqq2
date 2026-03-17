@@ -27,6 +27,12 @@ import { LandingPagesFlow } from './LandingPagesFlow';
 import { AIContentFlow } from './AIContentFlow';
 import { SEOLLMOFlow } from './SEOLLMOFlow';
 import { IndustryIntelligenceFlow } from './IndustryIntelligenceFlow';
+import { ActionPlanFlow } from './ActionPlanFlow';
+import { AdCreativeFlow } from './AdCreativeFlow';
+import { EmailSequenceFlow } from './EmailSequenceFlow';
+import { LeadOutreachFlow } from './LeadOutreachFlow';
+import { CROAuditFlow } from './CROAuditFlow';
+import { ABTestFlow } from './ABTestFlow';
 
 interface ModuleDetailProps {
   module: ModuleStats;
@@ -210,6 +216,12 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
   if (module.id === 'ai-content') return <AIContentFlow />;
   if (module.id === 'seo-llmo') return <SEOLLMOFlow />;
   if (module.id === 'industry-intelligence') return <IndustryIntelligenceFlow />;
+  if (module.id === 'action-plan') return <ActionPlanFlow />;
+  if (module.id === 'ad-creative') return <AdCreativeFlow />;
+  if (module.id === 'email-sequence') return <EmailSequenceFlow />;
+  if (module.id === 'lead-outreach') return <LeadOutreachFlow />;
+  if (module.id === 'cro-audit') return <CROAuditFlow />;
+  if (module.id === 'ab-test') return <ABTestFlow />;
 
   return (
     <div className="space-y-6">

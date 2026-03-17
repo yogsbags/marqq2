@@ -198,5 +198,65 @@ export const dashboardData: DashboardData = {
         { label: 'Publish', value: 'WordPress / Sanity' },
       ],
     },
+    {
+      id: 'action-plan',
+      name: 'Goal → Action Plan',
+      color: '#F97316',
+      metrics: [
+        { label: 'Agents', value: 'neel + dev' },
+        { label: 'Output', value: 'Prioritised plan' },
+        { label: 'Includes', value: 'Budget split' },
+      ],
+    },
+    {
+      id: 'ad-creative',
+      name: 'Ad Creative',
+      color: '#EC4899',
+      metrics: [
+        { label: 'Agents', value: 'maya + sam' },
+        { label: 'Platforms', value: 'Meta · Google · LinkedIn' },
+        { label: 'Variants', value: '5 per brief' },
+      ],
+    },
+    {
+      id: 'email-sequence',
+      name: 'Email Sequences',
+      color: '#6366F1',
+      metrics: [
+        { label: 'Agents', value: 'sam + maya' },
+        { label: 'Types', value: 'Nurture · Cold · Onboarding' },
+        { label: 'Output', value: 'Full sequence' },
+      ],
+    },
+    {
+      id: 'lead-outreach',
+      name: 'Lead Outreach',
+      color: '#0EA5E9',
+      metrics: [
+        { label: 'Agent', value: 'arjun' },
+        { label: 'Output', value: 'Personalised messages' },
+        { label: 'Channels', value: 'LinkedIn · Email' },
+      ],
+    },
+    {
+      id: 'cro-audit',
+      name: 'CRO Audit',
+      color: '#14B8A6',
+      metrics: [
+        { label: 'Agents', value: 'tara + sam' },
+        { label: 'Covers', value: 'Pages · Forms · Funnels' },
+        { label: 'Output', value: 'Score + rewrites' },
+      ],
+    },
+    {
+      id: 'ab-test',
+      name: 'A/B Tests',
+      color: '#8B5CF6',
+      metrics: [
+        { label: 'Agents', value: 'dev + sam' },
+        { label: 'Output', value: 'Hypotheses + variants' },
+        { label: 'Declares', value: 'Winners at 95% CI' },
+      ],
+    },
   ],
 };

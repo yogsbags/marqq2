@@ -106,7 +106,7 @@ const topItems: NavItem[] = [
 
 const navSections: NavSection[] = [
   {
-    label: 'Intelligence',
+    label: 'Context',
     items: [
       { id: 'intelligence-dashboard',  title: 'Dashboard',              icon: LayoutDashboard },
       { id: 'company-intelligence',    title: 'Company Intelligence',   icon: TrendingUp },
@@ -117,37 +117,43 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    label: 'Strategy',
+    label: 'Plan',
     items: [
-      { id: 'positioning',  title: 'Positioning',  icon: LightningBolt },
-      { id: 'offer-design', title: 'Offer Design', icon: Tag },
-      { id: 'messaging',    title: 'Messaging',    icon: Annotation },
+      { id: 'action-plan', title: 'Goal → Action Plan', icon: LightningBolt },
+      { id: 'positioning',  title: 'Positioning',        icon: Target },
+      { id: 'offer-design', title: 'Offer Design',       icon: Tag },
+      { id: 'messaging',    title: 'Messaging & Copy',   icon: Annotation },
     ],
   },
   {
-    label: 'Content',
+    label: 'Collateral',
     items: [
-      { id: 'ai-content',      title: 'AI Content',     icon: PenTool },
+      { id: 'ai-content',      title: 'AI Content',      icon: PenTool },
+      { id: 'ad-creative',     title: 'Ad Creative',     icon: Speakerphone },
+      { id: 'email-sequence',  title: 'Email Sequences', icon: Annotation },
       { id: 'social-calendar', title: 'Social Calendar', icon: CalendarIcon },
-      { id: 'ai-video-bot',    title: 'AI Video Bot',    icon: Video },
+      { id: 'landing-pages',   title: 'Landing Pages',   icon: DesktopComputer },
       { id: 'seo-llmo',        title: 'SEO / LLMO',      icon: Search },
+      { id: 'ai-video-bot',    title: 'AI Video Bot',    icon: Video },
     ],
   },
   {
-    label: 'Distribution',
+    label: 'Execution',
     items: [
-      { id: 'channel-health',    title: 'Channel Health',    icon: Share },
-      { id: 'landing-pages',     title: 'Landing Pages',     icon: DesktopComputer },
+      { id: 'lead-outreach',     title: 'Lead Outreach',     icon: Users },
       { id: 'lead-intelligence', title: 'Lead Intelligence', icon: Target },
+      { id: 'channel-health',    title: 'Channel Health',    icon: Share },
       { id: 'ai-voice-bot',      title: 'AI Voice Bot',      icon: Bot },
     ],
   },
   {
     label: 'Analytics',
     items: [
-      { id: 'user-engagement',       title: 'User Engagement',     icon: Users },
-      { id: 'budget-optimization',   title: 'Budget Optimization', icon: DollarSign },
       { id: 'performance-scorecard', title: 'Performance',         icon: TrendingUp },
+      { id: 'budget-optimization',   title: 'Budget Optimization', icon: DollarSign },
+      { id: 'cro-audit',             title: 'CRO Audit',           icon: Eye },
+      { id: 'ab-test',               title: 'A/B Tests',           icon: TrendingUp },
+      { id: 'user-engagement',       title: 'User Engagement',     icon: Users },
       { id: 'unified-customer-view', title: 'Customer View',       icon: Eye },
     ],
   },
