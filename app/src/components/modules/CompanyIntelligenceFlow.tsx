@@ -1,31 +1,30 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ArtifactRecord, Company } from './company-intelligence/api'
 import { fetchJson } from './company-intelligence/api'
 import { COMPANY_INTEL_PAGES, getCompanyIntelPageTitle, type CompanyIntelPageId } from './company-intelligence/pages'
-import { ChannelStrategyPage } from './company-intelligence/pages/ChannelStrategyPage'
-import { ClientProfilingPage } from './company-intelligence/pages/ClientProfilingPage'
-import { CompetitorIntelligencePage } from './company-intelligence/pages/CompetitorIntelligencePage'
-import { ContentStrategyPage } from './company-intelligence/pages/ContentStrategyPage'
-import { IcpsPage } from './company-intelligence/pages/IcpsPage'
-import { LeadMagnetsPage } from './company-intelligence/pages/LeadMagnetsPage'
-import { LookalikeAudiencesPage } from './company-intelligence/pages/LookalikeAudiencesPage'
-import { MarketingStrategyPage } from './company-intelligence/pages/MarketingStrategyPage'
-import { OpportunitiesPage } from './company-intelligence/pages/OpportunitiesPage'
+import { GenericArtifactPage } from './company-intelligence/pages/GenericArtifactPage'
+import { SocialIntelPage } from './company-intelligence/pages/SocialIntelPage'
+import { AdsIntelPage } from './company-intelligence/pages/AdsIntelPage'
 import { OverviewPage } from './company-intelligence/pages/OverviewPage'
-import { PartnerProfilingPage } from './company-intelligence/pages/PartnerProfilingPage'
-import { PositioningMessagingPage } from './company-intelligence/pages/PositioningMessagingPage'
-import { PricingIntelligencePage } from './company-intelligence/pages/PricingIntelligencePage'
-import { SalesEnablementPage } from './company-intelligence/pages/SalesEnablementPage'
-import { SocialCalendarPage } from './company-intelligence/pages/SocialCalendarPage'
-import { WebsiteAuditPage } from './company-intelligence/pages/WebsiteAuditPage'
-import { GenerateControls } from './company-intelligence/ui/GenerateControls'
+import { clearActiveCompanyContext, persistActiveCompanyContext } from '@/lib/agentContext'
+import { notifyCompanyIntelListUpdated } from '@/lib/companyIntelEvents'
 
 type GuidedGoal = 'leads' | 'roi' | 'content'
 
 interface CompanyIntelligenceFlowProps {
   guidedGoal?: GuidedGoal | null
   advancedMode?: boolean
+  onModuleSelect?: (moduleId: string) => void
+}
+
+function hasQueuedCompanyIntelAutorun() {
+  try {
+    return Boolean(sessionStorage.getItem('marqq_company_intel_autorun'))
+  } catch {
+    return false
+  }
 }
 
 type GuidedActionPlan = {
@@ -63,7 +62,7 @@ function setHashCi(pageId: CompanyIntelPageId) {
   window.location.hash = next
 }
 
-export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true }: CompanyIntelligenceFlowProps) {
+export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true, onModuleSelect }: CompanyIntelligenceFlowProps) {
   const [companies, setCompanies] = useState<Company[]>([])
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('')
   const [companyDetails, setCompanyDetails] = useState<{ company: Company; artifacts: Record<string, ArtifactRecord> } | null>(
@@ -72,8 +71,6 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
 
   const [activePage, setActivePage] = useState<CompanyIntelPageId>('overview')
 
-  const [newCompanyName, setNewCompanyName] = useState('')
-  const [newWebsiteUrl, setNewWebsiteUrl] = useState('')
 
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -81,6 +78,7 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
   const autoRunFiredRef = useRef(false)
   const [backgroundGenStatus, setBackgroundGenStatus] = useState<{ status: string; completed: number; total: number } | null>(null)
   const [chatActionPlan, setChatActionPlan] = useState<GuidedActionPlan | null>(null)
+  const [queuedAutorunPending, setQueuedAutorunPending] = useState(() => hasQueuedCompanyIntelAutorun())
 
   const currentCompany = useMemo(() => companyDetails?.company || null, [companyDetails])
   const currentArtifacts = useMemo(() => companyDetails?.artifacts || {}, [companyDetails])
@@ -100,6 +98,26 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
     const allowed = new Set(GUIDED_PAGE_MAP[guidedGoal])
     return COMPANY_INTEL_PAGES.filter((p) => p.id !== 'overview' && allowed.has(p.id))
   }, [guidedGoal])
+  const visiblePages = useMemo(() => {
+    if (!guidedGoal || advancedMode) return COMPANY_INTEL_PAGES
+    const allowed = new Set<CompanyIntelPageId>(['overview', 'social_intel', 'ads_intel', ...GUIDED_PAGE_MAP[guidedGoal]])
+    return COMPANY_INTEL_PAGES.filter((page) => allowed.has(page.id))
+  }, [advancedMode, guidedGoal])
+
+  useEffect(() => {
+    if (currentCompany?.id) {
+      persistActiveCompanyContext({
+        id: currentCompany.id,
+        companyName: currentCompany.companyName,
+        websiteUrl: currentCompany.websiteUrl,
+      })
+      return
+    }
+
+    if (!selectedCompanyId) {
+      clearActiveCompanyContext()
+    }
+  }, [currentCompany, selectedCompanyId])
 
   useEffect(() => {
     const fromHash = parseHashParam('ci')
@@ -209,6 +227,57 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
     }
   }, [selectedCompanyId])
 
+  async function startGenerateAll(companyId: string) {
+    setLoading('generate-all')
+    await fetchJson(`/api/company-intel/companies/${companyId}/generate-all`, {
+      method: 'POST',
+      body: JSON.stringify({
+        inputs: {
+          goal: 'Increase qualified leads',
+          geo: 'India',
+          timeframe: '90 days',
+          channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
+          notes: 'Keep it compliance-safe (no guaranteed returns).'
+        }
+      })
+    })
+    console.info('[CompanyIntel] Started generate-all.', { companyId })
+    setBackgroundGenStatus({ status: 'running', completed: 0, total: 14 })
+    setLoading(null)
+
+    const poll = async () => {
+      try {
+        const [status, refreshed] = await Promise.all([
+          fetchJson<{ status: string; completed: number; total: number }>(
+            `/api/company-intel/companies/${companyId}/generate-all/status`
+          ),
+          fetchJson<{ company: Company; artifacts: Record<string, ArtifactRecord> }>(
+            `/api/company-intel/companies/${companyId}`
+          )
+        ])
+        setCompanyDetails(refreshed)
+        setBackgroundGenStatus(status)
+        console.info('[CompanyIntel] Background refresh tick.', {
+          companyId,
+          status: status.status,
+          completed: status.completed,
+          total: status.total,
+          profileKeys: Object.keys(refreshed.company?.profile || {}),
+          artifactCount: Object.keys(refreshed.artifacts || {}).length
+        })
+        if (status.status === 'running') {
+          setTimeout(poll, 3000)
+        } else {
+          setTimeout(() => setBackgroundGenStatus(null), 5000)
+        }
+      } catch {
+        setBackgroundGenStatus(null)
+      }
+    }
+
+    setTimeout(poll, 3000)
+  }
+
   // Auto-trigger company ingestion when navigating from the Getting Started checklist.
   // The checklist writes { companyName, websiteUrl } to sessionStorage before navigating here.
   useEffect(() => {
@@ -216,27 +285,76 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
     autoRunFiredRef.current = true
 
     const raw = sessionStorage.getItem('marqq_company_intel_autorun')
-    if (!raw) return
+    if (!raw) {
+      setQueuedAutorunPending(false)
+      return
+    }
     sessionStorage.removeItem('marqq_company_intel_autorun')
 
     let payload: { companyId?: string; companyName?: string; websiteUrl?: string }
-    try { payload = JSON.parse(raw) } catch { return }
+    try { payload = JSON.parse(raw) } catch {
+      setQueuedAutorunPending(false)
+      return
+    }
 
     const { companyId, companyName, websiteUrl } = payload
 
     if (companyId) {
       setSelectedCompanyId(companyId)
+      setActivePage('overview')
+      setHashCi('overview')
+      void (async () => {
+        try {
+          const existingDetails = await fetchJson<{ company: Company; artifacts: Record<string, ArtifactRecord> }>(
+            `/api/company-intel/companies/${companyId}`
+          )
+          setCompanyDetails(existingDetails)
+          console.info('[CompanyIntel] Loaded existing company snapshot/artifacts before autorun regeneration.', {
+            companyId,
+            artifactCount: Object.keys(existingDetails.artifacts || {}).length
+          })
+          await startGenerateAll(companyId)
+        } catch (e: any) {
+          setError(e?.message || 'Failed to start company intelligence generation')
+        } finally {
+          setQueuedAutorunPending(false)
+          setLoading(null)
+        }
+      })()
       return
     }
 
-    if (!websiteUrl) return
+    if (!websiteUrl) {
+      setQueuedAutorunPending(false)
+      return
+    }
 
     // Same-URL reruns should refresh the company snapshot/artifacts instead of
-    // only selecting the existing row, otherwise the UI can keep showing stale
-    // or empty profile data for a reused company record.
+    // re-ingesting and wiping visible state first. Keep the current snapshot/artifacts
+    // on screen, then regenerate in the background.
     const existing = companies.find((c) => c.websiteUrl === websiteUrl)
     if (existing) {
-      void ingestCompany(companyName || existing.companyName || 'My Company', websiteUrl)
+      setSelectedCompanyId(existing.id)
+      setActivePage('overview')
+      setHashCi('overview')
+      void (async () => {
+        try {
+          const existingDetails = await fetchJson<{ company: Company; artifacts: Record<string, ArtifactRecord> }>(
+            `/api/company-intel/companies/${existing.id}`
+          )
+          setCompanyDetails(existingDetails)
+          console.info('[CompanyIntel] Reusing existing company snapshot/artifacts for same-URL autorun.', {
+            companyId: existing.id,
+            artifactCount: Object.keys(existingDetails.artifacts || {}).length
+          })
+          await startGenerateAll(existing.id)
+        } catch (e: any) {
+          setError(e?.message || 'Failed to start company intelligence generation')
+        } finally {
+          setQueuedAutorunPending(false)
+          setLoading(null)
+        }
+      })()
       return
     }
 
@@ -246,8 +364,8 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
   }, [companiesLoaded])
 
   async function ingestCompany(overrideName?: string, overrideUrl?: string) {
-    const companyNameVal = overrideName ?? newCompanyName
-    const websiteUrlVal = overrideUrl ?? newWebsiteUrl
+    const companyNameVal = overrideName ?? ''
+    const websiteUrlVal = overrideUrl ?? ''
     try {
       setLoading('ingest')
       setError(null)
@@ -268,6 +386,7 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
         else next.unshift(data.company)
         return next
       })
+      notifyCompanyIntelListUpdated()
       setCompanyDetails({ company: data.company, artifacts: {} })
       console.info('[CompanyIntel] Cleared visible company snapshot/artifacts for fresh regeneration.', {
         companyId: data.company.id
@@ -279,55 +398,11 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
       setHashCi('overview')
 
       // Kick off background generation (returns 202 immediately)
-      setLoading('generate-all')
-      await fetchJson(`/api/company-intel/companies/${data.company.id}/generate-all`, {
-        method: 'POST',
-        body: JSON.stringify({
-          inputs: {
-            goal: 'Increase qualified leads',
-            geo: 'India',
-            timeframe: '90 days',
-            channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
-            notes: 'Keep it compliance-safe (no guaranteed returns).'
-          }
-        })
-      })
-      console.info('[CompanyIntel] Started generate-all.', { companyId: data.company.id })
-      setLoading(null)
-
-      // Poll until all artifacts are done, refreshing the UI as each one arrives
-      // Poll until all artifacts are done, refreshing the UI as each one arrives
-      const companyId = data.company.id
-      const poll = async () => {
-        try {
-          const [status, refreshed] = await Promise.all([
-            fetchJson<{ status: string; completed: number; total: number }>(`/api/company-intel/companies/${companyId}/generate-all/status`),
-            fetchJson<{ company: Company; artifacts: Record<string, ArtifactRecord> }>(`/api/company-intel/companies/${companyId}`)
-          ])
-          setCompanyDetails(refreshed)
-          setBackgroundGenStatus(status)
-          console.info('[CompanyIntel] Background refresh tick.', {
-            companyId,
-            status: status.status,
-            completed: status.completed,
-            total: status.total,
-            profileKeys: Object.keys(refreshed.company?.profile || {}),
-            artifactCount: Object.keys(refreshed.artifacts || {}).length
-          })
-          if (status.status === 'running') {
-            setTimeout(poll, 3000)
-          } else {
-            // Once done or failed, keep status for a bit then clear
-            setTimeout(() => setBackgroundGenStatus(null), 5000)
-          }
-        } catch {
-          setBackgroundGenStatus(null)
-        }
-      }
-      setTimeout(poll, 3000)
+      await startGenerateAll(data.company.id)
     } catch (e: any) {
       setError(e?.message || 'Company ingestion failed')
     } finally {
+      setQueuedAutorunPending(false)
       setLoading(null)
     }
   }
@@ -368,6 +443,7 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
 
       const remainingCompanies = companies.filter((company) => company.id !== companyId)
       setCompanies(remainingCompanies)
+      notifyCompanyIntelListUpdated()
 
       if (selectedCompanyId === companyId) {
         const nextSelectedCompanyId = remainingCompanies[0]?.id || ''
@@ -430,6 +506,24 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
           </div>
         </div>
 
+        <div className="flex flex-wrap gap-2 justify-center">
+          {visiblePages.map((page) => {
+            const isActive = page.id === activePage
+            return (
+              <Button
+                key={page.id}
+                type="button"
+                variant={isActive ? 'default' : 'outline'}
+                size="sm"
+                className={isActive ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}
+                onClick={() => navigate(page.id)}
+              >
+                {page.title}
+              </Button>
+            )
+          })}
+        </div>
+
         {activePage === 'overview' ? (
           <OverviewPage
             companies={companies}
@@ -438,31 +532,23 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
             onDeleteCompany={deleteCompany}
             company={currentCompany}
             artifacts={currentArtifacts}
-            newCompanyName={newCompanyName}
-            newWebsiteUrl={newWebsiteUrl}
-            setNewCompanyName={setNewCompanyName}
-            setNewWebsiteUrl={setNewWebsiteUrl}
-            ingestDisabled={!newCompanyName.trim() && !newWebsiteUrl.trim()}
-            ingestBusy={loading === 'ingest'}
-            onIngest={ingestCompany}
             onNavigate={navigate}
+            onRunAction={(moduleId, agentName) => {
+              if (!onModuleSelect) return
+              try {
+                sessionStorage.setItem('marqq_agent_module_autorun', JSON.stringify({ moduleId, agentName }))
+              } catch {
+                // ignore session storage issues
+              }
+              onModuleSelect(moduleId)
+            }}
+            queuedAutorunPending={queuedAutorunPending}
             backgroundGenStatus={backgroundGenStatus}
             quickStartPages={recommendedPages.map((p) => ({ id: p.id, title: p.title }))}
             simpleMode={!advancedMode}
           />
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-            <div className="xl:col-span-4 space-y-4">
-              <GenerateControls
-                title="Controls"
-                disabled={!selectedCompanyId || !activeArtifactType}
-                isGenerating={loading === `generate:${activeArtifactType}`}
-                artifact={activeArtifact}
-                onGenerate={(inputs) => generate(String(activeArtifactType), inputs)}
-              />
-            </div>
-
-            <div className="xl:col-span-8 space-y-4">
+          <div className="space-y-4">
               {showStartingScanState ? (
                 <Card className="border-orange-200/70 bg-gradient-to-br from-orange-50 to-amber-50 dark:border-orange-900/40 dark:from-orange-950/20 dark:to-amber-950/10">
                   <CardHeader className="pb-2">
@@ -475,29 +561,24 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
                 </Card>
               ) : null}
 
-              {!showStartingScanState && activePage === 'marketing_strategy' ? (
-                <MarketingStrategyPage artifact={activeArtifact} />
+              {!showStartingScanState && activePage === 'social_intel' ? (
+                <SocialIntelPage companyId={currentCompany?.id} />
               ) : null}
-              {!showStartingScanState && activePage === 'positioning_messaging' ? (
-                <PositioningMessagingPage artifact={activeArtifact} />
-              ) : null}
-              {!showStartingScanState && activePage === 'sales_enablement' ? <SalesEnablementPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'pricing_intelligence' ? <PricingIntelligencePage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'social_calendar' ? <SocialCalendarPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'competitor_intelligence' ? (
-                <CompetitorIntelligencePage artifact={activeArtifact} />
-              ) : null}
-              {!showStartingScanState && activePage === 'website_audit' ? <WebsiteAuditPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'opportunities' ? <OpportunitiesPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'icps' ? <IcpsPage artifact={activeArtifact} /> : null}
 
-              {!showStartingScanState && activePage === 'client_profiling' ? <ClientProfilingPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'partner_profiling' ? <PartnerProfilingPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'content_strategy' ? <ContentStrategyPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'channel_strategy' ? <ChannelStrategyPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'lookalike_audiences' ? <LookalikeAudiencesPage artifact={activeArtifact} /> : null}
-              {!showStartingScanState && activePage === 'lead_magnets' ? <LeadMagnetsPage artifact={activeArtifact} /> : null}
-            </div>
+              {!showStartingScanState && activePage === 'ads_intel' ? (
+                <AdsIntelPage companyId={currentCompany?.id} />
+              ) : null}
+
+              {!showStartingScanState && activePage !== 'social_intel' && activePage !== 'ads_intel' ? (
+                <GenericArtifactPage
+                  title={getCompanyIntelPageTitle(activePage)}
+                  pageId={activePage}
+                  artifact={activeArtifact}
+                  companyId={currentCompany?.id}
+                  companyName={currentCompany?.companyName}
+                  websiteUrl={currentCompany?.websiteUrl}
+                />
+              ) : null}
           </div>
         )}
       </div>

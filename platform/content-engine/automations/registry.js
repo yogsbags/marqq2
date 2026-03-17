@@ -10,7 +10,74 @@
  *   ]
  */
 
+import { ytDlpYoutubeFetch } from './handlers/ytdlp.js';
+import { socialIntelExtract } from './handlers/social.js';
+import { adsIntelScrape } from './handlers/ads.js';
+import { adsIntelAnalyze } from './handlers/adsAnalysis.js';
+
 export const REGISTRY = [
+  {
+    id: "yt_dlp_youtube_fetch",
+    name: "YouTube Channel Monitor",
+    description: "Fetches latest videos + transcripts from tracked YouTube channels using yt-dlp. Deduplicates against stored videos — only processes new content.",
+    category: "content_intelligence",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      channels: "Array of { url: string, type: 'own'|'competitor', name?: string }",
+      limit: "Max videos per channel (default 20)",
+      fetch_transcripts: "Whether to fetch transcripts (default true)",
+    },
+    returns: "{ new_videos: number, channels: [...], digest: string }",
+    which_agents_can_invoke: ["isha", "maya", "arjun", "veena"],
+    requires_credential: null,
+  },
+  {
+    id: "social_intel_extract",
+    name: "Social Intelligence Monitor",
+    description: "Discovers recent posts from tracked social accounts (Instagram, Twitter, Facebook, YouTube) and extracts structured intelligence via Supadata /extract. Deduplicates — only processes new posts. Costs 1 Supadata credit per post.",
+    category: "content_intelligence",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      platforms:    "Optional string[] filter e.g. ['instagram','twitter'] (default: all active)",
+      account_type: "Optional 'competitor' | 'own' (default: all)",
+      limit:        "Max posts to process per account (default: 5)",
+      sort_by:      "'recent' (default) | 'views' — YouTube only: recent = newest first, views = top by view count",
+    },
+    returns: "{ new_posts: number, accounts: [...], digest: string }",
+    which_agents_can_invoke: ["isha", "maya", "arjun", "veena"],
+    requires_credential: null,
+  },
+  {
+    id: "ads_intel_analyze",
+    name: "Ads Intelligence Analyzer",
+    description: "Analyzes stored competitor ads (from ads_intel_scrape) against the company's MKG positioning. Identifies channel gaps, messaging themes, white space opportunities, and generates specific ad angle recommendations. Stores result in company_artifacts as 'ads_intel_analysis'.",
+    category: "competitive_intel",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {},
+    returns: "{ analysis: { channel_gaps, messaging_themes, competitor_summary, white_space, recommended_angles }, ads_count, competitors_analyzed }",
+    which_agents_can_invoke: ["isha", "maya", "arjun", "veena"],
+    requires_credential: null,
+  },
+  {
+    id: "ads_intel_scrape",
+    name: "Ads Intelligence Scraper",
+    description: "Scrapes competitor ads from LinkedIn Ad Library, Facebook Ad Library, and Google Ads Transparency Center using Apify. Stores ad creatives, copy, targeting, spend ranges, and impression data in competitor_ads table.",
+    category: "competitive_intel",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      competitors:  "Array of { name, linkedin_company?, facebook_page?, google_domain? }",
+      platforms:    "Optional string[] e.g. ['linkedin','facebook'] (default: all three)",
+      country:      "ISO 2-letter country code (default: 'IN')",
+      limit:        "Max ads per competitor per platform (default: 20)",
+    },
+    returns: "{ total_new: number, results: [...], digest: string }",
+    which_agents_can_invoke: ["isha", "maya", "arjun", "veena"],
+    requires_credential: null,
+  },
   {
     id: "fetch_meta_ads",
     name: "Fetch Meta Ads Performance",
@@ -153,9 +220,97 @@ async function getComposioToken(companyId, appName) {
 }
 
 /**
+ * directApiHandlers — per-automation_id handlers for trigger_type: "direct_api".
+ * Each receives (params, companyId, supabaseClient) and returns a plain result object.
+ */
+const directApiHandlers = {
+  async ads_intel_analyze(params, companyId, supabaseClient) {
+    if (!supabaseClient) return { status: 'error', error: 'supabaseClient required' };
+    return adsIntelAnalyze(params, companyId, supabaseClient);
+  },
+  async ads_intel_scrape(params, companyId, supabaseClient) {
+    if (!supabaseClient) return { status: 'error', error: 'supabaseClient required' };
+    return adsIntelScrape(params, companyId, supabaseClient);
+  },
+  async social_intel_extract(params, companyId, supabaseClient) {
+    if (!supabaseClient) return { status: 'error', error: 'supabaseClient required' };
+    return socialIntelExtract(params, companyId, supabaseClient);
+  },
+  async yt_dlp_youtube_fetch(params, companyId, supabaseClient) {
+    if (!supabaseClient) {
+      return { status: 'error', error: 'supabaseClient required for yt_dlp_youtube_fetch' };
+    }
+    return ytDlpYoutubeFetch(params, companyId, supabaseClient);
+  },
+  async competitor_ad_library(params) {
+    const appToken = process.env.META_AD_LIBRARY_TOKEN;
+    if (!appToken) {
+      return { status: 'simulated', message: 'META_AD_LIBRARY_TOKEN not configured', ads: [] };
+    }
+    let fetchFn;
+    try { fetchFn = fetch; } catch { fetchFn = null; }
+    if (!fetchFn) {
+      const mod = await import('node-fetch').catch(() => null);
+      fetchFn = mod?.default || null;
+    }
+    if (!fetchFn) return { status: 'error', error: 'fetch not available', ads: [] };
+
+    const qs = new URLSearchParams({
+      search_terms: params.search_term || '',
+      ad_reached_countries: params.country || 'IN',
+      fields: 'id,page_name,ad_creative_body,ad_creative_link_caption,impressions',
+      limit: '25',
+      access_token: appToken,
+    });
+    const res = await fetchFn(`https://graph.facebook.com/v19.0/ads_archive?${qs}`);
+    const data = await res.json();
+    if (data.error) return { status: 'error', error: data.error.message, ads: [] };
+    const ads = (data.data || []).map(ad => ({
+      id: ad.id,
+      page_name: ad.page_name,
+      creative: ad.ad_creative_body || ad.ad_creative_link_caption || '',
+      impressions_range: ad.impressions,
+    }));
+    return { status: 'completed', ads };
+  },
+
+  async apollo_lead_enrich(params) {
+    const apiKey = process.env.APOLLO_API_KEY;
+    if (!apiKey) {
+      return { status: 'simulated', message: 'APOLLO_API_KEY not configured', person: null, organization: null };
+    }
+    let fetchFn;
+    try { fetchFn = fetch; } catch { fetchFn = null; }
+    if (!fetchFn) {
+      const mod = await import('node-fetch').catch(() => null);
+      fetchFn = mod?.default || null;
+    }
+    if (!fetchFn) return { status: 'error', error: 'fetch not available', person: null, organization: null };
+
+    const res = await fetchFn('https://api.apollo.io/v1/people/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        email: params.email || null,
+        domain: params.domain || null,
+        reveal_personal_emails: false,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) return { status: 'error', error: data.error, person: null, organization: null };
+    return {
+      status: 'completed',
+      person: data.person || null,
+      organization: data.organization || null,
+    };
+  },
+};
+
+/**
  * executeAutomation — dispatches a single trigger to the appropriate handler.
  */
-async function executeAutomation(trigger, companyId, runId) {
+async function executeAutomation(trigger, companyId, runId, supabaseClient = null) {
   const entry = REGISTRY.find((r) => r.id === trigger.automation_id);
   if (!entry) {
     return { status: "error", error: "unknown automation_id: " + trigger.automation_id };
@@ -166,7 +321,21 @@ async function executeAutomation(trigger, companyId, runId) {
     return { status: "completed", ...result };
   }
 
-  // n8n_webhook or direct_api
+  // direct_api — use the specific handler if one exists
+  if (entry.trigger_type === "direct_api") {
+    const handler = directApiHandlers[entry.id];
+    if (handler) {
+      try {
+        return await handler(trigger.params || {}, companyId, supabaseClient);
+      } catch (err) {
+        return { status: "error", error: err.message, automation_id: entry.id };
+      }
+    }
+    // No handler yet → simulated
+    return { status: "simulated", message: "no handler for: " + entry.id, automation_id: entry.id };
+  }
+
+  // n8n_webhook — POST to configured webhook URL
   const url = process.env[entry.endpoint];
   if (!url) {
     return {
@@ -241,7 +410,7 @@ export async function executeAutomationTriggers(contract, companyId) {
   const collected = [];
 
   for (const trigger of contract.automation_triggers) {
-    const result = await executeAutomation(trigger, companyId, contract.run_id);
+    const result = await executeAutomation(trigger, companyId, contract.run_id, client);
     const status = result.status || "completed";
 
     if (client) {
@@ -272,8 +441,8 @@ export async function executeAutomationTriggers(contract, companyId) {
  * computeNextRun — parses a cron string (5 fields) and returns the next Date.
  *
  * Supported patterns:
- *   "*/15 * * * *"   → next 15-min boundary from now
- *   "0 */N * * *"    → next N-hour boundary (N can be 1-23)
+ *   "star/15 * * * *"   → next 15-min boundary from now
+ *   "0 star/N * * *"    → next N-hour boundary (N can be 1-23)
  *   "0 H * * *"      → today at H:00 UTC if not past, else tomorrow at H:00
  *   "0 H * * DOW"    → next occurrence of day-of-week (0=Sun) at H:00 UTC
  *   anything else    → now + 1 hour
@@ -408,7 +577,8 @@ export async function runDueScheduledAutomations(supabaseClient) {
       result = await executeAutomation(
         { automation_id: row.automation_id, params: row.params },
         row.company_id,
-        runId
+        runId,
+        supabaseClient
       );
     } catch (execErr) {
       result = { status: 'error', error: execErr.message };

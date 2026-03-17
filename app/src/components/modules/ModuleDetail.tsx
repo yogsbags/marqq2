@@ -26,10 +26,12 @@ import { ChannelHealthFlow } from './ChannelHealthFlow';
 import { LandingPagesFlow } from './LandingPagesFlow';
 import { AIContentFlow } from './AIContentFlow';
 import { SEOLLMOFlow } from './SEOLLMOFlow';
+import { IndustryIntelligenceFlow } from './IndustryIntelligenceFlow';
 
 interface ModuleDetailProps {
   module: ModuleStats;
   onBack: () => void;
+  onModuleSelect?: (moduleId: string) => void;
   autoStart?: boolean;
 }
 
@@ -47,7 +49,7 @@ function parseGuidedGoalFromHash(): GuidedGoal {
   return null;
 }
 
-export function ModuleDetail({ module, onBack, autoStart = false }: ModuleDetailProps) {
+export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false }: ModuleDetailProps) {
   const [shouldAutoStart, setShouldAutoStart] = useState(autoStart);
   const [guidedGoal, setGuidedGoal] = useState<GuidedGoal>(() => parseGuidedGoalFromHash());
 
@@ -155,7 +157,7 @@ export function ModuleDetail({ module, onBack, autoStart = false }: ModuleDetail
     if (!guidedGoal) {
       return (
         <div className="space-y-6">
-          <CompanyIntelligenceFlow />
+          <CompanyIntelligenceFlow onModuleSelect={onModuleSelect} />
         </div>
       );
     }
@@ -189,7 +191,7 @@ export function ModuleDetail({ module, onBack, autoStart = false }: ModuleDetail
           ]}
         >
           {({ isAdvancedMode }) => (
-            <CompanyIntelligenceFlow guidedGoal={guidedGoal} advancedMode={isAdvancedMode} />
+            <CompanyIntelligenceFlow guidedGoal={guidedGoal} advancedMode={isAdvancedMode} onModuleSelect={onModuleSelect} />
           )}
         </GuidedFlowShell>
       </div>
@@ -207,6 +209,7 @@ export function ModuleDetail({ module, onBack, autoStart = false }: ModuleDetail
   if (module.id === 'social-calendar') return <SocialCalendarFlow />;
   if (module.id === 'ai-content') return <AIContentFlow />;
   if (module.id === 'seo-llmo') return <SEOLLMOFlow />;
+  if (module.id === 'industry-intelligence') return <IndustryIntelligenceFlow />;
 
   return (
     <div className="space-y-6">

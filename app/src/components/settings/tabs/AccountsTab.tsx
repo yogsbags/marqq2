@@ -13,145 +13,93 @@ type Connector = {
   connectedAt?: string | null;
 };
 
+type ConnectorCategory =
+  | 'Advertising & Acquisition'
+  | 'CRM & Customer Data'
+  | 'Email & Messaging'
+  | 'Google Workspace'
+  | 'Analytics & SEO'
+  | 'Social & Community'
+  | 'Content & Creative'
+  | 'Automation & Data'
+  | 'AI Providers'
+
 type ConnectorMeta = {
-  category: 'Advertising & Acquisition' | 'Email & Messaging' | 'CRM & Customer Data' | 'Analytics & Experimentation' | 'Engagement & Product' | 'Commerce & Data Warehouse';
-  description: string;
-  logoBg: string;
-  logoLabel: string;
-  logoUrl?: string;
-};
+  category: ConnectorCategory
+  description: string
+  logoBg: string
+  logoLabel: string
+  logoUrl?: string
+}
 
 const CONNECTOR_META: Record<string, ConnectorMeta> = {
-  google_ads: {
-    category: 'Advertising & Acquisition',
-    description: 'Sync campaigns, ad groups, and costs from Google Ads.',
-    logoBg: 'bg-[#4285F4]',
-    logoLabel: 'G'
-  },
-  meta_ads: {
-    category: 'Advertising & Acquisition',
-    description: 'Connect Facebook & Instagram ad accounts.',
-    logoBg: 'bg-[#0866FF]',
-    logoLabel: 'M'
-  },
-  linkedin_ads: {
-    category: 'Advertising & Acquisition',
-    description: 'Bring in LinkedIn campaign performance for B2B funnels.',
-    logoBg: 'bg-[#0A66C2]',
-    logoLabel: 'IN'
-  },
-  gmail: {
-    category: 'Email & Messaging',
-    description: 'Let agents read campaign threads and outreach (read-only).',
-    logoBg: 'bg-[#EA4335]',
-    logoLabel: 'G'
-  },
-  outlook: {
-    category: 'Email & Messaging',
-    description: 'Connect Outlook mailboxes used for sales and marketing outreach.',
-    logoBg: 'bg-[#0078D4]',
-    logoLabel: 'O'
-  },
-  zoho_crm: {
-    category: 'CRM & Customer Data',
-    description: 'Sync deals, contacts, and accounts from Zoho CRM.',
-    logoBg: 'bg-[#E71E63]',
-    logoLabel: 'Z'
-  },
-  hubspot: {
-    category: 'CRM & Customer Data',
-    description: 'Sync contacts, deals, and marketing events from HubSpot.',
-    logoBg: 'bg-[#FF7A59]',
-    logoLabel: 'HS'
-  },
-  salesforce: {
-    category: 'CRM & Customer Data',
-    description: 'Accounts, opportunities, and pipelines from Salesforce.',
-    logoBg: 'bg-[#00A1E0]',
-    logoLabel: 'SF'
-  },
-  ga4: {
-    category: 'Analytics & Experimentation',
-    description: 'Web analytics, events, and conversions from GA4.',
-    logoBg: 'bg-[#F9AB00]',
-    logoLabel: 'GA'
-  },
-  gsc: {
-    category: 'Analytics & Experimentation',
-    description: 'Search queries, impressions, and clicks from Google Search Console.',
-    logoBg: 'bg-[#34A853]',
-    logoLabel: 'GSC'
-  },
-  google_sheets: {
-    category: 'Analytics & Experimentation',
-    description: 'Use Google Sheets as a central marketing data source.',
-    logoBg: 'bg-[#0F9D58]',
-    logoLabel: 'GS'
-  },
-  microsoft_sheets: {
-    category: 'Analytics & Experimentation',
-    description: 'Use Excel / OneDrive sheets for reports and experiments.',
-    logoBg: 'bg-[#107C41]',
-    logoLabel: 'XL'
-  },
-  semrush: {
-    category: 'Analytics & Experimentation',
-    description: 'SEO and PPC competitive intelligence from Semrush.',
-    logoBg: 'bg-[#FF6A00]',
-    logoLabel: 'SE'
-  },
-  ahrefs: {
-    category: 'Analytics & Experimentation',
-    description: 'Backlinks, rankings, and content gaps from Ahrefs.',
-    logoBg: 'bg-[#0A66FF]',
-    logoLabel: 'AH'
-  },
-  moengage: {
-    category: 'Engagement & Product',
-    description: 'Customer engagement events and cohorts from MoEngage.',
-    logoBg: 'bg-[#4F46E5]',
-    logoLabel: 'ME'
-  },
-  mixpanel: {
-    category: 'Engagement & Product',
-    description: 'Product analytics events, funnels, and retention cohorts from Mixpanel.',
-    logoBg: 'bg-[#5F2EEA]',
-    logoLabel: 'MX'
-  },
-  clevertap: {
-    category: 'Engagement & Product',
-    description: 'Journeys, campaigns, and cohorts from CleverTap.',
-    logoBg: 'bg-[#FF6B6B]',
-    logoLabel: 'CT'
-  },
-  wordpress: {
-    category: 'Engagement & Product',
-    description: 'Blog and landing page content for SEO and content performance.',
-    logoBg: 'bg-[#21759B]',
-    logoLabel: 'WP'
-  },
-  shopify: {
-    category: 'Commerce & Data Warehouse',
-    description: 'Orders, products, and revenue from your Shopify store.',
-    logoBg: 'bg-[#008060]',
-    logoLabel: 'S'
-  },
-  snowflake: {
-    category: 'Commerce & Data Warehouse',
-    description: 'Read-only warehouse role for advanced modeling.',
-    logoBg: 'bg-[#29B5E8]',
-    logoLabel: 'SF'
-  }
-};
+  // Advertising & Acquisition
+  google_ads:      { category: 'Advertising & Acquisition', description: 'Sync campaigns, ad groups, and costs from Google Ads.',            logoBg: 'bg-[#4285F4]', logoLabel: 'G'   },
+  meta_ads:        { category: 'Advertising & Acquisition', description: 'Connect Facebook & Instagram ad accounts.',                         logoBg: 'bg-[#0866FF]', logoLabel: 'M'   },
+  linkedin_ads:    { category: 'Advertising & Acquisition', description: 'LinkedIn campaign performance for B2B funnels.',                    logoBg: 'bg-[#0A66C2]', logoLabel: 'IN'  },
+  // CRM
+  hubspot:         { category: 'CRM & Customer Data',       description: 'Contacts, deals, and marketing events from HubSpot.',               logoBg: 'bg-[#FF7A59]', logoLabel: 'HS'  },
+  zoho_crm:        { category: 'CRM & Customer Data',       description: 'Deals, contacts, and accounts from Zoho CRM.',                      logoBg: 'bg-[#E71E63]', logoLabel: 'Z'   },
+  salesforce:      { category: 'CRM & Customer Data',       description: 'Accounts, opportunities, and pipelines from Salesforce.',            logoBg: 'bg-[#00A1E0]', logoLabel: 'SF'  },
+  // Email & Messaging
+  gmail:           { category: 'Email & Messaging',         description: 'Read campaign threads and outreach (read-only).',                   logoBg: 'bg-[#EA4335]', logoLabel: 'G'   },
+  outlook:         { category: 'Email & Messaging',         description: 'Outlook mailboxes for sales and marketing outreach.',               logoBg: 'bg-[#0078D4]', logoLabel: 'O'   },
+  mailchimp:       { category: 'Email & Messaging',         description: 'Email campaigns, audiences, and automations from Mailchimp.',       logoBg: 'bg-[#FFE01B]', logoLabel: 'MC'  },
+  klaviyo:         { category: 'Email & Messaging',         description: 'Email & SMS flows, campaigns, and list metrics from Klaviyo.',      logoBg: 'bg-[#1A1A1A]', logoLabel: 'KL'  },
+  sendgrid:        { category: 'Email & Messaging',         description: 'Transactional and marketing email stats from SendGrid.',            logoBg: 'bg-[#1A82E2]', logoLabel: 'SG'  },
+  instantly:       { category: 'Email & Messaging',         description: 'Cold outreach campaigns and reply tracking from Instantly.',        logoBg: 'bg-[#6366F1]', logoLabel: 'IN'  },
+  whatsapp:        { category: 'Email & Messaging',         description: 'WhatsApp Business messaging and campaign automation.',              logoBg: 'bg-[#25D366]', logoLabel: 'WA'  },
+  slack:           { category: 'Email & Messaging',         description: 'Send alerts and reports to Slack channels.',                       logoBg: 'bg-[#4A154B]', logoLabel: 'SL'  },
+  zoho_mail:       { category: 'Email & Messaging',         description: 'Zoho Mail for business email and outreach.',                       logoBg: 'bg-[#E71E63]', logoLabel: 'ZM'  },
+  // Google Workspace
+  ga4:             { category: 'Google Workspace',          description: 'Web analytics, events, and conversions from GA4.',                 logoBg: 'bg-[#F9AB00]', logoLabel: 'GA'  },
+  gsc:             { category: 'Google Workspace',          description: 'Search queries, impressions, and clicks from Search Console.',     logoBg: 'bg-[#34A853]', logoLabel: 'GSC' },
+  google_sheets:   { category: 'Google Workspace',          description: 'Google Sheets as a central marketing data source.',               logoBg: 'bg-[#0F9D58]', logoLabel: 'GS'  },
+  google_docs:     { category: 'Google Workspace',          description: 'Read and write marketing docs and briefs in Google Docs.',         logoBg: 'bg-[#4285F4]', logoLabel: 'GD'  },
+  google_drive:    { category: 'Google Workspace',          description: 'Access and manage files and assets in Google Drive.',              logoBg: 'bg-[#4285F4]', logoLabel: 'GDr' },
+  google_calendar: { category: 'Google Workspace',          description: 'Sync content calendar and campaign schedules.',                   logoBg: 'bg-[#4285F4]', logoLabel: 'GC'  },
+  youtube:         { category: 'Google Workspace',          description: 'Video performance, comments, and channel analytics from YouTube.', logoBg: 'bg-[#FF0000]', logoLabel: 'YT'  },
+  one_drive:       { category: 'Google Workspace',          description: 'OneDrive / SharePoint file access for Microsoft users.',          logoBg: 'bg-[#0078D4]', logoLabel: 'OD'  },
+  // Analytics & SEO
+  semrush:         { category: 'Analytics & SEO',           description: 'SEO and PPC competitive intelligence from Semrush.',               logoBg: 'bg-[#FF6A00]', logoLabel: 'SE'  },
+  ahrefs:          { category: 'Analytics & SEO',           description: 'Backlinks, rankings, and content gaps from Ahrefs.',               logoBg: 'bg-[#0A66FF]', logoLabel: 'AH'  },
+  mixpanel:        { category: 'Analytics & SEO',           description: 'Product analytics events, funnels, and retention from Mixpanel.',  logoBg: 'bg-[#5F2EEA]', logoLabel: 'MX'  },
+  amplitude:       { category: 'Analytics & SEO',           description: 'Behavioral analytics and user journey data from Amplitude.',       logoBg: 'bg-[#1C6BFF]', logoLabel: 'AM'  },
+  moengage:        { category: 'Analytics & SEO',           description: 'Customer engagement events and cohorts from MoEngage.',            logoBg: 'bg-[#4F46E5]', logoLabel: 'ME'  },
+  clevertap:       { category: 'Analytics & SEO',           description: 'Journeys, campaigns, and cohorts from CleverTap.',                 logoBg: 'bg-[#FF6B6B]', logoLabel: 'CT'  },
+  // Social & Community
+  linkedin:        { category: 'Social & Community',        description: 'LinkedIn profile, posts, and organic social data.',               logoBg: 'bg-[#0A66C2]', logoLabel: 'LI'  },
+  facebook:        { category: 'Social & Community',        description: 'Facebook Pages posts, insights, and audience data.',              logoBg: 'bg-[#0866FF]', logoLabel: 'FB'  },
+  reddit:          { category: 'Social & Community',        description: 'Reddit posts, comments, and community signals.',                  logoBg: 'bg-[#FF4500]', logoLabel: 'R'   },
+  instagram:       { category: 'Social & Community',        description: 'Instagram business profile posts and engagement.',                logoBg: 'bg-[#E1306C]', logoLabel: 'IG'  },
+  // Content & Creative
+  canva:           { category: 'Content & Creative',        description: 'Create and manage design assets in Canva.',                       logoBg: 'bg-[#00C4CC]', logoLabel: 'CV'  },
+  heygen:          { category: 'Content & Creative',        description: 'AI avatar video generation via HeyGen.',                         logoBg: 'bg-[#6C47FF]', logoLabel: 'HG'  },
+  elevenlabs:      { category: 'Content & Creative',        description: 'AI voice generation and text-to-speech from ElevenLabs.',        logoBg: 'bg-[#1A1A1A]', logoLabel: 'EL'  },
+  veo:             { category: 'Content & Creative',        description: 'Google Veo AI video generation.',                                logoBg: 'bg-[#4285F4]', logoLabel: 'VEO' },
+  wordpress:       { category: 'Content & Creative',        description: 'Blog and landing page content for SEO performance.',             logoBg: 'bg-[#21759B]', logoLabel: 'WP'  },
+  // Automation & Data
+  make:            { category: 'Automation & Data',         description: 'Trigger and manage Make (Integromat) automation scenarios.',     logoBg: 'bg-[#6D00CC]', logoLabel: 'MK'  },
+  apify:           { category: 'Automation & Data',         description: 'Web scraping and data extraction via Apify actors.',             logoBg: 'bg-[#1DB954]', logoLabel: 'AP'  },
+  shopify:         { category: 'Automation & Data',         description: 'Orders, products, and revenue from your Shopify store.',         logoBg: 'bg-[#008060]', logoLabel: 'S'   },
+  snowflake:       { category: 'Automation & Data',         description: 'Read-only warehouse access for advanced data modeling.',         logoBg: 'bg-[#29B5E8]', logoLabel: 'SF'  },
+  // AI Providers
+  openai:          { category: 'AI Providers',              description: 'OpenAI GPT models for agent tasks and content generation.',      logoBg: 'bg-[#10A37F]', logoLabel: 'OAI' },
+  anthropic:       { category: 'AI Providers',              description: 'Anthropic Claude models for reasoning and analysis.',            logoBg: 'bg-[#D97757]', logoLabel: 'ANT' },
+  perplexity:      { category: 'AI Providers',              description: 'Real-time web search and AI answers from Perplexity.',           logoBg: 'bg-[#1A1A1A]', logoLabel: 'PPX' },
+}
 
-const CATEGORY_ORDER: ConnectorMeta['category'][] = [
+const CATEGORY_ORDER: ConnectorCategory[] = [
   'Advertising & Acquisition',
-  'Email & Messaging',
   'CRM & Customer Data',
-  'Analytics & Experimentation',
-  'Engagement & Product',
-  'Commerce & Data Warehouse'
-];
+  'Email & Messaging',
+  'Google Workspace',
+  'Analytics & SEO',
+  'Social & Community',
+  'Content & Creative',
+  'Automation & Data',
+  'AI Providers',
+]
 
 function IntegrationLogo({ id, name }: { id: string; name: string }) {
   const meta = CONNECTOR_META[id];
@@ -196,6 +144,20 @@ export function AccountsTab() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Listen for OAuth success message from popup
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return
+      if (e.data?.type !== 'composio_oauth_success') return
+      const connectorId = e.data?.connectorId as string | undefined
+      setActionId(null)
+      toast.success(`${connectorId ? CONNECTOR_META[connectorId]?.logoLabel || connectorId : 'Account'} connected successfully`)
+      load()
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [load]);
+
   const groupedConnectors = useMemo(() => {
     const buckets: Record<string, Connector[]> = {};
     for (const c of connectors) {
@@ -230,12 +192,12 @@ export function AccountsTab() {
       if (!res.ok) throw new Error(json?.error || 'connect failed');
       if (json.redirectUrl) {
         const popup = window.open(json.redirectUrl, 'composio_oauth', 'width=600,height=700,left=200,top=100');
-        toast.info('Complete OAuth in the popup window');
+        toast.info('Complete the connection in the popup window');
+        // Fallback: if user closes popup without completing, clear the loading state
         const poll = setInterval(() => {
           if (!popup || popup.closed) {
             clearInterval(poll);
             setActionId(null);
-            toast.info('Connection cancelled or completed — refreshing status');
             load();
           }
         }, 1500);

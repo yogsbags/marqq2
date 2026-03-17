@@ -4353,6 +4353,196 @@ app.post("/api/agents/veena/onboard", async (req, res) => {
   });
 });
 
+// ── Industry Intel ────────────────────────────────────────────────────────────
+
+const INDUSTRY_INTEL_FILE = (companyId) =>
+  join(dirname(fileURLToPath(import.meta.url)), '..', 'crewai', 'memory', companyId, 'industry_intel.json');
+
+async function loadIndustryIntel(companyId) {
+  if (!companyId) return null;
+  try {
+    const raw = await readFile(INDUSTRY_INTEL_FILE(companyId), 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+// ── Helpers for industry intel ────────────────────────────────────────────────
+
+async function buildIndustryContext(companyId) {
+  let companyName = null, positioning = null, icp = null, competitors = null;
+  try {
+    const mkg = await MKGService.read(companyId);
+    if (mkg) {
+      positioning = mkg.positioning?.value ?? null;
+      icp         = mkg.icp?.value         ?? null;
+      competitors = mkg.competitors?.value ?? null;
+    }
+  } catch {}
+  try {
+    const { data: co } = await (supabase?.from('companies').select('name,company_name').eq('id', companyId).single() ?? {});
+    companyName = co?.company_name || co?.name || null;
+  } catch {}
+  return { companyName, positioning, icp, competitors };
+}
+
+// Derive a concise search query from MKG context via Groq
+async function deriveSearchQuery(ctx, groqClient) {
+  const parts = [];
+  if (ctx.companyName) parts.push(`Company: ${ctx.companyName}`);
+  if (ctx.positioning) parts.push(`Positioning: ${typeof ctx.positioning === 'string' ? ctx.positioning : JSON.stringify(ctx.positioning)}`);
+  if (ctx.icp)         parts.push(`ICP: ${typeof ctx.icp === 'string' ? ctx.icp : JSON.stringify(ctx.icp)}`);
+  if (ctx.competitors) parts.push(`Competitors: ${typeof ctx.competitors === 'string' ? ctx.competitors : JSON.stringify(ctx.competitors)}`);
+  if (!parts.length) return 'industry trends';
+
+  const resp = await groqClient.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [{
+      role: 'user',
+      content: `Given this company context, produce a single concise search query (5-8 words max) that best captures the industry/market to research on Reddit and YouTube. Return ONLY the query string, nothing else.\n\n${parts.join('\n')}`,
+    }],
+    temperature: 0.2,
+    max_tokens: 30,
+  });
+  return resp.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
+}
+
+// Run last30days.py subprocess — resolves with { brief, source } or rejects
+function runLast30Days(query, timeoutMs = 180_000) {
+  return new Promise((resolve, reject) => {
+    const scriptPath = join(process.env.HOME || '/root', '.claude', 'skills', 'last30days', 'scripts', 'last30days.py');
+    const args = [scriptPath, query, '--emit', 'md', '--quick', '--timeout', String(Math.floor(timeoutMs / 1000) - 10)];
+
+    // Pass SCRAPECREATORS_API_KEY if available
+    const env = { ...process.env };
+    const configEnvPath = join(process.env.HOME || '/root', '.config', 'last30days', '.env');
+
+    let stdout = '';
+    let stderr = '';
+    const proc = spawn('python3', args, { env });
+
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+
+    const timer = setTimeout(() => {
+      proc.kill('SIGTERM');
+      reject(new Error(`last30days timed out after ${timeoutMs / 1000}s`));
+    }, timeoutMs);
+
+    proc.on('close', code => {
+      clearTimeout(timer);
+      // Strip ANSI codes and UI chrome from output
+      const clean = stdout
+        .replace(/\x1b\[[0-9;]*m/g, '')
+        .replace(/^[└┌│├─⏳✓✗✔✘].*/gm, '')
+        .replace(/^\/last30days.*$/gm, '')
+        .replace(/^\s*$/gm, '')
+        .trim();
+
+      if (code !== 0 || clean.length < 200) {
+        reject(new Error(`last30days exited ${code} — insufficient output (${clean.length} chars). stderr: ${stderr.slice(0, 300)}`));
+      } else {
+        resolve({ brief: clean, source: 'last30days' });
+      }
+    });
+
+    proc.on('error', err => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+// Groq synthesis fallback
+async function groqIntelSynthesis(ctx, groqClient) {
+  const parts = [];
+  if (ctx.companyName) parts.push(`Company: ${ctx.companyName}`);
+  if (ctx.positioning) parts.push(`Positioning: ${typeof ctx.positioning === 'string' ? ctx.positioning : JSON.stringify(ctx.positioning)}`);
+  if (ctx.icp)         parts.push(`Target audience: ${typeof ctx.icp === 'string' ? ctx.icp : JSON.stringify(ctx.icp)}`);
+  if (ctx.competitors) parts.push(`Known competitors: ${typeof ctx.competitors === 'string' ? ctx.competitors : JSON.stringify(ctx.competitors)}`);
+
+  const contextBlock = parts.length ? parts.join('\n') : 'No company context available.';
+  const resp = await groqClient.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [{
+      role: 'user',
+      content: `You are an industry analyst. Generate a concise recent industry intelligence brief for the following company.
+
+Company context:
+${contextBlock}
+
+Cover these 5 areas (infer the relevant industry, geography, and competitive landscape from the context above):
+1. **Market Signals** — growth numbers, volume shifts, new entrants, funding rounds
+2. **Regulatory Pulse** — relevant regulatory or compliance changes
+3. **Competitor Moves** — product launches, pricing changes, campaigns, partnerships
+4. **Consumer Trends** — behavioural shifts, channel preferences, sentiment
+5. **White Space** — gaps or opportunities opening up in the market
+
+Use specific data points where possible. Keep each section to 3-5 bullet points.
+Format as clean markdown. Today's date: ${new Date().toDateString()}.`,
+    }],
+    temperature: 0.5,
+    max_tokens: 1500,
+  });
+  return { brief: resp.choices[0].message.content, source: 'groq' };
+}
+
+app.post('/api/industry-intel/:companyId/refresh', async (req, res) => {
+  const { companyId } = req.params;
+  if (!companyId) return res.status(400).json({ error: 'companyId required' });
+
+  const groqClient = new (await import('groq-sdk')).default({
+    apiKey: process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || '',
+  });
+
+  const ctx = await buildIndustryContext(companyId);
+
+  // Derive search query from MKG
+  let searchQuery = 'industry trends';
+  try { searchQuery = await deriveSearchQuery(ctx, groqClient); } catch {}
+  console.log(`[industry-intel] query: "${searchQuery}"`);
+
+  // Try last30days subprocess first, fall back to Groq synthesis
+  let result;
+  try {
+    result = await runLast30Days(searchQuery);
+    console.log(`[industry-intel] last30days succeeded (${result.brief.length} chars)`);
+  } catch (err) {
+    console.warn(`[industry-intel] last30days failed: ${err.message} — falling back to Groq`);
+    try {
+      result = await groqIntelSynthesis(ctx, groqClient);
+    } catch (groqErr) {
+      return res.status(500).json({ error: groqErr.message });
+    }
+  }
+
+  const payload = {
+    brief:        result.brief,
+    source:       result.source,
+    search_query: searchQuery,
+    company_name: ctx.companyName,
+    generated_at: new Date().toISOString(),
+  };
+
+  // Store to file
+  try {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'crewai', 'memory', companyId);
+    await mkdir(dir, { recursive: true });
+    await writeFile(INDUSTRY_INTEL_FILE(companyId), JSON.stringify(payload, null, 2));
+  } catch (e) {
+    console.warn('[industry-intel] file write error:', e.message);
+  }
+
+  return res.json({ status: 'ok', ...payload });
+});
+
+app.get('/api/industry-intel/:companyId', async (req, res) => {
+  const intel = await loadIndustryIntel(req.params.companyId);
+  if (!intel) return res.json({ brief: null });
+  return res.json(intel);
+});
+
 // ── POST /api/agents/:name/run ─────────────────────────────────────────────────
 // Runs an agent interactively (triggered by slash commands in ChatHome).
 // Loads SOUL.md + MEMORY.md + skills/*.md as system prompt, calls Groq, streams SSE.
@@ -4528,6 +4718,17 @@ app.post("/api/agents/:name/run", async (req, res) => {
 
   const guardrailsBlock = buildAgentRunGuardrails(name, task_type);
 
+  // Industry intel — auto-inject stored brief if available
+  let industryIntelBlock = '';
+  if (companyId) {
+    try {
+      const intel = await loadIndustryIntel(companyId);
+      if (intel?.brief) {
+        industryIntelBlock = `\n\n## Industry Intelligence (Last 30 Days)\nUse this as live market context when forming recommendations. Generated: ${intel.generated_at ?? 'unknown'}.\n\n${intel.brief}`;
+      }
+    } catch {}
+  }
+
   // Contract instruction — always appended LAST so it takes precedence
   const contractInstruction = `
 
@@ -4587,6 +4788,7 @@ Replace ALL placeholder values with your actual outputs.
     runContextBlock,
     guardrailsBlock,
     recentAutomationData,
+    industryIntelBlock,
     contractInstruction,  // always last
   ].join("");
 
@@ -4744,6 +4946,80 @@ app.post('/api/automations/run-due', async (req, res) => {
     res.json({ ran: results.length, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Social Intelligence Fetch ─────────────────────────────────────────────────
+
+app.post('/api/social-intel/:companyId/fetch', async (req, res) => {
+  const { companyId } = req.params;
+  if (!companyId) return res.status(400).json({ error: 'companyId required' });
+
+  const writeClient = getSupabaseWriteClient() || supabase;
+  if (!writeClient) return res.status(500).json({ error: 'Supabase not configured' });
+
+  try {
+    const { socialIntelExtract } = await import('./automations/handlers/social.js');
+    const params = {
+      limit: req.body?.limit ?? 5,
+      ...(req.body?.platforms    ? { platforms:    req.body.platforms }    : {}),
+      ...(req.body?.account_type ? { account_type: req.body.account_type } : {}),
+    };
+    const result = await socialIntelExtract(params, companyId, writeClient);
+    if (result.status === 'error') return res.status(400).json(result);
+    return res.json(result);
+  } catch (err) {
+    console.error('[social-intel/fetch]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Ads Intelligence Analysis ─────────────────────────────────────────────────
+
+app.post('/api/ads-intel/:companyId/analyze', async (req, res) => {
+  const { companyId } = req.params;
+  if (!companyId) return res.status(400).json({ error: 'companyId required' });
+
+  const writeClient = getSupabaseWriteClient() || supabase;
+  if (!writeClient) return res.status(500).json({ error: 'Supabase not configured' });
+
+  try {
+    const { adsIntelAnalyze } = await import('./automations/handlers/adsAnalysis.js');
+    const result = await adsIntelAnalyze({}, companyId, writeClient);
+    if (result.status === 'error') return res.status(400).json(result);
+    return res.json(result);
+  } catch (err) {
+    console.error('[ads-intel/analyze]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/ads-intel/:companyId/analysis', async (req, res) => {
+  const { companyId } = req.params;
+
+  // Try Supabase first
+  if (supabase) {
+    const { data } = await supabase
+      .from('company_artifacts')
+      .select('data, updated_at')
+      .eq('company_id', companyId)
+      .eq('artifact_type', 'ads_intel_analysis')
+      .single();
+    if (data?.data) return res.json({ analysis: data.data, updated_at: data.updated_at });
+  }
+
+  // Fallback: read from file
+  try {
+    const { readFile } = await import('node:fs/promises');
+    const { join, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const __dn = dirname(fileURLToPath(import.meta.url));
+    const filePath = join(__dn, '..', 'crewai', 'memory', companyId, 'ads_analysis.json');
+    const raw = await readFile(filePath, 'utf8');
+    const { analysis, updated_at } = JSON.parse(raw);
+    return res.json({ analysis, updated_at });
+  } catch {
+    return res.json({ analysis: null });
   }
 });
 

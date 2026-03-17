@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Play, RotateCcw } from 'lucide-react'
+import { Play, RotateCcw, TrendingUp } from 'lucide-react'
+import { toast } from 'sonner'
+
 import { useAgentRun } from '@/hooks/useAgentRun'
 import { AgentRunPanel } from './AgentRunPanel'
 import { OfferSelector, type Offer } from './OfferSelector'
@@ -123,6 +125,36 @@ export function AgentModuleShell({
   const companyId = activeWorkspace?.id ?? ''
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null)
   const [autoRunAgentName, setAutoRunAgentName] = useState<string | null>(null)
+  const [intelRefreshing, setIntelRefreshing] = useState(false)
+  const [intelMeta, setIntelMeta] = useState<{ generated_at: string; source?: string; search_query?: string } | null>(null)
+
+  // Load existing industry intel metadata on mount
+  useEffect(() => {
+    if (!companyId) return
+    fetch(`/api/industry-intel/${companyId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.generated_at) setIntelMeta({ generated_at: d.generated_at, source: d.source, search_query: d.search_query })
+      })
+      .catch(() => {})
+  }, [companyId])
+
+  const refreshIndustryIntel = useCallback(async () => {
+    if (!companyId) return
+    setIntelRefreshing(true)
+    try {
+      const resp = await fetch(`/api/industry-intel/${companyId}/refresh`, { method: 'POST' })
+      const data = await resp.json()
+      if (data.error) throw new Error(data.error)
+      setIntelMeta({ generated_at: data.generated_at, source: data.source, search_query: data.search_query })
+      const src = data.source === 'last30days' ? 'last30days (Reddit/YouTube/HN)' : 'AI synthesis'
+      toast.success(`Industry intel refreshed via ${src}`)
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setIntelRefreshing(false)
+    }
+  }, [companyId])
 
   useEffect(() => { setSelectedOffer(null) }, [activeWorkspace?.id])
 
@@ -161,11 +193,31 @@ export function AgentModuleShell({
             Select or create a workspace in Settings to run agents.
           </p>
         )}
-        <OfferSelector
-          companyId={companyId}
-          value={selectedOffer?.name ?? ''}
-          onChange={(_name, offer) => setSelectedOffer(offer)}
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <OfferSelector
+              companyId={companyId}
+              value={selectedOffer?.name ?? ''}
+              onChange={(_name, offer) => setSelectedOffer(offer)}
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={refreshIndustryIntel}
+            disabled={intelRefreshing || !companyId}
+            title={intelMeta
+              ? `Last refreshed: ${new Date(intelMeta.generated_at).toLocaleString()} via ${intelMeta.source ?? 'unknown'}${intelMeta.search_query ? ` · query: "${intelMeta.search_query}"` : ''}`
+              : 'Fetch last-30-days industry intelligence from Reddit, YouTube, HN — injected into every agent run'}
+            className="shrink-0"
+          >
+            <TrendingUp className={`h-3.5 w-3.5 mr-1.5 ${intelRefreshing ? 'animate-pulse' : ''}`} />
+            {intelRefreshing ? 'Refreshing…' : 'Industry Intel'}
+            {intelMeta && !intelRefreshing && (
+              <span className={`ml-1.5 text-xs ${intelMeta.source === 'last30days' ? 'text-green-500' : 'text-amber-500'}`}>●</span>
+            )}
+          </Button>
+        </div>
       </div>
 
       <div className={agents.length > 1 ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : ''}>

@@ -109,6 +109,16 @@ export const dashboardData: DashboardData = {
       ],
     },
     {
+      id: 'industry-intelligence',
+      name: 'Industry Intelligence',
+      color: '#F97316',
+      metrics: [
+        { label: 'Source', value: 'Reddit · YouTube · HN' },
+        { label: 'Window', value: 'Last 30 days' },
+        { label: 'Injection', value: 'Every agent run' },
+      ],
+    },
+    {
       id: 'market-signals',
       name: 'Market Signals',
       color: '#6366F1',

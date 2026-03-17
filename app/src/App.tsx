@@ -19,6 +19,16 @@ import type { Conversation } from '@/types/chat';
 import { useEffect, useState } from 'react';
 import './App.css';
 
+// ── Composio OAuth popup callback ────────────────────────────────────────────
+// When Composio redirects back to /settings?connected=xxx inside the popup,
+// post a message to the opener and close the popup immediately.
+if (window.opener && window.location.search.includes('connected=')) {
+  const params = new URLSearchParams(window.location.search)
+  const connectorId = params.get('connected')
+  try { window.opener.postMessage({ type: 'composio_oauth_success', connectorId }, window.location.origin) } catch {}
+  window.close()
+}
+
 // Update document title based on current view
 function updateDocumentTitle(selectedModule: string | null) {
   if (selectedModule === 'home') {
@@ -147,6 +157,7 @@ function Dashboard() {
         <ModuleDetail
           module={currentModule}
           onBack={() => setSelectedModule(null)}
+          onModuleSelect={handleModuleSelect}
           autoStart={autoStartModule}
         />
       );

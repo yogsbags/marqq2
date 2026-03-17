@@ -4,6 +4,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { BRAND } from '@/lib/brand';
 import { useEffect, useMemo, useState } from 'react';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import {
   HiAnnotation as Annotation,
   HiCalendar as CalendarIcon,
@@ -60,18 +61,31 @@ const COMPANY_INTEL_SUBMENU = [
   { id: 'overview', title: 'Company Overview' },
   { id: 'competitor_intelligence', title: 'Competitor Intelligence' },
   { id: 'website_audit', title: 'Website Audit' },
-  { id: 'opportunities', title: 'Opportunities' },
   { id: 'client_profiling', title: 'Client Profiling' },
   { id: 'partner_profiling', title: 'Partner Profiling' },
   { id: 'icps', title: 'Ideal Customer Profiles' },
   { id: 'social_calendar', title: 'Social Calendar' },
+  { id: 'sales_enablement', title: 'Sales Enablement' },
+  { id: 'content_strategy', title: 'Content Strategy' },
+  { id: 'lookalike_audiences', title: 'Lookalike Audiences' },
+  { id: 'lead_magnets', title: 'Lead Magnets' },
+  { id: 'social_intel', title: 'Social Intelligence' },
+  { id: 'ads_intel', title: 'Ads Intelligence' },
+];
+
+const INTELLIGENCE_DASHBOARD_SUBMENU = [
+  { id: 'dashboard-scorecard', title: 'Marketing Scorecard', moduleId: 'performance-scorecard' },
+  { id: 'dashboard-insights', title: 'AI Insights', moduleId: 'market-signals' },
+  { id: 'dashboard-alerts', title: 'Alerts', moduleId: 'home' },
+  { id: 'dashboard-weekly-summary', title: 'Weekly Summary', moduleId: 'home' },
+];
+
+const MARKETING_BLUEPRINT_SUBMENU = [
+  { id: 'opportunities', title: 'Opportunities' },
   { id: 'marketing_strategy', title: 'Marketing Strategy' },
   { id: 'positioning_messaging', title: 'Positioning & Messaging' },
   { id: 'pricing_intelligence', title: 'Pricing Intelligence' },
-  { id: 'content_strategy', title: 'Content Strategy' },
   { id: 'channel_strategy', title: 'Channel Strategy' },
-  { id: 'lookalike_audiences', title: 'Lookalike Audiences' },
-  { id: 'lead_magnets', title: 'Lead Magnets' }
 ];
 
 interface NavItem {
@@ -94,9 +108,12 @@ const navSections: NavSection[] = [
   {
     label: 'Intelligence',
     items: [
-      { id: 'company-intelligence', title: 'Company Intelligence', icon: TrendingUp },
-      { id: 'market-signals',       title: 'Market Signals',       icon: Speakerphone },
-      { id: 'audience-profiles',    title: 'Audience Profiles',    icon: UserGroup },
+      { id: 'intelligence-dashboard',  title: 'Dashboard',              icon: LayoutDashboard },
+      { id: 'company-intelligence',    title: 'Company Intelligence',   icon: TrendingUp },
+      { id: 'marketing-blueprint',     title: 'Marketing Blueprint',    icon: Target },
+      { id: 'industry-intelligence',   title: 'Industry Intelligence',  icon: Speakerphone },
+      { id: 'market-signals',          title: 'Market Signals',         icon: Speakerphone },
+      { id: 'audience-profiles',       title: 'Audience Profiles',      icon: UserGroup },
     ],
   },
   {
@@ -160,7 +177,15 @@ const bottomItems = [
 export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCollapse, conversations, activeConversationId, onConversationSelect }: SidebarProps) {
   const [companyIntelPage, setCompanyIntelPage] = useState<string>(() => parseCompanyIntelPageFromHash());
   const [companyIntelOpen, setCompanyIntelOpen] = useState<boolean>(selectedModule === 'company-intelligence');
+  const [marketingBlueprintOpen, setMarketingBlueprintOpen] = useState<boolean>(
+    selectedModule === 'company-intelligence' && MARKETING_BLUEPRINT_SUBMENU.some((sub) => sub.id === parseCompanyIntelPageFromHash())
+  );
+  const [intelligenceDashboardOpen, setIntelligenceDashboardOpen] = useState<boolean>(selectedModule === 'performance-scorecard' || selectedModule === 'market-signals' || !selectedModule || selectedModule === 'home');
+  const [intelligenceDashboardSelection, setIntelligenceDashboardSelection] = useState<string>('');
   const [historyOpen, setHistoryOpen] = useState(true);
+  const homeButtonSelected =
+    (!selectedModule || selectedModule === 'home') &&
+    !['dashboard-alerts', 'dashboard-weekly-summary'].includes(intelligenceDashboardSelection);
 
   // Sections open state — default all collapsed; auto-open section of active module
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
@@ -175,23 +200,47 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
   }, []);
 
   useEffect(() => {
+    if (selectedModule && selectedModule !== 'home' && selectedModule !== 'performance-scorecard' && selectedModule !== 'market-signals') {
+      setIntelligenceDashboardSelection('');
+    }
+  }, [selectedModule]);
+
+  useEffect(() => {
     if (collapsed) {
       setCompanyIntelOpen(false);
+      setMarketingBlueprintOpen(false);
+      setIntelligenceDashboardOpen(false);
       return;
     }
     if (selectedModule === 'company-intelligence') {
-      setCompanyIntelOpen(true);
+      const activeCompanyPage = companyIntelPage || parseCompanyIntelPageFromHash();
+      if (MARKETING_BLUEPRINT_SUBMENU.some((sub) => sub.id === activeCompanyPage)) {
+        setMarketingBlueprintOpen(true);
+      } else {
+        setCompanyIntelOpen(true);
+      }
+    }
+    if (selectedModule === 'performance-scorecard' || selectedModule === 'market-signals' || !selectedModule || selectedModule === 'home') {
+      setIntelligenceDashboardOpen(true);
     }
     // Auto-expand section containing newly selected module
     const active = sectionContaining(selectedModule);
     if (active) {
       setOpenSections(prev => prev[active] ? prev : { ...prev, [active]: true });
     }
-  }, [collapsed, selectedModule]);
+  }, [collapsed, selectedModule, companyIntelPage]);
 
   const companySubmenuVisible = useMemo(
     () => selectedModule === 'company-intelligence' && companyIntelOpen && !collapsed,
     [selectedModule, companyIntelOpen, collapsed]
+  );
+  const marketingBlueprintVisible = useMemo(
+    () => selectedModule === 'company-intelligence' && marketingBlueprintOpen && !collapsed,
+    [selectedModule, marketingBlueprintOpen, collapsed]
+  );
+  const dashboardSubmenuVisible = useMemo(
+    () => intelligenceDashboardOpen && !collapsed,
+    [intelligenceDashboardOpen, collapsed]
   );
 
   const navigateCompanyIntel = (pageId: string) => {
@@ -205,7 +254,27 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
 
   const renderNavItem = (item: NavItem) => {
     const isCompanyRoot = item.id === 'company-intelligence';
-    const isSelected = selectedModule === item.id;
+    const isMarketingBlueprintRoot = item.id === 'marketing-blueprint';
+    const isDashboardRoot = item.id === 'intelligence-dashboard';
+    const isCompanyIntelSubpage = COMPANY_INTEL_SUBMENU.some((sub) => sub.id === companyIntelPage);
+    const isDashboardSubmoduleActive = intelligenceDashboardSelection !== '';
+    const isDashboardManagedModule =
+      (item.id === 'market-signals' &&
+        intelligenceDashboardSelection === 'dashboard-insights') ||
+      (item.id === 'performance-scorecard' &&
+        intelligenceDashboardSelection === 'dashboard-scorecard');
+    const isMarketingBlueprintActive =
+      selectedModule === 'company-intelligence' &&
+      MARKETING_BLUEPRINT_SUBMENU.some((sub) => sub.id === companyIntelPage);
+    const isSelected = isDashboardRoot
+      ? isDashboardSubmoduleActive
+      : isMarketingBlueprintRoot
+        ? isMarketingBlueprintActive
+      : isCompanyRoot
+        ? selectedModule === 'company-intelligence' && isCompanyIntelSubpage
+        : isDashboardManagedModule
+          ? false
+        : selectedModule === item.id;
 
     return (
       <div key={item.id} className="space-y-1">
@@ -219,15 +288,29 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
               : "bg-transparent text-foreground/70 hover:bg-orange-500/10 hover:text-orange-500 focus:outline-none focus:ring-0"
           )}
           onClick={() => {
+            if (isDashboardRoot) {
+              setIntelligenceDashboardOpen((prev) => !prev);
+              return;
+            }
+            if (isMarketingBlueprintRoot) {
+              if (selectedModule === 'company-intelligence' && marketingBlueprintOpen) {
+                setMarketingBlueprintOpen(false);
+                return;
+              }
+              setMarketingBlueprintOpen(true);
+              navigateCompanyIntel(companyIntelPage && MARKETING_BLUEPRINT_SUBMENU.some((sub) => sub.id === companyIntelPage) ? companyIntelPage : 'opportunities');
+              return;
+            }
             if (isCompanyRoot) {
               if (selectedModule === 'company-intelligence' && companyIntelOpen) {
                 setCompanyIntelOpen(false);
                 return;
               }
               setCompanyIntelOpen(true);
-              navigateCompanyIntel(companyIntelPage || 'overview');
+              navigateCompanyIntel(companyIntelPage && !MARKETING_BLUEPRINT_SUBMENU.some((sub) => sub.id === companyIntelPage) ? companyIntelPage : 'overview');
               return;
             }
+            setIntelligenceDashboardSelection('');
             onModuleSelect(item.id);
           }}
           data-tour={item.id === 'company-intelligence' ? 'nav-company-intel' : item.id === 'dashboard' ? 'nav-dashboard' : undefined}
@@ -236,9 +319,61 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
           {!collapsed && <span className="font-medium text-base text-left">{item.title}</span>}
         </Button>
 
+        {isDashboardRoot && dashboardSubmenuVisible && (
+          <div className="ml-2 border-l pl-2 space-y-1">
+            {INTELLIGENCE_DASHBOARD_SUBMENU.map((sub) => {
+              const isActive = intelligenceDashboardSelection === sub.id;
+              return (
+                <Button
+                  key={sub.id}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start text-xs focus-visible:ring-0 focus-visible:outline-none",
+                    isActive
+                      ? "bg-orange-500/15 text-orange-500 hover:bg-orange-500/20"
+                      : "text-muted-foreground hover:bg-orange-500/10 hover:text-orange-500"
+                  )}
+                  onClick={() => {
+                    setIntelligenceDashboardOpen(true);
+                    setIntelligenceDashboardSelection(sub.id);
+                    onModuleSelect(sub.moduleId);
+                  }}
+                >
+                  {sub.title}
+                </Button>
+              );
+            })}
+          </div>
+        )}
+
         {isCompanyRoot && companySubmenuVisible && (
           <div className="ml-2 border-l pl-2 space-y-1">
             {COMPANY_INTEL_SUBMENU.map((sub) => {
+              const isActive = companyIntelPage === sub.id;
+              return (
+                <Button
+                  key={sub.id}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start text-xs focus-visible:ring-0 focus-visible:outline-none",
+                    isActive
+                      ? "bg-orange-500/15 text-orange-500 hover:bg-orange-500/20"
+                      : "text-muted-foreground hover:bg-orange-500/10 hover:text-orange-500"
+                  )}
+                  onClick={() => navigateCompanyIntel(sub.id)}
+                >
+                  {sub.title}
+                </Button>
+              );
+            })}
+          </div>
+        )}
+
+        {isMarketingBlueprintRoot && marketingBlueprintVisible && (
+          <div className="ml-2 border-l pl-2 space-y-1">
+            {MARKETING_BLUEPRINT_SUBMENU.map((sub) => {
               const isActive = companyIntelPage === sub.id;
               return (
                 <Button
@@ -271,16 +406,34 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b">
         {collapsed ? (
-          <div className="flex items-center justify-center flex-1">
-            <img src={BRAND.logoSrc} alt={`${BRAND.name} logo`} className="block h-9 w-9 rounded-md" />
+          <div className="flex items-center justify-between flex-1 gap-2">
+            <div className="flex items-center justify-center flex-1">
+              <img src={BRAND.logoSrc} alt={`${BRAND.name} logo`} className="block h-9 w-9 rounded-md" />
+            </div>
+            <button
+              onClick={onToggleCollapse}
+              className="inline-flex items-center justify-center rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              title="Expand sidebar"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
           </div>
         ) : (
-          <div className="flex items-center space-x-3 flex-1 min-w-0">
-            <img src={BRAND.logoSrc} alt={`${BRAND.name} logo`} className="block h-11 w-11 rounded-md flex-shrink-0" />
-            <h1 className={`${BRAND.wordmarkFontClass} text-2xl font-bold uppercase bg-gradient-to-r from-orange-500 to-orange-600 bg-clip-text text-transparent truncate`}>
-              {BRAND.name.toUpperCase()}
-            </h1>
-          </div>
+          <>
+            <div className="flex items-center space-x-3 flex-1 min-w-0">
+              <img src={BRAND.logoSrc} alt={`${BRAND.name} logo`} className="block h-11 w-11 rounded-md flex-shrink-0" />
+              <h1 className={`${BRAND.wordmarkFontClass} text-2xl font-bold uppercase bg-gradient-to-r from-orange-500 to-orange-600 bg-clip-text text-transparent truncate`}>
+                {BRAND.name.toUpperCase()}
+              </h1>
+            </div>
+            <button
+              onClick={onToggleCollapse}
+              className="inline-flex items-center justify-center rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          </>
         )}
       </div>
 
@@ -291,15 +444,16 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
           <div className="space-y-1 mb-1">
             <div className={cn("flex items-center", !collapsed && "gap-1")}>
               <Button
-                variant={(!selectedModule || selectedModule === 'home') ? "default" : "ghost"}
+                variant={homeButtonSelected ? "default" : "ghost"}
                 className={cn(
                   "flex-1 justify-start transition-colors duration-200",
                   collapsed ? "px-2" : "px-3 py-2.5",
-                  (!selectedModule || selectedModule === 'home')
+                  homeButtonSelected
                     ? "bg-orange-500 text-white hover:bg-orange-600"
                     : "bg-transparent text-foreground/70 hover:bg-orange-500/10 hover:text-orange-500 focus:outline-none focus:ring-0"
                 )}
                 onClick={() => onModuleSelect('home')}
+                onClickCapture={() => setIntelligenceDashboardSelection('')}
               >
                 <Home className={cn("h-5 w-5", collapsed ? "" : "mr-2")} />
                 {!collapsed && <span className="font-medium text-base text-left">Home</span>}
