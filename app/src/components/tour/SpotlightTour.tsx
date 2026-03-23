@@ -22,6 +22,59 @@ const TOOLTIP_W = 304
 const TOOLTIP_H_EST = 188
 const GAP = 14
 
+/** Dim + blur around a rectangular hole (rest of screen stays sharp under the hole only). */
+function SpotlightShroud({ rect, onDismiss }: { rect: SpotlightRect; onDismiss: () => void }) {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 0
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 0
+  const { top, left, width, height } = rect
+  const bottom = top + height
+  const right = left + width
+
+  const panelClass =
+    'fixed z-[60] bg-slate-950/80 backdrop-blur-md dark:bg-slate-950/88 supports-[backdrop-filter]:bg-slate-950/70 dark:supports-[backdrop-filter]:bg-slate-950/78'
+
+  return (
+    <>
+      {/* Top */}
+      {top > 0 ? (
+        <div
+          className={panelClass}
+          style={{ top: 0, left: 0, width: vw, height: top }}
+          onClick={onDismiss}
+          aria-hidden
+        />
+      ) : null}
+      {/* Left */}
+      {left > 0 && height > 0 ? (
+        <div
+          className={panelClass}
+          style={{ top, left: 0, width: left, height }}
+          onClick={onDismiss}
+          aria-hidden
+        />
+      ) : null}
+      {/* Right */}
+      {right < vw && height > 0 ? (
+        <div
+          className={panelClass}
+          style={{ top, left: right, width: Math.max(0, vw - right), height }}
+          onClick={onDismiss}
+          aria-hidden
+        />
+      ) : null}
+      {/* Bottom */}
+      {bottom < vh ? (
+        <div
+          className={panelClass}
+          style={{ top: bottom, left: 0, width: vw, height: Math.max(0, vh - bottom) }}
+          onClick={onDismiss}
+          aria-hidden
+        />
+      ) : null}
+    </>
+  )
+}
+
 function computeTooltipStyle(
   spotlight: SpotlightRect | null,
   placement: SpotlightTourStep['placement'],
@@ -133,8 +186,10 @@ export function SpotlightTour({ steps, storageKey, onDone, tourLabel }: Spotligh
     }
     measure()
     window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
     return () => {
       window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
       if (debounceTimer) window.clearTimeout(debounceTimer)
     }
   }, [step, current.target])
@@ -153,40 +208,42 @@ export function SpotlightTour({ steps, storageKey, onDone, tourLabel }: Spotligh
       finish()
       return
     }
-    setStep(s => s + 1)
+    setStep((s) => s + 1)
   }
-  const prev = () => setStep(s => Math.max(0, s - 1))
+  const prev = () => setStep((s) => Math.max(0, s - 1))
 
   const tooltipStyle = computeTooltipStyle(spotlight, current.placement)
 
+  const centerBackdropClass =
+    'fixed inset-0 z-[60] cursor-auto bg-slate-950/82 backdrop-blur-md dark:bg-slate-950/90 supports-[backdrop-filter]:bg-slate-950/72 dark:supports-[backdrop-filter]:bg-slate-950/82'
+
   return (
     <>
-      <div
-        className="fixed inset-0 z-[60]"
-        style={{ background: spotlight ? 'transparent' : 'rgba(0,0,0,0.55)' }}
-        onClick={finish}
-        aria-hidden
-      />
+      {/* Full-screen dim + blur (intro / center steps) */}
+      {!spotlight ? (
+        <div className={centerBackdropClass} onClick={finish} aria-hidden />
+      ) : (
+        <SpotlightShroud rect={spotlight} onDismiss={finish} />
+      )}
 
-      {spotlight && (
+      {/* Highlight ring — only the target area stays undimmed and unblurred */}
+      {spotlight ? (
         <div
-          className="fixed z-[61] rounded-lg pointer-events-none"
+          className="pointer-events-none fixed z-[61] rounded-xl border-2 border-orange-500 shadow-[0_0_0_1px_rgba(255,255,255,0.12),0_0_28px_6px_rgba(249,115,22,0.35)] transition-[top,left,width,height] duration-300 ease-out dark:border-orange-400 dark:shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_0_32px_8px_rgba(249,115,22,0.28)]"
           style={{
             top: spotlight.top,
             left: spotlight.left,
             width: spotlight.width,
             height: spotlight.height,
-            boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.55)',
-            transition: 'top 0.25s, left 0.25s, width 0.25s, height 0.25s',
           }}
         />
-      )}
+      ) : null}
 
       <div
         ref={tooltipRef}
-        className="fixed z-[62] rounded-[1.25rem] border border-orange-200/70 bg-background/98 p-5 shadow-2xl dark:border-orange-900/40 dark:bg-zinc-950/96 max-h-[min(90vh,420px)] overflow-y-auto"
+        className="fixed z-[62] max-h-[min(90vh,420px)] overflow-y-auto rounded-[1.25rem] border border-orange-200/70 bg-background/98 p-5 shadow-2xl dark:border-orange-900/40 dark:bg-zinc-950/96"
         style={tooltipStyle}
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-labelledby="spotlight-tour-title"
         aria-describedby="spotlight-tour-desc"
@@ -194,24 +251,24 @@ export function SpotlightTour({ steps, storageKey, onDone, tourLabel }: Spotligh
         <button
           type="button"
           onClick={finish}
-          className="absolute top-3 right-3 text-muted-foreground transition-colors hover:text-foreground"
+          className="absolute right-3 top-3 text-muted-foreground transition-colors hover:text-foreground"
           aria-label="Skip tour"
         >
           <X className="h-4 w-4" />
         </button>
 
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {tourLabel && (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-600 dark:text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-full">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {tourLabel ? (
+            <span className="rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-orange-600 dark:text-orange-400">
               {tourLabel}
             </span>
-          )}
+          ) : null}
           <span className="text-[10px] text-muted-foreground">
             Step {step + 1} of {total}
           </span>
         </div>
 
-        <div className="flex gap-1.5 mb-3">
+        <div className="mb-3 flex gap-1.5">
           {steps.map((_, i) => (
             <div
               key={i}
@@ -237,12 +294,12 @@ export function SpotlightTour({ steps, storageKey, onDone, tourLabel }: Spotligh
           <button
             type="button"
             onClick={finish}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground shrink-0"
+            className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             Skip tour
           </button>
           <div className="flex items-center gap-2">
-            {step > 0 && (
+            {step > 0 ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -252,18 +309,18 @@ export function SpotlightTour({ steps, storageKey, onDone, tourLabel }: Spotligh
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </Button>
-            )}
+            ) : null}
             <Button
               size="sm"
               onClick={next}
-              className="h-8 px-4 bg-orange-500 hover:bg-orange-600 text-white"
+              className="h-8 bg-orange-500 px-4 text-white hover:bg-orange-600"
             >
               {step === total - 1 ? (
                 'Done'
               ) : (
                 <>
                   Next
-                  <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                  <ChevronRight className="ml-1 h-3.5 w-3.5" />
                 </>
               )}
             </Button>
