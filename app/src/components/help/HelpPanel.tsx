@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { BRAND } from '@/lib/brand';
 import { 
   BookOpen, 
@@ -62,14 +61,20 @@ export function HelpPanel() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Help & Support</h1>
-        <p className="text-muted-foreground">
-          Find answers, get support, and learn how to make the most of {BRAND.name}
-        </p>
-      </div>
+    <div className="mx-auto max-w-[1400px] space-y-6">
+      <Card className="rounded-[30px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.05] shadow-sm dark:from-orange-500/[0.14] dark:via-background dark:to-amber-500/[0.08]">
+        <CardContent className="space-y-3 p-5 md:p-6">
+          <div className="inline-flex w-fit items-center rounded-full border border-orange-200/80 bg-orange-50/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-orange-700 dark:border-orange-900/40 dark:bg-orange-950/20 dark:text-orange-300">
+            Help center
+          </div>
+          <div className="space-y-2">
+            <h1 className="font-brand-syne text-3xl tracking-tight text-foreground md:text-4xl">Help &amp; Support</h1>
+            <p className="max-w-[62ch] text-sm leading-6 text-muted-foreground">
+              Find answers, get support, and learn how to make the most of {BRAND.name}.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Search */}
       <Card>

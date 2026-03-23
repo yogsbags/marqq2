@@ -242,7 +242,7 @@ export function AIVoiceBotFlow({ autoStart = false }: AIVoiceBotFlowProps) {
 
   return (
     <div className="space-y-6">
-      <Card className="rounded-[1.6rem] border-border/70 bg-muted/10">
+      <Card className="rounded-[30px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.05] shadow-sm dark:from-orange-500/[0.14] dark:via-background dark:to-amber-500/[0.08]">
         <CardContent className="space-y-3 p-5 md:p-6">
           <div className="inline-flex items-center rounded-full border border-orange-200/80 bg-orange-50/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-700 dark:border-orange-900/40 dark:bg-orange-950/20 dark:text-orange-300">
             Voice Campaigns

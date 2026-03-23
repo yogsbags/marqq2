@@ -289,7 +289,7 @@ export function MarketSignalsFlow({
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-8">
-      <Card className="rounded-[1.6rem] border-border/70 bg-muted/10">
+      <Card className="rounded-[30px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.05] shadow-sm dark:from-orange-500/[0.14] dark:via-background dark:to-amber-500/[0.08]">
         <CardContent className="space-y-3 p-5 md:p-6">
           <div className="inline-flex w-fit items-center rounded-full border border-orange-200/80 bg-orange-50/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-orange-700 dark:border-orange-900/40 dark:bg-orange-950/20 dark:text-orange-300">
             Market intelligence
@@ -434,11 +434,13 @@ export function MarketSignalsFlow({
       {marketRun.text ? (
         <div className="space-y-5">
           <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-            <Card className="rounded-[2rem] border-orange-200/80 bg-orange-50/80 shadow-[0_24px_48px_-28px_rgba(249,115,22,0.28)] dark:border-orange-900/50 dark:bg-orange-950/28">
+            <Card className="rounded-[2rem] border-orange-200/70 bg-gradient-to-br from-orange-50/90 via-background to-amber-50/50 text-foreground shadow-[0_24px_48px_-28px_rgba(249,115,22,0.16)] dark:border-orange-900/60 dark:from-zinc-950 dark:via-zinc-950 dark:to-orange-950/40 dark:text-orange-50 dark:shadow-[0_24px_48px_-28px_rgba(249,115,22,0.22)]">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base tracking-tight text-slate-950 dark:text-slate-50">Top Shift To Act On Now</CardTitle>
+                <CardTitle className="text-base tracking-tight text-foreground dark:text-orange-50">
+                  Top Shift To Act On Now
+                </CardTitle>
               </CardHeader>
-              <CardContent className="text-sm leading-6 text-slate-800 dark:text-orange-50/90">
+              <CardContent className="text-sm leading-7 text-foreground/95 dark:text-orange-100/90">
                 {parsed.topShift || parsed.summary || 'No market shift extracted yet.'}
               </CardContent>
             </Card>

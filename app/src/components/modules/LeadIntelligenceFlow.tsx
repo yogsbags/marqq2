@@ -702,7 +702,6 @@ function ICPFetchTab({
   const [result, setResult] = useState<FetchResult | null>(null)
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<string[]>([])
   const sourceStrategy = deriveLeadSourceStrategy({ preset, filters, hasApolloConnected })
-  const inferredContext = inferFiltersFromMkg(mkg)
 
   useEffect(() => {
     setFilters(applyLeadFetchPreset(preset, mkg))
@@ -818,23 +817,6 @@ function ICPFetchTab({
           {preset?.leadType ? ` ${preset.leadType === 'buyers' ? 'decision-makers' : preset.leadType === 'companies' ? 'ICP-fit accounts' : 'your existing list'}` : ''}
           {preset?.leadType && preset?.priority ? ' and ' : ''}
           {preset?.priority ? ` ${preset.priority === 'quality' ? 'higher lead quality' : preset.priority === 'volume' ? 'more lead volume' : 'faster lead discovery'}` : ''}.
-        </div>
-      )}
-      <div className="rounded-xl border border-blue-200/70 bg-blue-50/70 px-4 py-3 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300">
-        <div className="font-medium">{sourceStrategy.title}</div>
-        <div className="mt-1">{sourceStrategy.description}</div>
-        {(inferredContext.industries.length > 0 || inferredContext.designationKeywords.length > 0) && (
-          <div className="mt-2 text-[11px] text-blue-700 dark:text-blue-200">
-            Using company context to prefill
-            {inferredContext.industries.length > 0 ? ` industries: ${inferredContext.industries.map((item) => item.replace(/_/g, ' ')).join(', ')}` : ''}
-            {inferredContext.industries.length > 0 && inferredContext.designationKeywords.length > 0 ? ' · ' : ''}
-            {inferredContext.designationKeywords.length > 0 ? `titles: ${inferredContext.designationKeywords.join(', ')}` : ''}.
-          </div>
-        )}
-      </div>
-      {hasApolloConnected && preset?.leadType !== 'existing' && sourceStrategy.mode !== 'linkedin_apollo' && (
-        <div className="rounded-xl border border-blue-200/70 bg-blue-50/70 px-4 py-3 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300">
-          Apollo is available for follow-up enrichment, but this run will start with the internal leads database for broader coverage.
         </div>
       )}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -1186,7 +1168,7 @@ function EnrichTab({
         <Card className="border-border/70 shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2"><Upload className="h-4 w-4 text-blue-500" />Upload or Paste Leads</CardTitle>
-            <CardDescription className="text-xs">Bring in contact identifiers from your current lead set, a file, or pasted values. We enrich from the leads DB first, then fall back to Apollo if needed.</CardDescription>
+            <CardDescription className="text-xs">Bring in contact identifiers from your current lead set, a file, or pasted values.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {sharedLeads.length > 0 && (

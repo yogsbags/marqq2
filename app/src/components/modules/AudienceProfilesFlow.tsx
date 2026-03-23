@@ -69,41 +69,41 @@ export function AudienceProfilesFlow({
   const preAgentContent = (
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50 shadow-[0_28px_80px_-34px_rgba(113,63,18,0.42)] dark:border-orange-900/70">
+        <Card className="rounded-[2rem] border-orange-200/70 bg-gradient-to-br from-orange-50/90 via-background to-amber-50/50 text-foreground shadow-[0_28px_80px_-34px_rgba(154,52,18,0.14)] dark:border-orange-900/70 dark:from-zinc-950 dark:via-zinc-950 dark:to-orange-950/40 dark:text-orange-50 dark:shadow-[0_28px_80px_-34px_rgba(113,63,18,0.42)]">
           <CardContent className="space-y-6 p-8 lg:p-10">
-            <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-200">
+            <div className="inline-flex items-center gap-2 rounded-full border border-orange-300/50 bg-orange-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-800 dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-200">
               Audience Desk
             </div>
             <div className="space-y-3">
-              <h2 className="max-w-lg text-4xl tracking-[-0.045em] text-orange-50 md:text-5xl">
+              <h2 className="max-w-lg text-4xl tracking-[-0.045em] text-foreground md:text-5xl dark:text-orange-50">
                 Define the buyers before every channel starts optimizing for the wrong people.
               </h2>
-              <p className="max-w-[58ch] text-sm leading-7 text-orange-100/74">
+              <p className="max-w-[58ch] text-sm leading-7 text-muted-foreground dark:text-orange-100/74">
                 This flow is designed to pin down who matters first, why they buy, and how different audience layers
                 should change your targeting and message decisions.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
+              <div className="rounded-[1.4rem] border border-orange-200/70 bg-card/80 p-4 dark:border-orange-400/15 dark:bg-white/5">
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/15 text-orange-700 dark:bg-orange-500/12 dark:text-orange-200">
                   <RowsIcon className="h-4 w-4" />
                 </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Scope</div>
-                <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(scope)}</div>
+                <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground dark:text-orange-100/45">Scope</div>
+                <div className="mt-2 text-sm font-medium text-foreground dark:text-orange-50">{formatLabel(scope)}</div>
               </div>
-              <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
+              <div className="rounded-[1.4rem] border border-orange-200/70 bg-card/80 p-4 dark:border-orange-400/15 dark:bg-white/5">
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/15 text-orange-700 dark:bg-orange-500/12 dark:text-orange-200">
                   <PersonIcon className="h-4 w-4" />
                 </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Buyer layer</div>
-                <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(buyer)}</div>
+                <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground dark:text-orange-100/45">Buyer layer</div>
+                <div className="mt-2 text-sm font-medium text-foreground dark:text-orange-50">{formatLabel(buyer)}</div>
               </div>
-              <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
+              <div className="rounded-[1.4rem] border border-orange-200/70 bg-card/80 p-4 dark:border-orange-400/15 dark:bg-white/5">
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/15 text-orange-700 dark:bg-orange-500/12 dark:text-orange-200">
                   <TargetIcon className="h-4 w-4" />
                 </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Use</div>
-                <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(goal)}</div>
+                <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground dark:text-orange-100/45">Use</div>
+                <div className="mt-2 text-sm font-medium text-foreground dark:text-orange-50">{formatLabel(goal)}</div>
               </div>
             </div>
           </CardContent>
