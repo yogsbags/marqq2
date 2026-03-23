@@ -214,12 +214,13 @@ export function SpotlightTour({ steps, storageKey, onDone, tourLabel }: Spotligh
 
   const tooltipStyle = computeTooltipStyle(spotlight, current.placement)
 
+  /** Intro / no-target steps: keep the page (e.g. Home) visible; only a light veil + soft blur. */
   const centerBackdropClass =
-    'fixed inset-0 z-[60] cursor-auto bg-slate-950/82 backdrop-blur-md dark:bg-slate-950/90 supports-[backdrop-filter]:bg-slate-950/72 dark:supports-[backdrop-filter]:bg-slate-950/82'
+    'fixed inset-0 z-[60] cursor-auto bg-black/25 backdrop-blur-[2px] dark:bg-black/45 dark:backdrop-blur-sm supports-[backdrop-filter]:bg-black/20 dark:supports-[backdrop-filter]:bg-black/38'
 
   return (
     <>
-      {/* Full-screen dim + blur (intro / center steps) */}
+      {/* Light scrim for centered intro so underlying UI (Home) stays readable */}
       {!spotlight ? (
         <div className={centerBackdropClass} onClick={finish} aria-hidden />
       ) : (
