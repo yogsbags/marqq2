@@ -1699,11 +1699,12 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {group.goals.map((goal) => (
+                {group.goals.map((goal, idx) => (
                   <Card
                     key={goal.id}
                     className={cn(
-                      'group rounded-[24px] p-5 bg-gradient-to-br border cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200',
+                      'group rounded-[24px] p-5 bg-gradient-to-br border cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-[transform,box-shadow] duration-200',
+                      idx === 0 && 'sm:col-span-2 lg:col-span-2',
                       goal.color
                     )}
                     onClick={() => handleGoalSelect(goal)}
@@ -1739,6 +1740,7 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
                 value={goalSearch}
                 onChange={(event) => setGoalSearch(event.target.value)}
                 placeholder="Search all goals"
+                aria-label="Search all goals"
                 className="h-8 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
               />
             </div>
