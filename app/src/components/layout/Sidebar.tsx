@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { motion } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
@@ -147,7 +148,13 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
     const isSelected = selectedModule === item.id;
 
     return (
-      <div key={item.id} className="space-y-1">
+      <motion.div
+        key={item.id}
+        className="space-y-1"
+        whileHover={{ x: 2 }}
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      >
         <Button
           variant={isSelected ? "default" : "ghost"}
           className={cn(
@@ -178,7 +185,7 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
           <item.icon className={cn("h-5 w-5", collapsed ? "" : "mr-2")} />
           {!collapsed && <span className="font-medium text-base text-left">{item.title}</span>}
         </Button>
-      </div>
+      </motion.div>
     );
   };
 
@@ -230,7 +237,12 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
       <ScrollArea className="flex-1 px-3 py-4">
         <div className="space-y-1">
           {/* Home */}
-          <div className="space-y-1 mb-1">
+          <motion.div
+            className="space-y-1 mb-1"
+            whileHover={{ x: 2 }}
+            whileTap={{ scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+          >
             <Button
               variant={homeButtonSelected ? "default" : "ghost"}
               className={cn(
@@ -245,7 +257,7 @@ export function Sidebar({ selectedModule, onModuleSelect, collapsed, onToggleCol
               <Home className={cn("h-5 w-5", collapsed ? "" : "mr-2")} />
               {!collapsed && <span className="font-medium text-base text-left">Home</span>}
             </Button>
-          </div>
+          </motion.div>
 
           {/* AI Team */}
           {renderNavItem({ id: 'dashboard', title: 'AI Team', icon: LayoutDashboard })}

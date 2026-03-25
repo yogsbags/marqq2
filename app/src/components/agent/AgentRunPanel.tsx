@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Loader2, Bot, CheckCircle, AlertCircle, Copy, ClipboardList, ChevronDown, ChevronRight, Wrench, Brain, Zap, CheckCheck, XCircle, ArrowRight, Sparkles, Bookmark, Download, PanelTopClose, Radio, Target, PenLine, FileText, Users, Monitor, Briefcase, Mail, Search, CalendarDays, BadgeDollarSign, TrendingDown, BarChart2, FlaskConical, Send, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AgentRunResult, ToolCallEvent, ToolResultEvent, ContractTask } from '@/hooks/useAgentRun'
@@ -777,6 +778,40 @@ function saveToLibrary(artifact: Record<string, unknown>, agent: string, company
   }
 }
 
+function AgentRunSkeleton() {
+  return (
+    <div className="space-y-4 p-4 animate-pulse">
+      {/* Header line */}
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-8 w-8 rounded-full" />
+        <div className="space-y-1 flex-1">
+          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-3 w-1/4" />
+        </div>
+      </div>
+      {/* Content lines — mimics markdown paragraph output */}
+      <div className="space-y-2 pt-2">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-5/6" />
+        <Skeleton className="h-4 w-4/5" />
+      </div>
+      {/* Section break */}
+      <div className="space-y-2 pt-2">
+        <Skeleton className="h-5 w-1/3 rounded" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-4 w-5/6" />
+      </div>
+      {/* Card-like block */}
+      <div className="rounded-lg border p-3 space-y-2">
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-4 w-1/3" />
+      </div>
+    </div>
+  )
+}
+
 export function AgentRunPanel({
   agentName,
   label,
@@ -981,21 +1016,7 @@ export function AgentRunPanel({
 
         {/* Skeleton: only show when no agentic activity yet and no text */}
         {streaming && !displayText && !thinking && toolCalls.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-orange-300/70 bg-orange-50/70 p-4 dark:border-orange-900/40 dark:bg-orange-950/20">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500">Live Run</div>
-            <div className="mt-2 text-sm text-foreground">{label ?? agentName} is generating a structured brief…</div>
-            <div className="mt-3 space-y-2">
-              <div className="h-14 animate-pulse rounded-xl bg-orange-100/80 dark:bg-orange-900/30" />
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="h-20 animate-pulse rounded-xl bg-orange-100/60 dark:bg-orange-900/20" />
-                <div className="h-20 animate-pulse rounded-xl bg-orange-100/60 dark:bg-orange-900/20" />
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="h-28 animate-pulse rounded-xl bg-orange-100/60 dark:bg-orange-900/20" />
-                <div className="h-28 animate-pulse rounded-xl bg-orange-100/60 dark:bg-orange-900/20" />
-              </div>
-            </div>
-          </div>
+          <AgentRunSkeleton />
         )}
 
         {/* Structured blocks — Fix 8: items rendered with InlineMd to preserve inline formatting */}

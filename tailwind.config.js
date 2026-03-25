@@ -10,7 +10,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'Helvetica', 'Arial', 'sans-serif'],
+        sans: ['Geist', 'Plus Jakarta Sans', 'Inter', 'system-ui', 'Helvetica', 'Arial', 'sans-serif'],
+        mono: ['Geist Mono', 'monospace'],
       },
       borderRadius: {
         lg: 'var(--radius)',

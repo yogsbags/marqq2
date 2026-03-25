@@ -69,6 +69,8 @@
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.3.0",
     "express": "^5.2.1",
+    "framer-motion": "^12.38.0",
+    "geist": "^1.7.0",
     "google-auth-library": "^10.3.0",
     "groq-sdk": "^0.37.0",
     "input-otp": "^1.2.4",

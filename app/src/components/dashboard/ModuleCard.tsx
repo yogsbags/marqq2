@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
 import { ModuleStats } from '@/types/dashboard';
 import { cn } from '@/lib/utils';
+import { motion } from 'framer-motion';
 
 interface ModuleCardProps {
   module: ModuleStats;
@@ -11,6 +12,11 @@ interface ModuleCardProps {
 
 export function ModuleCard({ module, onViewDetails }: ModuleCardProps) {
   return (
+    <motion.div
+      whileHover={{ y: -2, scale: 1.01 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+    >
     <Card className="transition-all duration-200 hover:shadow-lg hover:border-orange-200 dark:hover:border-orange-800/50 group cursor-pointer">
       <CardHeader>
         <CardTitle className="text-lg">{module.name}</CardTitle>
@@ -47,5 +53,6 @@ export function ModuleCard({ module, onViewDetails }: ModuleCardProps) {
         </Button>
       </CardContent>
     </Card>
+    </motion.div>
   );
 }

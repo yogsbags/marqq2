@@ -1,6 +1,7 @@
 import { MetricsOverview } from './MetricsOverview';
 import { ModuleCard } from './ModuleCard';
 import { dashboardData } from '@/data/dashboardData';
+import { cn } from '@/lib/utils';
 
 interface DashboardContentProps {
   onViewDetails: (moduleId: string) => void;
@@ -40,11 +41,11 @@ export function DashboardContent({ onViewDetails }: DashboardContentProps) {
   return (
     <div className="space-y-10">
       {/* Welcome Section */}
-      <div className="text-center space-y-2 animate-in fade-in-50 slide-in-from-top-5 duration-700">
-        <h1 className="bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 bg-clip-text text-3xl font-bold text-transparent dark:from-orange-300 dark:via-orange-200 dark:to-amber-200">
+      <div className="space-y-1 animate-in fade-in-50 slide-in-from-top-5 duration-700">
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">
           Marketing Intelligence Platform
         </h1>
-        <p className="text-lg text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           Start with Intelligence → build Strategy → create Content → distribute → measure.
         </p>
       </div>
@@ -69,11 +70,14 @@ export function DashboardContent({ onViewDetails }: DashboardContentProps) {
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
               {modules.map((module, idx) => (
                 <div
                   key={module.id}
-                  className="animate-in fade-in-50 slide-in-from-bottom-4"
+                  className={cn(
+                    "animate-in fade-in-50 slide-in-from-bottom-4",
+                    idx === 0 ? "md:col-span-2" : "md:col-span-1"
+                  )}
                   style={{ animationDelay: `${stageIdx * 80 + idx * 60}ms` }}
                 >
                   <ModuleCard module={module} onViewDetails={onViewDetails} />
