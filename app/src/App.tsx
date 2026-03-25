@@ -17,6 +17,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { WorkspaceProvider, useWorkspace } from '@/contexts/WorkspaceContext';
 import { dashboardData } from '@/data/dashboardData';
 import { BRAND } from '@/lib/brand';
+import { supabase } from '@/lib/supabase';
 import type { Conversation } from '@/types/chat';
 import { useEffect, useState } from 'react';
 import './App.css';
@@ -248,6 +249,18 @@ function Dashboard() {
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
   const [isOnboarded, setIsOnboarded] = useState(() => localStorage.getItem('marqq_onboarded') === '1');
+
+  // Hydrate onboarded flag from Supabase user_metadata when localStorage is empty
+  // (covers new deployments, new devices, cleared browser data)
+  useEffect(() => {
+    if (!isAuthenticated || isOnboarded) return;
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user?.user_metadata?.onboarded === true) {
+        localStorage.setItem('marqq_onboarded', '1');
+        setIsOnboarded(true);
+      }
+    });
+  }, [isAuthenticated, isOnboarded]);
 
   // Invite token from URL (?invite=<token>) or session (stored before login)
   const [inviteToken, setInviteToken] = useState<string | null>(() => {

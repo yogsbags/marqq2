@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { fetchJson } from '../components/modules/company-intelligence/api';
 import { AGENTS, STEPS } from '../components/onboarding/constants';
 import { FormData, Phase } from '../components/onboarding/types';
+import { supabase } from '@/lib/supabase';
 
 function normalizeWebsiteUrl(url: string) {
   try {
@@ -132,6 +133,8 @@ export function useOnboarding(onComplete: () => void) {
     await new Promise(r => setTimeout(r, 900));
     setPhase('done');
     localStorage.setItem('marqq_onboarded', '1');
+    // Persist to Supabase so the flag survives new deployments and other devices
+    supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});
 
     await new Promise(r => setTimeout(r, 1800));
     onComplete();
