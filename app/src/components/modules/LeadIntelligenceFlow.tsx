@@ -14,6 +14,7 @@ import {
   CheckCircle, AlertCircle, FileSpreadsheet, Brain, Zap,
   Mail, Phone, Linkedin, RefreshCw, Download, ChevronRight,
   Database, Search, Loader2, ChevronDown,
+  Briefcase, MessageCircle, Bot, Pin, Star, Ban, Landmark, Ruler,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -834,8 +835,8 @@ function ICPFetchTab({
                 <Select value={filters.country} onValueChange={v => set('country', v)}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="IN">India 🇮🇳</SelectItem>
-                    <SelectItem value="US">USA 🇺🇸</SelectItem>
+                    <SelectItem value="IN">India</SelectItem>
+                    <SelectItem value="US">USA</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -992,9 +993,9 @@ function ICPFetchTab({
                   </Button>
                 </div>
                 <div className="flex gap-3 text-xs text-muted-foreground">
-                  <span>📧 {result.leads.filter(l => l.email || l.email_norm).length} emails</span>
-                  <span>📱 {result.leads.filter(l => l.phone_e164).length} phones</span>
-                  <span>💼 {result.leads.filter(l => l.has_linkedin).length} LinkedIn</span>
+                  <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {result.leads.filter(l => l.email || l.email_norm).length} emails</span>
+                  <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" /> {result.leads.filter(l => l.phone_e164).length} phones</span>
+                  <span className="inline-flex items-center gap-1"><Linkedin className="h-3 w-3" /> {result.leads.filter(l => l.has_linkedin).length} LinkedIn</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" className="h-8 text-xs shadow-sm" onClick={() => onNavigate('enrich')}>
@@ -1188,7 +1189,7 @@ function EnrichTab({
                 <button key={m} onClick={() => setEnrichMode(m)}
                   className={cn('flex-1 text-xs py-1.5 rounded border transition-colors capitalize',
                     enrichMode === m ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-primary')}>
-                  {m === 'phone' ? '📱' : '📧'} {m}
+                  {m === 'phone' ? <Phone className="h-3 w-3 inline mr-1" /> : <Mail className="h-3 w-3 inline mr-1" />}{m}
                 </button>
               ))}
             </div>
@@ -2192,12 +2193,12 @@ interface RouteResult {
   error?: string
 }
 
-const CHANNEL_META: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  linkedin: { label: 'LinkedIn',  color: 'text-blue-600',   bg: 'bg-blue-50 dark:bg-blue-900/20',   icon: '💼' },
-  email:    { label: 'Email',     color: 'text-green-600',  bg: 'bg-green-50 dark:bg-green-900/20', icon: '📧' },
-  whatsapp: { label: 'WhatsApp',  color: 'text-emerald-600',bg: 'bg-emerald-50 dark:bg-emerald-900/20', icon: '💬' },
-  voicebot: { label: 'Voicebot',  color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20',icon: '🤖' },
-  phone:    { label: 'Phone',     color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20',icon: '📱' },
+const CHANNEL_META: Record<string, { label: string; color: string; bg: string; icon: React.ComponentType<{ className?: string }> }> = {
+  linkedin: { label: 'LinkedIn',  color: 'text-blue-600',   bg: 'bg-blue-50 dark:bg-blue-900/20',       icon: Linkedin },
+  email:    { label: 'Email',     color: 'text-green-600',  bg: 'bg-green-50 dark:bg-green-900/20',     icon: Mail },
+  whatsapp: { label: 'WhatsApp',  color: 'text-emerald-600',bg: 'bg-emerald-50 dark:bg-emerald-900/20', icon: MessageCircle },
+  voicebot: { label: 'Voicebot',  color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20',   icon: Bot },
+  phone:    { label: 'Phone',     color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/20',   icon: Phone },
 }
 
 function normalizeRouteResult(data: RouteResult): RouteResult & { summary: RoutingSummary; groups: Record<string, RoutedLead[]>; routed_leads: RoutedLead[] } {
@@ -2423,12 +2424,12 @@ function RoutingTab({
             {/* Decision rules summary */}
             <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t">
               <p className="font-medium text-foreground">Routing rules:</p>
-              <p>💼 <strong>C_SUITE / VP</strong> → LinkedIn first</p>
-              <p>📧 <strong>MANAGER / IC</strong> → Email → WhatsApp</p>
-              <p>💬 <strong>REAL_ESTATE / RETAIL</strong> → WhatsApp boost</p>
-              <p>🏦 <strong>FINANCE / LEGAL / HEALTHCARE</strong> → Formal only</p>
-              <p>⭐ <strong>Quality ≥ 4</strong> → Full multichannel sequence</p>
-              <p>🚫 <strong>Spam count ≥ 5</strong> → Skip WhatsApp/Phone</p>
+              <p><Briefcase className="h-3 w-3 inline mr-1" /><strong>C_SUITE / VP</strong> → LinkedIn first</p>
+              <p><Mail className="h-3 w-3 inline mr-1" /><strong>MANAGER / IC</strong> → Email → WhatsApp</p>
+              <p><MessageCircle className="h-3 w-3 inline mr-1" /><strong>REAL_ESTATE / RETAIL</strong> → WhatsApp boost</p>
+              <p><Landmark className="h-3 w-3 inline mr-1" /><strong>FINANCE / LEGAL / HEALTHCARE</strong> → Formal only</p>
+              <p><Star className="h-3 w-3 inline mr-1" /><strong>Quality ≥ 4</strong> → Full multichannel sequence</p>
+              <p><Ban className="h-3 w-3 inline mr-1" /><strong>Spam count ≥ 5</strong> → Skip WhatsApp/Phone</p>
             </div>
           </CardContent>
         </Card>
@@ -2443,7 +2444,7 @@ function RoutingTab({
                   ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 text-purple-800 dark:text-purple-200'
                   : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 text-amber-800 dark:text-amber-200'
               )}>
-                <span className="text-base">{result.mode === 'agent' ? '🤖' : '📏'}</span>
+                {result.mode === 'agent' ? <Bot className="h-4 w-4 shrink-0" /> : <Ruler className="h-4 w-4 shrink-0" />}
                 <div>
                   <span className="font-semibold">{result.mode === 'agent' ? 'Agent-driven routing' : 'Rules-based routing'}</span>
                   {result.mode === 'agent' && result.mkg_loaded && <span className="ml-1">(MKG loaded ✓)</span>}
@@ -2475,7 +2476,7 @@ function RoutingTab({
                 {Object.entries(routeSummary.by_channel)
                   .sort(([, a], [, b]) => b.count - a.count)
                   .map(([ch, stats]) => {
-                    const meta = CHANNEL_META[ch] || { label: ch, color: 'text-foreground', bg: 'bg-muted', icon: '📌' }
+                    const meta = CHANNEL_META[ch] || { label: ch, color: 'text-foreground', bg: 'bg-muted', icon: Pin }
                     const launched = launchResults[ch] as Record<string, unknown> | undefined
                     return (
                       <Card key={ch} className={cn('cursor-pointer transition-all border-2', selected === ch ? 'border-primary' : 'border-transparent')}
@@ -2483,7 +2484,7 @@ function RoutingTab({
                         <CardContent className="p-3 space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <span className="text-lg">{meta.icon}</span>
+                              <meta.icon className={cn('h-4 w-4', meta.color)} />
                               <div>
                                 <div className={cn('font-semibold text-sm', meta.color)}>{meta.label}</div>
                                 <div className="text-xs text-muted-foreground">{stats.count} leads · {stats.pct}% · avg ICP {stats.avg_icp_score}/100</div>

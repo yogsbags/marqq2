@@ -593,7 +593,7 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
                     : 'border-border text-muted-foreground hover:border-muted-foreground'
                   }`}
               >
-                {s === 'PAUSED' ? '⏸ Paused — review first' : '▶ Active — spend immediately'}
+                {s === 'PAUSED' ? 'Paused — review first' : 'Active — spend immediately'}
               </button>
             ))}
           </div>
@@ -729,7 +729,7 @@ function ROASOptimizerTab({ companyId }: { companyId: string }) {
                 : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
               }`}
           >
-            {dryRun ? '🔍 Dry Run — report only, no changes' : '⚡ Live — will pause & scale'}
+            {dryRun ? 'Dry Run — report only, no changes' : 'Live — will pause & scale'}
           </button>
         </div>
       </div>

@@ -3,6 +3,7 @@ import { AgentModuleShell, type AgentConfig } from '@/components/agent/AgentModu
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { PenLine, Image as ImageIcon, Film, Video, Mail } from 'lucide-react'
 
 type ContentType = 'post' | 'image' | 'video-faceless' | 'video-avatar' | 'email'
 type TopicAngle = { id: string; title: string; prompt: string; rationale: string }
@@ -377,14 +378,14 @@ function getNextActions(channel?: string, contentType?: ContentType, deliverable
 const CONTENT_TYPES: {
   id: ContentType
   label: string
-  icon: string
+  icon: React.ComponentType<{ className?: string }>
   taskType: string
   placeholder: string
 }[] = [
   {
     id: 'post',
     label: 'Text Content',
-    icon: '✏️',
+    icon: PenLine,
     taskType: 'content_creation',
     placeholder:
       'e.g. "Write a LinkedIn post about our lead scoring feature" · "Draft a blog section explaining our offer" · "Write landing page copy for our SaaS product launch"',
@@ -392,7 +393,7 @@ const CONTENT_TYPES: {
   {
     id: 'image',
     label: 'Social Image',
-    icon: '🖼️',
+    icon: ImageIcon,
     taskType: 'generate_image',
     placeholder:
       'e.g. "Create a 1:1 Instagram image for Diwali with our brand colors" · "Generate a 16:9 LinkedIn banner for our new feature launch" · "Make a 9:16 story graphic showing our product dashboard"',
@@ -400,7 +401,7 @@ const CONTENT_TYPES: {
   {
     id: 'video-faceless',
     label: 'Faceless Video',
-    icon: '🎬',
+    icon: Film,
     taskType: 'generate_video',
     placeholder:
       'e.g. "Create an 8-second cinematic shot of a data dashboard coming to life" · "Generate a product explainer scene: spreadsheet transforms into a clean analytics UI" · "B-roll of a busy SaaS team reviewing marketing metrics"',
@@ -408,7 +409,7 @@ const CONTENT_TYPES: {
   {
     id: 'video-avatar',
     label: 'Avatar Video',
-    icon: '🎙️',
+    icon: Video,
     taskType: 'generate_avatar_video',
     placeholder:
       'e.g. "Create a 60-second spokesperson video introducing our Q1 product update" · "Generate an avatar video presenting our lead scoring feature to CFOs" · "Record a 90-second demo walkthrough narrated by our spokesperson"',
@@ -416,7 +417,7 @@ const CONTENT_TYPES: {
   {
     id: 'email',
     label: 'Email Content',
-    icon: '📧',
+    icon: Mail,
     taskType: 'generate_email',
     placeholder:
       'e.g. "Create an HTML newsletter for our monthly product digest" · "Write a re-engagement email for dormant leads with 3 sections: highlight, feature update, CTA" · "Build a Diwali campaign email with our brand colors and a discount CTA"',
@@ -698,7 +699,7 @@ export function AIContentFlow({
                   : 'bg-muted text-muted-foreground hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-900/20',
               ].join(' ')}
             >
-              <span>{type.icon}</span>
+              <type.icon className="h-3.5 w-3.5" />
               {type.label}
             </button>
           ))}
