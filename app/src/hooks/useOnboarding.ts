@@ -132,6 +132,7 @@ export function useOnboarding(onComplete: () => void) {
 
     await new Promise(r => setTimeout(r, 900));
     setPhase('done');
+    sessionStorage.removeItem('marqq_just_signed_up');
     localStorage.setItem('marqq_onboarded', '1');
     // Persist to Supabase so the flag survives new deployments and other devices
     supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});

@@ -155,6 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.session?.user) {
         const user = mapSupabaseUser(data.session.user);
+        sessionStorage.setItem('marqq_just_signed_up', '1');
         setState({
           user,
           isAuthenticated: true,

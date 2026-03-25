@@ -250,16 +250,16 @@ function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
   const [isOnboarded, setIsOnboarded] = useState(() => localStorage.getItem('marqq_onboarded') === '1');
 
-  // Hydrate onboarded flag from Supabase user_metadata when localStorage is empty
-  // (covers new deployments, new devices, cleared browser data)
+  // On login with empty localStorage: skip onboarding for existing users.
+  // Only fresh signups (sessionStorage flag set by AuthContext.signup) should see onboarding.
   useEffect(() => {
     if (!isAuthenticated || isOnboarded) return;
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user?.user_metadata?.onboarded === true) {
-        localStorage.setItem('marqq_onboarded', '1');
-        setIsOnboarded(true);
-      }
-    });
+    const isFreshSignup = sessionStorage.getItem('marqq_just_signed_up') === '1';
+    if (isFreshSignup) return; // let the onboarding flow handle it
+    // Existing user logging in — mark as onboarded without showing the flow
+    localStorage.setItem('marqq_onboarded', '1');
+    supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {});
+    setIsOnboarded(true);
   }, [isAuthenticated, isOnboarded]);
 
   // Invite token from URL (?invite=<token>) or session (stored before login)
