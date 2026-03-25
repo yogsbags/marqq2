@@ -53,6 +53,12 @@ const HOME_STEPS: SpotlightTourStep[] = [
       'Twelve agents run research, copy, analytics, and more. Open AI Team to assign tasks, see status, and pull market signals.',
     placement: 'right',
   },
+  {
+    target: 'nav-settings',
+    title: 'Settings & Workspace',
+    description: 'Invite teammates, connect integrations, and manage billing. Your workspace was auto-provisioned when you signed up.',
+    placement: 'right',
+  },
 ]
 
 interface Props {

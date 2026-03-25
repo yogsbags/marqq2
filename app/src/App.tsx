@@ -1,5 +1,4 @@
 import { AgentDashboard } from '@/components/agents/AgentDashboard';
-import { ProductTour } from '@/components/tour/ProductTour';
 import { HomePostOnboardingTour } from '@/components/tour/HomePostOnboardingTour';
 import { InviteAccept } from '@/components/auth/InviteAccept';
 import { LoginForm } from '@/components/auth/LoginForm';
@@ -82,7 +81,7 @@ function AuthScreen() {
   );
 }
 
-function Dashboard({ onHomeTourComplete }: { onHomeTourComplete?: () => void }) {
+function Dashboard() {
   const { activeWorkspace } = useWorkspace();
   const convKey = activeWorkspace?.id ? `marqq_conversations_${activeWorkspace.id}` : 'marqq_conversations';
 
@@ -240,12 +239,7 @@ function Dashboard({ onHomeTourComplete }: { onHomeTourComplete?: () => void }) 
         {renderContent()}
       </MainLayout>
       {homeTourOpen && (
-        <HomePostOnboardingTour
-          onDone={() => {
-            setHomeTourOpen(false);
-            onHomeTourComplete?.();
-          }}
-        />
+        <HomePostOnboardingTour onDone={() => setHomeTourOpen(false)} />
       )}
     </>
   );
@@ -254,12 +248,6 @@ function Dashboard({ onHomeTourComplete }: { onHomeTourComplete?: () => void }) 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
   const [isOnboarded, setIsOnboarded] = useState(() => localStorage.getItem('marqq_onboarded') === '1');
-  const [showTour, setShowTour] = useState(() => {
-    if (localStorage.getItem('marqq_tour_done') === '1') return false;
-    // Don't start ProductTour until the home spotlight tour has finished first
-    if (localStorage.getItem('marqq_home_tour_done') !== '1') return false;
-    return true;
-  });
 
   // Invite token from URL (?invite=<token>) or session (stored before login)
   const [inviteToken, setInviteToken] = useState<string | null>(() => {
@@ -328,18 +316,7 @@ function AppContent() {
     );
   }
 
-  return isAuthenticated ? (
-    <>
-      <Dashboard
-        onHomeTourComplete={() => {
-          if (localStorage.getItem('marqq_tour_done') !== '1') {
-            setShowTour(true);
-          }
-        }}
-      />
-      {showTour && <ProductTour onDone={() => setShowTour(false)} />}
-    </>
-  ) : <AuthScreen />;
+  return isAuthenticated ? <Dashboard /> : <AuthScreen />;
 }
 
 function App() {
