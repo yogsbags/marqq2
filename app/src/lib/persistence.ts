@@ -445,3 +445,80 @@ export function createAutoSave<T>(
     }, debounceMs);
   };
 }
+
+// ============================================================================
+// LIBRARY ARTIFACTS
+// ============================================================================
+
+export interface LibraryArtifactRow {
+  id: string;
+  user_id: string;
+  company_id: string | null;
+  agent: string | null;
+  artifact: Record<string, unknown>;
+  saved_at: string;
+}
+
+export async function saveLibraryArtifact(
+  artifact: Record<string, unknown>,
+  agent: string,
+  companyId: string | null | undefined,
+): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from('library_artifacts')
+    .insert({
+      user_id: user.id,
+      company_id: companyId ?? null,
+      agent,
+      artifact,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    if (!isMissingTableError(error)) console.error('[Library] Save failed:', error);
+    return null;
+  }
+  return data.id;
+}
+
+export async function loadLibraryArtifacts(companyId?: string | null): Promise<LibraryArtifactRow[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  let query = supabase
+    .from('library_artifacts')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('saved_at', { ascending: false })
+    .limit(200);
+
+  if (companyId) {
+    query = query.eq('company_id', companyId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    if (!isMissingTableError(error)) console.error('[Library] Load failed:', error);
+    return [];
+  }
+  return (data ?? []) as LibraryArtifactRow[];
+}
+
+export async function deleteLibraryArtifact(id: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { error } = await supabase
+    .from('library_artifacts')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id);
+
+  if (error && !isMissingTableError(error)) {
+    console.error('[Library] Delete failed:', error);
+  }
+}

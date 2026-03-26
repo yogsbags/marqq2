@@ -1,0 +1,15 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" rx="20" fill="url(#marqqGradient)"/>
+  <g fill="white">
+    <circle cx="43" cy="40" r="15" opacity="0.95"/>
+    <circle cx="82" cy="43" r="10" opacity="0.75"/>
+    <circle cx="50" cy="82" r="12" opacity="0.85"/>
+    <circle cx="84" cy="82" r="7" opacity="0.65"/>
+  </g>
+  <defs>
+    <linearGradient id="marqqGradient" x1="18" y1="16" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FB923C"/>
+      <stop offset="1" stop-color="#EA580C"/>
+    </linearGradient>
+  </defs>
+</svg>

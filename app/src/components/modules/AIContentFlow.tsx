@@ -3,7 +3,7 @@ import { AgentModuleShell, type AgentConfig } from '@/components/agent/AgentModu
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { PenLine, Image as ImageIcon, Film, Video, Mail } from 'lucide-react'
+import { PenLine, Image as ImageIcon, Film, Video, Mail, Linkedin, Globe, Instagram, Youtube } from 'lucide-react'
 
 type ContentType = 'post' | 'image' | 'video-faceless' | 'video-avatar' | 'email'
 type TopicAngle = { id: string; title: string; prompt: string; rationale: string }
@@ -424,6 +424,14 @@ const CONTENT_TYPES: {
   },
 ]
 
+const CHANNELS: { id: string; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'linkedin',           label: 'LinkedIn',           icon: Linkedin  },
+  { id: 'website_blog',       label: 'Website / Blog',     icon: Globe     },
+  { id: 'facebook_instagram', label: 'Instagram / Facebook', icon: Instagram },
+  { id: 'youtube',            label: 'YouTube',            icon: Youtube   },
+  { id: 'email',              label: 'Email',              icon: Mail      },
+]
+
 const DESCRIPTIONS: Record<ContentType, string> = {
   post:           'Write channel-ready text content for social, landing pages, and blog-style drafts — powered by Riya.',
   image:          'Generate brand-consistent social images via DALL-E 3 in any aspect ratio — powered by Riya.',
@@ -445,6 +453,7 @@ export function AIContentFlow({
 }) {
   const { activeWorkspace } = useWorkspace()
   const [contentType, setContentType] = useState<ContentType>(initialContentType || 'post')
+  const [channel, setChannel] = useState(initialChannel ?? '')
   const [showFormatSwitch, setShowFormatSwitch] = useState(false)
   const [heygenAvatars, setHeygenAvatars] = useState<Array<{
     avatar_id: string
@@ -520,7 +529,7 @@ export function AIContentFlow({
   const cfg = contentOptions.find((t) => t.id === contentType) ?? contentOptions[0]
   const topicAngles = getTopicAngles({
     workspaceName: activeWorkspace?.name,
-    channel: initialChannel,
+    channel: channel || undefined,
     objective: initialObjective,
     deliverable: initialDeliverable,
     contentType,
@@ -530,7 +539,7 @@ export function AIContentFlow({
   useEffect(() => {
     setSelectedTopicId(topicAngles[0]?.id ?? '')
     setCustomTopic('')
-  }, [contentType, initialChannel, initialObjective, initialDeliverable, activeWorkspace?.name])
+  }, [contentType, channel, initialObjective, initialDeliverable, activeWorkspace?.name])
   const selectedTopic = topicAngles.find((item) => item.id === selectedTopicId) ?? topicAngles[0]
   const customTopicText = customTopic.trim()
   const selectedTopicPrompt = customTopicText
@@ -553,21 +562,21 @@ export function AIContentFlow({
     : ''
   const startingBrief = buildDefaultBrief({
     contentType,
-    channel: initialChannel,
+    channel: channel || undefined,
     objective: initialObjective,
     deliverable: initialDeliverable,
     topicAngle: selectedTopicPrompt,
   }) + avatarInstruction + voiceInstruction
   const deliverableLabel = getDeliverableLabel(initialDeliverable, cfg.label)
-  const nextActions = getNextActions(initialChannel, contentType, initialDeliverable)
+  const nextActions = getNextActions(channel || undefined, contentType, initialDeliverable)
   const isGuidedEntry = Boolean(initialDeliverable || initialChannel || initialObjective)
   const canSwitchFormat = !isGuidedEntry || showFormatSwitch
   const isSeoDraftFlow = contentType === 'post' && (
     initialDeliverable === 'blog_article' ||
     initialDeliverable === 'seo_page' ||
-    initialChannel === 'website_blog'
+    channel === 'website_blog'
   )
-  const seoBrief = `Build an SEO brief for a ${deliverableLabel.toLowerCase()} on ${initialChannel ? initialChannel.replace(/_/g, ' ') : 'the website'}. ${selectedTopicPrompt || ''} Identify likely search intent, topic angle, suggested structure, and SEO guidance before drafting.`
+  const seoBrief = `Build an SEO brief for a ${deliverableLabel.toLowerCase()} on ${channel ? channel.replace(/_/g, ' ') : 'the website'}. ${selectedTopicPrompt || ''} Identify likely search intent, topic angle, suggested structure, and SEO guidance before drafting.`
   const contentAgents: AgentConfig[] = isSeoDraftFlow
     ? [
         {
@@ -613,7 +622,7 @@ export function AIContentFlow({
           <div className="flex flex-wrap gap-2">
             {[
               { label: 'Deliverable', value: deliverableLabel },
-              { label: 'Channel', value: formatLabel(initialChannel) || 'Primary channel' },
+              { label: 'Channel', value: formatLabel(channel) || 'Pick a platform below' },
               { label: 'Objective', value: formatLabel(initialObjective) || 'Campaign support' },
             ].map((item) => (
               <div key={item.label} className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-sm">
@@ -625,12 +634,46 @@ export function AIContentFlow({
         </CardContent>
       </Card>
 
+      {/* Platform picker — only shown when entering Content Studio directly (no guided preset) */}
+      {!initialChannel ? (
+        <Card className="border-border/70">
+          <CardContent className="space-y-3 px-4 py-4">
+            <div className="space-y-1">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Platform
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Where will this content be published?
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {CHANNELS.map((ch) => (
+                <button
+                  key={ch.id}
+                  type="button"
+                  onClick={() => setChannel(ch.id)}
+                  className={[
+                    'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors',
+                    channel === ch.id
+                      ? 'bg-orange-500 text-white shadow-sm'
+                      : 'bg-muted text-muted-foreground hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-900/20',
+                  ].join(' ')}
+                >
+                  <ch.icon className="h-3.5 w-3.5" />
+                  {ch.label}
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {(initialChannel || initialObjective) ? (
         <Card className="border-orange-200 bg-orange-50/70 dark:border-orange-900/40 dark:bg-orange-950/20">
           <CardContent className="space-y-3 px-4 py-3 text-sm">
             <div className="flex flex-wrap gap-4">
             <div><span className="text-muted-foreground">Deliverable:</span> <span className="font-medium">{deliverableLabel}</span></div>
-            {initialChannel ? <div><span className="text-muted-foreground">Channel:</span> <span className="font-medium">{initialChannel.replace(/_/g, ' ')}</span></div> : null}
+            {channel ? <div><span className="text-muted-foreground">Channel:</span> <span className="font-medium">{channel.replace(/_/g, ' ')}</span></div> : null}
             {initialObjective ? <div><span className="text-muted-foreground">Objective:</span> <span className="font-medium">{initialObjective.replace(/_/g, ' ')}</span></div> : null}
             </div>
             {(selectedTopic || customTopicText) ? (
@@ -819,14 +862,17 @@ export function AIContentFlow({
       ) : null}
 
       <AgentModuleShell
-        key={`${contentType}-${selectedTopic?.id ?? 'default'}-${heygenAvatarId || 'none'}-${heygenVoiceId || 'none'}-${isSeoDraftFlow ? 'seo' : 'standard'}`}
+        key={`${contentType}-${channel || 'none'}-${selectedTopic?.id ?? 'default'}-${heygenAvatarId || 'none'}-${heygenVoiceId || 'none'}-${isSeoDraftFlow ? 'seo' : 'standard'}`}
         moduleId="ai-content"
         title="AI Content"
         description={DESCRIPTIONS[contentType]}
         agents={contentAgents}
+        hideHeader
         collapseSetupControls
         disabledReason={
-          !hasRequiredHeyGenSelection
+          !channel && !isGuidedEntry
+            ? 'Select a platform above to continue.'
+            : !hasRequiredHeyGenSelection
             ? 'Select both a HeyGen avatar and a voice to enable avatar video generation.'
             : null
         }

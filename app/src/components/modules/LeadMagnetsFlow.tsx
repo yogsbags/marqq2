@@ -86,18 +86,9 @@ export function LeadMagnetsFlow({
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[0.96fr_1.04fr]">
         <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50 shadow-[0_28px_80px_-34px_rgba(113,63,18,0.42)] dark:border-orange-900/70">
-          <CardContent className="space-y-6 p-8 lg:p-10">
+          <CardContent className="space-y-6 p-5 lg:p-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-200">
               Demand Capture Desk
-            </div>
-            <div className="space-y-3">
-              <h2 className="max-w-lg text-4xl tracking-[-0.045em] text-orange-50 md:text-5xl">
-                Build the asset before traffic arrives and exposes a weak value exchange.
-              </h2>
-              <p className="max-w-[58ch] text-sm leading-7 text-orange-100/74">
-                This flow is built around the magnet concept, the opt-in promise, and the conversion pressure around the
-                page. It should feel like demand capture architecture, not a generic content brainstorm.
-              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
@@ -209,6 +200,7 @@ export function LeadMagnetsFlow({
 
   return (
     <AgentModuleShell
+      hideHeader
       moduleId="lead-magnets"
       title="Create Lead Magnets"
       description="Shape the lead-magnet concept, tighten the value exchange, and leave with the first asset and opt-in direction ready to build."

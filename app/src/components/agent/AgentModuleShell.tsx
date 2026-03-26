@@ -49,6 +49,7 @@ interface AgentModuleShellProps {
   renderArtifact?: (agent: string, artifact: Record<string, unknown>) => React.ReactNode
   children?: React.ReactNode                                  // optional extra UI below
   preAgentContent?: React.ReactNode
+  hideHeader?: boolean                                        // suppress the Goal Workspace header (use when the flow has its own hero section)
   hideMarketSignals?: boolean                                 // hide the Market Signals button (e.g. on outreach screens)
   collapseSetupControls?: boolean
   disabledReason?: string | null
@@ -249,6 +250,7 @@ export function AgentModuleShell({
   renderArtifact,
   children,
   preAgentContent,
+  hideHeader = false,
   hideMarketSignals = false,
   collapseSetupControls = false,
   disabledReason = null,
@@ -332,17 +334,19 @@ export function AgentModuleShell({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-[28px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.04] px-5 py-5 shadow-sm">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-orange-500">
-          Goal Workspace
+      {!hideHeader && (
+        <div className="rounded-[28px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.04] px-5 py-5 shadow-sm">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-orange-500">
+            Goal Workspace
+          </div>
+          <div className="mt-2 space-y-1">
+            <h1 className="font-brand-syne text-2xl font-semibold tracking-tight text-foreground md:text-[2.05rem]">
+              {title}
+            </h1>
+            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+          </div>
         </div>
-        <div className="mt-2 space-y-1">
-          <h1 className="font-brand-syne text-2xl font-semibold tracking-tight text-foreground md:text-[2.05rem]">
-            {title}
-          </h1>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
-        </div>
-      </div>
+      )}
 
       <div className="space-y-2">
         {!activeWorkspace ? (

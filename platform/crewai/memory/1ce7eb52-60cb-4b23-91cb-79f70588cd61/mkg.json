@@ -1,0 +1,179 @@
+{
+  "company_id": "1ce7eb52-60cb-4b23-91cb-79f70588cd61",
+  "updated_at": "2026-03-23T17:29:16.561Z",
+  "positioning": {
+    "value": "Productverse Technologies is the partner of choice for real‑estate and fintech enterprises seeking custom‑built AI applications that drive efficiency and deliver measurable ROI quickly.",
+    "confidence": 0.9,
+    "last_verified": "2026-03-23",
+    "source_agent": "neel",
+    "expires_at": "2026-04-22"
+  },
+  "icp": {
+    "value": {
+      "industry": [
+        "Real Estate",
+        "Fintech"
+      ],
+      "company_size": "50-300 employees",
+      "geography": "India",
+      "roles": [
+        "Business Owner",
+        "Head of Digital Transformation",
+        "IT Director"
+      ],
+      "budget_min": 1000000,
+      "pain_points": [
+        "Manual workflow bottlenecks",
+        "Data siloes",
+        "Slow time‑to‑insight"
+      ]
+    },
+    "confidence": 0.85,
+    "last_verified": "2026-03-23",
+    "source_agent": "neel",
+    "expires_at": "2026-04-23"
+  },
+  "competitors": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "offers": {
+    "value": {
+      "pricing_framework": {
+        "tiers": [
+          {
+            "name": "Starter",
+            "price_range": "₹12‑15 L",
+            "includes": [
+              "1 AI module",
+              "40 hrs implementation",
+              "30‑day support"
+            ]
+          },
+          {
+            "name": "Growth",
+            "price_range": "₹20‑25 L",
+            "includes": [
+              "3 AI modules",
+              "120 hrs implementation",
+              "90‑day support",
+              "ROI calculator"
+            ]
+          },
+          {
+            "name": "Enterprise",
+            "price_range": "₹35‑40 L",
+            "includes": [
+              "Full suite",
+              "Unlimited implementation",
+              "180‑day premium support",
+              "Dedicated success manager"
+            ]
+          }
+        ]
+      }
+    },
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "messaging": {
+    "value": {
+      "core_message": "Productverse Technologies delivers custom-built AI applications for real-estate and fintech enterprises, driving measurable ROI and efficiency.",
+      "supporting_proof": [
+        "Tailored solutions for specific industries",
+        "Measurable ROI through data-driven insights",
+        "Expertise in real-estate and fintech sectors"
+      ],
+      "cta_language": [
+        "Transform Your Business with Custom AI Solutions",
+        "Discover How Productverse Can Drive Your ROI"
+      ]
+    },
+    "confidence": 0.85,
+    "last_verified": "2026-03-23",
+    "source_agent": "sam",
+    "expires_at": "2026-04-22"
+  },
+  "channels": {
+    "value": [
+      {
+        "name": "LinkedIn Ads",
+        "status": "planned"
+      },
+      {
+        "name": "Google Ads",
+        "status": "planned"
+      }
+    ],
+    "confidence": 0.8,
+    "last_verified": "2026-03-23",
+    "source_agent": "neel",
+    "expires_at": "2026-04-22"
+  },
+  "funnel": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "metrics": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "baselines": {
+    "value": {
+      "cpl_target": 5000,
+      "ctr_google_search": 2.5,
+      "ctr_linkedin_content": 1.2
+    },
+    "confidence": 0.8,
+    "last_verified": "2026-03-23",
+    "source_agent": "zara",
+    "expires_at": "2026-04-23"
+  },
+  "content_pillars": {
+    "value": [
+      "AI in Real Estate",
+      "AI in Fintech",
+      "Custom AI Solutions"
+    ],
+    "confidence": 0.7,
+    "last_verified": "2026-03-23",
+    "source_agent": "neel",
+    "expires_at": "2026-04-22"
+  },
+  "campaigns": {
+    "value": [
+      {
+        "name": "AI‑Driven Efficiency for Business Growth",
+        "status": "active",
+        "channels": [
+          "LinkedIn",
+          "Instagram"
+        ],
+        "start_date": "2026-03-23",
+        "end_date": "2026-04-06"
+      }
+    ],
+    "confidence": 0.9,
+    "last_verified": "2026-03-23",
+    "source_agent": "riya",
+    "expires_at": "2026-04-23"
+  },
+  "insights": {
+    "value": "LinkedIn remains the highest‑performing acquisition channel for mid‑market B2B SaaS in India; email nurture can lift demo conversion by ~20 % when paired with webinar content.",
+    "confidence": 0.8,
+    "last_verified": "2026-03-23",
+    "source_agent": "neel",
+    "expires_at": "2026-04-23"
+  }
+}

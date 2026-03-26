@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .env
+.env.screenshots
 
 # Editor directories and files
 .vscode/*
@@ -23,3 +24,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Build / test artifacts
+*.tsbuildinfo
+test-results/
+
+# Large local experiments (add selectively if needed)
+realtime-dashboard/

@@ -14,7 +14,9 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node server.js"
+    "start": "node server.js",
+    "screenshots:marketing": "playwright test -c app/playwright.config.ts marketing-screenshots",
+    "screenshots:marketing:node": "node ./scripts/capture-marketing-screenshots.mjs"
   },
   "dependencies": {
     "@deepgram/sdk": "^4.0.0",

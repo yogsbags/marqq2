@@ -1,18 +1,12 @@
 {
   "company_id": "ade8db63-dc0e-45c6-a9bc-b733b857021d",
-  "updated_at": "2026-03-18T12:30:00.000Z",
+  "updated_at": "2026-03-24T05:45:34.364Z",
   "positioning": {
-    "value": {
-      "company_name": "Productverse Technologies",
-      "website": "https://productverse.in",
-      "statement": "AI-powered product & app development for real estate, fintech, and ecommerce companies in India",
-      "unique_value": "End-to-end AI app development with deep domain expertise in real estate, fintech, and ecommerce — faster time-to-market, India-first pricing",
-      "tone": "Professional, tech-forward, results-driven"
-    },
-    "confidence": 1,
-    "last_verified": "2026-03-18",
-    "source_agent": "veena",
-    "expires_at": "2026-04-17"
+    "value": "Unlock the full potential of AI‑driven growth with our expert development services, tailored to prop‑tech, fintech, and e‑commerce.",
+    "confidence": 0.9,
+    "last_verified": "2026-03-24",
+    "source_agent": "sam",
+    "expires_at": "2026-04-24"
   },
   "icp": {
     "value": {
@@ -20,11 +14,6 @@
         {
           "segment": "Real Estate Tech Founders",
           "demographics": "Founders / CTOs at proptech startups or mid-size real estate firms, 30-50 yrs, 10-200 employees",
-          "geography": ["Mumbai", "Pune", "Bengaluru", "Hyderabad", "Delhi NCR"],
-          "seniority": ["C_SUITE", "VP"],
-          "job_fn": ["CTO", "CEO"],
-          "industries": ["REAL_ESTATE"],
-          "company_size": "startup to mid-market (10-500 employees)",
           "psychographics": "Wants to digitise property listings, automate lead follow-up, build buyer-facing AI tools; frustrated by generic dev shops with no real estate domain knowledge",
           "pain_points": [
             "Dev agencies deliver generic apps with no real estate context",
@@ -36,17 +25,11 @@
             "Competitor launched an AI-powered portal",
             "Board pressure to show tech differentiation"
           ],
-          "preferred_channels": ["linkedin", "email"],
           "priority": "high"
         },
         {
           "segment": "Fintech Product Leaders",
-          "demographics": "VP Product / CTO / Founders at fintech startups — lending, payments, wealth management",
-          "geography": ["Mumbai", "Bengaluru", "Gurugram", "Pune", "Chennai"],
-          "seniority": ["C_SUITE", "VP", "DIRECTOR"],
-          "job_fn": ["CTO", "CEO", "IT"],
-          "industries": ["FINANCE"],
-          "company_size": "Series A-C fintech (50-500 employees)",
+          "demographics": "VP Product / CTO / Founders at fintech startups — lending, payments, wealth management, 50-500 employees",
           "psychographics": "Needs AI/ML features — fraud detection, credit scoring, document OCR, chatbots — without building an AI team from scratch",
           "pain_points": [
             "AI talent is expensive and hard to retain",
@@ -58,17 +41,11 @@
             "Series B milestone — need AI differentiation for next raise",
             "Competitor launched AI-powered underwriting"
           ],
-          "preferred_channels": ["linkedin", "email"],
           "priority": "high"
         },
         {
           "segment": "Ecommerce Growth Leaders",
-          "demographics": "Co-founders, CTOs, or Head of Tech at D2C / ecommerce brands scaling past ₹10Cr ARR",
-          "geography": ["Delhi NCR", "Mumbai", "Bengaluru", "Surat", "Ahmedabad"],
-          "seniority": ["C_SUITE", "DIRECTOR", "MANAGER"],
-          "job_fn": ["CTO", "CEO", "IT"],
-          "industries": ["ECOMMERCE", "RETAIL"],
-          "company_size": "growth-stage D2C (₹10Cr-₹200Cr GMV)",
+          "demographics": "Co-founders, CTOs, or Head of Tech at D2C / ecommerce brands scaling past ₹10Cr ARR, ₹10Cr-₹200Cr GMV",
           "psychographics": "Wants personalisation, AI-driven recommendations, automated inventory and pricing tools to compete with Meesho/Flipkart at smaller scale",
           "pain_points": [
             "Shopify/WooCommerce plugins don't scale for custom AI needs",
@@ -80,15 +57,14 @@
             "Just hired a CTO — looking to upgrade stack",
             "Raised funding, investor pushing for tech differentiation"
           ],
-          "preferred_channels": ["email", "linkedin"],
           "priority": "medium"
         }
       ]
     },
-    "confidence": 0.9,
-    "last_verified": "2026-03-18",
-    "source_agent": "veena",
-    "expires_at": "2026-04-17"
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
   },
   "competitors": {
     "value": [
@@ -134,123 +110,210 @@
     "expires_at": "2026-04-17"
   },
   "offers": {
-    "value": [
-      {
-        "name": "AI App Development — Real Estate",
-        "description": "Custom AI-powered apps for proptech: property search, lead scoring, virtual tours, automated valuations",
-        "tier": "project",
-        "price_signal": "₹15L-₹50L project",
-        "target_segment": "Real Estate Tech Founders"
-      },
-      {
-        "name": "AI App Development — Fintech",
-        "description": "AI/ML features for fintech: fraud detection, credit scoring, document OCR, AI chatbots, KYC automation",
-        "tier": "project",
-        "price_signal": "₹20L-₹80L project",
-        "target_segment": "Fintech Product Leaders"
-      },
-      {
-        "name": "AI App Development — Ecommerce",
-        "description": "AI personalisation, recommendation engines, dynamic pricing, automated catalogue management for D2C brands",
-        "tier": "project",
-        "price_signal": "₹10L-₹40L project",
-        "target_segment": "Ecommerce Growth Leaders"
-      },
-      {
-        "name": "AI Consulting & MVP Sprint",
-        "description": "4-8 week sprint to validate AI use case and deliver working MVP — fixed scope, fixed price",
-        "tier": "entry",
-        "price_signal": "₹5L-₹10L fixed",
-        "target_segment": "All segments"
-      }
-    ],
-    "confidence": 0.85,
-    "last_verified": "2026-03-18",
-    "source_agent": "veena",
-    "expires_at": "2026-04-17"
-  },
-  "messaging": {
     "value": {
-      "headline": "Ship AI-Powered Apps Faster — Built for India's Real Estate, Fintech & Ecommerce",
-      "tagline": "From Idea to AI Product in 90 Days",
-      "key_messages": [
-        "Deep domain expertise in real estate, fintech, and ecommerce — not a generic dev shop",
-        "AI-first approach: every app is designed with ML, automation, and intelligence from day one",
-        "India-first pricing with global engineering quality",
-        "Fixed-scope sprints so you control cost and timeline"
-      ],
-      "proof_points": [
-        "AI apps shipped across proptech, lending, and D2C verticals",
-        "Experienced with RBI/SEBI compliance constraints in fintech builds",
-        "Integration-ready with Razorpay, Setu, Finbox, Shopify ecosystem"
-      ],
-      "objection_handling": {
-        "too_expensive": "Our MVP sprint starts at ₹5L — less than one month of an in-house AI engineer",
-        "delivery_risk": "Fixed-scope, fixed-price sprints — you approve the spec before we write a line of code",
-        "domain_expertise": "We've shipped AI products specifically in your vertical — not adapting a generic template"
+      "Prop-Tech": {
+        "value": "Accelerate property sales with AI‑powered apps, delivering faster valuations and smarter transactions.",
+        "confidence": 0.8,
+        "last_verified": "2026-03-24",
+        "source_agent": "sam",
+        "expires_at": "2026-04-24"
+      },
+      "Fintech": {
+        "value": "Revolutionize financial services with AI‑driven features, enhancing security and user experience.",
+        "confidence": 0.8,
+        "last_verified": "2026-03-24",
+        "source_agent": "sam",
+        "expires_at": "2026-04-24"
+      },
+      "Ecommerce": {
+        "value": "Unlock AI‑powered personalization, driving revenue growth and customer loyalty.",
+        "confidence": 0.8,
+        "last_verified": "2026-03-24",
+        "source_agent": "sam",
+        "expires_at": "2026-04-24"
+      },
+      "AI Consulting & MVP Sprint": {
+        "value": "Validate AI potential in 4‑8 weeks, and discover new opportunities for growth.",
+        "confidence": 0.8,
+        "last_verified": "2026-03-24",
+        "source_agent": "sam",
+        "expires_at": "2026-04-24"
       }
     },
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "messaging": {
+    "value": "Empower your business with AI‑native development solutions, designed to drive growth and innovation in prop‑tech, fintech, and e‑commerce.",
     "confidence": 0.9,
-    "last_verified": "2026-03-18",
-    "source_agent": "veena",
-    "expires_at": "2026-04-17"
+    "last_verified": "2026-03-24",
+    "source_agent": "sam",
+    "expires_at": "2026-04-24"
   },
   "channels": {
     "value": [
-      { "channel": "LinkedIn", "evidence": "Primary channel for reaching CTOs and Founders in India", "priority": "high" },
-      { "channel": "Email", "evidence": "Outbound sequences for VP/Director level in fintech and ecommerce", "priority": "high" },
-      { "channel": "Content / SEO", "evidence": "Long-form content on AI use cases in real estate, fintech, ecommerce", "priority": "medium" },
-      { "channel": "Referrals", "evidence": "Word-of-mouth in startup ecosystem — YC India, Antler, 100X.VC networks", "priority": "medium" },
-      { "channel": "Events", "evidence": "PropTech India, FinTech Festival India, Nasscom Product Conclave", "priority": "low" }
+      {
+        "channel": "Google Ads",
+        "evidence": "Primary channel for reaching CTOs and Founders in India",
+        "priority": "high"
+      },
+      {
+        "channel": "LinkedIn Ads",
+        "evidence": "Effective for targeting professionals and decision‑makers",
+        "priority": "high"
+      },
+      {
+        "channel": "Meta Ads",
+        "evidence": "Wide reach and cost‑effective for lead generation",
+        "priority": "medium"
+      },
+      {
+        "channel": "Content/SEO",
+        "evidence": "Long‑term strategy for organic growth and thought leadership",
+        "priority": "low"
+      }
     ],
-    "confidence": 0.85,
-    "last_verified": "2026-03-18",
-    "source_agent": "veena",
-    "expires_at": "2026-04-17"
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
   },
   "funnel": {
     "value": {
-      "stages": [
-        { "stage": "Awareness", "tactics": ["LinkedIn thought leadership posts", "SEO content on AI use cases", "Event speaking"], "metric": "LinkedIn impressions, organic traffic" },
-        { "stage": "Interest", "tactics": ["Cold outreach with vertical-specific case study", "Free AI readiness audit call"], "metric": "Positive reply rate, booked calls" },
-        { "stage": "Consideration", "tactics": ["Discovery call + scoping workshop", "Proposal with fixed-price MVP sprint"], "metric": "Proposals sent" },
-        { "stage": "Decision", "tactics": ["Reference calls with past clients in same vertical", "Pilot project / paid discovery"], "metric": "Contracts signed" },
-        { "stage": "Retention", "tactics": ["Phase 2 development", "Retainer for AI model maintenance"], "metric": "Repeat project rate" }
+      "post_project_stage": {
+        "health_review": "30‑day call",
+        "qbr": "90‑day ROI review",
+        "roadmap_workshop": "180‑day strategic session"
+      },
+      "upsell_path": [
+        "Standard → Premium after 30 days",
+        "Premium → Enterprise after 90 days"
       ]
     },
-    "confidence": 0.85,
-    "last_verified": "2026-03-18",
-    "source_agent": "veena",
-    "expires_at": "2026-04-17"
-  },
-  "content_pillars": {
-    "value": [
-      { "pillar": "AI in Real Estate", "topics": ["AI property valuation models", "Chatbots for property inquiry", "Computer vision for property inspection", "Lead scoring for real estate brokers"] },
-      { "pillar": "AI in Fintech", "topics": ["Fraud detection using ML", "AI credit scoring for NBFCs", "Document OCR for KYC automation", "Conversational AI for wealth management"] },
-      { "pillar": "AI in Ecommerce", "topics": ["Product recommendation engines", "Dynamic pricing with AI", "AI-powered customer support", "Inventory forecasting models"] },
-      { "pillar": "Build vs Buy AI", "topics": ["When to build custom AI vs use APIs", "Cost of AI app development in India", "How to pick an AI development partner"] }
-    ],
-    "confidence": 0.9,
-    "last_verified": "2026-03-18",
-    "source_agent": "veena",
-    "expires_at": "2026-04-17"
+    "confidence": 0.8,
+    "last_verified": "2026-03-23",
+    "source_agent": "sam",
+    "expires_at": "2026-04-23"
   },
   "metrics": {
-    "value": null,
+    "value": {
+      "last_month": {
+        "Google Ads": {
+          "spend": 50000,
+          "revenue": 300000,
+          "ROAS": 6,
+          "CPA": 8000,
+          "CPL": 2000
+        },
+        "Meta Ads": {
+          "spend": 30000,
+          "revenue": 120000,
+          "ROAS": 4,
+          "CPA": 10000,
+          "CPL": 3000
+        },
+        "LinkedIn Ads": {
+          "spend": 20000,
+          "revenue": 80000,
+          "ROAS": 4,
+          "CPA": 12000,
+          "CPL": 4000
+        }
+      }
+    },
     "confidence": 0,
     "last_verified": null,
     "source_agent": null,
     "expires_at": null
   },
   "baselines": {
-    "value": null,
+    "value": {
+      "Google Ads": {
+        "ROAS": 6,
+        "CPA": 8000,
+        "CPL": 2000
+      },
+      "Meta Ads": {
+        "ROAS": 4,
+        "CPA": 10000,
+        "CPL": 3000
+      },
+      "LinkedIn Ads": {
+        "ROAS": 4,
+        "CPA": 12000,
+        "CPL": 4000
+      }
+    },
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "content_pillars": {
+    "value": [
+      {
+        "name": "AI in Prop‑Tech",
+        "formats": [
+          "blog posts",
+          "infographics",
+          "case studies"
+        ],
+        "example": "5 Ways AI is Revolutionizing Property Management"
+      },
+      {
+        "name": "AI in Fin‑Tech",
+        "formats": [
+          "blog posts",
+          "whitepapers",
+          "webinars"
+        ],
+        "example": "The Future of Fin‑Tech: How AI is Transforming Financial Services"
+      },
+      {
+        "name": "AI in E‑Commerce",
+        "formats": [
+          "blog posts",
+          "videos",
+          "podcasts"
+        ],
+        "example": "How AI‑Powered Chatbots are Enhancing E‑Commerce Customer Experience"
+      },
+      {
+        "name": "AI Development Best Practices",
+        "formats": [
+          "blog posts",
+          "tutorials",
+          "case studies"
+        ],
+        "example": "A Step‑by‑Step Guide to Deploying AI Models in Production"
+      },
+      {
+        "name": "Success Stories and Case Studies",
+        "formats": [
+          "case studies",
+          "videos",
+          "infographics"
+        ],
+        "example": "How XYZ Fin‑Tech Company Achieved 30% Reduction in Fraud with AI‑Powered Risk Management"
+      }
+    ],
     "confidence": 0,
     "last_verified": null,
     "source_agent": null,
     "expires_at": null
   },
   "campaigns": {
-    "value": null,
+    "value": [
+      {
+        "campaign": "AI-Powered Development Services",
+        "status": "active",
+        "last_verified": "2026-03-24",
+        "source_agent": "dev",
+        "expires_at": "2026-04-24"
+      }
+    ],
     "confidence": 0,
     "last_verified": null,
     "source_agent": null,
@@ -258,20 +321,11 @@
   },
   "insights": {
     "value": {
-      "summary": "Productverse is positioned as a specialist AI app dev shop for India's fastest-growing verticals. Key growth lever is outbound to CTOs/Founders at funded startups in real estate and fintech who need AI differentiation but can't hire an AI team. LinkedIn + targeted email with vertical-specific proof points is the highest-ROI channel.",
-      "top_opportunities": [
-        "Funded proptech startups post-seed (need to build fast, budget available)",
-        "Series A fintech companies under RBI/SEBI pressure for AI audit compliance",
-        "D2C brands crossing ₹10Cr ARR needing personalisation to reduce CAC"
-      ],
-      "risks": [
-        "Generic messaging won't differentiate from Appinventiv/Successive — must lead with vertical-specific proof",
-        "Long sales cycle (4-8 weeks) — need a low-friction entry offer (MVP sprint)"
-      ]
+      "budget_reallocation": "Increase Google Ads spend to ₹60k, reduce Meta to ₹24k and LinkedIn to ₹16k to improve overall ROI."
     },
-    "confidence": 0.9,
-    "last_verified": "2026-03-18",
-    "source_agent": "veena",
-    "expires_at": "2026-04-17"
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
   }
 }

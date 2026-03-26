@@ -86,19 +86,10 @@ export function OfferDesignFlow({
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <Card className="overflow-hidden rounded-[2rem] border-orange-200/70 bg-[linear-gradient(145deg,rgba(255,247,237,0.98),rgba(255,255,255,0.96)_56%,rgba(255,237,213,0.8))] shadow-[0_28px_80px_-36px_rgba(154,52,18,0.35)] dark:border-orange-900/60 dark:bg-[linear-gradient(145deg,rgba(41,22,12,0.96),rgba(17,24,39,0.98)_60%,rgba(67,20,7,0.88))]">
-          <CardContent className="grid gap-8 p-8 lg:grid-cols-[0.94fr_1.06fr] lg:p-10">
+          <CardContent className="grid gap-8 p-5 lg:grid-cols-[0.94fr_1.06fr] lg:p-6">
             <div className="space-y-5">
               <div className="inline-flex items-center gap-2 rounded-full border border-orange-300/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:border-orange-400/20 dark:bg-white/5 dark:text-orange-200">
                 Offer Pressure Review
-              </div>
-              <div className="space-y-3">
-                <h2 className="max-w-xl text-4xl tracking-[-0.04em] text-slate-950 dark:text-orange-50 md:text-5xl">
-                  Rebuild the promise before buyers decide it is not worth the click.
-                </h2>
-                <p className="max-w-[58ch] text-sm leading-7 text-slate-700 dark:text-orange-100/78">
-                  This flow is built to tighten the promise, fix packaging friction, and make the next action feel inevitable.
-                  It should read like a conversion review, not an internal agent console.
-                </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-medium text-slate-700 dark:text-orange-100/80">
                 <span className="rounded-full border border-orange-300/60 bg-white/70 px-3 py-1 dark:border-orange-400/20 dark:bg-white/5">
@@ -197,6 +188,7 @@ export function OfferDesignFlow({
 
   return (
     <AgentModuleShell
+      hideHeader
       moduleId="offer-design"
       title="Strengthen Your Offer"
       description="Tighten the promise, remove packaging friction, and make the next action feel worth taking."

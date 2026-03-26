@@ -86,19 +86,10 @@ export function ABTestFlow({
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
         <Card className="overflow-hidden rounded-[2rem] border-orange-200/70 bg-[linear-gradient(140deg,rgba(255,255,255,0.98),rgba(255,247,237,0.95)_42%,rgba(255,237,213,0.88)_100%)] shadow-[0_28px_80px_-34px_rgba(154,52,18,0.22)] dark:border-orange-950/70 dark:bg-[linear-gradient(140deg,rgba(15,23,42,0.95),rgba(30,41,59,0.94)_52%,rgba(67,20,7,0.82)_100%)]">
-          <CardContent className="grid gap-8 p-8 lg:grid-cols-[0.92fr_1.08fr] lg:p-10">
+          <CardContent className="grid gap-8 p-5 lg:grid-cols-[0.92fr_1.08fr] lg:p-6">
             <div className="space-y-5">
               <div className="inline-flex items-center gap-2 rounded-full border border-orange-300/60 bg-white/72 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] dark:border-orange-400/20 dark:bg-white/5 dark:text-orange-200">
                 Experiment Studio
-              </div>
-              <div className="space-y-3">
-                <h2 className="max-w-xl text-4xl tracking-[-0.045em] text-slate-950 dark:text-orange-50 md:text-5xl">
-                  Tighten the test before the team burns traffic on a vague idea.
-                </h2>
-                <p className="max-w-[60ch] text-sm leading-7 text-slate-700 dark:text-orange-100/76">
-                  This flow is built to frame the hypothesis, isolate the right variable, and make the result legible before
-                  the experiment starts collecting noise.
-                </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-medium text-slate-700 dark:text-orange-100/82">
                 <span className="rounded-full border border-orange-300/60 bg-white/72 px-3 py-1 dark:border-orange-400/20 dark:bg-white/5">
@@ -197,6 +188,7 @@ export function ABTestFlow({
 
   return (
     <AgentModuleShell
+      hideHeader
       moduleId="ab-test"
       title="Test New Variants"
       description="Frame the experiment, isolate the variable, and leave with test-ready variants and cleaner readout logic."

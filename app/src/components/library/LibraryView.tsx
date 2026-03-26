@@ -25,6 +25,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { markdownToRichText } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { loadLibraryArtifacts, deleteLibraryArtifact, type LibraryArtifactRow } from '@/lib/persistence'
 
 const STORAGE_KEY = 'marqq_library_artifacts'
 const LIBRARY_EVENT = 'marqq:library-updated'
@@ -35,11 +36,12 @@ type LibraryArtifactEntry = {
   companyId?: string | null
   artifact?: Record<string, unknown>
   savedAt: string
+  _remote?: boolean   // true = came from Supabase
 }
 
 type LibraryFilter = 'all' | 'reports' | 'docs' | 'analysis'
 
-function loadLibraryEntries(): LibraryArtifactEntry[] {
+function loadLocalEntries(): LibraryArtifactEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
@@ -47,6 +49,27 @@ function loadLibraryEntries(): LibraryArtifactEntry[] {
     return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
+  }
+}
+
+function rowToEntry(row: LibraryArtifactRow): LibraryArtifactEntry {
+  return {
+    id: row.id,
+    agent: row.agent ?? undefined,
+    companyId: row.company_id,
+    artifact: row.artifact,
+    savedAt: row.saved_at,
+    _remote: true,
+  }
+}
+
+function syncRemoteToLocal(rows: LibraryArtifactRow[]) {
+  try {
+    const entries = rows.map(rowToEntry)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 50)))
+    window.dispatchEvent(new CustomEvent(LIBRARY_EVENT))
+  } catch {
+    // ignore
   }
 }
 
@@ -151,13 +174,31 @@ export function LibraryView() {
   const { activeWorkspace } = useWorkspace()
   const workspaceId = activeWorkspace?.id ?? null
 
-  const [entries, setEntries] = useState<LibraryArtifactEntry[]>(() => loadLibraryEntries())
+  const [entries, setEntries] = useState<LibraryArtifactEntry[]>(() => loadLocalEntries())
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<LibraryFilter>('all')
   const [selectedEntry, setSelectedEntry] = useState<LibraryArtifactEntry | null>(null)
+  const [loading, setLoading] = useState(true)
 
+  // On mount: fetch from Supabase, sync to localStorage, then fall back to local if offline
   useEffect(() => {
-    const refresh = () => setEntries(loadLibraryEntries())
+    let cancelled = false
+    loadLibraryArtifacts().then((rows) => {
+      if (cancelled) return
+      if (rows.length > 0) {
+        syncRemoteToLocal(rows)
+        setEntries(rows.map(rowToEntry))
+      }
+      setLoading(false)
+    }).catch(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  // Keep in sync with saves from AgentRunPanel (same tab or other tabs)
+  useEffect(() => {
+    const refresh = () => setEntries(loadLocalEntries())
     window.addEventListener('storage', refresh)
     window.addEventListener(LIBRARY_EVENT, refresh as EventListener)
     return () => {
@@ -194,12 +235,15 @@ export function LibraryView() {
   }, [entries, workspaceId])
 
   const deleteEntry = (id: string) => {
-    const next = loadLibraryEntries().filter((entry) => entry.id !== id)
+    // Optimistic local removal
+    const next = loadLocalEntries().filter((entry) => entry.id !== id)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
     setEntries(next)
     if (selectedEntry?.id === id) setSelectedEntry(null)
     emitLibraryUpdated()
     toast.success('Removed from Library')
+    // Remote removal (best-effort, no await)
+    void deleteLibraryArtifact(id)
   }
 
   const copyPreview = (entry: LibraryArtifactEntry) => {
@@ -291,7 +335,22 @@ export function LibraryView() {
         </CardContent>
       </Card>
 
-      {filteredEntries.length === 0 ? (
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {[1, 2, 3].map((n) => (
+            <Card key={n} className="rounded-[1.4rem] border-border/70 bg-background/90">
+              <CardContent className="space-y-4 p-5">
+                <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
+                <div className="h-5 w-2/3 animate-pulse rounded bg-muted" />
+                <div className="space-y-2">
+                  <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-4/5 animate-pulse rounded bg-muted" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : filteredEntries.length === 0 ? (
         <Card className="rounded-[1.6rem] border-dashed border-orange-200/80 bg-orange-50/60 dark:border-orange-900/40 dark:bg-orange-950/10">
           <CardContent className="flex flex-col items-center gap-4 p-12 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-orange-500 shadow-sm dark:bg-white/10">

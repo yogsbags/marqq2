@@ -125,18 +125,9 @@ export function SocialCalendarFlow({
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[1.02fr_0.98fr]">
         <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50 shadow-[0_28px_80px_-34px_rgba(124,45,18,0.46)] dark:border-orange-900/70">
-          <CardContent className="space-y-6 p-8 lg:p-10">
+          <CardContent className="space-y-6 p-5 lg:p-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-200">
               Calendar Desk
-            </div>
-            <div className="space-y-3">
-              <h2 className="max-w-xl text-4xl tracking-[-0.045em] text-orange-50 md:text-5xl">
-                Build a publishing rhythm the team can actually follow instead of another vague content wish list.
-              </h2>
-              <p className="max-w-[60ch] text-sm leading-7 text-orange-100/74">
-                This flow turns channel intent, campaign pressure, and publishing cadence into a usable social calendar
-                with a clear weekly rhythm and concrete posts to ship first.
-              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
@@ -236,6 +227,7 @@ export function SocialCalendarFlow({
 
   return (
     <AgentModuleShell
+      hideHeader
       moduleId="social-calendar"
       title="Plan Your Social Calendar"
       description="Turn the social motion into a publishing rhythm with the right channels, formats, and first posts to ship."

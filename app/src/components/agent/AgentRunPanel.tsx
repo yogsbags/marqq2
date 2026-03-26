@@ -6,9 +6,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Loader2, Bot, CheckCircle, AlertCircle, Copy, ClipboardList, ChevronDown, ChevronRight, Wrench, Brain, Zap, CheckCheck, XCircle, ArrowRight, Sparkles, Bookmark, Download, PanelTopClose, Radio, Target, PenLine, FileText, Users, Monitor, Briefcase, Mail, Search, CalendarDays, BadgeDollarSign, TrendingDown, BarChart2, FlaskConical, Send, Link2 } from 'lucide-react'
+import { Loader2, Bot, CheckCircle, AlertCircle, Copy, ClipboardList, ChevronDown, ChevronRight, Wrench, Brain, Zap, CheckCheck, XCircle, ArrowRight, Sparkles, Bookmark, Download, PanelTopClose, Radio, Target, PenLine, FileText, Users, Monitor, Briefcase, Mail, Search, CalendarDays, BadgeDollarSign, TrendingDown, BarChart2, FlaskConical, Send, Link2, Hash, Type, AlignLeft, Globe, Image as ImageIcon, Film } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AgentRunResult, ToolCallEvent, ToolResultEvent, ContractTask } from '@/hooks/useAgentRun'
+import { saveLibraryArtifact } from '@/lib/persistence'
 
 interface AgentRunPanelProps extends AgentRunResult {
   agentName: string
@@ -65,10 +66,12 @@ function VideoStatusCard({ vid, v }: { vid: string; v: Record<string, unknown> }
   const [videoState, setVideoState] = useState<Record<string, unknown>>(v)
   const [polling, setPolling] = useState(false)
 
-  const provider = vid === 'generate_faceless_video' ? 'veo' : 'heygen'
+  const isFaceless = vid === 'generate_faceless_video'
+  const provider = isFaceless ? 'veo' : 'heygen'
   const videoUrl = videoState.video_url ?? videoState.download_url
   const refId = videoState.operation_name ?? videoState.video_id
   const isDone = videoState.status === 'completed'
+  const filename = isFaceless ? 'faceless-video.mp4' : 'avatar-video.mp4'
 
   async function checkStatus() {
     setPolling(true)
@@ -91,59 +94,82 @@ function VideoStatusCard({ vid, v }: { vid: string; v: Record<string, unknown> }
   }
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background/85 p-3 shadow-sm space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          {vid === 'generate_faceless_video' ? 'Faceless Video · Veo 3.1' : 'Avatar Video · HeyGen'}
-        </div>
-        {!isDone && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={checkStatus}
-            disabled={polling}
-            aria-label="Check video render status"
-            className="h-7 gap-1 px-2 text-xs text-orange-500 hover:text-orange-600"
-          >
-            {polling && <span className="inline-block h-3 w-3 rounded-full border-2 border-orange-400 border-t-transparent animate-spin" />}
-            {polling ? 'Checking…' : 'Check Status'}
-          </Button>
+    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20 flex-wrap">
+        <Film className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        <span className="text-xs font-semibold text-foreground">
+          {isFaceless ? 'Faceless Video' : 'Avatar Video'}
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          {isFaceless ? 'Veo 3.1' : 'HeyGen'}
+        </span>
+        {isDone && (
+          <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+            <CheckCircle className="h-3 w-3" /> Ready
+          </span>
         )}
-      </div>
-      {videoUrl ? (
-        <div className="space-y-2">
-          <video src={videoUrl as string} controls className="w-full rounded-lg" />
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1 px-2 text-xs"
-              onClick={() => window.open(String(videoUrl), '_blank', 'noopener,noreferrer')}
-            >
-              Open
-            </Button>
+        <div className="ml-auto flex items-center gap-1.5">
+          {!isDone && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 px-2 text-xs"
-              onClick={() => downloadFromUrl(String(videoUrl), vid === 'generate_faceless_video' ? 'riya-faceless-video.mp4' : 'riya-avatar-video.mp4')}
+              onClick={checkStatus}
+              disabled={polling}
+              aria-label="Check video render status"
+              className="h-7 gap-1 px-2 text-xs text-orange-500 hover:text-orange-600"
             >
-              <Download className="h-3 w-3" />
-              Download
+              {polling
+                ? <span className="inline-block h-3 w-3 rounded-full border-2 border-orange-400 border-t-transparent animate-spin" />
+                : <Zap className="h-3 w-3" />}
+              {polling ? 'Checking…' : 'Check Status'}
             </Button>
+          )}
+          {videoUrl && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={() => window.open(String(videoUrl), '_blank', 'noopener,noreferrer')}
+              >
+                Open
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={() => downloadFromUrl(String(videoUrl), filename)}
+              >
+                <Download className="h-3 w-3" />
+                .mp4
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Video player or pending state */}
+      <div className="p-4">
+        {videoUrl ? (
+          <video
+            src={videoUrl as string}
+            controls
+            className="w-full rounded-lg bg-black aspect-video"
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/50 bg-muted/20 py-10">
+            <span className="inline-flex h-3 w-3 rounded-full bg-orange-400 animate-pulse" />
+            <p className="text-sm text-muted-foreground">
+              {String(videoState.status ?? 'queued')} — rendering in background
+            </p>
+            <p className="text-xs text-muted-foreground/60">Click "Check Status" to refresh</p>
           </div>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="inline-flex h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
-          <span className="text-muted-foreground">
-            {String(videoState.status ?? 'queued')} — rendering in background
-          </span>
-        </div>
-      )}
-      {Boolean(refId) && (
-        <div className="text-[11px] text-muted-foreground/60 font-mono break-all">{String(refId)}</div>
-      )}
+        )}
+        {Boolean(refId) && (
+          <div className="mt-2 text-[11px] text-muted-foreground/50 font-mono break-all">{String(refId)}</div>
+        )}
+      </div>
     </div>
   )
 }
@@ -168,7 +194,7 @@ function stripInlineMarkdown(value: string) {
     .trim()
 }
 
-type ArtifactEntry = [string, string | string[]]
+type ArtifactEntry = [string, string | string[] | Record<string, unknown>[]]
 
 // Contract keys at top level of the JSON contract block (mirrors useAgentRun.ts)
 const CONTRACT_KEY_RE = /"(agent|run_id|artifact|tasks_created|contract|confidence)"\s*:/
@@ -192,6 +218,10 @@ function sanitizeDisplayText(text: string) {
     .replace(/\n?\{\s*"tasks_created"\s*:[\s\S]*$/, '')
     // JSON code fences and stray HTML
     .replace(/```json[\s\S]*?```/gi, '')
+    // Unclosed JSON fence (agent output cut off before closing ```)
+    .replace(/```json[\s\S]*$/gi, '')
+    // Bare --- separator followed by heading or JSON (common agent contract divider)
+    .replace(/\n?---\s*\n[\s\S]*$/, '')
     .replace(/<br\s*\/?>/gi, '')
     .trim()
 
@@ -322,37 +352,47 @@ function parseResult(text: string): ParsedResult {
   }
 }
 
+// Keys that have dedicated renderer cards — exclude from generic grid to prevent duplication
+const AUTOMATION_SUBKEYS = new Set([
+  'generate_social_image',
+  'generate_social_image_error',
+  'generate_email_html',
+  'generate_faceless_video',
+  'generate_avatar_video',
+  'create_seo_article',
+  'doc_url',
+  'file_url',
+])
+
 function flattenArtifactEntries(artifact: Record<string, unknown>): ArtifactEntry[] {
   return Object.entries(artifact)
-    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .filter(([key, value]) => !AUTOMATION_SUBKEYS.has(key) && value !== null && value !== undefined && value !== '')
     .flatMap(([key, value]) => {
       if (Array.isArray(value)) {
+        if (value.length === 0) return []
+        // Arrays of objects → pass through as raw objects so the renderer can show mini-cards
+        if (value[0] && typeof value[0] === 'object') {
+          return [[key, value as Record<string, unknown>[]] as ArtifactEntry]
+        }
+        // Arrays of primitives → convert to strings
         const items = value
           .map((item) => {
             if (typeof item === 'string') return stripInlineMarkdown(item)
             if (typeof item === 'number' || typeof item === 'boolean') return String(item)
-            if (item && typeof item === 'object') {
-              const objectValues = Object.values(item as Record<string, unknown>)
-                .filter((nested) => typeof nested === 'string' || typeof nested === 'number' || typeof nested === 'boolean')
-                .map((nested) => stripInlineMarkdown(String(nested)))
-              return objectValues.join(' - ')
-            }
             return ''
           })
           .filter(Boolean)
-          .slice(0, 4)
-        return items.length ? ([[key, items]] as ArtifactEntry[]) : []
+        return items.length ? [[key, items] as ArtifactEntry] : []
       }
       if (typeof value === 'object') {
+        // Single nested object → flatten to key: value strings
         const nestedEntries = Object.entries(value as Record<string, unknown>)
           .filter(([, nested]) => typeof nested === 'string' || typeof nested === 'number' || typeof nested === 'boolean')
           .map(([nestedKey, nested]) => `${nestedKey.replace(/_/g, ' ')}: ${stripInlineMarkdown(String(nested))}`)
-          .slice(0, 4)
-        return nestedEntries.length ? ([[key, nestedEntries]] as ArtifactEntry[]) : []
+        return nestedEntries.length ? [[key, nestedEntries] as ArtifactEntry] : []
       }
       return [[key, stripInlineMarkdown(String(value))] as ArtifactEntry]
     })
-    .slice(0, 6)
 }
 
 // Fix 8: renders inline markdown (bold, italic, code) without wrapping block elements
@@ -373,6 +413,819 @@ function InlineMd({ children }: { children: string }) {
     >
       {children}
     </ReactMarkdown>
+  )
+}
+
+// ── ContentPostCard ─────────────────────────────────────────────────────────
+const PLATFORM_STYLES: Record<string, { label: string; bg: string; text: string }> = {
+  linkedin:            { label: 'LinkedIn',           bg: 'bg-blue-50 dark:bg-blue-950/30',   text: 'text-blue-700 dark:text-blue-300' },
+  linkedin_post:       { label: 'LinkedIn Post',      bg: 'bg-blue-50 dark:bg-blue-950/30',   text: 'text-blue-700 dark:text-blue-300' },
+  linkedin_carousel:   { label: 'LinkedIn Carousel',  bg: 'bg-blue-50 dark:bg-blue-950/30',   text: 'text-blue-700 dark:text-blue-300' },
+  linkedin_article:    { label: 'LinkedIn Article',   bg: 'bg-blue-50 dark:bg-blue-950/30',   text: 'text-blue-700 dark:text-blue-300' },
+  instagram:           { label: 'Instagram',           bg: 'bg-pink-50 dark:bg-pink-950/30',   text: 'text-pink-700 dark:text-pink-300' },
+  facebook_instagram:  { label: 'Instagram / Facebook', bg: 'bg-pink-50 dark:bg-pink-950/30', text: 'text-pink-700 dark:text-pink-300' },
+  facebook:            { label: 'Facebook',            bg: 'bg-indigo-50 dark:bg-indigo-950/30', text: 'text-indigo-700 dark:text-indigo-300' },
+  youtube:             { label: 'YouTube',             bg: 'bg-red-50 dark:bg-red-950/30',     text: 'text-red-700 dark:text-red-300' },
+  twitter:             { label: 'X / Twitter',         bg: 'bg-slate-50 dark:bg-slate-900/30', text: 'text-slate-700 dark:text-slate-300' },
+  website_blog:        { label: 'Website / Blog',      bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-300' },
+  blog_article:        { label: 'Blog Article',        bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-300' },
+  landing_page:        { label: 'Landing Page',        bg: 'bg-violet-50 dark:bg-violet-950/30', text: 'text-violet-700 dark:text-violet-300' },
+}
+
+function PlatformBadge({ value }: { value: string }) {
+  const key = value.toLowerCase().replace(/\s+/g, '_')
+  const style = PLATFORM_STYLES[key] ?? { label: value, bg: 'bg-muted', text: 'text-muted-foreground' }
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.bg} ${style.text}`}>
+      <Globe className="h-3 w-3" />
+      {style.label}
+    </span>
+  )
+}
+
+function ContentPostCard({ artifact }: { artifact: Record<string, unknown> }) {
+  const post       = typeof artifact['post']       === 'string' ? artifact['post']       : ''
+  const hook       = typeof artifact['hook']       === 'string' ? artifact['hook']       : ''
+  const cta        = typeof artifact['cta']        === 'string' ? artifact['cta']        : ''
+  const platform   = typeof artifact['platform']   === 'string' ? artifact['platform']   : ''
+  const wordCount  = artifact['word_count'] != null ? String(artifact['word_count'])      : ''
+  const hashtags   = Array.isArray(artifact['hashtags'])
+    ? (artifact['hashtags'] as unknown[]).map(String)
+    : typeof artifact['hashtags'] === 'string'
+      ? artifact['hashtags'].split(/\s+/).filter(Boolean)
+      : []
+  const variations = Array.isArray(artifact['variations'])
+    ? (artifact['variations'] as Record<string, unknown>[])
+    : []
+
+  const [showVariations, setShowVariations] = useState(false)
+
+  const exportText = [
+    post,
+    hashtags.length ? '\n' + hashtags.join(' ') : '',
+    cta ? '\nCTA: ' + cta : '',
+  ].filter(Boolean).join('\n').trim()
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20 flex-wrap">
+        <Type className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        <span className="text-xs font-semibold text-foreground">Content Draft</span>
+        {platform && <PlatformBadge value={platform} />}
+        {wordCount && (
+          <span className="ml-auto text-[11px] text-muted-foreground shrink-0">{wordCount} words</span>
+        )}
+        <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => { void copyText(exportText, 'Post copied') }}
+          >
+            <Copy className="h-3 w-3" />
+            Copy
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => {
+              const platform_slug = platform.toLowerCase().replace(/\s+/g, '-') || 'post'
+              downloadTextFile(`${platform_slug}-post.txt`, exportText)
+            }}
+          >
+            <Download className="h-3 w-3" />
+            .txt
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => {
+              const md = [
+                platform ? `**Platform:** ${platform}` : '',
+                wordCount ? `**Words:** ${wordCount}` : '',
+                '',
+                post,
+                hashtags.length ? '\n---\n' + hashtags.join(' ') : '',
+              ].filter(s => s !== undefined).join('\n').trim()
+              const platform_slug = platform.toLowerCase().replace(/\s+/g, '-') || 'post'
+              downloadTextFile(`${platform_slug}-post.md`, md, 'text/markdown;charset=utf-8')
+            }}
+          >
+            <Download className="h-3 w-3" />
+            .md
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => {
+              const platform_slug = platform.toLowerCase().replace(/\s+/g, '-') || 'post'
+              const hashtagsHtml = hashtags.length
+                ? `<p class="hashtags">${hashtags.map(t => `<span>${t}</span>`).join(' ')}</p>`
+                : ''
+              const ctaHtml = cta
+                ? `<div class="cta"><strong>CTA:</strong> ${cta}</div>`
+                : ''
+              const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${platform ? platform + ' Post' : 'Content Draft'}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 680px; margin: 40px auto; padding: 0 24px; color: #111; line-height: 1.7; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; padding-bottom: 16px; border-bottom: 1px solid #e5e7eb; }
+  .platform { background: #f0f0f0; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+  .words { font-size: 12px; color: #6b7280; margin-left: auto; }
+  .body { white-space: pre-wrap; font-size: 15px; margin: 0 0 24px; }
+  .hashtags { margin: 16px 0; }
+  .hashtags span { display: inline-block; margin: 3px 4px 3px 0; background: #f3f4f6; border-radius: 20px; padding: 2px 10px; font-size: 13px; color: #374151; }
+  .cta { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-size: 14px; color: #166534; margin-top: 20px; }
+</style>
+</head>
+<body>
+<header>
+  ${platform ? `<span class="platform">${platform}</span>` : ''}
+  ${wordCount ? `<span class="words">${wordCount} words</span>` : ''}
+</header>
+<p class="body">${post.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+${hashtagsHtml}
+${ctaHtml}
+</body>
+</html>`
+              downloadTextFile(`${platform_slug}-post.html`, html, 'text/html;charset=utf-8')
+            }}
+          >
+            <Download className="h-3 w-3" />
+            .html
+          </Button>
+        </div>
+      </div>
+
+      {/* Post body */}
+      <div className="px-4 py-4 space-y-4">
+        {hook && hook !== post.split('\n')[0] && (
+          <div className="rounded-lg border border-orange-200/60 bg-orange-50/60 dark:border-orange-800/40 dark:bg-orange-950/20 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-orange-500 mb-1 flex items-center gap-1">
+              <Zap className="h-3 w-3" />
+              Hook
+            </div>
+            <p className="text-sm font-medium text-foreground leading-snug">{hook}</p>
+          </div>
+        )}
+
+        <div className="rounded-lg border border-border/50 bg-muted/10 px-4 py-4">
+          <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{post}</p>
+        </div>
+
+        {hashtags.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground flex items-center gap-1">
+              <Hash className="h-3 w-3" />
+              Hashtags
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {hashtags.map((tag, i) => (
+                <button
+                  key={`${tag}-${i}`}
+                  type="button"
+                  className="rounded-full border border-border/60 bg-background px-2.5 py-0.5 text-xs text-muted-foreground hover:border-orange-300 hover:text-orange-600 transition-colors"
+                  onClick={() => { void navigator.clipboard.writeText(tag).then(() => toast.success('Copied')) }}
+                  title="Click to copy"
+                >
+                  {tag}
+                </button>
+              ))}
+              {hashtags.length > 1 && (
+                <button
+                  type="button"
+                  className="rounded-full border border-dashed border-border/50 bg-background px-2.5 py-0.5 text-xs text-muted-foreground hover:border-orange-300 hover:text-orange-600 transition-colors"
+                  onClick={() => { void copyText(hashtags.join(' '), 'All hashtags copied') }}
+                >
+                  Copy all
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {cta && (
+          <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-800/40 dark:bg-emerald-950/20 px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400 mb-1 flex items-center gap-1">
+              <Send className="h-3 w-3" />
+              CTA
+            </div>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm text-foreground">{cta}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-[11px] shrink-0 text-emerald-600 hover:text-emerald-700"
+                onClick={() => { void copyText(cta, 'CTA copied') }}
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {variations.length > 0 && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setShowVariations(p => !p)}
+            >
+              {showVariations ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              {variations.length} variation{variations.length > 1 ? 's' : ''}
+            </button>
+            {showVariations && (
+              <div className="space-y-2">
+                {variations.map((v, i) => (
+                  <div key={i} className="rounded-lg border border-border/50 bg-muted/20 px-3 py-3 text-sm">
+                    {typeof v['hook'] === 'string' && (
+                      <p className="font-medium text-foreground mb-1">{v['hook']}</p>
+                    )}
+                    {typeof v['cta'] === 'string' && (
+                      <p className="text-xs text-muted-foreground mt-1">CTA: {v['cta']}</p>
+                    )}
+                    {typeof v['post'] === 'string' && !v['hook'] && (
+                      <p className="text-foreground whitespace-pre-wrap">{v['post']}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── EmailDraftCard ───────────────────────────────────────────────────────────
+function EmailDraftCard({ artifact }: { artifact: Record<string, unknown> }) {
+  const subject     = typeof artifact['subject']      === 'string' ? artifact['subject']      : ''
+  const previewText = typeof artifact['preview_text'] === 'string' ? artifact['preview_text'] : ''
+  const body        = typeof artifact['body']         === 'string' ? artifact['body']         : ''
+  const cta         = typeof artifact['cta']          === 'string' ? artifact['cta']          : ''
+  const wordCount   = artifact['word_count'] != null  ? String(artifact['word_count'])         : ''
+
+  const exportText = [
+    subject  ? `Subject: ${subject}`           : '',
+    previewText ? `Preview: ${previewText}`    : '',
+    '',
+    body,
+    cta ? `\nCTA: ${cta}` : '',
+  ].filter(Boolean).join('\n').trim()
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20 flex-wrap">
+        <Mail className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        <span className="text-xs font-semibold text-foreground">Email Draft</span>
+        {wordCount && (
+          <span className="ml-auto text-[11px] text-muted-foreground">{wordCount} words</span>
+        )}
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline"  size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportText, 'Email copied') }}>
+            <Copy className="h-3 w-3" /> Copy
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => downloadTextFile('email-draft.txt', exportText)}>
+            <Download className="h-3 w-3" /> .txt
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => {
+            const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${subject ? esc(subject) : 'Email Draft'}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 40px auto; padding: 0 24px; color: #111; line-height: 1.7; }
+  .subject { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .preview { font-size: 13px; color: #6b7280; margin-bottom: 24px; }
+  .body { white-space: pre-wrap; font-size: 15px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
+  .cta { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-size: 14px; color: #166534; margin-top: 20px; }
+</style>
+</head>
+<body>
+${subject ? `<div class="subject">${esc(subject)}</div>` : ''}
+${previewText ? `<div class="preview">${esc(previewText)}</div>` : ''}
+<div class="body">${esc(body)}</div>
+${cta ? `<div class="cta"><strong>CTA:</strong> ${esc(cta)}</div>` : ''}
+</body>
+</html>`
+            downloadTextFile('email-draft.html', html, 'text/html;charset=utf-8')
+          }}>
+            <Download className="h-3 w-3" /> .html
+          </Button>
+        </div>
+      </div>
+      <div className="px-4 py-4 space-y-3">
+        {subject && (
+          <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/10 px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mt-0.5 w-14 shrink-0">Subject</div>
+            <p className="text-sm font-medium text-foreground leading-snug">{subject}</p>
+            <Button variant="ghost" size="sm" className="h-6 px-1.5 ml-auto shrink-0" onClick={() => { void copyText(subject, 'Subject copied') }}>
+              <Copy className="h-3 w-3 text-muted-foreground" />
+            </Button>
+          </div>
+        )}
+        {previewText && (
+          <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mt-0.5 w-14 shrink-0">Preview</div>
+            <p className="text-xs text-muted-foreground leading-snug">{previewText}</p>
+          </div>
+        )}
+        {body && (
+          <div className="rounded-lg border border-border/50 bg-muted/10 px-4 py-4">
+            <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{body}</p>
+          </div>
+        )}
+        {cta && (
+          <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-800/40 dark:bg-emerald-950/20 px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400 mb-1">CTA</div>
+            <p className="text-sm text-foreground">{cta}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── ArticleCard ──────────────────────────────────────────────────────────────
+// Renders Maya's article schema: {title, meta_description, target_keyword, word_count, sections:[{heading,content}]}
+function ArticleCard({ artifact }: { artifact: Record<string, unknown> }) {
+  const [openSections, setOpenSections] = useState<Set<number>>(() => new Set([0, 1]))
+  const title          = typeof artifact['title']            === 'string' ? artifact['title']            : ''
+  const metaDesc       = typeof artifact['meta_description'] === 'string' ? artifact['meta_description'] : ''
+  const targetKeyword  = typeof artifact['target_keyword']   === 'string' ? artifact['target_keyword']   : ''
+  const wordCount      = artifact['word_count'] != null ? String(artifact['word_count']) : ''
+  const sections       = Array.isArray(artifact['sections'])
+    ? (artifact['sections'] as Record<string, unknown>[]).filter(s => s && typeof s === 'object')
+    : []
+
+  const toggleSection = (i: number) =>
+    setOpenSections(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
+
+  const exportMarkdown = [
+    `# ${title}`,
+    metaDesc ? `\n> ${metaDesc}` : '',
+    targetKeyword ? `\n**Target keyword:** ${targetKeyword}` : '',
+    '',
+    ...sections.map(s => `## ${s['heading'] ?? ''}\n\n${s['content'] ?? ''}`),
+  ].filter(s => s !== undefined).join('\n')
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20 flex-wrap">
+        <FileText className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        <span className="text-xs font-semibold text-foreground">Article</span>
+        {wordCount && <span className="text-[11px] text-muted-foreground">{wordCount} words</span>}
+        {sections.length > 0 && <span className="text-[11px] text-muted-foreground">{sections.length} sections</span>}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportMarkdown, 'Article copied') }}>
+            <Copy className="h-3 w-3" /> Copy
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => downloadTextFile(`${title || 'article'}.md`, exportMarkdown)}>
+            <Download className="h-3 w-3" /> .md
+          </Button>
+        </div>
+      </div>
+      <div className="px-4 py-4 space-y-3">
+        {title && <h2 className="text-base font-bold text-foreground leading-snug">{title}</h2>}
+        {metaDesc && (
+          <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-1">Meta Description</div>
+            <p className="text-xs text-muted-foreground leading-relaxed">{metaDesc}</p>
+          </div>
+        )}
+        {targetKeyword && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Keyword</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 dark:bg-orange-950/30 px-2.5 py-0.5 text-[11px] font-semibold text-orange-700 dark:text-orange-300">
+              <Hash className="h-3 w-3" />{targetKeyword}
+            </span>
+          </div>
+        )}
+        {sections.length > 0 && (
+          <div className="space-y-2 pt-1">
+            {sections.map((section, i) => {
+              const heading = typeof section['heading'] === 'string' ? section['heading'] : `Section ${i + 1}`
+              const content = typeof section['content'] === 'string' ? section['content'] : ''
+              const isOpen  = openSections.has(i)
+              return (
+                <div key={i} className="rounded-lg border border-border/50 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(i)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors text-left gap-2"
+                  >
+                    <span className="text-sm font-semibold text-foreground">{heading}</span>
+                    {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                  </button>
+                  {isOpen && content && (
+                    <div className="px-3 py-3 border-t border-border/40 bg-background/60">
+                      <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{content}</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── StrategyCard ──────────────────────────────────────────────────────────────
+// Renders generic strategy/plan schema: {strategy_overview, phases:[{...}], recommendations:[...]}
+// Also handles analysis schema: {findings:[...], recommendations:[...], priority_actions:[...]}
+function StrategyCard({ artifact }: { artifact: Record<string, unknown> }) {
+  const overview      = typeof artifact['strategy_overview'] === 'string' ? artifact['strategy_overview'] : ''
+  const phases        = Array.isArray(artifact['phases'])          ? artifact['phases']          as Record<string, unknown>[] : []
+  const findings      = Array.isArray(artifact['findings'])        ? artifact['findings']        as unknown[]                 : []
+  const recommendations = Array.isArray(artifact['recommendations']) ? artifact['recommendations'] as unknown[]               : []
+  const priorityActions = Array.isArray(artifact['priority_actions']) ? artifact['priority_actions'] as unknown[] : []
+
+  const KNOWN_KEYS = new Set(['strategy_overview','phases','findings','recommendations','priority_actions','doc_url','file_url'])
+  // Scalar extra fields (string/number) not in known keys
+  const extraEntries = Object.entries(artifact).filter(
+    ([k, v]) => !KNOWN_KEYS.has(k) && !AUTOMATION_SUBKEYS.has(k) && v !== null && v !== undefined && v !== '' && !Array.isArray(v) && typeof v !== 'object'
+  )
+  // Extra arrays not in known keys (e.g. content_pillars, topic_clusters, target_audiences)
+  const extraArrays = Object.entries(artifact).filter(
+    ([k, v]) => !KNOWN_KEYS.has(k) && !AUTOMATION_SUBKEYS.has(k) && Array.isArray(v) && (v as unknown[]).length > 0
+  ) as [string, unknown[]][]
+
+  function renderItem(item: unknown, idx: number) {
+    if (typeof item === 'string') return (
+      <div key={idx} className="flex items-start gap-2">
+        <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+        <p className="text-sm leading-6 text-foreground flex-1 whitespace-pre-wrap">{item}</p>
+      </div>
+    )
+    if (item && typeof item === 'object') {
+      const obj = item as Record<string, unknown>
+      const keys = Object.keys(obj).filter(k => obj[k] !== null && obj[k] !== undefined && obj[k] !== '')
+      return (
+        <div key={idx} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-3 space-y-1.5">
+          {keys.map(k => (
+            <div key={k} className="flex items-start gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground mt-0.5 w-24 shrink-0">{k.replace(/_/g,' ')}</span>
+              <p className="text-sm text-foreground flex-1 whitespace-pre-wrap leading-6">
+                {Array.isArray(obj[k]) ? (obj[k] as unknown[]).join(', ') : String(obj[k])}
+              </p>
+            </div>
+          ))}
+        </div>
+      )
+    }
+    return null
+  }
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20">
+        <Bookmark className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        <span className="text-xs font-semibold text-foreground">
+          {phases.length > 0 ? 'Strategy & Plan' : findings.length > 0 ? 'Analysis & Findings' : 'Output'}
+        </span>
+      </div>
+      <div className="px-4 py-4 space-y-4">
+        {overview && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Overview</div>
+            <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{overview}</p>
+          </div>
+        )}
+        {extraEntries.length > 0 && (
+          <div className="grid gap-2 md:grid-cols-2">
+            {extraEntries.map(([k, v]) => (
+              <div key={k} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5 space-y-1">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{k.replace(/_/g,' ')}</div>
+                <p className="text-sm text-foreground whitespace-pre-wrap leading-6">{String(v)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {extraArrays.map(([k, arr]) => (
+          <div key={k} className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">{k.replace(/_/g,' ')}</div>
+            <div className="space-y-2">{arr.map((item, i) => renderItem(item, i))}</div>
+          </div>
+        ))}
+        {phases.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">Phases</div>
+            <div className="space-y-2">{phases.map((p, i) => renderItem(p, i))}</div>
+          </div>
+        )}
+        {findings.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">Findings</div>
+            <div className="space-y-2">{findings.map((f, i) => renderItem(f, i))}</div>
+          </div>
+        )}
+        {recommendations.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400 mb-2">Recommendations</div>
+            <div className="space-y-1.5">{recommendations.map((r, i) => renderItem(r, i))}</div>
+          </div>
+        )}
+        {priorityActions.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-orange-600 mb-2">Priority Actions</div>
+            <div className="space-y-1.5">{priorityActions.map((a, i) => renderItem(a, i))}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── CalendarCard ──────────────────────────────────────────────────────────────
+// Renders social calendar schema: {calendar:[{platform,content,day,format,hashtags,cta}], content_themes:[], platform_strategy:{}}
+function CalendarCard({ artifact }: { artifact: Record<string, unknown> }) {
+  const calendar   = Array.isArray(artifact['calendar']) ? artifact['calendar'] as Record<string, unknown>[] : []
+  const themes     = Array.isArray(artifact['content_themes']) ? artifact['content_themes'] as unknown[] : []
+  const strategy   = artifact['platform_strategy']
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20">
+        <CalendarDays className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        <span className="text-xs font-semibold text-foreground">Content Calendar</span>
+        <span className="text-[11px] text-muted-foreground">{calendar.length} posts</span>
+        <Button variant="ghost" size="sm" className="ml-auto h-7 gap-1 px-2 text-xs"
+          onClick={() => {
+            const text = calendar.map((e, i) =>
+              `Post ${i+1} — ${e['platform'] ?? ''} ${e['day'] ?? e['week'] ?? ''}\n${e['content'] ?? e['caption'] ?? ''}\n${e['hashtags'] ? (Array.isArray(e['hashtags']) ? e['hashtags'].join(' ') : e['hashtags']) : ''}`
+            ).join('\n\n')
+            void copyText(text, 'Calendar copied')
+          }}>
+          <Copy className="h-3 w-3" /> Copy all
+        </Button>
+      </div>
+      <div className="px-4 py-4 space-y-4">
+        {themes.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mr-1">Themes</span>
+            {themes.map((t, i) => (
+              <span key={i} className="inline-flex rounded-full bg-muted px-2.5 py-0.5 text-[11px] text-muted-foreground">{String(t)}</span>
+            ))}
+          </div>
+        )}
+        <div className="space-y-3">
+          {calendar.map((entry, i) => {
+            const platform = typeof entry['platform'] === 'string' ? entry['platform'] : ''
+            const content  = typeof entry['content']  === 'string' ? entry['content']  : typeof entry['caption'] === 'string' ? entry['caption'] : ''
+            const day      = typeof entry['day']      === 'string' ? entry['day']      : typeof entry['week'] === 'string' ? entry['week'] : ''
+            const format   = typeof entry['format']   === 'string' ? entry['format']   : typeof entry['type'] === 'string' ? entry['type'] : ''
+            const cta      = typeof entry['cta']      === 'string' ? entry['cta']      : ''
+            const hashtags = Array.isArray(entry['hashtags']) ? (entry['hashtags'] as string[]).join(' ') :
+                             typeof entry['hashtags'] === 'string' ? entry['hashtags'] : ''
+            return (
+              <div key={i} className="rounded-lg border border-border/50 bg-background/60 overflow-hidden">
+                <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30 flex-wrap">
+                  <span className="text-[11px] font-bold text-muted-foreground">#{i+1}</span>
+                  {platform && <PlatformBadge value={platform} />}
+                  {day && <span className="text-[11px] text-muted-foreground">{day}</span>}
+                  {format && <span className="text-[11px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground">{format}</span>}
+                  <Button variant="ghost" size="sm" className="ml-auto h-6 px-1.5" onClick={() => { void copyText(content, 'Post copied') }}>
+                    <Copy className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                </div>
+                {content && (
+                  <div className="px-3 py-2.5">
+                    <p className="text-sm leading-6 text-foreground whitespace-pre-wrap">{content}</p>
+                    {hashtags && <p className="text-xs text-muted-foreground mt-1.5">{hashtags}</p>}
+                    {cta && (
+                      <div className="mt-2 text-xs rounded bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/50 px-2 py-1.5 text-emerald-700 dark:text-emerald-300">CTA: {cta}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {strategy && typeof strategy === 'object' && Object.keys(strategy).length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">Platform Strategy</div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {Object.entries(strategy as Record<string, unknown>).map(([k, v]) => (
+                <div key={k} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5">
+                  <div className="text-[10px] font-semibold text-muted-foreground mb-0.5">{k.replace(/_/g,' ')}</div>
+                  <p className="text-xs text-foreground">{String(v)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── ProposalCard ──────────────────────────────────────────────────────────────
+// Renders proposal schema: {proposal_title, executive_summary, problem_statement, our_approach, deliverables, pricing_tiers:[{name,price_signal,whats_included}], next_steps}
+function ProposalCard({ artifact }: { artifact: Record<string, unknown> }) {
+  const title      = typeof artifact['proposal_title']      === 'string' ? artifact['proposal_title']      : ''
+  const summary    = typeof artifact['executive_summary']    === 'string' ? artifact['executive_summary']    : ''
+  const problem    = typeof artifact['problem_statement']    === 'string' ? artifact['problem_statement']    : ''
+  const approach   = typeof artifact['our_approach']         === 'string' ? artifact['our_approach']         : ''
+  const nextSteps  = typeof artifact['next_steps']           === 'string' ? artifact['next_steps']           : ''
+  const deliverables  = Array.isArray(artifact['deliverables'])  ? artifact['deliverables']  as unknown[] : []
+  const pricingTiers  = Array.isArray(artifact['pricing_tiers']) ? artifact['pricing_tiers'] as Record<string, unknown>[] : []
+
+  const exportText = [
+    title ? `# ${title}` : '',
+    summary ? `\n## Executive Summary\n${summary}` : '',
+    problem ? `\n## Problem Statement\n${problem}` : '',
+    approach ? `\n## Our Approach\n${approach}` : '',
+    deliverables.length ? `\n## Deliverables\n${deliverables.map(d => `- ${d}`).join('\n')}` : '',
+    pricingTiers.length ? `\n## Pricing\n${pricingTiers.map(t => `**${t['name']}** — ${t['price_signal']}`).join('\n')}` : '',
+    nextSteps ? `\n## Next Steps\n${nextSteps}` : '',
+  ].filter(Boolean).join('\n')
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20 flex-wrap">
+        <Briefcase className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        <span className="text-xs font-semibold text-foreground">Proposal</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportText, 'Proposal copied') }}>
+            <Copy className="h-3 w-3" /> Copy
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => downloadTextFile(`${title || 'proposal'}.md`, exportText)}>
+            <Download className="h-3 w-3" /> .md
+          </Button>
+        </div>
+      </div>
+      <div className="px-4 py-4 space-y-4">
+        {title && <h2 className="text-base font-bold text-foreground">{title}</h2>}
+        {summary && (
+          <div className="rounded-lg border border-border/50 bg-muted/10 px-4 py-3 space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Executive Summary</div>
+            <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{summary}</p>
+          </div>
+        )}
+        {(problem || approach) && (
+          <div className="grid gap-3 md:grid-cols-2">
+            {problem && (
+              <div className="rounded-lg border border-border/50 bg-muted/10 px-3 py-3 space-y-1">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Problem</div>
+                <p className="text-sm leading-6 text-foreground whitespace-pre-wrap">{problem}</p>
+              </div>
+            )}
+            {approach && (
+              <div className="rounded-lg border border-border/50 bg-muted/10 px-3 py-3 space-y-1">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Our Approach</div>
+                <p className="text-sm leading-6 text-foreground whitespace-pre-wrap">{approach}</p>
+              </div>
+            )}
+          </div>
+        )}
+        {deliverables.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-1.5">Deliverables</div>
+            <div className="space-y-1">
+              {deliverables.map((d, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+                  <p className="text-sm text-foreground leading-6">{String(d)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {pricingTiers.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">Pricing Tiers</div>
+            <div className="grid gap-2 md:grid-cols-3">
+              {pricingTiers.map((tier, i) => (
+                <div key={i} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-3 space-y-1">
+                  <div className="text-sm font-bold text-foreground">{String(tier['name'] ?? '')}</div>
+                  {tier['price_signal'] && <div className="text-xs font-semibold text-orange-600">{String(tier['price_signal'])}</div>}
+                  {Array.isArray(tier['whats_included']) && (
+                    <div className="space-y-0.5 pt-1">
+                      {(tier['whats_included'] as string[]).map((item, j) => (
+                        <div key={j} className="text-xs text-muted-foreground flex items-start gap-1">
+                          <span className="text-orange-400 shrink-0 mt-0.5">·</span>{item}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {typeof tier['whats_included'] === 'string' && (
+                    <p className="text-xs text-muted-foreground pt-1">{tier['whats_included']}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {nextSteps && (
+          <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-800/40 dark:bg-emerald-950/20 px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400 mb-1">Next Steps</div>
+            <p className="text-sm text-foreground whitespace-pre-wrap">{nextSteps}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── LeadsCard ─────────────────────────────────────────────────────────────────
+// Renders leads schema: {leads:[{name,company,score,email,reason,...}], scoring:{...}}
+function LeadsCard({ artifact }: { artifact: Record<string, unknown> }) {
+  const leads   = Array.isArray(artifact['leads'])   ? artifact['leads']   as Record<string, unknown>[] : []
+  const scoring = artifact['scoring'] && typeof artifact['scoring'] === 'object' ? artifact['scoring'] as Record<string, unknown> : null
+
+  const PRIORITY_KEYS = ['name', 'company', 'score', 'email', 'title', 'reason', 'status', 'segment']
+  function getScore(lead: Record<string, unknown>) {
+    const s = lead['score'] ?? lead['ics_score'] ?? lead['lead_score']
+    if (s == null) return null
+    const n = typeof s === 'number' ? s : Number(s)
+    return isNaN(n) ? String(s) : n
+  }
+  function scoreColor(score: number | string | null) {
+    if (typeof score !== 'number') return 'text-muted-foreground'
+    if (score >= 80) return 'text-emerald-600 dark:text-emerald-400'
+    if (score >= 60) return 'text-orange-500'
+    return 'text-red-500'
+  }
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20">
+        <Users className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+        <span className="text-xs font-semibold text-foreground">Leads</span>
+        <span className="text-[11px] text-muted-foreground">{leads.length} leads</span>
+        <Button variant="ghost" size="sm" className="ml-auto h-7 gap-1 px-2 text-xs"
+          onClick={() => {
+            const csv = [
+              Object.keys(leads[0] || {}).join(','),
+              ...leads.map(l => Object.values(l).map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(','))
+            ].join('\n')
+            void copyText(csv, 'Leads copied as CSV')
+          }}>
+          <Copy className="h-3 w-3" /> CSV
+        </Button>
+      </div>
+      <div className="divide-y divide-border/40">
+        {leads.map((lead, i) => {
+          const name    = typeof lead['name']    === 'string' ? lead['name']    : ''
+          const company = typeof lead['company'] === 'string' ? lead['company'] : ''
+          const email   = typeof lead['email']   === 'string' ? lead['email']   : ''
+          const reason  = typeof lead['reason']  === 'string' ? lead['reason']  : typeof lead['notes'] === 'string' ? lead['notes'] : ''
+          const score   = getScore(lead)
+          const otherKeys = Object.keys(lead).filter(k => !PRIORITY_KEYS.includes(k) && lead[k] !== null && lead[k] !== undefined && lead[k] !== '')
+          return (
+            <div key={i} className="px-4 py-3 space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-foreground">{name || `Lead ${i+1}`}</span>
+                {company && <span className="text-xs text-muted-foreground">{company}</span>}
+                {score !== null && (
+                  <span className={`ml-auto text-xs font-bold ${scoreColor(score)}`}>
+                    {typeof score === 'number' ? `${score}/100` : score}
+                  </span>
+                )}
+              </div>
+              {email && <p className="text-xs text-muted-foreground">{email}</p>}
+              {reason && <p className="text-xs text-muted-foreground leading-5 italic">{reason}</p>}
+              {otherKeys.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {otherKeys.map(k => (
+                    <span key={k} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                      <span className="font-semibold">{k.replace(/_/g,' ')}:</span> {String(lead[k])}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {scoring && Object.keys(scoring).length > 0 && (
+        <div className="px-4 py-3 border-t border-border/40 bg-muted/10">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">Scoring Summary</div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(scoring).map(([k, v]) => (
+              <div key={k} className="rounded-md bg-background border border-border/50 px-2.5 py-1.5 text-center">
+                <div className="text-xs font-bold text-foreground">{String(v)}</div>
+                <div className="text-[10px] text-muted-foreground capitalize">{k.replace(/_/g,' ')}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -761,11 +1614,15 @@ function ToolCallFeed({
   )
 }
 
-function saveToLibrary(artifact: Record<string, unknown>, agent: string, companyId: string | null | undefined) {
+async function saveToLibrary(artifact: Record<string, unknown>, agent: string, companyId: string | null | undefined) {
+  // Persist to Supabase (primary, survives re-login)
+  const remoteId = await saveLibraryArtifact(artifact, agent, companyId)
+
+  // Mirror to localStorage as a client-side cache so the library is instant on load
   try {
     const existing = JSON.parse(localStorage.getItem('marqq_library_artifacts') || '[]')
     const entry = {
-      id: crypto.randomUUID(),
+      id: remoteId ?? crypto.randomUUID(),
       agent,
       companyId: companyId ?? null,
       artifact,
@@ -881,8 +1738,10 @@ export function AgentRunPanel({
 
   const displayText = sanitizeDisplayText(text)
   const shouldPreferMarkdown = containsMarkdownTable(displayText)
-  const parsed = parseResult(text)
+  const parsed = parseResult(displayText)
   const artifactEntries = artifact ? flattenArtifactEntries(artifact) : []
+  // Only suppress text when we have real structured data (not just automation sub-results)
+  const hasArtifactCards = artifactEntries.length > 0
   const hasStructuredBlocks = Boolean(
     parsed.title || parsed.summary || parsed.highlights.length || parsed.sections.length || parsed.actions.length,
   )
@@ -972,7 +1831,7 @@ export function AgentRunPanel({
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      saveToLibrary(artifact, agentName, companyId)
+                      void saveToLibrary(artifact, agentName, companyId)
                       toast.success('Saved to Library')
                     }}
                     aria-label="Save artifact to library"
@@ -1019,8 +1878,8 @@ export function AgentRunPanel({
           <AgentRunSkeleton />
         )}
 
-        {/* Structured blocks — Fix 8: items rendered with InlineMd to preserve inline formatting */}
-        {!shouldPreferMarkdown && (parsed.title || parsed.summary) && (
+        {/* Structured blocks — only shown when there are no artifact cards (artifact = primary output) */}
+        {!shouldPreferMarkdown && !hasArtifactCards && (parsed.title || parsed.summary) && (
           <div className="rounded-2xl border border-orange-200/70 bg-white/90 p-4 dark:border-orange-900/30 dark:bg-gray-950/60">
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500" aria-hidden="true">Agent Brief</div>
             {parsed.title ? <div className="mt-1 text-base font-semibold text-foreground">{parsed.title}</div> : null}
@@ -1028,7 +1887,7 @@ export function AgentRunPanel({
           </div>
         )}
 
-        {!shouldPreferMarkdown && parsed.highlights.length > 0 && (
+        {!shouldPreferMarkdown && !hasArtifactCards && parsed.highlights.length > 0 && (
           <div className="grid gap-2 md:grid-cols-2">
             {parsed.highlights.map((item, index) => (
               <div key={`${stripInlineMarkdown(item)}-${index}`} className="rounded-xl border border-border/70 bg-background/85 p-3 shadow-sm">
@@ -1043,7 +1902,7 @@ export function AgentRunPanel({
           </div>
         )}
 
-        {!shouldPreferMarkdown && parsed.sections.length > 0 && (
+        {!shouldPreferMarkdown && !hasArtifactCards && parsed.sections.length > 0 && (
           <div className="grid gap-3 md:grid-cols-2">
             {parsed.sections.map((section) => (
               <div key={section.heading} className="rounded-xl border border-border/70 bg-background/85 p-3 shadow-sm">
@@ -1065,7 +1924,7 @@ export function AgentRunPanel({
           </div>
         )}
 
-        {!shouldPreferMarkdown && parsed.actions.length > 0 && (
+        {!shouldPreferMarkdown && !hasArtifactCards && parsed.actions.length > 0 && (
           <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/70 p-4 dark:border-emerald-900/30 dark:bg-emerald-950/20">
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600 dark:text-emerald-400" aria-hidden="true">
               Recommended Actions
@@ -1085,8 +1944,8 @@ export function AgentRunPanel({
           </div>
         )}
 
-        {/* Fix 4: "Show full output" toggle when structured blocks are truncating content */}
-        {!shouldPreferMarkdown && hasStructuredBlocks && displayText && !streaming && (
+        {/* "Show full output" only relevant for text-only outputs (artifact cards are the primary output) */}
+        {!shouldPreferMarkdown && !hasArtifactCards && hasStructuredBlocks && displayText && !streaming && (
           <button
             onClick={() => setShowFull((p) => !p)}
             className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors min-h-[44px] px-1 py-2 inline-flex items-center"
@@ -1095,32 +1954,109 @@ export function AgentRunPanel({
           </button>
         )}
 
-        {/* Artifact entries grid */}
-        {artifactEntries.length > 0 && !renderArtifact && (
-          <div className="grid gap-2 md:grid-cols-2">
-            {artifactEntries.map(([key, value]) => (
-              <div key={key} className="rounded-xl border border-border/70 bg-background/85 p-3 shadow-sm">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground" aria-hidden="true">
-                  {key.replace(/_/g, ' ')}
-                </div>
-                <div className="mt-1 text-sm leading-6 text-foreground break-words">
-                  {Array.isArray(value) ? (
-                    <div className="space-y-1">
-                      {value.map((item, index) => (
-                        <div key={`${key}-${index}`} className="flex items-start gap-2">
-                          <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
-                          <div>{item}</div>
+        {/* Artifact renderers — type-aware */}
+        {artifact && !renderArtifact && (() => {
+          // Social/text post
+          if (typeof artifact['post'] === 'string' && artifact['post']) {
+            return <ContentPostCard artifact={artifact} />
+          }
+          // Email draft (body without html — html is handled below)
+          if (typeof artifact['body'] === 'string' && artifact['body'] && !artifact['generate_email_html']) {
+            return <EmailDraftCard artifact={artifact} />
+          }
+          // Article: title + sections array with {heading, content}
+          if (typeof artifact['title'] === 'string' && artifact['title'] &&
+              Array.isArray(artifact['sections']) && artifact['sections'].length > 0 &&
+              artifact['sections'][0] && typeof artifact['sections'][0] === 'object' &&
+              ('heading' in (artifact['sections'][0] as object) || 'content' in (artifact['sections'][0] as object))) {
+            return <ArticleCard artifact={artifact} />
+          }
+          // Proposal: proposal_title field
+          if (typeof artifact['proposal_title'] === 'string' && artifact['proposal_title']) {
+            return <ProposalCard artifact={artifact} />
+          }
+          // Social calendar: calendar array
+          if (Array.isArray(artifact['calendar']) && artifact['calendar'].length > 0) {
+            return <CalendarCard artifact={artifact} />
+          }
+          // Leads: leads array of objects
+          if (Array.isArray(artifact['leads']) && artifact['leads'].length > 0 &&
+              artifact['leads'][0] && typeof artifact['leads'][0] === 'object') {
+            return <LeadsCard artifact={artifact} />
+          }
+          // Strategy/plan/analysis: strategy_overview prose OR phases/findings arrays
+          if (typeof artifact['strategy_overview'] === 'string' && artifact['strategy_overview']) {
+            return <StrategyCard artifact={artifact} />
+          }
+          if ((Array.isArray(artifact['phases']) && artifact['phases'].length > 0) ||
+              (Array.isArray(artifact['findings']) && artifact['findings'].length > 0)) {
+            return <StrategyCard artifact={artifact} />
+          }
+          // Generic fallback — full-width flex column, handles strings, string arrays, and object arrays
+          if (artifactEntries.length > 0) {
+            return (
+              <div className="flex flex-col gap-3">
+                {artifactEntries.map(([key, value]) => {
+                  const isObjArray = Array.isArray(value) && value.length > 0 && typeof value[0] === 'object'
+                  const isStrArray = Array.isArray(value) && !isObjArray
+                  const isScalar   = !Array.isArray(value)
+                  return (
+                    <div key={key} className="rounded-xl border border-border/70 bg-background/85 p-3 shadow-sm space-y-1.5">
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground" aria-hidden="true">
+                          {key.replace(/_/g, ' ')}
                         </div>
-                      ))}
+                        {isScalar && (
+                          <button
+                            type="button"
+                            onClick={() => { void copyText(String(value), `${key.replace(/_/g, ' ')} copied`) }}
+                            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                            aria-label={`Copy ${key}`}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-sm leading-6 text-foreground break-words">
+                        {isStrArray ? (
+                          <div className="space-y-1.5">
+                            {(value as string[]).map((item, index) => (
+                              <div key={`${key}-${index}`} className="flex items-start gap-2">
+                                <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+                                <div className="flex-1 whitespace-pre-wrap">{item}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : isObjArray ? (
+                          <div className="space-y-2">
+                            {(value as Record<string, unknown>[]).map((obj, index) => {
+                              const objKeys = Object.keys(obj).filter(k => obj[k] !== null && obj[k] !== undefined && obj[k] !== '')
+                              return (
+                                <div key={index} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5 space-y-1.5">
+                                  {objKeys.map(k => (
+                                    <div key={k} className="flex items-start gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mt-0.5 w-20 shrink-0">{k.replace(/_/g,' ')}</span>
+                                      <p className="text-sm text-foreground flex-1 whitespace-pre-wrap leading-6">
+                                        {Array.isArray(obj[k]) ? (obj[k] as unknown[]).join(', ') : String(obj[k])}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <p className="break-words whitespace-pre-wrap">{String(value)}</p>
+                        )}
+                      </div>
                     </div>
-                  ) : (
-                    <p className="line-clamp-3 break-words">{String(value)}</p>
-                  )}
-                </div>
+                  )
+                })}
               </div>
-            ))}
-          </div>
-        )}
+            )
+          }
+          return null
+        })()}
 
         {/* Automation result cards — image, email HTML, video status */}
         {artifact && (() => {
@@ -1128,36 +2064,51 @@ export function AgentRunPanel({
           const img = artifact['generate_social_image'] as Record<string, unknown> | undefined
           if (img?.cdn_url || img?.image_url) {
             const imgSrc = (img.cdn_url ?? img.image_url) as string
+            const imgPlatform = typeof img.platform === 'string' ? img.platform : ''
+            const imgAspect  = typeof img.aspect_ratio === 'string' ? img.aspect_ratio : ''
+            const imgModel   = typeof img.model === 'string' ? img.model : ''
+            const imgSlug    = imgPlatform.toLowerCase().replace(/\s+/g, '-') || 'social'
             cards.push(
-              <div key="social-image" className="rounded-xl border border-border/70 bg-background/85 p-3 shadow-sm space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground" aria-hidden="true">Generated Image</div>
-                  <div className="flex items-center gap-2">
+              <div key="social-image" className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20 flex-wrap">
+                  <ImageIcon className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                  <span className="text-xs font-semibold text-foreground">Generated Image</span>
+                  {imgPlatform && <PlatformBadge value={imgPlatform} />}
+                  {imgAspect && (
+                    <span className="text-[11px] text-muted-foreground">{imgAspect}</span>
+                  )}
+                  {imgModel && (
+                    <span className="text-[11px] text-muted-foreground/60">{imgModel}</span>
+                  )}
+                  <div className="ml-auto flex items-center gap-1.5">
                     <Button
                       variant="outline"
                       size="sm"
                       className="h-7 px-2 text-xs"
                       onClick={() => window.open(imgSrc, '_blank', 'noopener,noreferrer')}
                     >
-                      Open
+                      Preview
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 gap-1 px-2 text-xs"
-                      onClick={() => downloadFromUrl(imgSrc, 'riya-image-asset.png')}
+                      onClick={() => downloadFromUrl(imgSrc, `${imgSlug}-image.png`)}
                     >
                       <Download className="h-3 w-3" />
-                      Download
+                      .png
                     </Button>
                   </div>
                 </div>
-                <img src={imgSrc} alt="Generated social image" className="rounded-lg w-full max-w-md mx-auto block" />
-                {typeof img.platform === 'string' && img.platform && (
-                  <div className="text-xs text-muted-foreground">
-                    {String(img.platform)} · {String(img.aspect_ratio ?? '')} · {String(img.model ?? '')}
-                  </div>
-                )}
+                {/* Image */}
+                <div className="p-4">
+                  <img
+                    src={imgSrc}
+                    alt={imgPlatform ? `${imgPlatform} image` : 'Generated social image'}
+                    className="rounded-lg w-full object-contain max-h-[480px] bg-muted/10"
+                  />
+                </div>
               </div>
             )
           }
@@ -1276,11 +2227,37 @@ export function AgentRunPanel({
               cards.push(<VideoStatusCard key={vid} vid={vid} v={v} />)
             }
           }
+          // Google Docs / Drive links — always show when present regardless of other output
+          const docUrl  = typeof artifact['doc_url']  === 'string' ? artifact['doc_url']  : null
+          const fileUrl = typeof artifact['file_url'] === 'string' ? artifact['file_url'] : null
+          if (docUrl || fileUrl) {
+            cards.push(
+              <div key="doc-links" className="rounded-xl border border-blue-200/60 bg-blue-50/40 dark:border-blue-800/40 dark:bg-blue-950/20 px-4 py-3 space-y-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-400 mb-1">Saved Document</div>
+                {docUrl && (
+                  <a href={docUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-lg border border-blue-200/70 bg-white/80 dark:bg-blue-950/30 px-3 py-2.5 text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                    <FileText className="h-4 w-4 shrink-0" />
+                    <span className="flex-1 truncate">Open in Google Docs</span>
+                    <Link2 className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                  </a>
+                )}
+                {fileUrl && (
+                  <a href={fileUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-lg border border-blue-200/70 bg-white/80 dark:bg-blue-950/30 px-3 py-2.5 text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                    <Download className="h-4 w-4 shrink-0" />
+                    <span className="flex-1 truncate">Open in Google Drive</span>
+                    <Link2 className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                  </a>
+                )}
+              </div>
+            )
+          }
           return cards.length ? <div className="space-y-3 mt-1">{cards}</div> : null
         })()}
 
-        {/* Raw markdown: shown when preferring markdown, no structured blocks, or showFull toggled */}
-        {displayText && (!hasStructuredBlocks || shouldPreferMarkdown || showFull) && (
+        {/* Raw markdown: shown when no artifact cards + (no structured blocks, prefers markdown, or showFull) */}
+        {displayText && !hasArtifactCards && (!hasStructuredBlocks || shouldPreferMarkdown || showFull) && (
           <div
             ref={scrollRef}
             className="overflow-x-auto rounded-xl border border-border/60 bg-background/70 p-3 text-sm text-muted-foreground leading-relaxed"

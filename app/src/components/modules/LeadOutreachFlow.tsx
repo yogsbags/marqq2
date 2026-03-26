@@ -70,18 +70,9 @@ export function LeadOutreachFlow({
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[0.96fr_1.04fr]">
         <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50 shadow-[0_28px_80px_-34px_rgba(113,63,18,0.42)] dark:border-orange-900/70">
-          <CardContent className="space-y-6 p-8 lg:p-10">
+          <CardContent className="space-y-6 p-5 lg:p-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-200">
               Outreach Desk
-            </div>
-            <div className="space-y-3">
-              <h2 className="max-w-lg text-4xl tracking-[-0.045em] text-orange-50 md:text-5xl">
-                Shape the outreach before the team burns trust on weak first touches.
-              </h2>
-              <p className="max-w-[58ch] text-sm leading-7 text-orange-100/74">
-                This flow is built around sequence pressure, personalization logic, and response mechanics. It should
-                read like pipeline engineering, not a blank cold-email generator.
-              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
@@ -193,6 +184,7 @@ export function LeadOutreachFlow({
 
   return (
     <AgentModuleShell
+      hideHeader
       moduleId="lead-outreach"
       hideMarketSignals
       title="Build Outreach Sequences"

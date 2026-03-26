@@ -214,18 +214,9 @@ export function MarketingAuditFlow({
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[0.96fr_1.04fr]">
         <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50 shadow-[0_28px_80px_-34px_rgba(113,63,18,0.42)] dark:border-orange-900/70">
-          <CardContent className="space-y-6 p-8 lg:p-10">
+          <CardContent className="space-y-6 p-5 lg:p-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-200">
               Audit Control Room
-            </div>
-            <div className="space-y-3">
-              <h2 className="max-w-lg text-4xl tracking-[-0.045em] text-orange-50 md:text-5xl">
-                Diagnose the system before another month disappears into unfocused marketing work.
-              </h2>
-              <p className="max-w-[58ch] text-sm leading-7 text-orange-100/74">
-                This flow is built to combine the operating score, the real weak points, and the next 30-60-90 day moves
-                into one audit surface instead of a stack of disconnected reports.
-              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
@@ -306,6 +297,7 @@ export function MarketingAuditFlow({
 
   return (
     <AgentModuleShell
+      hideHeader
       moduleId="marketing-audit"
       title="Audit Your Overall Marketing"
       description="Score the system, surface the real gaps, and turn the audit into a sharper operating plan."

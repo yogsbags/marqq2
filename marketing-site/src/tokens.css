@@ -1,0 +1,68 @@
+/**
+ * Marqq AI marketing — design tokens aligned with app (HSL primary 24 100% 50%, orange scale).
+ */
+:root {
+  /* Brand */
+  --color-primary: #f97316;
+  --color-primary-hover: #ea580c;
+  --color-primary-soft: rgba(249, 115, 22, 0.15);
+  --color-amber-glow: rgba(251, 191, 36, 0.35);
+  --gradient-brand: linear-gradient(135deg, #fb923c 0%, #f97316 45%, #ea580c 100%);
+  --gradient-hero-mesh: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(249, 115, 22, 0.25), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(251, 191, 36, 0.12), transparent),
+    radial-gradient(ellipse 50% 30% at 0% 20%, rgba(249, 115, 22, 0.1), transparent);
+
+  /* Neutrals */
+  --color-bg: #fafaf9;
+  --color-surface: #ffffff;
+  --color-text: #0c0a09;
+  --color-text-muted: #57534e;
+  --color-border: #e7e5e4;
+
+  /* Typography — mirrors app stack (Geist optional; Jakarta + system for web) */
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Poppins", var(--font-sans);
+  --text-xs: clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem);
+  --text-sm: clamp(0.875rem, 0.85rem + 0.12vw, 0.9375rem);
+  --text-base: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  --text-lg: clamp(1.125rem, 1.05rem + 0.35vw, 1.25rem);
+  --text-xl: clamp(1.25rem, 1.1rem + 0.75vw, 1.5rem);
+  --text-2xl: clamp(1.5rem, 1.2rem + 1.5vw, 2rem);
+  --text-3xl: clamp(1.875rem, 1.35rem + 2.6vw, 2.75rem);
+  --text-4xl: clamp(2.25rem, 1.5rem + 3.75vw, 3.5rem);
+  --text-5xl: clamp(2.75rem, 1.75rem + 5vw, 4.25rem);
+
+  /* Spacing (8pt-derived) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+  --section-y: clamp(3rem, 8vw, 6rem);
+  --section-y-spacious: clamp(4rem, 11vw, 8rem);
+
+  /* Shape */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.9rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-normal: 420ms;
+  --duration-slow: 700ms;
+
+  /* 3D */
+  --perspective: 1500px;
+  --tilt-max: 6deg;
+
+  /* Z */
+  --z-header: 100;
+  --z-floating: 50;
+}

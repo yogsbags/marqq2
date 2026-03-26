@@ -287,18 +287,9 @@ function PaidAdsPlanTab({
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[1.02fr_0.98fr]">
         <Card className="rounded-[2rem] border-orange-200/70 bg-gradient-to-br from-orange-50/90 via-background to-amber-50/50 text-foreground shadow-[0_28px_80px_-34px_rgba(154,52,18,0.14)] dark:border-orange-900/70 dark:from-zinc-950 dark:via-zinc-950 dark:to-orange-950/40 dark:text-orange-50 dark:shadow-[0_28px_80px_-34px_rgba(124,45,18,0.46)]">
-          <CardContent className="space-y-6 p-8 lg:p-10">
+          <CardContent className="space-y-6 p-5 lg:p-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-300/50 bg-orange-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-800 dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-200">
               Paid Ads Desk
-            </div>
-            <div className="space-y-3">
-              <h2 className="max-w-xl text-4xl tracking-[-0.045em] text-foreground md:text-5xl dark:text-orange-50">
-                Launch from a campaign plan that knows the channel, the objective, and the tradeoffs before money goes live.
-              </h2>
-              <p className="max-w-[60ch] text-sm leading-7 text-muted-foreground dark:text-orange-100/74">
-                This flow is built to give the team a sharper paid plan first, then leave the live controls and automation
-                workspace available underneath for execution.
-              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-[1.4rem] border border-orange-200/70 bg-card/80 p-4 dark:border-orange-400/15 dark:bg-white/5">
@@ -377,6 +368,7 @@ function PaidAdsPlanTab({
 
   return (
     <AgentModuleShell
+      hideHeader
       moduleId="paid-ads-plan"
       title="Run Paid Ads"
       description="Build the campaign plan first, then move into live performance, launch, copy, creative, and ROAS controls."

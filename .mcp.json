@@ -7,6 +7,13 @@
         "N8N_URL": "https://productverse.up.railway.app",
         "N8N_API_KEY": ""
       }
+    },
+    "actors-mcp-server": {
+      "command": "actors-mcp-server",
+      "args": [],
+      "env": {
+        "APIFY_TOKEN": ""
+      }
     }
   }
 }

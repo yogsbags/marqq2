@@ -80,18 +80,9 @@ export function AdCreativeFlow({
     <div className="space-y-5">
       <section className="grid gap-4 lg:grid-cols-[0.92fr_1.08fr]">
         <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50 shadow-[0_28px_80px_-34px_rgba(113,63,18,0.44)] dark:border-orange-900/70">
-          <CardContent className="space-y-6 p-8 lg:p-10">
+          <CardContent className="space-y-6 p-5 lg:p-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-200">
               Creative Lab
-            </div>
-            <div className="space-y-3">
-              <h2 className="max-w-lg text-4xl tracking-[-0.045em] text-orange-50 md:text-5xl">
-                Build the first ad direction before the account turns into random variation spam.
-              </h2>
-              <p className="max-w-[58ch] text-sm leading-7 text-orange-100/74">
-                This flow is designed to surface hooks, copy pressure, and visual cues in one place. It should feel like
-                a creative bench, not a generic prompt form.
-              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
@@ -196,6 +187,7 @@ export function AdCreativeFlow({
 
   return (
     <AgentModuleShell
+      hideHeader
       moduleId="ad-creative"
       title="Generate Ad Creatives"
       description="Find the strongest hook, turn it into native ad copy, and leave with the first variants worth testing."
