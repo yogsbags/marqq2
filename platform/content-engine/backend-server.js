@@ -3069,12 +3069,17 @@ async function callLeadsDb(path, payload, method = "POST") {
     throw new Error("Leads database env is not configured");
   }
 
+  /** ngrok free tier returns an HTML interstitial unless this header is set. */
+  const isNgrokHost = /ngrok/i.test(LEADS_DB_BASE_URL);
+  const headers = {
+    Authorization: `Bearer ${LEADS_DB_BEARER_TOKEN}`,
+    "Content-Type": "application/json",
+    ...(isNgrokHost ? { "ngrok-skip-browser-warning": "1" } : {}),
+  };
+
   const response = await fetch(`${LEADS_DB_BASE_URL}${path}`, {
     method,
-    headers: {
-      Authorization: `Bearer ${LEADS_DB_BEARER_TOKEN}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     ...(method === "GET" ? {} : { body: JSON.stringify(payload || {}) }),
   });
 
@@ -3089,6 +3094,12 @@ async function callLeadsDb(path, payload, method = "POST") {
   if (!response.ok) {
     throw new Error(
       json?.message || raw || `Leads DB request failed with ${response.status}`,
+    );
+  }
+
+  if (json === null && raw && /^\s*</.test(raw)) {
+    throw new Error(
+      "Leads DB returned HTML instead of JSON (ngrok browser warning or wrong URL). Restart Marqq after updating, or open the ngrok URL in a browser once to clear the interstitial.",
     );
   }
 
@@ -10803,6 +10814,87 @@ app.patch("/api/mkg/:companyId", async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     console.error("PATCH /api/mkg error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /api/content-studio/distribute ────────────────────────────────────
+// Saves a content post as a draft (or schedules it for review) from AgentRunPanel.
+// Platforms: linkedin, facebook_instagram, website_blog
+// Modes: publish (save now), schedule (save with publish_at)
+app.post("/api/content-studio/distribute", async (req, res) => {
+  const { companyId, mode, platform, publishAt, payload } = req.body || {};
+
+  if (!companyId || typeof companyId !== "string") {
+    return res.status(400).json({ error: "companyId is required" });
+  }
+  const validPlatforms = ["linkedin", "facebook_instagram", "website_blog"];
+  if (!platform || !validPlatforms.includes(platform)) {
+    return res.status(400).json({ error: `platform must be one of: ${validPlatforms.join(", ")}` });
+  }
+  const validModes = ["publish", "schedule"];
+  if (!mode || !validModes.includes(mode)) {
+    return res.status(400).json({ error: "mode must be 'publish' or 'schedule'" });
+  }
+  if (mode === "schedule" && !publishAt) {
+    return res.status(400).json({ error: "publishAt is required for schedule mode" });
+  }
+
+  const sb = supabaseForServerData();
+  if (!sb) {
+    return res.status(503).json({ error: "Database not available" });
+  }
+
+  const title = typeof payload?.title === "string" ? payload.title : null;
+  const post = typeof payload?.post === "string" ? payload.post : null;
+  const cta = typeof payload?.cta === "string" ? payload.cta : null;
+  const hashtags = Array.isArray(payload?.hashtags) ? payload.hashtags : [];
+
+  const status = mode === "schedule" ? "scheduled" : "draft";
+  const publish_at = mode === "schedule" ? new Date(publishAt).toISOString() : null;
+
+  try {
+    const { data, error } = await sb
+      .from("content_drafts")
+      .insert({
+        company_id: companyId,
+        platform,
+        mode,
+        status,
+        title,
+        post,
+        cta,
+        hashtags,
+        payload: payload || {},
+        publish_at,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      // Table may not exist yet — return a clear message
+      if (error.code === "42P01") {
+        return res.status(503).json({
+          error: "content_drafts table not found — run database/migrations/content-drafts.sql in Supabase",
+        });
+      }
+      console.error("[distribute] Supabase insert error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    const platformLabel =
+      platform === "linkedin" ? "LinkedIn" :
+      platform === "facebook_instagram" ? "Facebook" :
+      "Google Docs";
+
+    const summary =
+      mode === "schedule"
+        ? `${platformLabel} draft scheduled for ${new Date(publishAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`
+        : `${platformLabel} draft saved (ID: ${data?.id?.slice(0, 8) ?? "—"})`;
+
+    res.json({ id: data?.id, summary });
+  } catch (err) {
+    console.error("[distribute] Unexpected error:", err);
     res.status(500).json({ error: String(err) });
   }
 });
