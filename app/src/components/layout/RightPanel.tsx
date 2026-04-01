@@ -1,47 +1,21 @@
 import { useState, useEffect } from 'react';
 import {
-  TrendingUp, TrendingDown, Minus, ExternalLink,
-  ChevronDown, ChevronRight, BookOpen, Users, Zap,
-  Calendar, PlusCircle, BarChart2,
+  ExternalLink,
+  ChevronDown, ChevronRight, BookOpen, Zap,
+  Calendar, PlusCircle, BarChart2, PlugZap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 
-// ── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_METRICS = [
-  { label: 'Organic Traffic', value: '14,280', change: '+12%', positive: true as boolean | null },
-  { label: 'Leads Generated', value: '382',    change: '+8%',   positive: true },
-  { label: 'Conversion Rate', value: '2.7%',   change: '-0.3%', positive: false },
-  { label: 'Email Open Rate', value: '28.4%',  change: '+4%',   positive: true },
-  { label: 'Avg. Session',    value: '3m 12s', change: '+0%',   positive: null },
-  { label: 'Bounce Rate',     value: '41%',    change: '-2%',   positive: true },
-];
-
-const MOCK_TASKS: LiveTask[] = [
-  { id: '1', label: 'Review Q2 campaign brief',   done: false, priority: 'high',   agent: 'Veena',  dueIn: 'in 2d' },
-  { id: '2', label: 'Publish 3 LinkedIn posts',   done: false, priority: 'medium', agent: 'Riya',   dueIn: 'in 4d' },
-  { id: '3', label: 'Connect Google Analytics',   done: false, priority: 'high',   agent: 'Dev',    dueIn: 'in 6d' },
-  { id: '4', label: 'Update ICP document',        done: true,  priority: 'low',    agent: 'Arjun',  dueIn: '' },
-  { id: '5', label: 'Run SEO gap analysis',       done: true,  priority: 'medium', agent: 'Maya',   dueIn: '' },
-];
-
-const MOCK_BRAND_FILES = [
-  { name: 'brand_guidelines.md',    date: '3/31/2026' },
-  { name: 'business_profile.md',    date: '3/31/2026' },
-  { name: 'marketing_strategy.md',  date: '3/31/2026' },
-  { name: 'market_research.md',     date: '3/31/2026' },
-  { name: 'seo_strategy.md',        date: '3/31/2026' },
-];
-
-const MOCK_AGENTS = [
-  { name: 'Veena', role: 'Marketing OS',     status: 'online',   color: 'bg-orange-500' },
-  { name: 'Maya',  role: 'SEO & LLMO',       status: 'online',   color: 'bg-green-500' },
-  { name: 'Arjun', role: 'Lead Intelligence', status: 'idle',    color: 'bg-blue-500' },
-  { name: 'Riya',  role: 'Content',          status: 'working',  color: 'bg-purple-500' },
-  { name: 'Zara',  role: 'Campaigns',        status: 'idle',     color: 'bg-pink-500' },
-  { name: 'Dev',   role: 'Analytics',        status: 'idle',     color: 'bg-amber-500' },
+// Agent team — product config, not user data
+const AGENT_TEAM = [
+  { name: 'Veena', role: 'Marketing OS',      color: 'bg-orange-500' },
+  { name: 'Maya',  role: 'SEO & LLMO',        color: 'bg-green-500' },
+  { name: 'Arjun', role: 'Lead Intelligence', color: 'bg-blue-500' },
+  { name: 'Riya',  role: 'Content',           color: 'bg-purple-500' },
+  { name: 'Zara',  role: 'Campaigns',         color: 'bg-pink-500' },
+  { name: 'Dev',   role: 'Analytics',         color: 'bg-amber-500' },
 ];
 
 // ── Collapsible section wrapper ───────────────────────────────────────────────
@@ -82,33 +56,22 @@ function Section({
 
 // ── Metrics section ───────────────────────────────────────────────────────────
 
-function MetricsSection() {
+function MetricsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
   return (
     <Section title="Metrics">
-      <div className="px-3 space-y-1.5">
-        {MOCK_METRICS.map(m => (
-          <div key={m.label} className="flex items-center justify-between rounded-lg bg-muted/40 px-2.5 py-1.5">
-            <span className="text-xs text-muted-foreground">{m.label}</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-semibold tabular-nums">{m.value}</span>
-              <span className={cn(
-                'text-[10px] font-medium flex items-center gap-0.5',
-                m.positive === true  ? 'text-green-600 dark:text-green-400' :
-                m.positive === false ? 'text-red-500 dark:text-red-400' :
-                                       'text-muted-foreground',
-              )}>
-                {m.positive === true  && <TrendingUp className="h-2.5 w-2.5" />}
-                {m.positive === false && <TrendingDown className="h-2.5 w-2.5" />}
-                {m.positive === null  && <Minus className="h-2.5 w-2.5" />}
-                {m.change}
-              </span>
-            </div>
-          </div>
-        ))}
-        <p className="text-[10px] text-muted-foreground text-center pt-1">
-          Connect GA4 for live data ·{' '}
-          <button className="text-orange-500 hover:underline">Connect now</button>
-        </p>
+      <div className="px-3 py-1">
+        <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-4 flex flex-col items-center text-center gap-2">
+          <PlugZap className="h-5 w-5 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground leading-5">
+            Connect Google Analytics to see live traffic, leads, and conversion metrics here.
+          </p>
+          <button
+            onClick={() => onModuleSelect?.('integrations')}
+            className="text-[11px] font-medium text-orange-500 hover:underline"
+          >
+            Connect GA4
+          </button>
+        </div>
       </div>
     </Section>
   );
@@ -160,9 +123,9 @@ function ChannelsSection() {
 
 type LiveTask = { id: string; label: string; agent: string; dueIn: string; priority: 'high' | 'medium' | 'low'; done: boolean };
 
-function TasksSection() {
+function TasksSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
   const { activeWorkspace } = useWorkspace();
-  const [tasks, setTasks] = useState<LiveTask[]>(MOCK_TASKS);
+  const [tasks, setTasks] = useState<LiveTask[]>([]);
   const [loaded, setLoaded] = useState(false);
   const pending = tasks.filter(t => !t.done);
   const done    = tasks.filter(t => t.done);
@@ -173,6 +136,7 @@ function TasksSection() {
     fetch(`/api/workspaces/${activeWorkspace.id}/agent-deployments`)
       .then(r => r.ok ? r.json() : null)
       .then((data: unknown) => {
+        setLoaded(true);
         const arr = Array.isArray(data) ? data : (data as { deployments?: unknown[] } | null)?.deployments ?? [];
         if (arr.length === 0) return;
         const now = Date.now();
@@ -192,13 +156,17 @@ function TasksSection() {
           };
         });
         setTasks(live);
-        setLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => { setLoaded(true); });
   }, [activeWorkspace?.id, loaded]);
 
   const viewAllAction = (
-    <button className="text-[10px] text-orange-500 hover:underline font-medium">View all</button>
+    <button
+      onClick={() => onModuleSelect?.('scheduled-jobs')}
+      className="text-[10px] text-orange-500 hover:underline font-medium"
+    >
+      View all
+    </button>
   );
 
   return (
@@ -208,6 +176,12 @@ function TasksSection() {
       defaultOpen={true}
     >
       <div className="px-3 space-y-0.5">
+        {loaded && pending.length === 0 && done.length === 0 && (
+          <div className="py-3 text-center">
+            <p className="text-xs text-muted-foreground leading-5">No upcoming tasks yet.</p>
+            <p className="text-[10px] text-muted-foreground">Your agents will schedule work here.</p>
+          </div>
+        )}
         {pending.map(t => (
           <button
             key={t.id}
@@ -246,36 +220,73 @@ function TasksSection() {
 
 // ── Brand KB section ──────────────────────────────────────────────────────────
 
-function BrandKBSection() {
+type BrandFile = { name: string; updatedAt?: string };
+
+function BrandKBSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
+  const { activeWorkspace } = useWorkspace();
+  const [files, setFiles] = useState<BrandFile[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? MOCK_BRAND_FILES : MOCK_BRAND_FILES.slice(0, 2);
-  const hidden  = MOCK_BRAND_FILES.length - 2;
+  const visible = showAll ? files : files.slice(0, 2);
+  const hidden  = files.length - 2;
+
+  useEffect(() => {
+    if (!activeWorkspace?.id || loaded) return;
+    fetch(`/api/workspaces/${activeWorkspace.id}/files`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: unknown) => {
+        setLoaded(true);
+        const arr: BrandFile[] = Array.isArray(data) ? data
+          : (data as { files?: BrandFile[] } | null)?.files ?? [];
+        setFiles(arr.slice(0, 10));
+      })
+      .catch(() => setLoaded(true));
+  }, [activeWorkspace?.id, loaded]);
 
   return (
     <Section title="Brand Knowledge Base" defaultOpen={true}>
       <div className="px-3 space-y-0.5">
-        {visible.map(f => (
-          <div
-            key={f.name}
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50 transition-colors cursor-pointer group"
-          >
-            <div className="h-6 w-6 rounded bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center flex-shrink-0">
-              <BookOpen className="h-3 w-3 text-orange-600 dark:text-orange-400" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium truncate">{f.name}</p>
-              <p className="text-[10px] text-muted-foreground">{f.date}</p>
-            </div>
-            <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+        {loaded && files.length === 0 ? (
+          <div className="py-3 text-center">
+            <p className="text-xs text-muted-foreground leading-5">No brand files yet.</p>
+            <button
+              onClick={() => onModuleSelect?.('workspace-files')}
+              className="text-[10px] text-orange-500 hover:underline font-medium"
+            >
+              Go to Workspace Files
+            </button>
           </div>
-        ))}
-        {!showAll && hidden > 0 && (
-          <button
-            onClick={() => setShowAll(true)}
-            className="w-full text-left text-[10px] text-orange-500 hover:underline px-2 py-1"
-          >
-            View all ({hidden} more)
-          </button>
+        ) : (
+          <>
+            {visible.map(f => (
+              <div
+                key={f.name}
+                onClick={() => onModuleSelect?.('workspace-files')}
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50 transition-colors cursor-pointer group"
+              >
+                <div className="h-6 w-6 rounded bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center flex-shrink-0">
+                  <BookOpen className="h-3 w-3 text-orange-600 dark:text-orange-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium truncate">{f.name}</p>
+                  {f.updatedAt && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {new Date(f.updatedAt).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+                <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+              </div>
+            ))}
+            {!showAll && hidden > 0 && (
+              <button
+                onClick={() => setShowAll(true)}
+                className="w-full text-left text-[10px] text-orange-500 hover:underline px-2 py-1"
+              >
+                View all ({hidden} more)
+              </button>
+            )}
+          </>
         )}
       </div>
     </Section>
@@ -285,17 +296,10 @@ function BrandKBSection() {
 // ── Agents section ────────────────────────────────────────────────────────────
 
 function AgentsSection() {
-  const statusColor = (s: string) =>
-    s === 'online'  ? 'bg-green-500'  :
-    s === 'working' ? 'bg-orange-400' : 'bg-gray-400';
-  const statusLabel = (s: string) =>
-    s === 'online'  ? 'Ready'      :
-    s === 'working' ? 'Working...' : 'Idle';
-
   return (
     <Section title="Your AI Team" defaultOpen={false}>
       <div className="px-3 space-y-0.5">
-        {MOCK_AGENTS.map(a => (
+        {AGENT_TEAM.map(a => (
           <div key={a.name} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted/50 transition-colors">
             <div className={cn('h-6 w-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0', a.color)}>
               {a.name[0]}
@@ -303,10 +307,6 @@ function AgentsSection() {
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium">{a.name}</p>
               <p className="text-[10px] text-muted-foreground">{a.role}</p>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <div className={cn('h-1.5 w-1.5 rounded-full', statusColor(a.status))} />
-              <span className="text-[10px] text-muted-foreground">{statusLabel(a.status)}</span>
             </div>
           </div>
         ))}
@@ -322,7 +322,7 @@ interface RightPanelProps {
   onModuleSelect?: (id: string) => void;
 }
 
-export function RightPanel({ className }: RightPanelProps) {
+export function RightPanel({ className, onModuleSelect }: RightPanelProps) {
   return (
     <div className={cn(
       'w-[380px] flex-shrink-0 border-l border-border/60 bg-background/50 flex flex-col overflow-hidden',
@@ -335,19 +335,22 @@ export function RightPanel({ className }: RightPanelProps) {
           <span className="text-xs font-semibold text-foreground">Overview</span>
         </div>
         <div className="flex items-center gap-2">
-          <button className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+          <button
+            onClick={() => onModuleSelect?.('calendar')}
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5"
+          >
             <Calendar className="h-3 w-3" />
-            <span>Last 30 days</span>
+            <span>Calendar</span>
           </button>
         </div>
       </div>
 
       {/* Scrollable sections */}
       <ScrollArea className="flex-1">
-        <MetricsSection />
+        <MetricsSection onModuleSelect={onModuleSelect} />
         <ChannelsSection />
-        <TasksSection />
-        <BrandKBSection />
+        <TasksSection onModuleSelect={onModuleSelect} />
+        <BrandKBSection onModuleSelect={onModuleSelect} />
         <AgentsSection />
       </ScrollArea>
     </div>

@@ -10,6 +10,10 @@ export interface Message {
     type: string;
     url?: string;
   };
+  // Set when the message is from a specialist subagent (not Veena)
+  agentName?: string;
+  agentRole?: string;
+  agentId?: string;
 }
 
 export interface Conversation {

@@ -102,7 +102,9 @@ export function MainLayout({
         </div>
 
         {/* Right panel — only in main chat/home view (not calendar, files, etc.) */}
-        {isChatView && selectedModule !== 'calendar' && selectedModule !== 'workspace-files' && <RightPanel />}
+        {isChatView && selectedModule !== 'calendar' && selectedModule !== 'workspace-files' && (
+          <RightPanel onModuleSelect={onModuleSelect} />
+        )}
       </div>
 
       {/* Chat Drawer — only shown for module pages (not when chat is the primary view) */}

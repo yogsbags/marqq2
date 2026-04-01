@@ -578,6 +578,56 @@ const TOOL_USE_LABELS = [
   'Crafting your response...',
 ];
 
+// ── Subagent card colors ──────────────────────────────────────────────────────
+
+const AGENT_COLORS: Record<string, { bg: string; border: string; label: string; avatar: string }> = {
+  maya:  { bg: 'bg-green-50/80 dark:bg-green-950/20',   border: 'border-green-200/70 dark:border-green-900/40',   label: 'text-green-700 dark:text-green-400',   avatar: 'bg-green-500' },
+  arjun: { bg: 'bg-blue-50/80 dark:bg-blue-950/20',     border: 'border-blue-200/70 dark:border-blue-900/40',     label: 'text-blue-700 dark:text-blue-400',     avatar: 'bg-blue-500' },
+  riya:  { bg: 'bg-purple-50/80 dark:bg-purple-950/20', border: 'border-purple-200/70 dark:border-purple-900/40', label: 'text-purple-700 dark:text-purple-400', avatar: 'bg-purple-500' },
+  zara:  { bg: 'bg-pink-50/80 dark:bg-pink-950/20',     border: 'border-pink-200/70 dark:border-pink-900/40',     label: 'text-pink-700 dark:text-pink-400',     avatar: 'bg-pink-500' },
+  dev:   { bg: 'bg-amber-50/80 dark:bg-amber-950/20',   border: 'border-amber-200/70 dark:border-amber-900/40',   label: 'text-amber-700 dark:text-amber-400',   avatar: 'bg-amber-500' },
+  priya: { bg: 'bg-indigo-50/80 dark:bg-indigo-950/20', border: 'border-indigo-200/70 dark:border-indigo-900/40', label: 'text-indigo-700 dark:text-indigo-400', avatar: 'bg-indigo-500' },
+  kiran: { bg: 'bg-teal-50/80 dark:bg-teal-950/20',     border: 'border-teal-200/70 dark:border-teal-900/40',     label: 'text-teal-700 dark:text-teal-400',     avatar: 'bg-teal-500' },
+  sam:   { bg: 'bg-cyan-50/80 dark:bg-cyan-950/20',     border: 'border-cyan-200/70 dark:border-cyan-900/40',     label: 'text-cyan-700 dark:text-cyan-400',     avatar: 'bg-cyan-500' },
+  isha:  { bg: 'bg-rose-50/80 dark:bg-rose-950/20',     border: 'border-rose-200/70 dark:border-rose-900/40',     label: 'text-rose-700 dark:text-rose-400',     avatar: 'bg-rose-500' },
+  neel:  { bg: 'bg-slate-50/80 dark:bg-slate-950/20',   border: 'border-slate-200/70 dark:border-slate-900/40',   label: 'text-slate-700 dark:text-slate-400',   avatar: 'bg-slate-500' },
+  tara:  { bg: 'bg-orange-50/80 dark:bg-orange-950/20', border: 'border-orange-200/70 dark:border-orange-900/40', label: 'text-orange-700 dark:text-orange-400', avatar: 'bg-orange-500' },
+};
+const DEFAULT_AGENT_COLORS = { bg: 'bg-zinc-50/80 dark:bg-zinc-900/30', border: 'border-zinc-200/70 dark:border-zinc-800/40', label: 'text-zinc-700 dark:text-zinc-300', avatar: 'bg-zinc-500' };
+
+function SubagentMessageCard({ message, onModuleSelect }: { message: Message; onModuleSelect?: (id: string) => void }) {
+  const colors = (message.agentId ? AGENT_COLORS[message.agentId] : null) ?? DEFAULT_AGENT_COLORS;
+  const initial = (message.agentName ?? 'A').charAt(0).toUpperCase();
+  const plain = stripMarkdown(message.content);
+  const artifacts = extractFileArtifacts(message.content);
+  return (
+    <div className={cn('w-full rounded-2xl border px-4 pt-3 pb-3', colors.border, colors.bg)}>
+      {/* Agent header */}
+      <div className="flex items-center gap-2.5 mb-2.5">
+        <div className={cn('h-7 w-7 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0', colors.avatar)}>
+          {initial}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={cn('text-xs font-semibold leading-tight', colors.label)}>{message.agentName}</p>
+          {message.agentRole && <p className="text-[10px] text-muted-foreground">{message.agentRole}</p>}
+        </div>
+        <span className="text-[10px] text-muted-foreground flex-shrink-0">
+          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      </div>
+      {/* Content */}
+      <p className="text-sm whitespace-pre-wrap leading-6">{plain}</p>
+      {artifacts.map(name => (
+        <FileArtifactCard
+          key={name}
+          name={name}
+          onView={onModuleSelect ? () => onModuleSelect('workspace-files') : undefined}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConversationsChange, hideHeader }: ChatHomeProps) {
   const { activeWorkspace, clearWebsiteUrl } = useWorkspace();
   const { plan, creditsRemaining, creditsTotal } = usePlan();
@@ -1037,21 +1087,29 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
       }
 
       const visibleResponse = sanitizeAgentStreamText(accumulated);
+      const [agentDisplayName, agentRole] = agentEntry.label.split(' · ');
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: `**${agentEntry.label}**\n\n${visibleResponse || 'Task completed. I have the result ready, but the agent did not return a user-facing summary.'}`,
+        content: visibleResponse || 'Task completed. I have the result ready, but the agent did not return a user-facing summary.',
         sender: 'ai',
         timestamp: new Date(),
+        agentName: agentDisplayName?.trim() || agentEntry.label,
+        agentRole: agentRole?.trim(),
+        agentId: agentEntry.name,
       };
       onMessagesChange(prev => [...prev, aiMessage]);
       toast.success(`${agentEntry.label} responded`);
     } catch (err) {
+      const [agentDisplayName, agentRole] = agentEntry.label.split(' · ');
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: `**${agentEntry.label}** is offline or not configured.\n\nMake sure the AI backend is running (\`npm run dev:backend\`) and \`GROQ_API_KEY\` is set.`,
+        content: `Offline or not configured. Make sure the AI backend is running (\`npm run dev:backend\`) and \`GROQ_API_KEY\` is set.`,
         sender: 'ai',
         timestamp: new Date(),
+        agentName: agentDisplayName?.trim() || agentEntry.label,
+        agentRole: agentRole?.trim(),
+        agentId: agentEntry.name,
       };
       onMessagesChange(prev => [...prev, errorMessage]);
       toast.error(String(err));
@@ -1149,18 +1207,24 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: `**${agentConfig.label} · ${agentConfig.role}**\n\n${visibleResponse || 'Task completed. I have the result ready, but the agent did not return a user-facing summary.'}`,
+        content: visibleResponse || 'Task completed. I have the result ready, but the agent did not return a user-facing summary.',
         sender: 'ai',
         timestamp: new Date(),
+        agentName: agentConfig.label,
+        agentRole: agentConfig.role,
+        agentId: agentConfig.name,
       };
       onMessagesChange((prev) => [...prev, aiMessage]);
       toast.success(`${agentConfig.label} is working on it.`);
     } catch (error) {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: `**${agentConfig.label}** is offline or unavailable right now.\n\nPlease try again once the backend is available.`,
+        content: 'Offline or unavailable right now. Please try again once the backend is available.',
         sender: 'ai',
         timestamp: new Date(),
+        agentName: agentConfig.label,
+        agentRole: agentConfig.role,
+        agentId: agentConfig.name,
       };
       onMessagesChange((prev) => [...prev, errorMessage]);
       toast.error(String(error));
@@ -1410,88 +1474,100 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         {/* Messages */}
         <ScrollArea className="flex-1 px-4 py-4">
           <div className="space-y-4">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn(
-                  'flex items-start space-x-3',
-                  message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : 'justify-start'
-                )}
-              >
-                <Avatar className="h-8 w-8">
-                  {message.sender === 'ai' ? (
-                    <AvatarFallback className="bg-orange-100 text-orange-600 dark:bg-orange-950/30 dark:text-orange-300">
-                      <Bot className="h-4 w-4" />
-                    </AvatarFallback>
-                  ) : (
-                    <AvatarFallback className="bg-orange-50 text-orange-700 dark:bg-orange-950/20 dark:text-orange-300">
-                      <User className="h-4 w-4" />
-                    </AvatarFallback>
-                  )}
-                </Avatar>
-                <Card
+            {messages.map((message) => {
+              // Specialist subagent message — render as distinct branded card
+              if (message.sender === 'ai' && message.agentName) {
+                return (
+                  <div key={message.id} className="w-full">
+                    <SubagentMessageCard message={message} onModuleSelect={onModuleSelect} />
+                  </div>
+                );
+              }
+
+              // Regular Veena / user message bubble
+              return (
+                <div
+                  key={message.id}
                   className={cn(
-                    'max-w-[78%] rounded-2xl border p-3',
-                    message.sender === 'user'
-                      ? 'border-orange-500/70 bg-orange-500 text-white'
-                      : 'border-border/70 bg-background/90 text-left'
+                    'flex items-start space-x-3',
+                    message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : 'justify-start'
                   )}
                 >
-                  {message.file && (
-                    <div
-                      className={cn(
-                        'flex items-center space-x-2 p-2 rounded mb-2 border',
-                        message.sender === 'user'
-                          ? 'bg-orange-400 border-orange-300'
-                          : 'bg-background border-border'
-                      )}
-                    >
-                      {getFileIcon(message.file.type)}
-                      <div className="flex-1 min-w-0">
-                        <div
-                          className={cn(
-                            'text-xs font-medium truncate',
-                            message.sender === 'user' ? 'text-orange-100' : 'text-foreground'
-                          )}
-                        >
-                          {message.file.name}
-                        </div>
-                        <div
-                          className={cn(
-                            'text-xs opacity-70',
-                            message.sender === 'user' ? 'text-orange-200' : 'text-muted-foreground'
-                          )}
-                        >
-                          {formatFileSize(message.file.size)}
-                        </div>
-                      </div>
-                      {message.file.url && message.file.type.includes('image') && (
-                        <img
-                          src={message.file.url}
-                          alt={message.file.name}
-                          className="w-8 h-8 object-cover rounded"
-                        />
-                      )}
-                    </div>
-                  )}
-                  <FormattedMessage
-                    content={message.content}
-                    reasoning={message.reasoning}
-                    isReasoningStreaming={reasoningStreamingId === message.id}
-                    isAI={message.sender === 'ai'}
-                    onModuleSelect={onModuleSelect}
-                  />
-                  <p
+                  <Avatar className="h-8 w-8">
+                    {message.sender === 'ai' ? (
+                      <AvatarFallback className="bg-orange-100 text-orange-600 dark:bg-orange-950/30 dark:text-orange-300">
+                        <Bot className="h-4 w-4" />
+                      </AvatarFallback>
+                    ) : (
+                      <AvatarFallback className="bg-orange-50 text-orange-700 dark:bg-orange-950/20 dark:text-orange-300">
+                        <User className="h-4 w-4" />
+                      </AvatarFallback>
+                    )}
+                  </Avatar>
+                  <Card
                     className={cn(
-                      'text-xs mt-1 opacity-70',
-                      message.sender === 'user' ? 'text-orange-100' : 'text-muted-foreground'
+                      'max-w-[78%] rounded-2xl border p-3',
+                      message.sender === 'user'
+                        ? 'border-orange-500/70 bg-orange-500 text-white'
+                        : 'border-border/70 bg-background/90 text-left'
                     )}
                   >
-                    {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </Card>
-              </div>
-            ))}
+                    {message.file && (
+                      <div
+                        className={cn(
+                          'flex items-center space-x-2 p-2 rounded mb-2 border',
+                          message.sender === 'user'
+                            ? 'bg-orange-400 border-orange-300'
+                            : 'bg-background border-border'
+                        )}
+                      >
+                        {getFileIcon(message.file.type)}
+                        <div className="flex-1 min-w-0">
+                          <div
+                            className={cn(
+                              'text-xs font-medium truncate',
+                              message.sender === 'user' ? 'text-orange-100' : 'text-foreground'
+                            )}
+                          >
+                            {message.file.name}
+                          </div>
+                          <div
+                            className={cn(
+                              'text-xs opacity-70',
+                              message.sender === 'user' ? 'text-orange-200' : 'text-muted-foreground'
+                            )}
+                          >
+                            {formatFileSize(message.file.size)}
+                          </div>
+                        </div>
+                        {message.file.url && message.file.type.includes('image') && (
+                          <img
+                            src={message.file.url}
+                            alt={message.file.name}
+                            className="w-8 h-8 object-cover rounded"
+                          />
+                        )}
+                      </div>
+                    )}
+                    <FormattedMessage
+                      content={message.content}
+                      reasoning={message.reasoning}
+                      isReasoningStreaming={reasoningStreamingId === message.id}
+                      isAI={message.sender === 'ai'}
+                      onModuleSelect={onModuleSelect}
+                    />
+                    <p
+                      className={cn(
+                        'text-xs mt-1 opacity-70',
+                        message.sender === 'user' ? 'text-orange-100' : 'text-muted-foreground'
+                      )}
+                    >
+                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </Card>
+                </div>
+              );
+            })}
 
             {/* Quick-start prompts — shown only on a fresh chat */}
             {messages.length === 1 && (
