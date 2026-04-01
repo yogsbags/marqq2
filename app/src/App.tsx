@@ -8,6 +8,7 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import { HelpPanel } from '@/components/help/HelpPanel';
 import { HomeView } from '@/components/home/HomeView';
 import { LibraryView } from '@/components/library/LibraryView';
+import { MarketingCalendarPage } from '@/components/calendar/MarketingCalendarPage';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ModuleDetail } from '@/components/modules/ModuleDetail';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
@@ -206,6 +207,8 @@ function Dashboard() {
     if (selectedModule === 'help') return <HelpPanel />;
     if (selectedModule === 'dashboard') return <AgentDashboard />;
     if (selectedModule === 'library') return <LibraryView />;
+    if (selectedModule === 'workspace-files') return <LibraryView />;
+    if (selectedModule === 'calendar') return <MarketingCalendarPage onModuleSelect={handleModuleSelect} />;
 
     if (currentModule) {
       return (

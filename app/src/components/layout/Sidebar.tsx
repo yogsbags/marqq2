@@ -31,6 +31,8 @@ import {
   ShieldCheck as ShieldCheckIcon,
   Puzzle,
   BookOpen,
+  Calendar,
+  FolderOpen,
 } from 'lucide-react';
 import type { Conversation } from '@/types/chat';
 
@@ -66,6 +68,7 @@ const channels: NavItem[] = [
   { id: 'home',                  title: 'main',        icon: Hash },
   { id: 'performance-scorecard', title: 'performance', icon: Hash },
   { id: 'channel-health',        title: 'daily-brief', icon: Hash },
+  { id: 'calendar',              title: 'calendar',    icon: Calendar },
 ];
 
 const navSections: NavSection[] = [
@@ -116,10 +119,11 @@ function sectionContaining(moduleId: string | null): string | null {
 }
 
 const workspaceItems: NavItem[] = [
-  { id: 'integrations', title: 'Integrations', icon: Puzzle },
-  { id: 'library',      title: 'Library',      icon: BookOpen },
-  { id: 'settings',     title: 'Settings',     icon: Settings },
-  { id: 'help',         title: 'Help',         icon: HelpCircle },
+  { id: 'integrations',    title: 'Integrations',    icon: Puzzle },
+  { id: 'workspace-files', title: 'Files',           icon: FolderOpen },
+  { id: 'library',         title: 'Library',         icon: BookOpen },
+  { id: 'settings',        title: 'Settings',        icon: Settings },
+  { id: 'help',            title: 'Help',            icon: HelpCircle },
 ];
 
 export function Sidebar({

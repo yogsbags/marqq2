@@ -36,6 +36,8 @@ import {
   Paperclip,
 } from 'lucide-react';
 import { buildAgentHeaders, buildAgentPlanPayload, buildAgentRunPayload, getActiveAgentContext } from '@/lib/agentContext';
+import { usePlan } from '@/hooks/usePlan';
+import { Zap } from 'lucide-react';
 
 // -- localStorage helpers
 
@@ -522,8 +524,19 @@ interface ChatHomeProps {
 
 // -- Component
 
+const TOOL_USE_LABELS = [
+  'Analysing your context...',
+  'Checking brand knowledge base...',
+  'Running market analysis...',
+  'Looking up performance data...',
+  'Generating recommendations...',
+  'Searching web for insights...',
+  'Crafting your response...',
+];
+
 export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConversationsChange, hideHeader }: ChatHomeProps) {
   const { activeWorkspace, clearWebsiteUrl } = useWorkspace();
+  const { plan, creditsRemaining, creditsTotal } = usePlan();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
@@ -545,6 +558,15 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   const [planPreview, setPlanPreview] = useState<AgentExecutionPlan | null>(null);
   const [mkgContext, setMkgContext] = useState<string>('');
   const [reasoningStreamingId, setReasoningStreamingId] = useState<string | null>(null);
+  const [typingLabelIdx, setTypingLabelIdx] = useState(0);
+
+  useEffect(() => {
+    if (!isTyping) { setTypingLabelIdx(0); return; }
+    const timer = setInterval(() => {
+      setTypingLabelIdx(i => (i + 1) % TOOL_USE_LABELS.length);
+    }, 2200);
+    return () => clearInterval(timer);
+  }, [isTyping]);
 
   const sendQuickMessage = (text: string) => {
     setInputValue(text);
@@ -1451,7 +1473,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
               </div>
             )}
 
-            {/* Typing indicator */}
+            {/* Typing / tool-use indicator */}
             {isTyping && (
               <div className="flex items-start space-x-3 justify-start">
                 <Avatar className="h-8 w-8">
@@ -1460,10 +1482,15 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
                   </AvatarFallback>
                 </Avatar>
                 <Card className="rounded-2xl border border-border/70 bg-background/90 p-3 text-left">
-                  <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                  <div className="flex items-center gap-2">
+                    <div className="flex space-x-1">
+                      <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce" />
+                      <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
+                      <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground transition-all duration-500">
+                      {TOOL_USE_LABELS[typingLabelIdx]}
+                    </span>
                   </div>
                 </Card>
               </div>
@@ -1514,6 +1541,27 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Upgrade CTA strip — shown for free/no-plan users */}
+        {(!plan || plan === 'growth') && creditsTotal > 0 && creditsRemaining < creditsTotal * 0.2 && (
+          <div className="mx-4 mb-2 flex items-center justify-between gap-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/50 px-3 py-2.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <Zap className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-orange-800 dark:text-orange-300 truncate">
+                  {creditsRemaining} credits left — upgrade to keep going
+                </p>
+                <p className="text-[10px] text-orange-600/70 dark:text-orange-400/60">Works while you sleep.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => onModuleSelect?.('settings')}
+              className="flex-shrink-0 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-semibold px-3 py-1.5 transition-colors"
+            >
+              Upgrade
+            </button>
           </div>
         )}
 

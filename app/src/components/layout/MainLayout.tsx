@@ -25,6 +25,8 @@ const CHANNEL_NAMES: Record<string, { name: string; description: string }> = {
   main: { name: 'main', description: 'Your autonomous AI marketing team' },
   'performance-scorecard': { name: 'performance', description: 'Analytics & KPI tracking' },
   'channel-health': { name: 'daily-brief', description: 'Daily marketing intelligence brief' },
+  'calendar': { name: 'calendar', description: 'Content schedule across all channels' },
+  'workspace-files': { name: 'files', description: 'Files created by your AI team' },
 };
 
 export function MainLayout({
@@ -41,9 +43,10 @@ export function MainLayout({
 }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Chat/channel view = home, main (+ future channel pages use ChannelHeader)
+  // Chat/channel view = home, main (+ channel pages use ChannelHeader)
   const isChatView = !selectedModule || selectedModule === 'home' || selectedModule === 'main'
-    || selectedModule === 'performance-scorecard' || selectedModule === 'channel-health';
+    || selectedModule === 'performance-scorecard' || selectedModule === 'channel-health'
+    || selectedModule === 'calendar' || selectedModule === 'workspace-files';
 
   const channelInfo = CHANNEL_NAMES[selectedModule ?? 'home'] ?? { name: selectedModule ?? 'main', description: '' };
 
@@ -98,8 +101,8 @@ export function MainLayout({
           </main>
         </div>
 
-        {/* Right panel — only in chat/home view */}
-        {isChatView && <RightPanel />}
+        {/* Right panel — only in main chat/home view (not calendar, files, etc.) */}
+        {isChatView && selectedModule !== 'calendar' && selectedModule !== 'workspace-files' && <RightPanel />}
       </div>
 
       {/* Chat Drawer — only shown for module pages (not when chat is the primary view) */}
