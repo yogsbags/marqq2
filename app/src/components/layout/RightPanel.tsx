@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   TrendingUp, TrendingDown, Minus, ExternalLink,
   ChevronDown, ChevronRight, BookOpen, Users, Zap,
@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 // ── Mock data ────────────────────────────────────────────────────────────────
 
@@ -18,7 +19,7 @@ const MOCK_METRICS = [
   { label: 'Bounce Rate',     value: '41%',    change: '-2%',   positive: true },
 ];
 
-const MOCK_TASKS = [
+const MOCK_TASKS: LiveTask[] = [
   { id: '1', label: 'Review Q2 campaign brief',   done: false, priority: 'high',   agent: 'Veena',  dueIn: 'in 2d' },
   { id: '2', label: 'Publish 3 LinkedIn posts',   done: false, priority: 'medium', agent: 'Riya',   dueIn: 'in 4d' },
   { id: '3', label: 'Connect Google Analytics',   done: false, priority: 'high',   agent: 'Dev',    dueIn: 'in 6d' },
@@ -157,10 +158,44 @@ function ChannelsSection() {
 
 // ── Upcoming Tasks section ────────────────────────────────────────────────────
 
+type LiveTask = { id: string; label: string; agent: string; dueIn: string; priority: 'high' | 'medium' | 'low'; done: boolean };
+
 function TasksSection() {
-  const [tasks, setTasks] = useState(MOCK_TASKS);
+  const { activeWorkspace } = useWorkspace();
+  const [tasks, setTasks] = useState<LiveTask[]>(MOCK_TASKS);
+  const [loaded, setLoaded] = useState(false);
   const pending = tasks.filter(t => !t.done);
   const done    = tasks.filter(t => t.done);
+
+  // Fetch real upcoming agent deployments
+  useEffect(() => {
+    if (!activeWorkspace?.id || loaded) return;
+    fetch(`/api/workspaces/${activeWorkspace.id}/agent-deployments`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: unknown) => {
+        const arr = Array.isArray(data) ? data : (data as { deployments?: unknown[] } | null)?.deployments ?? [];
+        if (arr.length === 0) return;
+        const now = Date.now();
+        const live: LiveTask[] = (arr as Array<{
+          id: string; sectionTitle?: string; agentName?: string;
+          scheduledFor?: string; status?: string;
+        }>).slice(0, 5).map(d => {
+          const ms = d.scheduledFor ? new Date(d.scheduledFor).getTime() - now : 0;
+          const daysLeft = Math.ceil(ms / 86400000);
+          return {
+            id: d.id,
+            label: d.sectionTitle || d.agentName || 'Scheduled task',
+            agent: d.agentName || 'Agent',
+            dueIn: daysLeft > 0 ? `in ${daysLeft}d` : '',
+            priority: 'medium' as const,
+            done: d.status === 'completed',
+          };
+        });
+        setTasks(live);
+        setLoaded(true);
+      })
+      .catch(() => {});
+  }, [activeWorkspace?.id, loaded]);
 
   const viewAllAction = (
     <button className="text-[10px] text-orange-500 hover:underline font-medium">View all</button>
@@ -284,6 +319,7 @@ function AgentsSection() {
 
 interface RightPanelProps {
   className?: string;
+  onModuleSelect?: (id: string) => void;
 }
 
 export function RightPanel({ className }: RightPanelProps) {

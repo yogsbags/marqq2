@@ -435,6 +435,42 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
+// Extract file artifact references from agent responses
+// Matches patterns like: "brand-guidelines.md", "📄 business-profile.md | File | Saved"
+function extractFileArtifacts(text: string): string[] {
+  const found: string[] = [];
+  const re = /(?:📄\s*)?([a-z0-9_-]+\.(?:md|pdf|csv|json|txt))\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const name = m[1].toLowerCase();
+    if (!found.includes(name)) found.push(name);
+  }
+  return found;
+}
+
+function FileArtifactCard({ name, onView }: { name: string; onView?: () => void }) {
+  const ext = name.split('.').pop() ?? 'file';
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-background/90 px-3 py-2 mt-2">
+      <div className="h-7 w-7 rounded-lg bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center flex-shrink-0">
+        <FileText className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium truncate text-foreground">{name}</p>
+        <p className="text-[10px] text-muted-foreground capitalize">{ext} · Saved</p>
+      </div>
+      {onView && (
+        <button
+          onClick={onView}
+          className="flex-shrink-0 text-[10px] text-orange-500 hover:underline font-medium"
+        >
+          View
+        </button>
+      )}
+    </div>
+  );
+}
+
 function FormattedMessage({
   content,
   reasoning,
@@ -450,12 +486,20 @@ function FormattedMessage({
 }) {
   if (!isAI) return <p className="text-sm whitespace-pre-wrap">{content}</p>;
   const plain = stripMarkdown(content);
+  const artifacts = isAI ? extractFileArtifacts(content) : [];
   return (
     <>
       {(reasoning || isReasoningStreaming) && (
         <ThinkingBlock reasoning={reasoning ?? ''} isStreaming={isReasoningStreaming} />
       )}
       <p className="text-sm whitespace-pre-wrap leading-6">{plain}</p>
+      {artifacts.map(name => (
+        <FileArtifactCard
+          key={name}
+          name={name}
+          onView={_onModuleSelect ? () => _onModuleSelect('workspace-files') : undefined}
+        />
+      ))}
     </>
   );
 }
