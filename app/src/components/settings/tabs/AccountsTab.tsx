@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 type Connector = {
   id: string;
@@ -130,6 +131,7 @@ function IntegrationLogo({ id, name }: { id: string; name: string }) {
 
 export function AccountsTab() {
   const { activeWorkspace } = useWorkspace();
+  const { user } = useAuth();
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
@@ -159,6 +161,19 @@ export function AccountsTab() {
       setActionId(null)
       toast.success(`${connectorId ? CONNECTOR_META[connectorId]?.logoLabel || connectorId : 'Account'} connected successfully`)
       load()
+      // Trigger Helena-style proactive automation suggestion email
+      if (connectorId && user?.email) {
+        fetch('/api/agents/integration-connected', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            connectorId,
+            workspaceId: entityId,
+            userEmail: user.email,
+            userName: user.name,
+          }),
+        }).catch(() => {})
+      }
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)

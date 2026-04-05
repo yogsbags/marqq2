@@ -490,12 +490,89 @@ async function handleAgentMailInbound(payload) {
   if (!from || !text) return { ignored: true, reason: "missing from/text" };
 
   const companyId = inbox_id ? `agentmail-${inbox_id}` : "default";
+  const bodyText = String(text || html || "").slice(0, 3000);
+
+  // ── Check if this is an automation activation reply ──────────────────────────
+  // Look for a pending suggestion associated with this inbox/thread
+  const apiKey = process.env.AGENTMAIL_API_KEY || "";
+  const suggestions = await loadPendingSuggestions();
+  const threadKey = inbox_id && thread_id ? `${inbox_id}/${thread_id}` : null;
+  const inboxKey = inbox_id ? `inbox/${inbox_id}` : null;
+  const pending = (threadKey && suggestions[threadKey]) || (inboxKey && suggestions[inboxKey]);
+
+  if (pending && apiKey) {
+    const parsedNums = parseAutomationReplyNumbers(bodyText);
+    // parsedNums === null means "all"; empty array means no numbers found → fall through to Sam
+    if (parsedNums === null || (Array.isArray(parsedNums) && parsedNums.length > 0)) {
+      const allAutomations = pending.automations || [];
+      const selectedAutomations = parsedNums === null
+        ? allAutomations
+        : allAutomations.filter(a => parsedNums.includes(a.id));
+
+      if (selectedAutomations.length > 0) {
+        console.log(`[agentmail_inbound] automation activation reply from ${from}: activating ${selectedAutomations.map(a => a.name).join(", ")}`);
+
+        // Schedule each automation as a deployment entry
+        const scheduledResults = [];
+        for (const automation of selectedAutomations) {
+          try {
+            const deploymentEntry = {
+              agentName: automation.agentName,
+              agentTarget: automation.name,
+              workspaceId: pending.companyId,
+              companyId: pending.companyId,
+              schedule: automation.schedule,
+              query: `Run ${automation.name} for company ${pending.companyId} and email the report to ${pending.userEmail}.`,
+              task_type: automation.task_type,
+              deliveryEmail: pending.userEmail,
+              createdAt: new Date().toISOString(),
+              status: "active",
+            };
+
+            const queue = await readDeploymentQueue();
+            const newEntry = {
+              id: randomUUID(),
+              ...deploymentEntry,
+              nextRunAt: null,
+              lastRunAt: null,
+              error: null,
+            };
+            queue.push(newEntry);
+            await writeDeploymentQueue(queue);
+            scheduledResults.push({ automation: automation.name, id: newEntry.id, status: "scheduled" });
+          } catch (schedErr) {
+            console.warn(`[agentmail_inbound] failed to schedule ${automation.name}:`, schedErr.message);
+            scheduledResults.push({ automation: automation.name, status: "failed", error: schedErr.message });
+          }
+        }
+
+        // Send confirmation email
+        await sendAutomationConfirmationEmail({
+          apiKey,
+          userEmail: pending.userEmail,
+          companyId: pending.companyId,
+          threadId: thread_id || pending.threadId,
+          inboxId: inbox_id || pending.inboxId,
+          selectedAutomations,
+        });
+
+        // Clean up pending suggestion
+        if (threadKey) delete suggestions[threadKey];
+        if (inboxKey) delete suggestions[inboxKey];
+        await savePendingSuggestions(suggestions);
+
+        return { handled: true, type: "automation_activation", scheduled: scheduledResults };
+      }
+    }
+  }
+
+  // ── Fall through: route to Sam for general handling ──────────────────────────
   const query = [
     `Inbound email reply received.`,
     `From: ${from}`,
     `Subject: ${subject || "(no subject)"}`,
     `Thread: ${thread_id || message_id || "unknown"}`,
-    `\nMessage:\n${String(text || html || "").slice(0, 3000)}`,
+    `\nMessage:\n${bodyText}`,
     `\nPlease acknowledge, answer any questions, and decide if any follow-up actions or new tasks are needed.`,
   ].join("\n");
 
@@ -510,6 +587,302 @@ async function handleAgentMailInbound(payload) {
   } catch (err) {
     console.error("[agentmail_inbound] handler error:", err.message);
     return { handled: false, error: err.message };
+  }
+}
+
+// ─── Helena-style integration email automation loop ───────────────────────────
+// When a user connects a Composio integration, we automatically:
+//   1. Send a proactive suggestion email with numbered automations
+//   2. Parse the user's reply to activate selected automations
+//   3. Schedule them as deployment entries and send a confirmation email
+
+const PENDING_SUGGESTIONS_FILE = join(__dirname, "data/pending-suggestions.json");
+
+async function loadPendingSuggestions() {
+  try {
+    const raw = await readFile(PENDING_SUGGESTIONS_FILE, "utf8").catch(() => "{}");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+async function savePendingSuggestions(data) {
+  try {
+    await mkdir(dirname(PENDING_SUGGESTIONS_FILE), { recursive: true });
+    await writeFile(PENDING_SUGGESTIONS_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch (err) {
+    console.warn("[suggestions] failed to save pending suggestions:", err.message);
+  }
+}
+
+/** Parse "1 2 3", "1, 2, 3", "1 and 2", "all", "yes" into a Set of 1-based ints (or null = all) */
+function parseAutomationReplyNumbers(text) {
+  const lower = text.toLowerCase().trim();
+  if (/\b(all|yes|everything|activate all|schedule all)\b/.test(lower)) return null; // null = all
+  const nums = [];
+  const matches = lower.matchAll(/\b([1-9]\d?)\b/g);
+  for (const m of matches) {
+    const n = parseInt(m[1], 10);
+    if (n >= 1 && n <= 20) nums.push(n);
+  }
+  return nums.length ? [...new Set(nums)] : null;
+}
+
+/** Connector → automation suggestions. Each automation maps to an agent + task_type + schedule label. */
+const CONNECTOR_AUTOMATIONS = {
+  ga4: [
+    { name: "Weekly Traffic Report", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "maya", task_type: "daily_market_scan", description: "Sessions, top pages, channels, and week-over-week growth" },
+    { name: "Monthly Growth Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "maya", task_type: "daily_market_scan", description: "Month-over-month comparison: traffic, conversions, bounce rate" },
+    { name: "Anomaly Alerts", schedule: "daily at 8am", scheduleHuman: "Daily · 8am", agentName: "maya", task_type: "daily_market_scan", description: "Immediate alert when traffic drops > 20% from 7-day average" },
+  ],
+  gsc: [
+    { name: "Weekly SEO Digest", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "maya", task_type: "seo_audit", description: "Top queries, click share, ranking shifts, new keyword opportunities" },
+    { name: "Rank Change Alerts", schedule: "daily at 8am", scheduleHuman: "Daily · 8am", agentName: "maya", task_type: "seo_audit", description: "Keywords that moved ±5 positions — catch drops before they hurt" },
+    { name: "Monthly SEO Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "maya", task_type: "seo_audit", description: "Impression and click growth, new ranking keywords, coverage issues" },
+  ],
+  youtube: [
+    { name: "Weekly Channel Report", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "kiran", task_type: "social_monitor", description: "Views, watch time, subscriber growth, top-performing videos" },
+    { name: "Video Launch Alert", schedule: "on upload", scheduleHuman: "On each upload", agentName: "kiran", task_type: "social_monitor", description: "First-24-hour metrics for every new video — catch early signals" },
+    { name: "Monthly Analytics Summary", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "kiran", task_type: "social_monitor", description: "Channel-level MoM comparison and content recommendations" },
+  ],
+  linkedin: [
+    { name: "Weekly Content Performance", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "kiran", task_type: "social_monitor", description: "Post impressions, engagement rate, follower growth this week" },
+    { name: "Monthly Company Page Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "kiran", task_type: "social_monitor", description: "Follower demographics, top posts, competitive benchmarks" },
+    { name: "High-Engagement Alert", schedule: "daily at 8am", scheduleHuman: "Daily · 8am", agentName: "kiran", task_type: "social_monitor", description: "Alert when a post hits 2× your average engagement — amplify fast" },
+  ],
+  instagram: [
+    { name: "Weekly Content Performance", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "kiran", task_type: "social_monitor", description: "Reach, saves, shares, and follower growth this week" },
+    { name: "Monthly Engagement Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "kiran", task_type: "social_monitor", description: "Best-performing content, hashtag analysis, audience insights" },
+  ],
+  hubspot: [
+    { name: "Weekly Deals Report", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "arjun", task_type: "lead_score", description: "New deals created, pipeline value, stage-by-stage movement" },
+    { name: "Monthly Revenue Intelligence", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "arjun", task_type: "lead_score", description: "Won/lost analysis, average deal cycle, conversion by source" },
+    { name: "Weekly Email Campaign Digest", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "sam", task_type: "report_delivery", description: "Open rates, click rates, and top-performing campaigns this week" },
+  ],
+  google_ads: [
+    { name: "Weekly Campaign Performance", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "zara", task_type: "campaign_brief", description: "Spend, clicks, impressions, CTR, and ROAS by campaign" },
+    { name: "Daily Budget Alert", schedule: "daily at 8am", scheduleHuman: "Daily · 8am", agentName: "zara", task_type: "campaign_brief", description: "Alert if any campaign is over- or under-pacing its daily budget" },
+    { name: "Monthly ROAS Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "zara", task_type: "campaign_brief", description: "Return-on-ad-spend trends, keyword winners/losers, optimisation plan" },
+  ],
+  meta_ads: [
+    { name: "Weekly Ad Performance", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "zara", task_type: "campaign_brief", description: "Spend, reach, CPM, CPC, ROAS across all active ad sets" },
+    { name: "Creative Fatigue Alert", schedule: "daily at 8am", scheduleHuman: "Daily · 8am", agentName: "zara", task_type: "campaign_brief", description: "Flag creatives with declining CTR so you can swap them before costs spike" },
+    { name: "Monthly ROI Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "zara", task_type: "campaign_brief", description: "Channel ROAS, audience performance, and budget reallocation plan" },
+  ],
+  linkedin_ads: [
+    { name: "Weekly LinkedIn Ads Report", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "zara", task_type: "campaign_brief", description: "Impressions, clicks, leads generated, CPL by campaign" },
+    { name: "Monthly B2B Funnel Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "zara", task_type: "campaign_brief", description: "Lead quality, MQL conversion, cost per qualified lead" },
+  ],
+  apollo: [
+    { name: "Weekly Prospect Report", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "isha", task_type: "icp_build", description: "New prospects added, ICP match scores, email open rates" },
+    { name: "Monthly Lead Quality Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "arjun", task_type: "lead_score", description: "Enrichment coverage, sequence performance, conversion to opportunity" },
+  ],
+  klaviyo: [
+    { name: "Weekly Email Performance", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "sam", task_type: "report_delivery", description: "Campaigns sent, open/click rates, revenue attributed, list growth" },
+    { name: "Flow Performance Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "sam", task_type: "report_delivery", description: "Automated flow revenue, conversion rates, drop-off points" },
+  ],
+  semrush: [
+    { name: "Weekly SEO Rankings Report", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "maya", task_type: "seo_audit", description: "Keyword rank changes, organic traffic trends, backlink gains/losses" },
+    { name: "Monthly Competitive Analysis", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "dev", task_type: "competitor_scan", description: "Share of voice vs competitors, content gap opportunities" },
+  ],
+  ahrefs: [
+    { name: "Weekly Backlink Monitor", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "maya", task_type: "seo_audit", description: "New and lost backlinks, domain rating changes, referring domains" },
+    { name: "Monthly SEO Health Report", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "maya", task_type: "seo_audit", description: "DR trend, top pages by traffic, content decay report" },
+  ],
+  shopify: [
+    { name: "Weekly Revenue Report", schedule: "every Monday at 9am", scheduleHuman: "Weekly · Mondays 9am", agentName: "zara", task_type: "campaign_brief", description: "Orders, revenue, AOV, top products, refund rate" },
+    { name: "Monthly Store Performance", schedule: "first Monday of month", scheduleHuman: "Monthly · First Monday", agentName: "dev", task_type: "competitor_scan", description: "MoM revenue growth, customer LTV, conversion rate by source" },
+  ],
+};
+
+/** Pretty name for a connector ID */
+function connectorDisplayName(connectorId) {
+  const nameMap = {
+    ga4: "Google Analytics 4", gsc: "Google Search Console", youtube: "YouTube",
+    linkedin: "LinkedIn", instagram: "Instagram", hubspot: "HubSpot",
+    google_ads: "Google Ads", meta_ads: "Meta Ads", linkedin_ads: "LinkedIn Ads",
+    apollo: "Apollo", klaviyo: "Klaviyo", semrush: "Semrush", ahrefs: "Ahrefs",
+    shopify: "Shopify", google_sheets: "Google Sheets", slack: "Slack",
+    gmail: "Gmail", outlook: "Outlook", mailchimp: "Mailchimp",
+    salesforce: "Salesforce", zoho_crm: "Zoho CRM", mixpanel: "Mixpanel",
+    amplitude: "Amplitude",
+  };
+  return nameMap[connectorId] || connectorId.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/**
+ * Send a proactive automation suggestion email when a user connects an integration.
+ * Returns { sent: bool, threadId?, inboxId?, automations? }
+ */
+async function sendIntegrationSuggestionEmail({ connectorId, userEmail, companyId, userName }) {
+  const apiKey = process.env.AGENTMAIL_API_KEY || "";
+  if (!apiKey || !userEmail) return { sent: false, reason: "missing apiKey or email" };
+
+  const automations = CONNECTOR_AUTOMATIONS[connectorId];
+  if (!automations?.length) return { sent: false, reason: "no automations defined for connector" };
+
+  const integrationName = connectorDisplayName(connectorId);
+  const greeting = userName ? `Hey ${userName.split(" ")[0]},` : "Hey,";
+
+  const bulletLines = automations.map((a, i) => `${i + 1}. **${a.name}** — ${a.scheduleHuman}\n   ${a.description}`).join("\n\n");
+  const bulletLinesHtml = automations.map((a, i) =>
+    `<tr>
+      <td style="padding:8px 12px;font-size:15px;font-weight:600;color:#e2e8f0;white-space:nowrap;vertical-align:top;">${i + 1}.</td>
+      <td style="padding:8px 12px;vertical-align:top;">
+        <div style="font-size:15px;font-weight:600;color:#e2e8f0;">${a.name}</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:2px;">${a.scheduleHuman} · ${a.description}</div>
+      </td>
+    </tr>`
+  ).join("\n");
+
+  const text = `${greeting}
+
+Your ${integrationName} connection is live. Here's what I can run automatically for you:
+
+${bulletLines}
+
+Reply with the numbers you'd like activated — e.g. "1 2 3" or "all" — and I'll set them up immediately and send you a confirmation with the full schedule.
+
+— Marqq`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Marqq · ${integrationName} automations</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <div style="max-width:560px;margin:40px auto;background:#1e293b;border-radius:12px;overflow:hidden;">
+    <div style="padding:28px 32px;border-bottom:1px solid #334155;">
+      <div style="font-size:13px;font-weight:600;color:#6366f1;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px;">Marqq</div>
+      <h1 style="margin:0;font-size:20px;font-weight:700;color:#f1f5f9;">${integrationName} is connected</h1>
+    </div>
+    <div style="padding:28px 32px;">
+      <p style="margin:0 0 20px;font-size:15px;color:#94a3b8;">${greeting}</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#cbd5e1;">Your <strong style="color:#f1f5f9;">${integrationName}</strong> connection is live. Here's what I can run automatically for you:</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+        ${bulletLinesHtml}
+      </table>
+      <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px 20px;margin-bottom:24px;">
+        <p style="margin:0;font-size:14px;color:#94a3b8;">Reply with the numbers you'd like activated — e.g. <strong style="color:#e2e8f0;">"1 2 3"</strong> or <strong style="color:#e2e8f0;">"all"</strong> — and I'll set them up immediately.</p>
+      </div>
+      <p style="margin:0;font-size:13px;color:#64748b;">— Marqq</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    const inbox = await ensureAgentMailInbox(apiKey, companyId || "default");
+    const result = await agentMailFetch(
+      `/inboxes/${encodeURIComponent(inbox.inbox_id)}/messages/send`,
+      apiKey,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          to: [userEmail],
+          subject: `Your ${integrationName} is connected — here's what Marqq can do automatically`,
+          text,
+          html,
+        }),
+      }
+    );
+
+    // Persist pending suggestions keyed by inboxId+threadId so we can match the reply
+    const suggestions = await loadPendingSuggestions();
+    const threadId = result?.thread_id || result?.message_id || `${inbox.inbox_id}-${Date.now()}`;
+    const key = `${inbox.inbox_id}/${threadId}`;
+    suggestions[key] = {
+      connectorId,
+      companyId: companyId || "default",
+      userEmail,
+      automations: automations.map((a, i) => ({ ...a, id: i + 1 })),
+      inboxId: inbox.inbox_id,
+      threadId,
+      sentAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+    // Also index by inboxId alone in case AgentMail gives us just the inbox on reply
+    suggestions[`inbox/${inbox.inbox_id}`] = suggestions[key];
+    await savePendingSuggestions(suggestions);
+
+    console.log(`[integration_email] sent suggestion email to ${userEmail} for ${connectorId}, thread=${threadId}`);
+    return { sent: true, threadId, inboxId: inbox.inbox_id, automations };
+  } catch (err) {
+    console.error("[integration_email] failed to send suggestion email:", err.message);
+    return { sent: false, error: err.message };
+  }
+}
+
+/**
+ * Send a confirmation email after user activates automations.
+ */
+async function sendAutomationConfirmationEmail({ apiKey, userEmail, companyId, threadId, inboxId, selectedAutomations }) {
+  const tableRows = selectedAutomations.map(a =>
+    `<tr>
+      <td style="padding:8px 12px;font-size:14px;color:#e2e8f0;border-bottom:1px solid #334155;">${a.name}</td>
+      <td style="padding:8px 12px;font-size:14px;color:#94a3b8;border-bottom:1px solid #334155;">${a.scheduleHuman}</td>
+      <td style="padding:8px 12px;font-size:14px;color:#22c55e;border-bottom:1px solid #334155;white-space:nowrap;">✓ Scheduled</td>
+    </tr>`
+  ).join("\n");
+
+  const tableRowsText = selectedAutomations.map(a => `• ${a.name} — ${a.scheduleHuman}`).join("\n");
+
+  const text = `Done. Here's what I've scheduled:
+
+${tableRowsText}
+
+Results will be emailed automatically on the schedule above. You can adjust or pause any automation from your Marqq dashboard.
+
+— Marqq`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Marqq · Automations scheduled</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <div style="max-width:560px;margin:40px auto;background:#1e293b;border-radius:12px;overflow:hidden;">
+    <div style="padding:28px 32px;border-bottom:1px solid #334155;">
+      <div style="font-size:13px;font-weight:600;color:#22c55e;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px;">✓ Scheduled</div>
+      <h1 style="margin:0;font-size:20px;font-weight:700;color:#f1f5f9;">Your automations are live</h1>
+    </div>
+    <div style="padding:28px 32px;">
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+        <thead>
+          <tr style="border-bottom:1px solid #334155;">
+            <th style="padding:8px 12px;text-align:left;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Automation</th>
+            <th style="padding:8px 12px;text-align:left;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Schedule</th>
+            <th style="padding:8px 12px;text-align:left;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+      <p style="margin:0 0 8px;font-size:14px;color:#94a3b8;">Results will be emailed automatically on the schedule above.</p>
+      <p style="margin:0;font-size:13px;color:#64748b;">— Marqq</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    // Reply in the same thread if we have threadId
+    const endpoint = threadId
+      ? `/inboxes/${encodeURIComponent(inboxId)}/messages/send`
+      : `/inboxes/${encodeURIComponent(inboxId)}/messages/send`;
+
+    const body = {
+      to: [userEmail],
+      subject: "Your Marqq automations are scheduled",
+      text,
+      html,
+    };
+    if (threadId) body.thread_id = threadId;
+
+    await agentMailFetch(endpoint, apiKey, { method: "POST", body: JSON.stringify(body) });
+    console.log(`[integration_email] sent confirmation to ${userEmail}`);
+    return { sent: true };
+  } catch (err) {
+    console.warn("[integration_email] failed to send confirmation email:", err.message);
+    return { sent: false, error: err.message };
   }
 }
 
@@ -9140,6 +9513,35 @@ app.post("/api/webhooks/agentmail/inbound", express.json(), async (req, res) => 
     console.error("[agentmail_inbound] webhook error:", err);
     res.status(500).json({ error: String(err) });
   }
+});
+
+// ─── POST /api/agents/integration-connected ───────────────────────────────────
+// Called by the frontend when a Composio OAuth connection succeeds.
+// Automatically sends a proactive automation suggestion email to the user.
+// Body: { connectorId: string, workspaceId: string, userEmail: string, userName?: string }
+
+app.post("/api/agents/integration-connected", express.json(), async (req, res) => {
+  const { connectorId, workspaceId, userEmail, userName } = req.body || {};
+  if (!connectorId) {
+    return res.status(400).json({ error: "connectorId is required" });
+  }
+
+  console.log(`[integration_connected] connector=${connectorId} workspace=${workspaceId} email=${userEmail}`);
+
+  // Fire-and-forget — don't block the response on email delivery
+  sendIntegrationSuggestionEmail({
+    connectorId,
+    userEmail,
+    companyId: workspaceId || "default",
+    userName,
+  }).catch(err => console.warn("[integration_connected] suggestion email failed:", err.message));
+
+  res.json({
+    ok: true,
+    connectorId,
+    hasSuggestions: Boolean(CONNECTOR_AUTOMATIONS[connectorId]?.length),
+    suggestionCount: CONNECTOR_AUTOMATIONS[connectorId]?.length ?? 0,
+  });
 });
 
 export { app, startBackendRuntime, stopBackendRuntime };

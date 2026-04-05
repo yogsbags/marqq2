@@ -12,6 +12,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   ANALYZE_GOAL_IDS,
   CONNECTOR_LABEL_TO_ID,
@@ -154,6 +155,7 @@ function getMkgValue(mkg: MkgRecord | null, key: string) {
 
 export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
   const { activeWorkspace } = useWorkspace()
+  const { user } = useAuth()
   const companyId = activeWorkspace?.id ?? null
   const websiteUrl = activeWorkspace?.website_url?.trim() ?? ''
 
@@ -1049,6 +1051,7 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
     const handler = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return
       if (e.data?.type !== 'composio_oauth_success') return
+      const connectorId = e.data?.connectorId as string | undefined
       setConnectorActionId(null)
       if (!companyId) return
       fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
@@ -1056,6 +1059,19 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
         .then((json) => setConnectors(Array.isArray(json?.connectors) ? json.connectors : []))
         .catch(() => {})
       toast.success('Account connected successfully')
+      // Trigger Helena-style proactive automation suggestion email
+      if (connectorId && user?.email) {
+        fetch('/api/agents/integration-connected', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            connectorId,
+            workspaceId: companyId,
+            userEmail: user.email,
+            userName: user.name,
+          }),
+        }).catch(() => {})
+      }
     }
 
     window.addEventListener('message', handler)
