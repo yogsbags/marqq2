@@ -349,13 +349,7 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
   // Special handling for Performance Scorecard module
   if (module.id === 'performance-scorecard') {
     return (
-      <div className="space-y-6">
-        <PerformanceScorecard
-          initialQuestion={goalPreset.question ?? undefined}
-          initialTimeframe={goalPreset.timeframe ?? undefined}
-          initialConnectors={goalPreset.connectors ? goalPreset.connectors.split(',').filter(Boolean) : undefined}
-        />
-      </div>
+      <PerformanceScorecard onModuleSelect={onModuleSelect} />
     );
   }
 
