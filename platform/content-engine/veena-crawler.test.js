@@ -159,7 +159,7 @@ test("crawlCompanyForMKG falls back to llama and returns normalized 12-field out
 
   const result = await crawlCompanyForMKG("https://example.com");
 
-  assert.equal(callCount, 2);
+  assert.equal(callCount, 3); // Pass 1 compound (throws) + Pass 2 compound (throws) + llama fallback
   assert.equal(Object.keys(result).length, 12);
   assert.deepEqual(Object.keys(result), TOP_LEVEL_FIELDS);
   assert.equal(result.positioning.confidence, 0.8);
