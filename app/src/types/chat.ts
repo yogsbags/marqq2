@@ -14,6 +14,9 @@ export interface Message {
   agentName?: string;
   agentRole?: string;
   agentId?: string;
+  // Live tool-call status line (Helena-style: "Working on google_analytics…")
+  // Cleared when the agent run completes; rendered as a faint status indicator.
+  toolStatus?: string;
 }
 
 export interface Conversation {

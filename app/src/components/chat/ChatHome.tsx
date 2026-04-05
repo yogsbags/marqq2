@@ -755,8 +755,16 @@ function SubagentMessageCard({ message, onModuleSelect }: { message: Message; on
           {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
+      {/* Tool-call status (Helena-style: "Working on google_analytics…") */}
+      {message.toolStatus && !message.content && (
+        <p className="text-xs text-muted-foreground italic mb-1 animate-pulse">{message.toolStatus}</p>
+      )}
       {/* Content */}
       <p className="text-sm whitespace-pre-wrap leading-6">{plain}</p>
+      {/* Inline tool status shown alongside partial content while streaming */}
+      {message.toolStatus && message.content && (
+        <p className="text-xs text-muted-foreground italic mt-1 animate-pulse">{message.toolStatus}</p>
+      )}
       {artifacts.map(name => (
         <FileArtifactCard
           key={name}
@@ -1210,6 +1218,22 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
       const dec = new TextDecoder();
       let accumulated = '';
 
+      // Create a streaming placeholder card (Helena-style: live tool-status updates)
+      const [agentDisplayName, agentRole] = agentEntry.label.split(' · ');
+      const slashPlaceholderId = `slash-${agentEntry.name}-${Date.now()}`;
+      const slashPlaceholder: Message = {
+        id: slashPlaceholderId,
+        content: '',
+        sender: 'ai',
+        timestamp: new Date(),
+        agentName: agentDisplayName?.trim() || agentEntry.label,
+        agentRole: agentRole?.trim(),
+        agentId: agentEntry.name,
+        toolStatus: `Working on ${agentEntry.name}…`,
+      };
+      setMessages(prev => [...prev, slashPlaceholder]);
+      setIsTyping(false);
+
       if (reader) {
         outer: while (true) {
           const { done, value } = await reader.read();
@@ -1221,7 +1245,19 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
             try {
               const parsed = JSON.parse(payload);
               if (parsed.contract || parsed.contractError || parsed.details) continue;
-              if (parsed.text) accumulated += parsed.text;
+              if (parsed.tool_call) {
+                const toolName = parsed.tool_call?.function?.name || parsed.tool_call?.name || '';
+                const label = toolName.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+                setMessages(prev => prev.map(m =>
+                  m.id === slashPlaceholderId ? { ...m, toolStatus: `Working on ${label}…` } : m,
+                ));
+              }
+              if (parsed.text) {
+                accumulated += parsed.text;
+                setMessages(prev => prev.map(m =>
+                  m.id === slashPlaceholderId ? { ...m, content: accumulated, toolStatus: undefined } : m,
+                ));
+              }
               if (parsed.error) throw new Error(parsed.error);
             } catch { /* ignore parse errors on partial chunks */ }
           }
@@ -1229,18 +1265,18 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
       }
 
       const visibleResponse = sanitizeAgentStreamText(accumulated);
-      const [agentDisplayName, agentRole] = agentEntry.label.split(' · ');
 
       const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: slashPlaceholderId,
         content: visibleResponse || 'Task completed. I have the result ready, but the agent did not return a user-facing summary.',
         sender: 'ai',
         timestamp: new Date(),
         agentName: agentDisplayName?.trim() || agentEntry.label,
         agentRole: agentRole?.trim(),
         agentId: agentEntry.name,
+        toolStatus: undefined,
       };
-      onMessagesChange(prev => [...prev, aiMessage]);
+      onMessagesChange(prev => prev.map(m => m.id === slashPlaceholderId ? aiMessage : m));
       toast.success(`${agentEntry.label} responded`);
     } catch (err) {
       const [agentDisplayName, agentRole] = agentEntry.label.split(' · ');
@@ -1304,7 +1340,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         const dec = new TextDecoder();
         let accumulated = '';
 
-        // Create streaming placeholder card
+        // Create streaming placeholder card (with Helena-style tool-status indicator)
         const placeholderId = `seq-${agent.name}-${Date.now()}`;
         const placeholder: Message = {
           id: placeholderId,
@@ -1314,6 +1350,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
           agentName: agent.displayName,
           agentRole: agent.role,
           agentId: agent.name,
+          toolStatus: `Working on ${agent.name}…`,
         };
         // Add placeholder and hide typing indicator once the card is live
         setMessages(prev => [...prev, placeholder]);
@@ -1331,10 +1368,17 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
               try {
                 const parsed = JSON.parse(payload);
                 if (parsed.contract || parsed.contractError || parsed.details) continue;
+                if (parsed.tool_call) {
+                  const toolName = parsed.tool_call?.function?.name || parsed.tool_call?.name || '';
+                  const label = toolName.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+                  setMessages(prev => prev.map(m =>
+                    m.id === placeholderId ? { ...m, toolStatus: `Working on ${label}…` } : m,
+                  ));
+                }
                 if (parsed.text) {
                   accumulated += parsed.text;
                   setMessages(prev => prev.map(m =>
-                    m.id === placeholderId ? { ...m, content: accumulated } : m,
+                    m.id === placeholderId ? { ...m, content: accumulated, toolStatus: undefined } : m,
                   ));
                 }
                 if (parsed.error) throw new Error(parsed.error);
@@ -1344,9 +1388,9 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         }
 
         const finalContent = sanitizeAgentStreamText(accumulated) || 'Analysis complete.';
-        // Persist the final content via onMessagesChange so it's saved
+        // Persist the final content via onMessagesChange so it's saved (clear toolStatus)
         onMessagesChange(prev => prev.map(m =>
-          m.id === placeholderId ? { ...m, content: finalContent } : m,
+          m.id === placeholderId ? { ...m, content: finalContent, toolStatus: undefined } : m,
         ));
       } catch {
         setIsTyping(false);
