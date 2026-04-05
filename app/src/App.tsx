@@ -1,5 +1,8 @@
 import { AgentDashboard } from '@/components/agents/AgentDashboard';
 import { ChatHome } from '@/components/chat/ChatHome';
+import { ChatSessionsPage } from '@/components/chat/ChatSessionsPage';
+import { ScheduledJobsPage } from '@/components/tasks/ScheduledJobsPage';
+import { ProfilePage } from '@/components/profile/ProfilePage';
 import { IntegrationsHub } from '@/components/integrations/IntegrationsHub';
 import { HomePostOnboardingTour } from '@/components/tour/HomePostOnboardingTour';
 import { InviteAccept } from '@/components/auth/InviteAccept';
@@ -209,6 +212,18 @@ function Dashboard() {
     if (selectedModule === 'library') return <LibraryView />;
     if (selectedModule === 'workspace-files') return <LibraryView />;
     if (selectedModule === 'calendar') return <MarketingCalendarPage onModuleSelect={handleModuleSelect} />;
+    if (selectedModule === 'scheduled-jobs') return <ScheduledJobsPage />;
+    if (selectedModule === 'profile') return <ProfilePage />;
+    if (selectedModule === 'chat-sessions') return (
+      <ChatSessionsPage
+        conversations={conversations}
+        onConversationSelect={(id) => {
+          setActiveConversationId(id);
+          setSelectedModule(null);
+        }}
+        onConversationsChange={handleConversationsChange}
+      />
+    );
 
     if (currentModule) {
       return (

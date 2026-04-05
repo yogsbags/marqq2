@@ -27,6 +27,9 @@ const CHANNEL_NAMES: Record<string, { name: string; description: string }> = {
   'channel-health': { name: 'daily-brief', description: 'Daily marketing intelligence brief' },
   'calendar': { name: 'calendar', description: 'Content schedule across all channels' },
   'workspace-files': { name: 'files', description: 'Files created by your AI team' },
+  'scheduled-jobs': { name: 'tasks', description: 'Tasks that run automatically on a schedule' },
+  'chat-sessions': { name: 'chat-history', description: 'View and manage your conversation history' },
+  'profile': { name: 'profile', description: 'Your account and brand settings' },
 };
 
 export function MainLayout({
@@ -46,7 +49,9 @@ export function MainLayout({
   // Chat/channel view = home, main (+ channel pages use ChannelHeader)
   const isChatView = !selectedModule || selectedModule === 'home' || selectedModule === 'main'
     || selectedModule === 'performance-scorecard' || selectedModule === 'channel-health'
-    || selectedModule === 'calendar' || selectedModule === 'workspace-files';
+    || selectedModule === 'calendar' || selectedModule === 'workspace-files'
+    || selectedModule === 'scheduled-jobs' || selectedModule === 'chat-sessions'
+    || selectedModule === 'profile';
 
   const channelInfo = CHANNEL_NAMES[selectedModule ?? 'home'] ?? { name: selectedModule ?? 'main', description: '' };
 

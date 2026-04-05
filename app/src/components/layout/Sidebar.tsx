@@ -33,6 +33,9 @@ import {
   BookOpen,
   Calendar,
   FolderOpen,
+  CalendarClock,
+  UserCircle,
+  History,
 } from 'lucide-react';
 import type { Conversation } from '@/types/chat';
 
@@ -121,6 +124,9 @@ function sectionContaining(moduleId: string | null): string | null {
 const workspaceItems: NavItem[] = [
   { id: 'integrations',    title: 'Integrations',    icon: Puzzle },
   { id: 'workspace-files', title: 'Files',           icon: FolderOpen },
+  { id: 'scheduled-jobs',  title: 'Tasks',           icon: CalendarClock },
+  { id: 'chat-sessions',   title: 'Chat History',    icon: History },
+  { id: 'profile',         title: 'Your Profile',    icon: UserCircle },
   { id: 'library',         title: 'Library',         icon: BookOpen },
   { id: 'settings',        title: 'Settings',        icon: Settings },
   { id: 'help',            title: 'Help',            icon: HelpCircle },
@@ -333,9 +339,9 @@ export function Sidebar({
                   </span>
                 </button>
               ))}
-              {conversations.length > 2 && (
+              {conversations.length > 0 && (
                 <button
-                  onClick={() => onModuleSelect(null)}
+                  onClick={() => onModuleSelect('chat-sessions')}
                   className="w-full text-left px-2 py-1 text-[10px] text-white/30 hover:text-white/55 transition-colors"
                 >
                   See all conversations
@@ -484,14 +490,14 @@ export function Sidebar({
       )}>
         {collapsed ? (
           <button
-            onClick={() => onModuleSelect('settings')}
+            onClick={() => onModuleSelect('profile')}
             className="h-7 w-7 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[10px] font-bold"
           >
             {(user?.email?.[0] ?? 'M').toUpperCase()}
           </button>
         ) : (
           <button
-            onClick={() => onModuleSelect('settings')}
+            onClick={() => onModuleSelect('profile')}
             className="w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-white/[0.06] transition-colors text-left"
           >
             <div className="h-7 w-7 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
