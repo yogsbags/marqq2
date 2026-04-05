@@ -74,17 +74,48 @@ function generateName(firstUserMessage: string): string {
 const SLASH_COMMANDS = [
   { command: '/agents', description: 'Open the AI team', action: 'agents' },
   { command: '/workflows', description: 'Open workflow builder', action: 'workflows' },
-  { command: '/lead-intelligence', description: 'Find and score leads, build your ICP', action: 'lead-intelligence' },
-  { command: '/voice-bot', description: 'Run outbound voice campaigns', action: 'voice-bot' },
-  { command: '/video-bot', description: 'Create AI video and avatar content', action: 'video-bot' },
-  { command: '/user-engagement', description: 'Map customer journeys and lifecycle flows', action: 'user-engagement' },
-  { command: '/budget-optimization', description: 'Analyse and reallocate campaign spend', action: 'budget-optimization' },
-  { command: '/performance-scorecard', description: 'Check performance across channels', action: 'performance-scorecard' },
-  { command: '/ai-content', description: 'Create content — blog, email, social, ads', action: 'ai-content' },
-  { command: '/customer-view', description: 'See a unified view of your customers', action: 'customer-view' },
-  { command: '/seo-llmo', description: 'Optimise for search and AI answer engines', action: 'seo-llmo' },
-  { command: '/company-intel', description: 'Build strategy, ICPs, competitive snapshot', action: 'company-intel' },
-  // Specialist agent shortcuts
+  // ── Core automation modules ─────────────────────────────────────────────────
+  { command: '/lead-intelligence',    description: 'Find and score leads, build your ICP',           action: 'lead-intelligence'    },
+  { command: '/voice-bot',            description: 'Run outbound voice campaigns',                    action: 'voice-bot'            },
+  { command: '/video-bot',            description: 'Create AI video and avatar content',              action: 'video-bot'            },
+  { command: '/social-media',         description: 'Manage social media campaigns across platforms',  action: 'social-media'         },
+  { command: '/user-engagement',      description: 'Map customer journeys and lifecycle flows',       action: 'user-engagement'      },
+  { command: '/budget-optimization',  description: 'Analyse and reallocate campaign spend',           action: 'budget-optimization'  },
+  { command: '/performance-scorecard',description: 'Check performance across channels',               action: 'performance-scorecard'},
+  { command: '/ai-content',           description: 'Create content — blog, email, social, ads',       action: 'ai-content'           },
+  { command: '/customer-view',        description: 'See a unified view of your customers',            action: 'customer-view'        },
+  { command: '/seo-llmo',             description: 'Optimise for search and AI answer engines',       action: 'seo-llmo'             },
+  { command: '/company-intel',        description: 'Build strategy, ICPs, competitive snapshot',      action: 'company-intel'        },
+  // ── Intelligence & research ─────────────────────────────────────────────────
+  { command: '/industry-intel',       description: 'Track industry trends and market signals',        action: 'industry-intelligence'},
+  { command: '/market-signals',       description: 'Live market signals — news, intent, sentiment',   action: 'market-signals'       },
+  { command: '/audience-profiles',    description: 'Build and refine detailed audience personas',     action: 'audience-profiles'    },
+  // ── Strategy & positioning ──────────────────────────────────────────────────
+  { command: '/positioning',          description: 'Define your positioning and competitive angle',   action: 'positioning'          },
+  { command: '/offer-design',         description: 'Design and price your core offer',                action: 'offer-design'         },
+  { command: '/messaging',            description: 'Craft brand messaging and copy frameworks',       action: 'messaging'            },
+  { command: '/launch-strategy',      description: 'Build a go-to-market launch plan',                action: 'launch-strategy'      },
+  { command: '/setup',                description: 'Set up your company context for all agents',      action: 'setup'                },
+  // ── Campaigns & channels ────────────────────────────────────────────────────
+  { command: '/social-calendar',      description: 'Plan and schedule your content calendar',         action: 'social-calendar'      },
+  { command: '/channel-health',       description: 'Daily marketing intelligence brief',              action: 'channel-health'       },
+  { command: '/ad-creative',          description: 'Generate and test ad creatives',                  action: 'ad-creative'          },
+  { command: '/paid-ads',             description: 'Manage paid ad strategy and creative',            action: 'paid-ads'             },
+  { command: '/email-sequence',       description: 'Build automated email nurture sequences',         action: 'email-sequence'       },
+  { command: '/lead-outreach',        description: 'Run personalised lead outreach campaigns',        action: 'lead-outreach'        },
+  { command: '/landing-pages',        description: 'Create and optimise landing pages',               action: 'landing-pages'        },
+  { command: '/referral-program',     description: 'Design a referral and word-of-mouth program',     action: 'referral-program'     },
+  // ── Growth & optimisation ───────────────────────────────────────────────────
+  { command: '/action-plan',          description: 'Turn a goal into a step-by-step action plan',     action: 'action-plan'          },
+  { command: '/cro-audit',            description: 'Audit your funnel for conversion leaks',          action: 'cro-audit'            },
+  { command: '/ab-test',              description: 'Design and analyse A/B tests',                    action: 'ab-test'              },
+  { command: '/cro',                  description: 'Continuous CRO — offers, copy, flow',             action: 'cro'                  },
+  { command: '/marketing-audit',      description: 'Full audit of your marketing health',             action: 'marketing-audit'      },
+  { command: '/revenue-ops',          description: 'Revenue operations and pipeline analysis',        action: 'revenue-ops'          },
+  { command: '/lead-magnets',         description: 'Create high-converting lead magnets',             action: 'lead-magnets'         },
+  { command: '/sales-enablement',     description: 'Build sales decks, battle cards, and scripts',    action: 'sales-enablement'     },
+  { command: '/churn-prevention',     description: 'Identify at-risk accounts and reduce churn',      action: 'churn-prevention'     },
+  // ── Specialist agent shortcuts ──────────────────────────────────────────────
   { command: '/seo',         description: 'Get today\'s ranking update from Maya',          action: 'agent-maya'  },
   { command: '/leads',       description: 'Get today\'s lead insights from Arjun',          action: 'agent-arjun' },
   { command: '/content',     description: 'Get content ideas this week from Riya',          action: 'agent-riya'  },
@@ -141,16 +172,47 @@ const EMPLOYEE_PROFILES: Record<EmployeeName, { title: string }> = {
 const MODULE_NAV_RESPONSES: Record<string, string> = {
   agents: `I've opened the AI team for you. Assign work there, or tell me what you want done and I'll route it to the right person.`,
   workflows: `I've opened the workflow builder. Use it to chain agents or build a multi-step automation. Let me know if you want help designing it.`,
-  'lead-intelligence': `I've opened Lead Intelligence. Add your data or question there. Tell me what you're trying to find and I can help shape it first.`,
-  'voice-bot': `I've opened Voice Campaigns. Set the brief there, or keep talking here if you want help figuring out the campaign first.`,
-  'video-bot': `I've opened the video workspace. Build the workflow there, or tell me more about what you want to create.`,
-  'user-engagement': `I've opened User Engagement. Configure the flow there, or let me know the goal and I'll help scope it.`,
-  'budget-optimization': `I've opened Budget Optimization. Add your question, timeframe, and campaign data there to run the analysis.`,
+  // Core automation
+  'lead-intelligence':     `I've opened Lead Intelligence. Add your data or question there. Tell me what you're trying to find and I can help shape it first.`,
+  'voice-bot':             `I've opened Voice Campaigns. Set the brief there, or keep talking here if you want help figuring out the campaign first.`,
+  'video-bot':             `I've opened the video workspace. Build the workflow there, or tell me more about what you want to create.`,
+  'social-media':          `I've opened Social Media Campaigns. Configure your campaign there, or describe your goals and I'll help you plan it.`,
+  'user-engagement':       `I've opened User Engagement. Configure the flow there, or let me know the goal and I'll help scope it.`,
+  'budget-optimization':   `I've opened Budget Optimization. Add your question, timeframe, and campaign data there to run the analysis.`,
   'performance-scorecard': `I've opened the Performance Scorecard. Use it to understand what's happening and decide where to act next.`,
-  'ai-content': `I've opened the content workspace. Choose your format and brief there, or keep chatting and I'll help you shape it first.`,
-  'customer-view': `I've opened the Customer View. Explore context and signals there, or tell me what you're looking for.`,
-  'seo-llmo': `I've opened SEO / LLMO. Use it for structured work, or describe what you want to improve and we can scope it together.`,
-  'company-intel': `I've opened Company Intelligence. Use it to build a strategy brief, competitive snapshot, or company view.`,
+  'ai-content':            `I've opened the content workspace. Choose your format and brief there, or keep chatting and I'll help you shape it first.`,
+  'customer-view':         `I've opened the Customer View. Explore context and signals there, or tell me what you're looking for.`,
+  'seo-llmo':              `I've opened SEO / LLMO. Use it for structured work, or describe what you want to improve and we can scope it together.`,
+  'company-intel':         `I've opened Company Intelligence. Use it to build a strategy brief, competitive snapshot, or company view.`,
+  // Intelligence & research
+  'industry-intelligence': `I've opened Industry Intelligence. Use it to track sector trends and signals relevant to your market.`,
+  'market-signals':        `I've opened Market Signals. Live intent, news, and sentiment data is being pulled for your market.`,
+  'audience-profiles':     `I've opened Audience Profiles. Build or refine your personas there, or describe your ICP and I'll help structure it.`,
+  // Strategy & positioning
+  'positioning':           `I've opened Positioning & Strategy. Work through your competitive angle there, or chat here to think it through first.`,
+  'offer-design':          `I've opened Offer Design. Define your core offer there — pricing, value props, guarantees.`,
+  'messaging':             `I've opened Messaging & Copy. Build your copy frameworks there, or share your draft and I'll give feedback.`,
+  'launch-strategy':       `I've opened Launch Strategy. Build your GTM plan there, or tell me what you're launching and we can scope it together.`,
+  'setup':                 `I've opened Company Setup. Fill in your brand context there — agents use this to personalise every output.`,
+  // Campaigns & channels
+  'social-calendar':       `I've opened the Social Calendar. Plan your content schedule there, or tell me how many posts you need per week.`,
+  'channel-health':        `I've opened Channel Health. Your daily marketing brief is loading — review the cross-channel overview.`,
+  'ad-creative':           `I've opened Ad Creative. Generate and test new ad variants there, or share your current ads and I'll analyse them.`,
+  'paid-ads':              `I've opened Paid Ads. Define your budget, audience, and creative brief there.`,
+  'email-sequence':        `I've opened Email Sequences. Build your nurture flow there, or describe your goal and I'll draft the sequence structure.`,
+  'lead-outreach':         `I've opened Lead Outreach. Upload your list and configure the sequence there.`,
+  'landing-pages':         `I've opened Landing Pages. Build or audit your landing page there, or share the URL for a CRO review.`,
+  'referral-program':      `I've opened Referral Program. Design your program mechanics there — reward structure, sharing flows, tracking.`,
+  // Growth & optimisation
+  'action-plan':           `I've opened Goal → Action Plan. Enter your goal there and I'll break it into a prioritised action plan.`,
+  'cro-audit':             `I've opened CRO Audit. Enter your funnel URL or describe your flow and I'll find the biggest conversion leaks.`,
+  'ab-test':               `I've opened A/B Tests. Define your hypothesis there, or tell me what you want to test and I'll help structure it.`,
+  'cro':                   `I've opened CRO. This is your continuous optimisation workspace — offers, copy, flows, and friction analysis.`,
+  'marketing-audit':       `I've opened Marketing Audit. I'll run a structured review across your channels, spend, and pipeline.`,
+  'revenue-ops':           `I've opened Revenue Operations. Pipeline, attribution, and ops analysis is ready — describe what you want to diagnose.`,
+  'lead-magnets':          `I've opened Lead Magnets. Create a high-converting lead magnet there, or describe your audience and I'll suggest formats.`,
+  'sales-enablement':      `I've opened Sales Enablement. Build battle cards, decks, and sales scripts there.`,
+  'churn-prevention':      `I've opened Churn Prevention. I'll help you identify at-risk accounts and build a retention playbook.`,
 };
 
 
@@ -1009,17 +1071,49 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     setIsTyping(true);
 
     if (onModuleSelect && cmd.action !== 'help') {
+      // Map slash-command action → dashboardData module id
       const moduleMap: Record<string, string> = {
-        'lead-intelligence': 'lead-intelligence',
-        'voice-bot': 'ai-voice-bot',
-        'video-bot': 'ai-video-bot',
-        'user-engagement': 'user-engagement',
-        'budget-optimization': 'budget-optimization',
+        // Core automation
+        'lead-intelligence':     'lead-intelligence',
+        'voice-bot':             'ai-voice-bot',
+        'video-bot':             'ai-video-bot',
+        'social-media':          'social-media',
+        'user-engagement':       'user-engagement',
+        'budget-optimization':   'budget-optimization',
         'performance-scorecard': 'performance-scorecard',
-        'ai-content': 'ai-content',
-        'customer-view': 'unified-customer-view',
-        'seo-llmo': 'seo-llmo',
-        'company-intel': 'company-intelligence',
+        'ai-content':            'ai-content',
+        'customer-view':         'unified-customer-view',
+        'seo-llmo':              'seo-llmo',
+        'company-intel':         'company-intelligence',
+        // Intelligence & research
+        'industry-intelligence': 'industry-intelligence',
+        'market-signals':        'market-signals',
+        'audience-profiles':     'audience-profiles',
+        // Strategy & positioning
+        'positioning':           'positioning',
+        'offer-design':          'offer-design',
+        'messaging':             'messaging',
+        'launch-strategy':       'launch-strategy',
+        'setup':                 'setup',
+        // Campaigns & channels
+        'social-calendar':       'social-calendar',
+        'channel-health':        'channel-health',
+        'ad-creative':           'ad-creative',
+        'paid-ads':              'paid-ads',
+        'email-sequence':        'email-sequence',
+        'lead-outreach':         'lead-outreach',
+        'landing-pages':         'landing-pages',
+        'referral-program':      'referral-program',
+        // Growth & optimisation
+        'action-plan':           'action-plan',
+        'cro-audit':             'cro-audit',
+        'ab-test':               'ab-test',
+        'cro':                   'cro',
+        'marketing-audit':       'marketing-audit',
+        'revenue-ops':           'revenue-ops',
+        'lead-magnets':          'lead-magnets',
+        'sales-enablement':      'sales-enablement',
+        'churn-prevention':      'churn-prevention',
       };
       const moduleId = moduleMap[cmd.action];
       if (moduleId) {
@@ -1036,47 +1130,16 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
       let responseContent = '';
 
       switch (cmd.action) {
-        case 'agents':
-          responseContent = MODULE_NAV_RESPONSES.agents;
-          break;
-        case 'workflows':
-          responseContent = MODULE_NAV_RESPONSES.workflows;
-          break;
-        case 'lead-intelligence':
-          responseContent = MODULE_NAV_RESPONSES['lead-intelligence'];
-          break;
-        case 'voice-bot':
-          responseContent = MODULE_NAV_RESPONSES['voice-bot'];
-          break;
-        case 'video-bot':
-          responseContent = MODULE_NAV_RESPONSES['video-bot'];
-          break;
-        case 'user-engagement':
-          responseContent = MODULE_NAV_RESPONSES['user-engagement'];
-          break;
-        case 'budget-optimization':
-          responseContent = MODULE_NAV_RESPONSES['budget-optimization'];
-          break;
-        case 'performance-scorecard':
-          responseContent = MODULE_NAV_RESPONSES['performance-scorecard'];
-          break;
-        case 'ai-content':
-          responseContent = MODULE_NAV_RESPONSES['ai-content'];
-          break;
-        case 'customer-view':
-          responseContent = MODULE_NAV_RESPONSES['customer-view'];
-          break;
-        case 'seo-llmo':
-          responseContent = MODULE_NAV_RESPONSES['seo-llmo'];
-          break;
-        case 'company-intel':
-          responseContent = MODULE_NAV_RESPONSES['company-intel'];
-          break;
         case 'help':
-          responseContent = `Just tell me what you're working on in plain language — I'll figure out where to take it.\n\nIf you want to jump straight to an area, type \`/\` and the name. Or use \`@name\` to send work directly to a specialist.\n\n**Specialists:** @maya (SEO), @arjun (leads), @riya (content), @zara (campaigns), @dev (performance), @priya (brand), @kiran (social), @sam (email)`;
+          responseContent = `Just tell me what you're working on in plain language — I'll figure out where to take it.\n\nType \`/\` to see all available workspaces, or use \`@name\` to send work directly to a specialist.\n\n**Specialists:** @maya (SEO), @arjun (leads), @riya (content), @zara (campaigns), @dev (performance), @priya (brand), @kiran (social), @sam (email)`;
           break;
-        default:
-          return false;
+        default: {
+          // All module-nav actions resolve via MODULE_NAV_RESPONSES lookup
+          const navKey = cmd.action === 'company-intel' ? 'company-intel' : cmd.action;
+          responseContent = MODULE_NAV_RESPONSES[navKey] ?? '';
+          if (!responseContent) return false;
+          break;
+        }
       }
 
       if (cmd.action !== 'help') {
