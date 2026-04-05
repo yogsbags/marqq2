@@ -211,6 +211,11 @@ export function getAgentConnectorApps(agentName) {
     .filter(Boolean)
 }
 
+/** Returns the permission level declared in the agent's mcp.json ("read" | "write" | undefined) */
+export function getAgentPermissions(agentName) {
+  return loadAgentMcpConfig(agentName).permissions || undefined
+}
+
 // ─── Rube Recipe execution ────────────────────────────────────────────────────
 // Recipes are pre-built multi-tool workflows defined in Rube (rube.app).
 // An agent can trigger a recipe by name instead of orchestrating individual tools.

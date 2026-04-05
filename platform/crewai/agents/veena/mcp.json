@@ -1,6 +1,6 @@
 {
-  "connectors": [],
+  "connectors": ["ga4", "gsc", "google_sheets"],
   "permissions": "read",
-  "description": "Veena crawls company websites to bootstrap the MKG. GA4 and Composio connectors will be added in Phase 4.",
+  "description": "Veena reads GA4 and Search Console when connected to ground chat answers in real site performance and search data. Google Sheets for workspace-level context.",
   "recipes": {}
 }

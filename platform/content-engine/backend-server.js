@@ -63,7 +63,7 @@ import { detectCompanyAnomalies } from "./anomaly-detector.js";
 import { canAccessModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers } from "./automations/registry.js";
-import { getConnectors, getAgentConnectors, getAgentConnectorApps, initiateConnection, disconnectConnector } from "./mcp-router.js";
+import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector } from "./mcp-router.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -422,23 +422,94 @@ async function ensureAgentMailInbox(apiKey, companyId) {
 
 async function sendReportViaAgentMail({ apiKey, companyId, query }) {
   const parsed = parseAgentMailReportRequest(query);
-  if (!parsed.recipients.length) {
-    throw new Error("No email recipients found in report delivery request");
+  if (!parsed.recipients.length && !parsed.slackTargets.length) {
+    throw new Error("No email recipients or Slack channels found in report delivery request");
   }
 
-  const inbox = await ensureAgentMailInbox(apiKey, companyId);
-  const bodies = buildAgentMailBodies(parsed);
-  const result = await agentMailFetch(`/inboxes/${encodeURIComponent(inbox.inbox_id)}/messages/send`, apiKey, {
-    method: "POST",
-    body: JSON.stringify({
-      to: parsed.recipients,
-      subject: parsed.subject,
-      text: bodies.text,
-      html: bodies.html,
-    }),
-  });
+  const results = {};
 
-  return { inbox, parsed, result };
+  // ── Email delivery ──────────────────────────────────────────────────────────
+  if (parsed.recipients.length) {
+    const inbox = await ensureAgentMailInbox(apiKey, companyId);
+    const bodies = buildAgentMailBodies(parsed);
+    const emailResult = await agentMailFetch(`/inboxes/${encodeURIComponent(inbox.inbox_id)}/messages/send`, apiKey, {
+      method: "POST",
+      body: JSON.stringify({
+        to: parsed.recipients,
+        subject: parsed.subject,
+        text: bodies.text,
+        html: bodies.html,
+      }),
+    });
+    results.inbox = inbox;
+    results.emailResult = emailResult;
+  }
+
+  // ── Slack delivery via Composio ─────────────────────────────────────────────
+  // Sends report summary to each #channel mentioned in the delivery request.
+  if (parsed.slackTargets.length) {
+    const { executeComposioAction } = await import("./mcp-router.js").catch(() => ({}));
+    const slackResults = [];
+    for (const channel of parsed.slackTargets) {
+      try {
+        const summary = parsed.executiveSummary || parsed.narrative || `${parsed.reportName} report is ready.`;
+        const text = [
+          `*${parsed.reportName} Report*`,
+          parsed.deliveryNote ? `_${parsed.deliveryNote}_` : "",
+          summary.slice(0, 2800),
+          parsed.docUrl ? `<${parsed.docUrl}|Open full report>` : "",
+        ].filter(Boolean).join("\n");
+
+        const slackRes = typeof executeComposioAction === "function"
+          ? await executeComposioAction("SLACK_SENDS_A_MESSAGE", {
+              channel,
+              text,
+              mrkdwn: true,
+            }, companyId || "default")
+          : { skipped: true, reason: "executeComposioAction unavailable" };
+
+        slackResults.push({ channel, result: slackRes });
+      } catch (slackErr) {
+        console.warn(`[report_delivery] Slack send to ${channel} failed:`, slackErr.message);
+        slackResults.push({ channel, error: slackErr.message });
+      }
+    }
+    results.slackResults = slackResults;
+  }
+
+  return { parsed, ...results };
+}
+
+// ─── AgentMail inbound webhook handler ────────────────────────────────────────
+// AgentMail calls this endpoint when a user replies to a report email.
+// We route the reply into the sam agent as a report_delivery task so it
+// can respond, thread, or trigger follow-up actions.
+async function handleAgentMailInbound(payload) {
+  const { from, subject, text, html, inbox_id, message_id, thread_id } = payload || {};
+  if (!from || !text) return { ignored: true, reason: "missing from/text" };
+
+  const companyId = inbox_id ? `agentmail-${inbox_id}` : "default";
+  const query = [
+    `Inbound email reply received.`,
+    `From: ${from}`,
+    `Subject: ${subject || "(no subject)"}`,
+    `Thread: ${thread_id || message_id || "unknown"}`,
+    `\nMessage:\n${String(text || html || "").slice(0, 3000)}`,
+    `\nPlease acknowledge, answer any questions, and decide if any follow-up actions or new tasks are needed.`,
+  ].join("\n");
+
+  try {
+    const { runAgent } = await import("./mcp-router.js").catch(() => ({}));
+    // Route to Sam (messaging agent) as a chain_trigger task
+    // Sam has gmail/outlook connectors and can send a threaded reply via Composio
+    const result = typeof runAgent === "function"
+      ? await runAgent({ name: "sam", task_type: "chain_trigger", query, company_id: companyId })
+      : { queued: true };
+    return { handled: true, companyId, result };
+  } catch (err) {
+    console.error("[agentmail_inbound] handler error:", err.message);
+    return { handled: false, error: err.message };
+  }
 }
 
 function sanitizeAgentRunFullText(name, taskType, fullText) {
@@ -612,17 +683,41 @@ function buildAgentRunGuardrails(name, taskType) {
   return `\n\n${lines.join("\n")}`;
 }
 
+// Tools blocked for ALL task types (destructive / formatting-only actions that LLMs misuse)
+const ALWAYS_BLOCKED_TOOLS = new Set([
+  "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN",
+  "GOOGLEDOCS_UPDATE_DOCUMENT_MARKDOWN",
+  "GOOGLEDOCS_UPDATE_DOCUMENT_SECTION_MARKDOWN",
+  "GOOGLESHEETS_CREATE_DOCUMENT_MARKDOWN",
+  "GOOGLESHEETS_UPDATE_DOCUMENT_MARKDOWN",
+]);
+
+// Tools only safe to call when task explicitly involves outbound messaging
+const SEND_TOOLS = new Set([
+  "GMAIL_SEND_EMAIL", "GMAIL_SEND_DRAFT",
+  "OUTLOOK_SEND_EMAIL", "OUTLOOK_SEND_DRAFT",
+  "SLACK_SENDS_A_MESSAGE", "SLACK_SEND_MESSAGE",
+  "WHATSAPP_SEND_MESSAGE",
+  "HUBSPOT_CREATE_ENGAGEMENT", // creates a note/activity, effectively sends
+  "INSTANTLY_SEND_EMAIL",
+  "LEMLIST_SEND_EMAIL",
+]);
+
+// Task types that are permitted to call send/write tools
+const WRITE_PERMITTED_TASK_TYPES = new Set([
+  "marketing_report",
+  "report_delivery",
+  "outreach_email",
+  "lead_qualification",
+  "email_sequence",
+  "campaign_analysis",
+  "distribution_health_check",
+  "chain_trigger",
+]);
+
 function filterComposioToolsForTaskType(taskType, tools) {
   const list = Array.isArray(tools) ? tools : [];
-  if (taskType !== "marketing_report") return list;
-
-  const blockedToolNames = new Set([
-    "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN",
-    "GOOGLEDOCS_UPDATE_DOCUMENT_MARKDOWN",
-    "GOOGLEDOCS_UPDATE_DOCUMENT_SECTION_MARKDOWN",
-    "GOOGLESHEETS_CREATE_DOCUMENT_MARKDOWN",
-    "GOOGLESHEETS_UPDATE_DOCUMENT_MARKDOWN",
-  ]);
+  const canSend = WRITE_PERMITTED_TASK_TYPES.has(taskType);
 
   return list.filter((tool) => {
     const toolName =
@@ -630,7 +725,9 @@ function filterComposioToolsForTaskType(taskType, tools) {
       tool?.name ||
       tool?.slug ||
       "";
-    return !blockedToolNames.has(toolName);
+    if (ALWAYS_BLOCKED_TOOLS.has(toolName)) return false;
+    if (SEND_TOOLS.has(toolName) && !canSend) return false;
+    return true;
   });
 }
 
@@ -5917,8 +6014,13 @@ Replace ALL placeholder values with your actual outputs.
         (task_type === 'generate_image' && allowedConnectorIds.includes('canva')) ||
         (task_type === 'generate_video' && allowedConnectorIds.includes('veo'))
       );
+    // Agents that declare "permissions": "read" in mcp.json (e.g. Veena, Maya, Dev, Priya)
+    // should ALWAYS get their read-only connectors (GA4, GSC, Sheets) injected, even when
+    // the task_type falls in CONTENT_GEN_TASK_TYPES.  Write-capable agents still skip.
+    const agentPermission = getAgentPermissions(name);
+    const isReadOnlyAgent = agentPermission === 'read';
     const skipComposioForTaskType =
-      (CONTENT_GEN_TASK_TYPES.has(task_type) && !allowSecondaryCreativeTools) ||
+      (!isReadOnlyAgent && CONTENT_GEN_TASK_TYPES.has(task_type) && !allowSecondaryCreativeTools) ||
       (name === 'isha' && task_type === 'daily_market_scan');
     const connectorAppMap = Object.fromEntries(
       allowedConnectorIds.map((connectorId, index) => [connectorId, allowedApps[index]])
@@ -8981,6 +9083,27 @@ app.patch("/api/mkg/:companyId", async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     console.error("PATCH /api/mkg error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── AgentMail inbound email webhook ─────────────────────────────────────────
+// Register this URL in AgentMail dashboard as the inbound webhook endpoint.
+// AgentMail POSTs here whenever a user replies to a report email.
+app.post("/api/webhooks/agentmail/inbound", express.json(), async (req, res) => {
+  try {
+    // Verify shared secret if configured
+    const secret = process.env.AGENTMAIL_WEBHOOK_SECRET;
+    if (secret) {
+      const sig = req.headers["x-agentmail-signature"] || "";
+      if (sig !== secret) {
+        return res.status(401).json({ error: "Invalid webhook signature" });
+      }
+    }
+    const result = await handleAgentMailInbound(req.body);
+    res.json(result);
+  } catch (err) {
+    console.error("[agentmail_inbound] webhook error:", err);
     res.status(500).json({ error: String(err) });
   }
 });
