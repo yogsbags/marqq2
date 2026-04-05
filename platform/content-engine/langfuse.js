@@ -9,6 +9,7 @@
 
 import Langfuse from 'langfuse'
 import Groq from 'groq-sdk'
+import { createLLMClient, LLM_PROVIDER, LLM_MODEL } from './llm-client.js'
 
 export const hasLangfuse = !!(
   process.env.LANGFUSE_SECRET_KEY &&
@@ -87,7 +88,8 @@ async function* wrapStream(stream, generation, trace, startTime, inputMessages) 
  * @param {string[]} [opts.tags]    - e.g. ['agent-run', 'isha']
  */
 export function tracedLLM({ traceName = 'llm-call', sessionId, userId, tags } = {}) {
-  const groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY || '' })
+  // Use the provider-agnostic client (Claude / Groq / OpenAI based on LLM_PROVIDER env)
+  const groqClient = createLLMClient()
 
   if (!hasLangfuse || !lf) return groqClient
 

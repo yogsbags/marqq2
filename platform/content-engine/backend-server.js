@@ -64,6 +64,7 @@ import { canAccessModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers } from "./automations/registry.js";
 import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector } from "./mcp-router.js";
+import { getLLMModel, LLM_PROVIDER, LLM_MODEL, isClaudeProvider, isGroqProvider } from "./llm-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -901,28 +902,29 @@ const KPI_DAYS_MIN = 1;
 const KPI_DAYS_MAX = 90;
 const OUTCOME_DAYS_ALLOWED = new Set([7, 30, 90]);
 const groq = tracedGroq;
+// Model lists — primary entry resolves LLM_PROVIDER / LLM_MODEL first,
+// then falls through to Groq models as a safety net when provider is Groq.
+// When LLM_PROVIDER=claude the first entry is the Claude model; Groq fallbacks
+// only fire if the Anthropic request itself fails (which is handled per call-site).
 const COMPANY_INTEL_GROQ_MODELS = [
-  process.env.GROQ_COMPANY_INTEL_MODEL || "groq/compound",
-  "llama-3.3-70b-versatile",
+  getLLMModel('company-intel'),
+  ...(isGroqProvider ? ["llama-3.3-70b-versatile"] : []),
 ];
 const COMPANY_PROFILE_GROQ_MODELS = [
-  process.env.GROQ_COMPANY_PROFILE_MODEL ||
-    process.env.GROQ_COMPANY_INTEL_MODEL ||
-    "groq/compound",
-  "llama-3.3-70b-versatile",
+  getLLMModel('company-profile'),
+  ...(isGroqProvider ? ["llama-3.3-70b-versatile"] : []),
 ];
 const AGENT_PLAN_GROQ_MODELS = [
-  process.env.GROQ_AGENT_PLAN_MODEL || "groq/compound",
-  "llama-3.3-70b-versatile",
+  getLLMModel('agent-plan'),
+  ...(isGroqProvider ? ["llama-3.3-70b-versatile"] : []),
 ];
 const AGENT_RUN_NO_TOOL_GROQ_MODELS = [
-  process.env.GROQ_AGENT_RUN_MODEL || "groq/compound",
-  "llama-3.3-70b-versatile",
+  getLLMModel('agent-run'),
+  ...(isGroqProvider ? ["llama-3.3-70b-versatile"] : []),
 ];
 const AGENT_RUN_TOOL_GROQ_MODELS = [
-  process.env.GROQ_AGENT_RUN_TOOL_MODEL || "openai/gpt-oss-120b",
-  "llama-3.3-70b-versatile",
-  "moonshotai/kimi-k2-instruct-0905",
+  getLLMModel('agent-run-tool'),
+  ...(isGroqProvider ? ["llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct-0905"] : []),
 ];
 const AGENT_RUN_PRIMARY_PROVIDER = (
   process.env.AGENT_RUN_PRIMARY_PROVIDER ||
@@ -943,8 +945,8 @@ const SARVAM_STT_ENDPOINT =
 const SARVAM_TTS_MODEL = process.env.SARVAM_TTS_MODEL || "bulbul:v3";
 const SARVAM_STT_MODEL = process.env.SARVAM_STT_MODEL || "saaras:v3";
 const VOICEBOT_DIALOGUE_MODELS = [
-  process.env.GROQ_VOICEBOT_MODEL || "groq/compound",
-  "llama-3.3-70b-versatile",
+  getLLMModel('voicebot'),
+  ...(isGroqProvider ? ["llama-3.3-70b-versatile"] : []),
 ];
 const voicebotSessions = new Map();
 const twilioMediaSessions = new Map();
@@ -1163,7 +1165,7 @@ ${successfulToolContext}`;
 
       const recoveryClient = tracedLLM({ traceName: 'contract-recovery', tags: ['recovery'] });
       const recovery = await recoveryClient.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
+        model: LLM_MODEL,
         messages: [{ role: "user", content: recoveryPrompt }],
         stream: false,
         max_tokens: 3000,
@@ -2699,7 +2701,7 @@ ${kbContext}`;
           },
         ],
         temperature: 0.4,
-        ...(model === "groq/compound"
+        ...(isGroqProvider && model === "groq/compound"
           ? {
               max_completion_tokens: interruptionMode ? 80 : 160,
             }
@@ -3674,6 +3676,38 @@ const COMPANY_INTEL_ARTIFACT_TYPES = [
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "content-engine" });
+});
+
+// ── POST /api/chat/completions ─────────────────────────────────────────────────
+// Provider-agnostic chat proxy — keeps API keys server-side.
+// The frontend routes Claude / OpenAI calls here so ANTHROPIC_API_KEY / OPENAI_API_KEY
+// are never exposed in the browser bundle.  Streaming and non-streaming both work.
+app.post("/api/chat/completions", express.json(), async (req, res) => {
+  try {
+    const body = req.body || {};
+    // Force the model to the server-side resolved model if client sends none.
+    if (!body.model) body.model = LLM_MODEL;
+
+    const isStream = Boolean(body.stream);
+
+    const completion = await groq.chat.completions.create(body);
+
+    if (isStream) {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      for await (const chunk of completion) {
+        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+      }
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } else {
+      res.json(completion);
+    }
+  } catch (err) {
+    console.error("[/api/chat/completions]", err?.message || err);
+    res.status(500).json({ error: err?.message || "LLM proxy error" });
+  }
 });
 
 app.get("/api/kpis/:companyId", createKpiRouteHandler());
@@ -4719,7 +4753,7 @@ Replace ALL placeholder values with your actual outputs.
   await markAgentHeartbeat(agentName, "running");
 
   const completion = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: LLM_MODEL,
     messages: [
       { role: "system", content: fullSystem },
       { role: "user", content: query },
@@ -5087,7 +5121,7 @@ async function deriveSearchQuery(ctx, groqClient) {
   if (!parts.length) return 'industry trends';
 
   const resp = await groqClient.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: LLM_MODEL,
     messages: [{
       role: 'user',
       content: `Given this company context, produce a single concise search query (5-8 words max) that best captures the industry/market to research on Reddit and YouTube. Return ONLY the query string, nothing else.\n\n${parts.join('\n')}`,
@@ -5154,7 +5188,7 @@ async function groqIntelSynthesis(ctx, groqClient) {
 
   const contextBlock = parts.length ? parts.join('\n') : 'No company context available.';
   const resp = await groqClient.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: LLM_MODEL,
     messages: [{
       role: 'user',
       content: `You are an industry analyst. Generate a concise recent industry intelligence brief for the following company.
@@ -5292,7 +5326,7 @@ Rules:
 
   try {
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: LLM_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
@@ -5432,7 +5466,7 @@ app.post("/api/agents/chain/run", async (req, res) => {
 
       const fullText = await runAgenticLoop({
         groqClient: groq,
-        model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+        model: LLM_MODEL,
         messages,
         tools: composioTools,
         res,
@@ -7117,7 +7151,7 @@ Rules:
         model,
         messages,
         temperature: 0.35,
-        ...(model === "groq/compound"
+        ...(isGroqProvider && model === "groq/compound"
           ? {
               max_completion_tokens: 900,
             }
@@ -7127,7 +7161,7 @@ Rules:
       });
 
       const raw = completion.choices[0]?.message?.content?.trim() || "";
-      const candidate = model === "groq/compound" ? extractJsonObject(raw) || raw : raw;
+      const candidate = isGroqProvider && model === "groq/compound" ? extractJsonObject(raw) || raw : raw;
       const parsed = JSON.parse(candidate);
       const tasks = Array.isArray(parsed.tasks)
         ? parsed.tasks
@@ -7168,7 +7202,7 @@ Rules:
             },
           ],
           temperature: 0.2,
-          ...(model === "groq/compound"
+          ...(isGroqProvider && model === "groq/compound"
             ? {
                 max_completion_tokens: 900,
               }
@@ -7302,7 +7336,7 @@ Output JSON only with exactly these fields:
         model,
         messages,
         temperature: 0.35,
-        ...(model === "groq/compound"
+        ...(isGroqProvider && model === "groq/compound"
           ? {
               max_completion_tokens: 1400,
               top_p: 1,
@@ -7334,7 +7368,7 @@ Output JSON only with exactly these fields:
             },
           ],
           temperature: 0.2,
-          ...(model === "groq/compound"
+          ...(isGroqProvider && model === "groq/compound"
             ? {
                 max_completion_tokens: 1400,
                 top_p: 1,
@@ -8268,7 +8302,7 @@ Respond with ONLY a valid JSON object — no markdown, no code fences — matchi
 
   try {
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: LLM_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMsg },
@@ -8602,7 +8636,7 @@ Respond with ONLY valid JSON (no markdown, no fences) matching this schema:
 
   try {
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: LLM_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMsg },

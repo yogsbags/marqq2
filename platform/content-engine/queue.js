@@ -9,11 +9,15 @@ import {
   supabase,
 } from './supabase.js';
 import { tracedLLM } from './langfuse.js';
+import { getLLMModel, LLM_PROVIDER, isGroqProvider } from './llm-client.js';
 
 const groq = tracedLLM({ traceName: 'company-intel', tags: ['company-intel', 'queue'] });
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
 const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
-const COMPANY_INTEL_PRIMARY_PROVIDER = (process.env.COMPANY_INTEL_PRIMARY_PROVIDER || 'groq').toLowerCase();
+// Respect explicit COMPANY_INTEL_PRIMARY_PROVIDER override; otherwise follow LLM_PROVIDER.
+const COMPANY_INTEL_PRIMARY_PROVIDER = (
+  process.env.COMPANY_INTEL_PRIMARY_PROVIDER || LLM_PROVIDER
+).toLowerCase();
 const COMPANY_INTEL_GEMINI_MODEL =
   process.env.COMPANY_INTEL_GEMINI_MODEL ||
   process.env.GEMINI_PRIMARY_MODEL ||
@@ -23,8 +27,8 @@ const GEMINI_THINKING_LEVEL =
   process.env.COMPANY_INTEL_GEMINI_THINKING_LEVEL ||
   'medium';
 const COMPANY_INTEL_GROQ_MODELS = [
-  process.env.GROQ_COMPANY_INTEL_MODEL || 'groq/compound',
-  'llama-3.3-70b-versatile'
+  getLLMModel('company-intel'),
+  ...(isGroqProvider ? ['llama-3.3-70b-versatile'] : []),
 ];
 const GEMINI_JSON_REPAIR_GROQ_MODELS = [
   process.env.GEMINI_JSON_REPAIR_MODEL || 'openai/gpt-oss-20b',
