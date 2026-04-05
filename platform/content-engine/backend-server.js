@@ -444,6 +444,13 @@ async function sendReportViaAgentMail({ apiKey, companyId, query }) {
     });
     results.inbox = inbox;
     results.emailResult = emailResult;
+    // Persist today's report so the #main channel can surface it
+    saveTodayReport({
+      subject: parsed.subject,
+      body: parsed.narrative || parsed.executiveSummary || parsed.reportName || "",
+      recipients: parsed.recipients,
+      agentName: "sam",
+    }).catch(() => {});
   }
 
   // ── Slack delivery via Composio ─────────────────────────────────────────────
@@ -597,6 +604,7 @@ async function handleAgentMailInbound(payload) {
 //   3. Schedule them as deployment entries and send a confirmation email
 
 const PENDING_SUGGESTIONS_FILE = join(__dirname, "data/pending-suggestions.json");
+const TODAY_REPORT_PATH = join(__dirname, "data/today-report.json");
 
 async function loadPendingSuggestions() {
   try {
@@ -613,6 +621,22 @@ async function savePendingSuggestions(data) {
     await writeFile(PENDING_SUGGESTIONS_FILE, JSON.stringify(data, null, 2), "utf8");
   } catch (err) {
     console.warn("[suggestions] failed to save pending suggestions:", err.message);
+  }
+}
+
+async function saveTodayReport({ subject, body, recipients, agentName }) {
+  try {
+    await mkdir(dirname(TODAY_REPORT_PATH), { recursive: true });
+    await writeFile(TODAY_REPORT_PATH, JSON.stringify({
+      date: new Date().toISOString().slice(0, 10),
+      savedAt: new Date().toISOString(),
+      subject: subject || "",
+      body: body || "",
+      recipients: recipients || [],
+      agentName: agentName || "sam",
+    }, null, 2), "utf8");
+  } catch (err) {
+    console.warn("[today-report] failed to save:", err.message);
   }
 }
 
@@ -4098,6 +4122,21 @@ app.get("/api/agents/status", async (_req, res) => {
     res.json(await readHeartbeatState());
   } catch {
     res.json(defaultHeartbeatState());
+  }
+});
+
+// ── GET /api/agents/today-report ──────────────────────────────────────────────
+// Returns the most recent report email sent today for the #main channel feed.
+app.get("/api/agents/today-report", async (_req, res) => {
+  try {
+    const raw = await readFile(TODAY_REPORT_PATH, "utf-8").catch(() => null);
+    if (!raw) return res.json({ hasReport: false });
+    const report = JSON.parse(raw);
+    const today = new Date().toISOString().slice(0, 10);
+    if (report.date !== today) return res.json({ hasReport: false });
+    res.json({ hasReport: true, ...report });
+  } catch {
+    res.json({ hasReport: false });
   }
 });
 

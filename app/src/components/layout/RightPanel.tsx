@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ExternalLink,
   ChevronDown, ChevronRight, BookOpen, Zap,
   Calendar, PlusCircle, BarChart2, PlugZap,
+  Linkedin, Youtube, Facebook, Globe, MessageSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -77,10 +78,43 @@ function MetricsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => v
   );
 }
 
+// Social channel display config
+type SocialChannelConfig = { name: string; color: string; textColor: string; Icon: React.ComponentType<{ className?: string }> };
+const SOCIAL_CHANNEL_MAP: Record<string, SocialChannelConfig> = {
+  linkedin:  { name: 'LinkedIn',   color: 'bg-blue-600',  textColor: 'text-white', Icon: Linkedin },
+  instagram: { name: 'Instagram',  color: 'bg-pink-500',  textColor: 'text-white', Icon: MessageSquare },
+  facebook:  { name: 'Facebook',   color: 'bg-blue-700',  textColor: 'text-white', Icon: Facebook },
+  youtube:   { name: 'YouTube',    color: 'bg-red-500',   textColor: 'text-white', Icon: Youtube },
+  wordpress: { name: 'WordPress',  color: 'bg-blue-400',  textColor: 'text-white', Icon: Globe },
+  reddit:    { name: 'Reddit',     color: 'bg-orange-500', textColor: 'text-white', Icon: MessageSquare },
+  tiktok:    { name: 'TikTok',     color: 'bg-zinc-900',  textColor: 'text-white', Icon: MessageSquare },
+};
+
+type ConnectedChannel = SocialChannelConfig & { id: string; posts: number };
+
 // ── Channels / Autopilot section ──────────────────────────────────────────────
 
-function ChannelsSection() {
+function ChannelsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
+  const { activeWorkspace } = useWorkspace();
   const [autopilot, setAutopilot] = useState(false);
+  const [channels, setChannels] = useState<ConnectedChannel[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!activeWorkspace?.id || loaded) return;
+    fetch(`/api/integrations?companyId=${encodeURIComponent(activeWorkspace.id)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { connectors?: Array<{ id: string; connected?: boolean; status?: string }> } | null) => {
+        setLoaded(true);
+        const active = (data?.connectors ?? []).filter(c => c.connected || c.status === 'active');
+        const social: ConnectedChannel[] = active
+          .filter(c => SOCIAL_CHANNEL_MAP[c.id])
+          .map(c => ({ ...SOCIAL_CHANNEL_MAP[c.id], id: c.id, posts: 0 }));
+        setChannels(social);
+      })
+      .catch(() => setLoaded(true));
+  }, [activeWorkspace?.id, loaded]);
+
   return (
     <Section title="Channels" defaultOpen={true}>
       <div className="px-3 space-y-2">
@@ -106,14 +140,43 @@ function ChannelsSection() {
             )} />
           </button>
         </div>
-        {/* Connect channels CTA */}
-        <p className="text-[10px] text-muted-foreground px-0.5">
-          Connect all channels to enable autopilot
-        </p>
-        <button className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/70 py-1.5 text-[11px] text-muted-foreground hover:border-orange-300 hover:text-orange-600 transition-colors">
-          <PlusCircle className="h-3 w-3" />
-          Add channel
-        </button>
+
+        {/* Connected social channels */}
+        {channels.length > 0 ? (
+          <div className="space-y-0.5">
+            {channels.map(ch => (
+              <div key={ch.id} className="flex items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-muted/50 transition-colors">
+                <div className={cn('h-6 w-6 rounded flex items-center justify-center flex-shrink-0', ch.color)}>
+                  <ch.Icon className={cn('h-3 w-3', ch.textColor)} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{ch.name}</p>
+                </div>
+                <span className="text-[10px] text-muted-foreground flex-shrink-0">{ch.posts} posts</span>
+              </div>
+            ))}
+            <button
+              onClick={() => onModuleSelect?.('integrations')}
+              className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/70 py-1 text-[11px] text-muted-foreground hover:border-orange-300 hover:text-orange-600 transition-colors mt-1"
+            >
+              <PlusCircle className="h-3 w-3" />
+              Add channel
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="text-[10px] text-muted-foreground px-0.5">
+              Connect social channels to enable autopilot
+            </p>
+            <button
+              onClick={() => onModuleSelect?.('integrations')}
+              className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/70 py-1.5 text-[11px] text-muted-foreground hover:border-orange-300 hover:text-orange-600 transition-colors"
+            >
+              <PlusCircle className="h-3 w-3" />
+              Add channel
+            </button>
+          </>
+        )}
       </div>
     </Section>
   );
@@ -145,12 +208,21 @@ function TasksSection({ onModuleSelect }: { onModuleSelect?: (id: string) => voi
           scheduledFor?: string; status?: string;
         }>).slice(0, 5).map(d => {
           const ms = d.scheduledFor ? new Date(d.scheduledFor).getTime() - now : 0;
-          const daysLeft = Math.ceil(ms / 86400000);
+          let dueIn = '';
+          if (ms > 0) {
+            const totalMins = Math.round(ms / 60000);
+            const hours = Math.floor(totalMins / 60);
+            const mins = totalMins % 60;
+            if (hours > 0 && mins > 0) dueIn = `in ${hours}h ${mins}m`;
+            else if (hours > 0) dueIn = `in ${hours}h`;
+            else if (mins > 0) dueIn = `in ${mins}m`;
+            else dueIn = 'soon';
+          }
           return {
             id: d.id,
             label: d.sectionTitle || d.agentName || 'Scheduled task',
             agent: d.agentName || 'Agent',
-            dueIn: daysLeft > 0 ? `in ${daysLeft}d` : '',
+            dueIn,
             priority: 'medium' as const,
             done: d.status === 'completed',
           };
@@ -348,7 +420,7 @@ export function RightPanel({ className, onModuleSelect }: RightPanelProps) {
       {/* Scrollable sections */}
       <ScrollArea className="flex-1">
         <MetricsSection onModuleSelect={onModuleSelect} />
-        <ChannelsSection />
+        <ChannelsSection onModuleSelect={onModuleSelect} />
         <TasksSection onModuleSelect={onModuleSelect} />
         <BrandKBSection onModuleSelect={onModuleSelect} />
         <AgentsSection />

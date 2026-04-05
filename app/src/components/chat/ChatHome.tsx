@@ -609,14 +609,14 @@ function navResponseKey(moduleId: string): string {
 
 // -- Initial messages
 
-const initialMessages: Message[] = [
-  {
-    id: '1',
-    content: "Hi, I'm Veena. What are you working on today?",
-    sender: 'ai',
-    timestamp: new Date(),
-  },
-];
+const GREETING_MESSAGE: Message = {
+  id: 'greeting',
+  content: "Hi! How can I help you today?",
+  sender: 'ai',
+  timestamp: new Date(),
+};
+
+const initialMessages: Message[] = [GREETING_MESSAGE];
 
 // -- Props
 
@@ -810,6 +810,35 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     }, 2200);
     return () => clearInterval(timer);
   }, [isTyping]);
+
+  // -- Load today's report for the #main channel feed (Helena-style)
+  // Only runs on fresh mount before any conversation is loaded.
+  useEffect(() => {
+    if (activeConversationId) return; // a conversation will be loaded by the other effect
+    fetch('/api/agents/today-report')
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { hasReport?: boolean; subject?: string; body?: string; recipients?: string[]; agentName?: string } | null) => {
+        if (!data?.hasReport || !data.body) return;
+        const recipientLine = data.recipients?.length
+          ? `Email sent to ${data.recipients.slice(0, 2).join(', ')}${data.recipients.length > 2 ? ` +${data.recipients.length - 2} more` : ''} · Subject: ${data.subject || 'Marketing Report'}`
+          : `Subject: ${data.subject || 'Marketing Report'}`;
+        const agentId = (data.agentName || 'sam').toLowerCase();
+        const agentName = data.agentName
+          ? data.agentName.charAt(0).toUpperCase() + data.agentName.slice(1)
+          : 'Sam';
+        setMessages([{
+          id: 'today-report',
+          content: `[${recipientLine}]\n\n${data.body}`,
+          sender: 'ai' as const,
+          timestamp: new Date(),
+          agentName,
+          agentId,
+          agentRole: 'Email Marketing Monitor',
+        }]);
+      })
+      .catch(() => { /* keep greeting */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Mount only — intentionally not watching activeConversationId
 
   const sendQuickMessage = (text: string) => {
     setInputValue(text);
