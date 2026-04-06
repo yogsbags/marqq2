@@ -33,6 +33,7 @@ test-results/
 realtime-dashboard/
 
 # Nested repos and local Python artifacts
+# Keep local clones and generated Python cache out of the app repo.
 **/.git/
 **/.venv/
 **/__pycache__/
