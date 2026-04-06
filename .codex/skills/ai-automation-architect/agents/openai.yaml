@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Automation Architect"
+  short_description: "Design AI workflows and systems"
+  default_prompt: "Use $ai-automation-architect to design an ROI-first AI workflow or automation system for this business."

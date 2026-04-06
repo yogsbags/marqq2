@@ -1,0 +1,4 @@
+interface:
+  display_name: "High-Ticket Offer Designer"
+  short_description: "Design premium offers and pricing"
+  default_prompt: "Use $high-ticket-offer-designer to design a premium offer, pricing structure, and guarantee for this business."

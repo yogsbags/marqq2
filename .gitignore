@@ -31,3 +31,9 @@ test-results/
 
 # Large local experiments (add selectively if needed)
 realtime-dashboard/
+
+# Nested repos and local Python artifacts
+**/.git/
+**/.venv/
+**/__pycache__/
+*.pyc

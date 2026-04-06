@@ -1,0 +1,4 @@
+interface:
+  display_name: "80/20 Revenue Optimizer"
+  short_description: "Prioritize high-leverage revenue moves"
+  default_prompt: "Use $8020-revenue-optimizer to identify the highest-leverage revenue moves in this business situation."
