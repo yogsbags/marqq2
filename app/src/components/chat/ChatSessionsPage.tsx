@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { Conversation } from '@/types/chat'
+import { deleteConversation as deleteConversationFromStorage } from '@/lib/conversationPersistence'
+import { BRAND } from '@/lib/brand'
 import {
   MessageSquare, Trash2, Search, CalendarClock,
   Clock, ChevronRight,
@@ -122,19 +124,13 @@ export function ChatSessionsPage({
   const [tab, setTab] = useState<Tab>('conversations')
   const [search, setSearch] = useState('')
 
-  const storageKey = 'marqq_conversations'
-
   function deleteConversation(id: string) {
-    // Remove from localStorage
-    const existing = localStorage.getItem(storageKey)
-    if (existing) {
-      try {
-        const arr = JSON.parse(existing)
-        const filtered = arr.filter((c: { id: string }) => c.id !== id)
-        localStorage.setItem(storageKey, JSON.stringify(filtered))
-        onConversationsChange()
-      } catch { /* ignore */ }
-    }
+    // Remove from localStorage + Supabase (fire-and-forget)
+    deleteConversationFromStorage(id).then(() => {
+      onConversationsChange()
+    }).catch(() => {
+      onConversationsChange()
+    })
   }
 
   const filtered = conversations.filter(c => {
@@ -211,7 +207,7 @@ export function ChatSessionsPage({
                 <p className="text-xs text-muted-foreground max-w-xs">
                   {search
                     ? 'Try a different search term.'
-                    : 'Head back to the main channel and start chatting with Veena.'}
+                    : `Head back to the main channel and start chatting with ${BRAND.agentName}.`}
                 </p>
               </div>
             )}

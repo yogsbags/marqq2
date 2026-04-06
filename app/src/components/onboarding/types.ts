@@ -8,6 +8,7 @@ export interface FormData {
   industry: string;
   icp: string;
   competitors: string;
+  connectedIntegrations: string; // comma-separated list of connected integration ids
   monthlyMarketingBudget: string;
   primaryGoal: string;  // one of PrimaryGoal — drives guided path
   goals: string;        // optional free-text "anything else?"
@@ -30,7 +31,7 @@ export interface StepField {
   key: keyof FormData;
   label: string;
   placeholder: string;
-  type: 'input' | 'textarea' | 'goal-picker' | 'choice';
+  type: 'input' | 'textarea' | 'goal-picker' | 'choice' | 'integrations';
   options?: string[];
   optional?: boolean;
 }

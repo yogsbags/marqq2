@@ -147,21 +147,9 @@ export const GOAL_CARDS: GoalCard[] = [
       question: 'What is working across our connected channels, what is underperforming, and what should we do next?',
     },
   },
-  {
-    id: 'understand-market',
-    title: 'Understand Your Market',
-    description: 'See competitor moves, category shifts, and demand signals before deciding what to change',
-    bestFor: 'Best for market intelligence',
-    kind: 'Market',
-    color: 'from-sky-500/10 to-cyan-600/5 border-sky-200 dark:border-sky-800',
-    moduleId: 'market-signals',
-    hashParams: {
-      question: 'What is shifting in our market, what are competitors doing, and what should we respond to next?',
-    },
-  },
 ]
 
-export const ANALYZE_GOAL_IDS = new Set(['understand-performance', 'understand-market'])
+export const ANALYZE_GOAL_IDS = new Set(['understand-performance'])
 
 export const WORKFLOW_GOAL_GROUPS: Array<{ title: string; description: string; goalIds: string[] }> = [
   {
@@ -186,8 +174,8 @@ export const WORKFLOW_GOAL_GROUPS: Array<{ title: string; description: string; g
   },
   {
     title: 'Analyze',
-    description: 'Read cross-channel performance and market signals before changing strategy or spend.',
-    goalIds: ['understand-performance', 'understand-market'],
+    description: 'Read cross-channel performance before changing strategy or spend.',
+    goalIds: ['understand-performance'],
   },
 ]
 
@@ -233,7 +221,6 @@ export const GOAL_CATALOG_GROUPS: Array<{
       { title: 'Find qualified leads', description: 'Source, enrich, and score accounts that match your ICP.', moduleId: 'lead-intelligence', hashParams: { tab: 'fetch' } },
       { title: 'Enrich existing leads', description: 'Fill in missing emails, phones, and profile data for your current lead list.', moduleId: 'lead-intelligence', hashParams: { tab: 'enrich' } },
       { title: 'Build outreach sequences', description: 'Prepare personalized email and LinkedIn outreach for prospects.', moduleId: 'lead-outreach' },
-      { title: 'Define target audiences', description: 'Map ICP segments and lookalike audience profiles.', moduleId: 'audience-profiles' },
       { title: 'Create lead magnets', description: 'Launch opt-ins and downloadable assets to capture demand.', moduleId: 'lead-magnets' },
       { title: 'Launch a referral loop', description: 'Turn customers into a repeatable acquisition channel.', moduleId: 'referral-program' },
     ],
@@ -275,21 +262,9 @@ export const GOAL_CATALOG_GROUPS: Array<{
     ],
   },
   {
-    title: 'Plan',
-    goals: [
-      { title: 'Research your market', description: 'Build company, competitor, and industry intelligence.', moduleId: 'company-intelligence' },
-      { title: 'Track market signals', description: 'Monitor shifts in competitors, category, and demand.', moduleId: 'market-signals' },
-      { title: 'Clarify your positioning', description: 'Define strategy, message hierarchy, and GTM direction.', moduleId: 'positioning' },
-      { title: 'Plan a launch', description: 'Structure pre-launch, launch, and post-launch execution.', moduleId: 'launch-strategy' },
-      { title: 'Support the sales team', description: 'Create enablement assets, decks, and battle cards.', moduleId: 'sales-enablement' },
-      { title: 'Improve revenue ops', description: 'Tighten lead lifecycle, routing, and pipeline mechanics.', moduleId: 'revenue-ops' },
-    ],
-  },
-  {
     title: 'Analyze',
     goals: [
       { title: 'Measure marketing performance', description: 'See what is working and where to shift budget.', moduleId: 'performance-scorecard' },
-      { title: 'Understand your market', description: 'Track competitor moves, demand shifts, and category signals before changing strategy.', moduleId: 'market-signals' },
       { title: 'Audit your overall marketing', description: 'Review the stack, gaps, and highest-leverage fixes.', moduleId: 'marketing-audit' },
       { title: 'Check channel health', description: 'Understand where execution is strong or underperforming.', moduleId: 'channel-health' },
     ],

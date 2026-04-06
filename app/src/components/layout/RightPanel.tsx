@@ -232,6 +232,13 @@ function TasksSection({ onModuleSelect }: { onModuleSelect?: (id: string) => voi
       .catch(() => { setLoaded(true); });
   }, [activeWorkspace?.id, loaded]);
 
+  // Re-fetch when a new deployment is created (e.g. post-onboarding welcome)
+  useEffect(() => {
+    const handler = () => setLoaded(false);
+    window.addEventListener('marqq:deployment-created', handler);
+    return () => window.removeEventListener('marqq:deployment-created', handler);
+  }, []);
+
   const viewAllAction = (
     <button
       onClick={() => onModuleSelect?.('scheduled-jobs')}

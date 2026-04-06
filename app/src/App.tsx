@@ -25,6 +25,7 @@ import { dashboardData } from '@/data/dashboardData';
 import { BRAND } from '@/lib/brand';
 import { supabase } from '@/lib/supabase';
 import type { Conversation } from '@/types/chat';
+import { loadConversationsLocal } from '@/lib/conversationPersistence';
 import { useEffect, useState } from 'react';
 import './App.css';
 
@@ -90,37 +91,15 @@ function AuthScreen() {
 
 function Dashboard() {
   const { activeWorkspace } = useWorkspace();
-  const convKey = activeWorkspace?.id ? `marqq_conversations_${activeWorkspace.id}` : 'marqq_conversations';
-
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [autoStartModule, setAutoStartModule] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>(() => {
-    try {
-      const raw = localStorage.getItem(convKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return parsed.map((c: { id: string; name: string; createdAt: string; lastMessageAt: string; messages: Array<{ id: string; content: string; sender: 'user' | 'ai'; timestamp: string }> }) => ({
-        ...c,
-        createdAt: new Date(c.createdAt),
-        lastMessageAt: new Date(c.lastMessageAt),
-        messages: c.messages.map(m => ({ ...m, timestamp: new Date(m.timestamp) })),
-      }));
-    } catch { return []; }
+    return loadConversationsLocal(activeWorkspace?.id);
   });
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   const handleConversationsChange = () => {
-    try {
-      const raw = localStorage.getItem(convKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      setConversations(parsed.map((c: { id: string; name: string; createdAt: string; lastMessageAt: string; messages: Array<{ id: string; content: string; sender: 'user' | 'ai'; timestamp: string }> }) => ({
-        ...c,
-        createdAt: new Date(c.createdAt),
-        lastMessageAt: new Date(c.lastMessageAt),
-        messages: c.messages.map(m => ({ ...m, timestamp: new Date(m.timestamp) })),
-      })));
-    } catch { /* ignore */ }
+    setConversations(loadConversationsLocal(activeWorkspace?.id));
   };
 
   const handleModuleSelect = (moduleId: string | null) => {
@@ -139,7 +118,7 @@ function Dashboard() {
     handleConversationsChange();
     setActiveConversationId(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convKey]);
+  }, [activeWorkspace?.id]);
 
   // Reset auto-start after module change
   useEffect(() => {

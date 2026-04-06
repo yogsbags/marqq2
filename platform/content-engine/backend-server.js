@@ -9482,6 +9482,80 @@ app.delete("/api/workspaces/:id/members/:userId", async (req, res) => {
   }
 });
 
+// ─── Workspace-scoped agent deployments ──────────────────────────────────────
+
+// GET /api/workspaces/:id/agent-deployments — deployments for one workspace, newest first
+app.get("/api/workspaces/:id/agent-deployments", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const queue = await readDeploymentQueue();
+    const filtered = queue
+      .filter((d) => d?.workspaceId === id)
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 20);
+    res.json({ deployments: filtered });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// POST /api/workspaces/:id/agent-deployments — create a deployment scoped to a workspace
+// Accepts optional `scheduledFor` (ISO string) so UI can show a live countdown.
+app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
+  const { id } = req.params;
+  const {
+    agentName,
+    sectionId,
+    sectionTitle,
+    summary = "",
+    bullets = [],
+    tasks = [],
+    scheduleMode,
+    recurrenceMinutes,
+    runPrompt = "",
+    scheduledFor,
+    source = "onboarding",
+    agentTarget,
+    companyId,
+  } = req.body ?? {};
+
+  if (!agentName || !VALID_AGENTS.has(agentName)) {
+    return res.status(400).json({ error: "Valid agentName is required" });
+  }
+  if (!sectionId || !sectionTitle) {
+    return res.status(400).json({ error: "sectionId and sectionTitle are required" });
+  }
+
+  try {
+    const queue = await readDeploymentQueue();
+    const isMonitor = String(scheduleMode || "") === "monitor";
+    const entry = {
+      id: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      agentName,
+      agentTarget: agentTarget || null,
+      workspaceId: id,
+      companyId: typeof companyId === "string" && companyId.trim() ? companyId.trim() : null,
+      sectionId,
+      sectionTitle,
+      summary,
+      bullets: Array.isArray(bullets) ? bullets : [],
+      tasks: Array.isArray(tasks) ? tasks : [],
+      scheduleMode: isMonitor ? "monitor" : null,
+      recurrenceMinutes: isMonitor ? Math.max(15, Number(recurrenceMinutes) || 10080) : null,
+      runPrompt,
+      source,
+      status: isMonitor ? "active" : "pending",
+      createdAt: new Date().toISOString(),
+      scheduledFor: scheduledFor || (isMonitor ? new Date().toISOString() : "next_cron_run"),
+    };
+    queue.unshift(entry);
+    await writeDeploymentQueue(queue.slice(0, 200));
+    res.status(201).json({ deployment: entry });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── MKG Endpoints ───────────────────────────────────────────────────────────
 
 // GET /api/mkg/:companyId — return the full MKG document for a company

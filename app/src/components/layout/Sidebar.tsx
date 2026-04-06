@@ -1,34 +1,17 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { BRAND } from '@/lib/brand';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { CreateWorkspaceModal } from '@/components/workspace/CreateWorkspaceModal';
 import {
   PanelLeftClose,
   PanelLeftOpen,
   Hash,
-  MessageSquare,
-  ChevronDown,
-  ChevronRight,
-  DollarSign,
-  Eye,
-  Zap as LightningBolt,
   HelpCircle,
-  Pen as PenTool,
   Settings,
-  Megaphone as Speakerphone,
-  BarChart2 as Target,
-  Tag,
-  TrendingUp,
-  Users as UserGroup,
-  Users2 as Users,
   LayoutDashboard,
-  Map as MapIcon,
-  RefreshCw as RefreshIcon,
-  Download as DownloadIcon,
-  UserPlus as UserAddIcon,
-  MousePointerClick as CursorClickIcon,
-  ShieldCheck as ShieldCheckIcon,
   Puzzle,
   BookOpen,
   Calendar,
@@ -36,6 +19,9 @@ import {
   CalendarClock,
   UserCircle,
   History,
+  Check,
+  Plus,
+  LogOut,
 } from 'lucide-react';
 import type { Conversation } from '@/types/chat';
 
@@ -49,22 +35,10 @@ interface SidebarProps {
   onConversationSelect?: (id: string) => void;
 }
 
-function ensureCompanyIntelHash() {
-  const raw = window.location.hash || '';
-  const value = raw.startsWith('#') ? raw.slice(1) : raw;
-  if (value.includes('ci=') || value.startsWith('company-intel:')) return;
-  window.location.hash = 'ci=overview';
-}
-
 interface NavItem {
   id: string;
   title: string;
   icon: React.ComponentType<{ className?: string }>;
-}
-
-interface NavSection {
-  label: string;
-  items: NavItem[];
 }
 
 const channels: NavItem[] = [
@@ -74,52 +48,6 @@ const channels: NavItem[] = [
   { id: 'calendar',              title: 'calendar',    icon: Calendar },
 ];
 
-const navSections: NavSection[] = [
-  {
-    label: 'Plan',
-    items: [
-      { id: 'company-intelligence', title: 'Company Intelligence', icon: TrendingUp },
-      { id: 'market-signals',       title: 'Market Intelligence',  icon: Speakerphone },
-      { id: 'audience-profiles',    title: 'Audience Profiles',    icon: UserGroup },
-      { id: 'positioning',          title: 'Positioning & GTM',    icon: Target },
-      { id: 'offer-design',         title: 'Offer Design',         icon: Tag },
-      { id: 'launch-strategy',      title: 'Launch Strategy',      icon: MapIcon },
-    ],
-  },
-  {
-    label: 'Execute',
-    items: [
-      { id: 'lead-intelligence', title: 'Lead Engine',      icon: Users },
-      { id: 'paid-ads',          title: 'Paid Ads',         icon: DollarSign },
-      { id: 'ai-content',        title: 'Content Studio',   icon: PenTool },
-      { id: 'ai-voice-bot',      title: 'Voice Campaigns',  icon: MessageSquare },
-      { id: 'referral-program',  title: 'Referral Program', icon: UserAddIcon },
-    ],
-  },
-  {
-    label: 'Measure',
-    items: [
-      { id: 'budget-optimization', title: 'Budget Optimization', icon: DollarSign },
-      { id: 'cro',                 title: 'Conversion',          icon: CursorClickIcon },
-    ],
-  },
-  {
-    label: 'Customers',
-    items: [
-      { id: 'unified-customer-view', title: 'Customer View', icon: Eye },
-      { id: 'user-engagement',       title: 'Lifecycle',     icon: RefreshIcon },
-      { id: 'churn-prevention',      title: 'Retention',     icon: ShieldCheckIcon },
-    ],
-  },
-];
-
-function sectionContaining(moduleId: string | null): string | null {
-  if (!moduleId) return null;
-  for (const s of navSections) {
-    if (s.items.some(i => i.id === moduleId)) return s.label;
-  }
-  return null;
-}
 
 const workspaceItems: NavItem[] = [
   { id: 'integrations',    title: 'Integrations',    icon: Puzzle },
@@ -141,24 +69,26 @@ export function Sidebar({
   activeConversationId,
   onConversationSelect,
 }: SidebarProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const { workspaces, activeWorkspace, switchWorkspace } = useWorkspace();
   const homeActive = !selectedModule || selectedModule === 'home';
 
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
-    const active = sectionContaining(selectedModule);
-    return Object.fromEntries(navSections.map(s => [s.label, s.label === active]));
-  });
+  // Profile popover state
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [createBrandOpen, setCreateBrandOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
 
+  // Close profile popover on outside click
   useEffect(() => {
-    const active = sectionContaining(selectedModule);
-    if (active) {
-      setOpenSections(prev => (prev[active] ? prev : { ...prev, [active]: true }));
+    if (!profileOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
     }
-  }, [selectedModule]);
-
-  const toggleSection = (label: string) => {
-    setOpenSections(prev => ({ ...prev, [label]: !prev[label] }));
-  };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [profileOpen]);
 
   const isChannelActive = (id: string) => (id === 'home' ? homeActive : selectedModule === id);
 
@@ -215,6 +145,15 @@ export function Sidebar({
       {/* ── Scrollable nav ──────────────────────────────────────── */}
       <ScrollArea className="flex-1 py-3">
 
+        {/* WORKSPACE NAME */}
+        {!collapsed && activeWorkspace?.name && (
+          <div className="px-5 mb-3">
+            <p className="text-[11px] font-semibold text-white/70 truncate">
+              {activeWorkspace.name}
+            </p>
+          </div>
+        )}
+
         {/* CHANNELS */}
         {!collapsed && (
           <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35 px-5 mb-1">
@@ -263,15 +202,15 @@ export function Sidebar({
         )}
         {collapsed && <div className="mx-2 mt-4 mb-2 h-px bg-white/[0.08]" />}
         <div className={cn('space-y-0.5 mt-1', collapsed ? 'px-2' : 'px-3')}>
-          {/* Veena / Marqq AI DM row */}
+          {/* Agent DM row */}
           <div className={cn('w-full rounded-md transition-all duration-150', collapsed ? '' : '')}>
             {collapsed ? (
               <button
-                onClick={() => onModuleSelect('dashboard')}
+                onClick={() => onModuleSelect(null)}
                 data-tour="nav-dashboard"
                 className={cn(
                   'w-full flex items-center p-2 justify-center rounded-md transition-all duration-150',
-                  selectedModule === 'dashboard'
+                  homeActive
                     ? 'bg-[#F97316]/20 text-white'
                     : 'text-white/50 hover:text-white/85 hover:bg-white/[0.07]',
                 )}
@@ -281,24 +220,24 @@ export function Sidebar({
             ) : (
               <div className={cn(
                 'flex items-center gap-2.5 px-2 py-1.5 rounded-md',
-                selectedModule === 'dashboard' ? 'bg-[#F97316]/20' : '',
+                homeActive ? 'bg-[#F97316]/20' : '',
               )}>
                 <button
-                  onClick={() => onModuleSelect('dashboard')}
+                  onClick={() => onModuleSelect(null)}
                   data-tour="nav-dashboard"
                   className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
                 >
                   <div className="relative flex-shrink-0">
                     <div className="h-6 w-6 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[9px] font-bold">
-                      V
+                      {BRAND.agentInitial}
                     </div>
                     <div className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-green-500 border-[1.5px] border-[#1A1A2E]" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
-                      <span className={cn('text-sm font-medium truncate', selectedModule === 'dashboard' ? 'text-white' : 'text-white/80')}>Veena</span>
+                      <span className={cn('text-sm font-medium truncate', homeActive ? 'text-white' : 'text-white/80')}>{BRAND.agentName}</span>
                     </div>
-                    <p className="text-[10px] text-white/35 truncate">AI Marketing OS</p>
+                    <p className="text-[10px] text-white/35 truncate">{BRAND.agentTagline}</p>
                   </div>
                 </button>
                 <button
@@ -351,101 +290,6 @@ export function Sidebar({
           )}
         </div>
 
-        {/* INTELLIGENCE sections */}
-        {!collapsed && (
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35 px-5 mt-4 mb-1">
-            Intelligence
-          </p>
-        )}
-        {collapsed && <div className="mx-2 mt-4 mb-2 h-px bg-white/[0.08]" />}
-        <div className={cn('mt-1 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-          {navSections.map((section) => {
-            const isOpen = openSections[section.label];
-            const hasActive = section.items.some(i => i.id === selectedModule);
-
-            return (
-              <div key={section.label}>
-                {!collapsed ? (
-                  <>
-                    <button
-                      onClick={() => toggleSection(section.label)}
-                      aria-expanded={isOpen}
-                      className={cn(
-                        'w-full flex items-center justify-between px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-[0.13em] transition-colors select-none',
-                        hasActive ? 'text-[#fb923c]' : 'text-white/30 hover:text-white/55',
-                      )}
-                    >
-                      <span>{section.label}</span>
-                      {isOpen ? (
-                        <ChevronDown className="h-3 w-3" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3" />
-                      )}
-                    </button>
-                    {isOpen && (
-                      <div className="space-y-0.5 mt-0.5 mb-1">
-                        {section.items.map((item) => {
-                          const isSelected = selectedModule === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              onClick={() => {
-                                if (item.id === 'company-intelligence') ensureCompanyIntelHash();
-                                onModuleSelect(item.id);
-                              }}
-                              data-tour={
-                                item.id === 'company-intelligence' ? 'nav-company-intel' : undefined
-                              }
-                              className={cn(
-                                'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-all duration-150 text-left',
-                                isSelected
-                                  ? 'bg-[#F97316]/20 text-white font-medium'
-                                  : 'text-white/45 hover:text-white/80 hover:bg-white/[0.06]',
-                              )}
-                            >
-                              <item.icon
-                                className={cn(
-                                  'h-3.5 w-3.5 flex-shrink-0',
-                                  isSelected ? 'text-[#fb923c]' : 'text-white/30',
-                                )}
-                              />
-                              <span className="truncate">{item.title}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="space-y-0.5">
-                    {section.items.map((item) => {
-                      const isSelected = selectedModule === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => {
-                            if (item.id === 'company-intelligence') ensureCompanyIntelHash();
-                            onModuleSelect(item.id);
-                          }}
-                          title={item.title}
-                          className={cn(
-                            'w-full flex items-center justify-center p-2 rounded-md transition-all duration-150',
-                            isSelected
-                              ? 'bg-[#F97316]/25 text-[#fb923c]'
-                              : 'text-white/35 hover:text-white/80 hover:bg-white/[0.07]',
-                          )}
-                        >
-                          <item.icon className="h-4 w-4" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
         {/* WORKSPACE */}
         {!collapsed && (
           <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35 px-5 mt-4 mb-1">
@@ -483,21 +327,83 @@ export function Sidebar({
         </div>
       </ScrollArea>
 
-      {/* ── Bottom user row ──────────────────────────────────────── */}
-      <div className={cn(
-        'border-t border-white/[0.08] flex-shrink-0',
-        collapsed ? 'px-2 py-2 flex justify-center' : 'px-3 py-2',
-      )}>
+      {/* ── Bottom user row + profile popover ───────────────────── */}
+      <div
+        ref={profileRef}
+        className={cn(
+          'border-t border-white/[0.08] flex-shrink-0 relative',
+          collapsed ? 'px-2 py-2 flex justify-center' : 'px-3 py-2',
+        )}
+      >
+        {/* Profile popover — anchored above the button */}
+        {profileOpen && (
+          <div className="absolute bottom-full left-3 right-3 mb-2 z-50">
+            <div className="bg-white dark:bg-[#1c1c1e] rounded-xl border border-border/60 shadow-xl overflow-hidden">
+              {/* Your Profile link */}
+              <button
+                onClick={() => { setProfileOpen(false); onModuleSelect('profile'); }}
+                className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-foreground hover:bg-muted/60 transition-colors text-left"
+              >
+                <UserCircle className="h-4 w-4 text-muted-foreground" />
+                Your Profile
+              </button>
+
+              {/* Brands section */}
+              <div className="border-t border-border/40 px-4 pt-2.5 pb-1">
+                <p className="text-[10px] font-semibold text-muted-foreground tracking-widest uppercase mb-1.5">Brands</p>
+              </div>
+              <div className="px-2 pb-1 space-y-0.5">
+                {workspaces.map(ws => (
+                  <button
+                    key={ws.id}
+                    onClick={() => { switchWorkspace(ws.id); setProfileOpen(false); }}
+                    className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/60 transition-colors text-left"
+                  >
+                    <div className="h-6 w-6 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                      {(ws.name?.[0] ?? 'W').toUpperCase()}
+                    </div>
+                    <span className="flex-1 text-sm text-foreground truncate">{ws.name}</span>
+                    {activeWorkspace?.id === ws.id && (
+                      <Check className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* New brand */}
+              <div className="border-t border-border/40 mx-2 mt-1" />
+              <button
+                onClick={() => { setProfileOpen(false); setCreateBrandOpen(true); }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted/60 transition-colors text-left"
+              >
+                <Plus className="h-4 w-4 text-muted-foreground" />
+                New brand
+              </button>
+
+              {/* Log out */}
+              <div className="border-t border-border/40 mx-2" />
+              <button
+                onClick={() => { setProfileOpen(false); logout(); }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted/60 transition-colors text-left"
+              >
+                <LogOut className="h-4 w-4 text-muted-foreground" />
+                Log out
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Trigger button */}
         {collapsed ? (
           <button
-            onClick={() => onModuleSelect('profile')}
+            onClick={() => setProfileOpen(prev => !prev)}
             className="h-7 w-7 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[10px] font-bold"
           >
             {(user?.email?.[0] ?? 'M').toUpperCase()}
           </button>
         ) : (
           <button
-            onClick={() => onModuleSelect('profile')}
+            onClick={() => setProfileOpen(prev => !prev)}
             className="w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-white/[0.06] transition-colors text-left"
           >
             <div className="h-7 w-7 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
@@ -505,11 +411,18 @@ export function Sidebar({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-white/80 truncate">{user?.name || user?.email?.split('@')[0] || 'Account'}</p>
-              <p className="text-[10px] text-white/35 truncate">{user?.email ?? ''}</p>
+              <p className="text-[10px] text-white/35 truncate">{activeWorkspace?.name || user?.email || ''}</p>
             </div>
           </button>
         )}
       </div>
+
+      {/* Create brand modal (outside the popover so it's not clipped) */}
+      <CreateWorkspaceModal
+        open={createBrandOpen}
+        onOpenChange={setCreateBrandOpen}
+        onCreated={(_ws, url) => url && onModuleSelect('company-intelligence')}
+      />
     </div>
   );
 }

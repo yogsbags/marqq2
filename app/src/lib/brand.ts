@@ -9,6 +9,9 @@ export type BrandConfig = {
   logoSrc: string;
   faviconSrc: string;
   wordmarkFontClass: string;
+  agentName: string;
+  agentInitial: string;
+  agentTagline: string;
 };
 
 export const BRANDS = {
@@ -21,6 +24,9 @@ export const BRANDS = {
     logoSrc: torqqLogo,
     faviconSrc: torqqLogo,
     wordmarkFontClass: 'font-brand-amplitude',
+    agentName: 'Veena',
+    agentInitial: 'V',
+    agentTagline: 'AI Marketing OS',
   },
   torqq: {
     name: 'Torqq AI',
@@ -31,6 +37,9 @@ export const BRANDS = {
     logoSrc: torqqLogo,
     faviconSrc: torqqLogo,
     wordmarkFontClass: 'font-brand',
+    agentName: 'Veena',
+    agentInitial: 'V',
+    agentTagline: 'AI Marketing OS',
   },
   /** Legacy key; same public branding as Marqq (avoid Elevate AI in titles/UI). */
   elevate: {
@@ -42,6 +51,9 @@ export const BRANDS = {
     logoSrc: torqqLogo,
     faviconSrc: torqqLogo,
     wordmarkFontClass: 'font-brand-amplitude',
+    agentName: 'Veena',
+    agentInitial: 'V',
+    agentTagline: 'AI Marketing OS',
   },
 } as const satisfies Record<string, BrandConfig>;
 

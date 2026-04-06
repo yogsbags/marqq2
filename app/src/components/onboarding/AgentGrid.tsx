@@ -108,7 +108,7 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
             <Check className="h-3 w-3 mr-1" /> TEAM OPERATIONAL
           </div>
           <div className="text-white/35 text-[10px]">
-            First reports arrive midnight IST
+            Intelligence briefs ready
           </div>
         </div>
       )}

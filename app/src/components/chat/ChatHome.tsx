@@ -20,6 +20,7 @@ import { CSVAnalysisPanel } from '@/components/ui/csv-analysis-panel';
 import type { Message, Conversation } from '@/types/chat';
 
 import { markdownToRichText } from '@/lib/markdown';
+import { BRAND } from '@/lib/brand';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import {
   Send,
@@ -38,31 +39,17 @@ import {
 import { buildAgentHeaders, buildAgentPlanPayload, buildAgentRunPayload, getActiveAgentContext } from '@/lib/agentContext';
 import { usePlan } from '@/hooks/usePlan';
 import { Zap } from 'lucide-react';
+import {
+  loadConversationsLocal,
+  saveConversations,
+  deleteConversation as deleteConversationFromStorage,
+} from '@/lib/conversationPersistence';
 
-// -- localStorage helpers
+// -- Conversation persistence helpers
 
-const CONV_KEY_PREFIX = 'marqq_conversations';
-
-function getConvKey(workspaceId: string | undefined): string {
-  return workspaceId ? `${CONV_KEY_PREFIX}_${workspaceId}` : CONV_KEY_PREFIX;
-}
-
+// Synchronous local load — instant reads without waiting for Supabase
 function loadConversations(workspaceId?: string): Conversation[] {
-  try {
-    const raw = localStorage.getItem(getConvKey(workspaceId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return parsed.map((c: any) => ({
-      ...c,
-      createdAt: new Date(c.createdAt),
-      lastMessageAt: new Date(c.lastMessageAt),
-      messages: c.messages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })),
-    }));
-  } catch { return []; }
-}
-
-function saveConversations(convs: Conversation[], workspaceId?: string) {
-  localStorage.setItem(getConvKey(workspaceId), JSON.stringify(convs));
+  return loadConversationsLocal(workspaceId);
 }
 
 function generateName(firstUserMessage: string): string {
@@ -385,7 +372,7 @@ function AgentResponseBlocks({
     <div className="space-y-3">
       {parsed.title ? (
         <div className="rounded-2xl border border-orange-200/70 bg-gradient-to-br from-orange-50 via-white to-amber-50 p-4 dark:border-orange-900/30 dark:from-orange-950/30 dark:via-gray-950 dark:to-amber-950/20">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500">Veena Brief</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500">{BRAND.agentName} Brief</div>
           <div className="mt-1 text-base font-semibold text-foreground">{parsed.title}</div>
           {parsed.summary ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{parsed.summary}</p> : null}
           {parsed.moduleShortcut && onModuleSelect ? (
@@ -792,6 +779,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentConvIdRef = useRef<string | null>(null);
+  const hasRunWelcomeRef = useRef(false);
   const [showCSVAnalysis, setShowCSVAnalysis] = useState(false);
   const [csvFile, setCSVFile] = useState<File | null>(null);
   const [taskAgent, setTaskAgent] = useState<EmployeeName | null>(null);
@@ -965,7 +953,8 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     } else {
       conversations.push({ id, name, createdAt: now, lastMessageAt: now, messages: updatedMessages });
     }
-    saveConversations(conversations, activeWorkspace?.id);
+    // Dual-write: localStorage (sync) + Supabase (async fire-and-forget)
+    saveConversations(conversations, activeWorkspace?.id, id);
     currentConvIdRef.current = id;
     if (!convId) setCurrentConvId(id);
     onConversationsChange?.();
@@ -1018,8 +1007,8 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   const handleDeleteConversation = async () => {
     try {
       if (currentConvId) {
-        const conversations = loadConversations(activeWorkspace?.id).filter((conversation) => conversation.id !== currentConvId);
-        saveConversations(conversations, activeWorkspace?.id);
+        // Remove from localStorage + Supabase
+        await deleteConversationFromStorage(currentConvId, activeWorkspace?.id);
       }
 
       try {
@@ -1443,6 +1432,56 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     setIsTyping(false);
   };
 
+  // ── Helena-style auto-first-message ──────────────────────────────────────────
+  // Fires once per workspace when a websiteUrl is present (i.e. just after onboarding).
+  // Uses localStorage to ensure it only runs once per workspace.
+  useEffect(() => {
+    const url = activeWorkspace?.website_url;
+    if (!url || !activeWorkspace?.id) return;
+    if (activeConversationId) return; // don't override an already-open conversation
+
+    const key = `marqq_welcomed_${activeWorkspace.id}`;
+    if (localStorage.getItem(key)) return;
+    if (hasRunWelcomeRef.current) return;
+    hasRunWelcomeRef.current = true;
+    localStorage.setItem(key, '1');
+
+    const timer = setTimeout(() => {
+      // Replace static greeting with the Helena-style opener
+      setMessages([{
+        id: 'welcome-opener',
+        content: `Let me dive into ${url} and start pulling everything together for you! 🚀`,
+        sender: 'ai' as const,
+        timestamp: new Date(),
+      }]);
+      runAgentSequence(
+        buildUrlAnalysisSequence(url),
+        `Scanning ${url} — briefing each specialist now.`,
+      );
+
+      // Schedule the first "Weekly Intelligence Brief" task — shows in right panel Upcoming Tasks
+      const scheduledFor = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(); // 6h from now
+      fetch(`/api/workspaces/${activeWorkspace!.id}/agent-deployments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentName: 'sam',
+          sectionId: 'weekly_intelligence_brief',
+          sectionTitle: 'Weekly Intelligence Brief',
+          summary: 'First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.',
+          tasks: [{ label: 'Run weekly intelligence brief', horizon: 'week' }],
+          scheduledFor,
+          source: 'onboarding',
+        }),
+      }).then(() => {
+        window.dispatchEvent(new CustomEvent('marqq:deployment-created'));
+      }).catch(() => { /* non-blocking */ });
+    }, 1000);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspace?.id, activeWorkspace?.website_url]);
+
   const createAgentTaskPlan = async () => {
     if (!taskAgent) return;
     const nextRequest = taskDraft.trim();
@@ -1807,10 +1846,10 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1.5">
               <div className="inline-flex items-center rounded-full border border-orange-200/80 bg-orange-50/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-orange-700 dark:border-orange-900/40 dark:bg-orange-950/20 dark:text-orange-300">
-                Veena
+                {BRAND.agentName}
               </div>
               <div className="space-y-1">
-                <h2 className="font-brand-syne text-[1.35rem] tracking-tight text-foreground">Veena</h2>
+                <h2 className="font-brand-syne text-[1.35rem] tracking-tight text-foreground">{BRAND.agentName}</h2>
                 <p className="max-w-[32rem] text-xs leading-5 text-muted-foreground">
                   Tell me what you're working on and I'll take it from there.
                 </p>
@@ -1927,29 +1966,6 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
               );
             })}
 
-            {/* Quick-start prompts — shown only on a fresh chat */}
-            {messages.length === 1 && (
-              <div className="space-y-2">
-                <div className="text-xs font-medium text-muted-foreground">Quick starts</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { icon: Map,          label: 'Build a GTM strategy',         prompt: 'I want to build a go-to-market strategy for my business.' },
-                    { icon: DollarSign,   label: 'Analyse my ad spend',          prompt: 'Help me analyse my marketing budget and ad spend performance.' },
-                    { icon: PenLine,      label: 'Plan my content calendar',     prompt: 'Help me plan a content calendar for the next month.' },
-                    { icon: Target,       label: 'Find and qualify leads',       prompt: 'I want to find and qualify leads for my business.' },
-                  ].map(({ icon: Icon, label, prompt }) => (
-                    <button
-                      key={label}
-                      onClick={() => sendQuickMessage(prompt)}
-                      className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-border/70 bg-background px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:border-orange-300 hover:bg-orange-50/70 dark:hover:bg-orange-950/20"
-                    >
-                      <Icon className="h-4 w-4 flex-shrink-0" />
-                      <span className="min-w-0 break-words leading-5">{label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Typing / tool-use indicator */}
             {isTyping && (
@@ -2159,7 +2175,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {taskAgent ? `Veena routing work to ${DIRECT_AGENTS.find((agent) => agent.name === taskAgent)?.label}` : 'Veena task routing'}
+              {taskAgent ? `${BRAND.agentName} routing work to ${DIRECT_AGENTS.find((agent) => agent.name === taskAgent)?.label}` : `${BRAND.agentName} task routing`}
             </DialogTitle>
             <DialogDescription>
               Describe what you want this agent to do.

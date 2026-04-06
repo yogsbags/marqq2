@@ -35,11 +35,11 @@ export const STEPS: OnboardingStep[] = [
     ],
   },
   {
-    num: '03', label: 'Your Competition',
-    question: 'Who are you\nup against?',
-    sub: 'Priya tracks these daily. Neel uses them to sharpen your positioning every week.',
+    num: '03', label: 'Connect Accounts',
+    question: 'Connect your\naccounts.',
+    sub: 'Link your marketing channels so your agents can pull live data, track performance, and start working immediately.',
     fields: [
-      { key: 'competitors', label: 'Top Competitors', placeholder: 'e.g. Groww, Zerodha, ETMoney  —  skip if pre-launch', type: 'input', optional: true },
+      { key: 'connectedIntegrations', label: 'Integrations', placeholder: '', type: 'integrations', optional: true },
     ],
   },
 ];

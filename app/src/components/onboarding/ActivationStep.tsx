@@ -1,7 +1,8 @@
+import { Check } from 'lucide-react';
+import { BRAND } from '@/lib/brand';
 import OnboardingContainer from './OnboardingContainer';
 import ProgressBar from './ProgressBar';
 import { Phase } from './types';
-import { Check } from 'lucide-react';
 
 interface ActivationStepProps {
   phase: Phase;
@@ -27,7 +28,7 @@ export function ActivationStep({ phase }: ActivationStepProps) {
               Briefing your agents…
             </h2>
             <p className="text-sm text-white/70 leading-[1.7] font-sans max-w-[360px]">
-              Each agent is receiving your company context so Veena can start building the first intelligence layer.
+              Each agent is receiving your company context so {BRAND.agentName} can start building the first intelligence layer.
             </p>
           </div>
         )}
@@ -41,7 +42,7 @@ export function ActivationStep({ phase }: ActivationStepProps) {
               Team is operational.
             </h2>
             <p className="text-sm text-white/60 leading-[1.75] max-w-[360px] text-center font-sans">
-              All 12 agents are briefed and ready. Zara will send your first morning synthesis at 9:00 AM IST tomorrow.
+              All 12 agents are briefed and ready. {BRAND.agentName} will deliver your first intelligence brief shortly.
             </p>
           </div>
         )}

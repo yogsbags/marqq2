@@ -1,0 +1,38 @@
+-- =============================================================================
+-- MARQQ AI — MASTER MIGRATION SCRIPT
+-- =============================================================================
+-- Run this in Supabase Dashboard → SQL Editor to apply ALL migrations in the
+-- correct dependency order.  Each block is idempotent (IF NOT EXISTS / OR REPLACE).
+--
+-- ORDER:
+--   1.  workspace.sql               — workspaces, workspace_members, workspace_invites
+--   2.  workspace-context.sql       — workspace_context
+--   3.  workspace-context-add-columns.sql  — adds columns to workspace_context
+--   4.  workspace-rls-policies.sql  — grants for workspace_members subquery
+--   5.  agent-employees.sql         — agent_notifications, agent_tasks, agent_memory
+--   6.  agent-contract.sql          — ALTER agent_tasks (adds columns)
+--   7.  mkg-foundation.sql          — company_mkg, agent_run_outputs
+--   8.  outcome-ledger.sql          — outcome_ledger
+--   9.  hooks-system.sql            — agent_signals
+--  10.  library-artifacts.sql       — library_artifacts
+--  11.  gtm-strategies.sql          — gtm_strategies
+--  12.  positioning-sales-pricing.sql — positioning_messaging, sales_enablement, pricing_intelligence
+--  13.  companies-core.sql          — companies, company_artifacts (base CREATE)
+--  14.  companies-workspace-scope.sql — ALTER companies/company_artifacts (workspace FK + RLS)
+--  15.  generation-jobs.sql         — generation_jobs
+--  16.  user-plans.sql              — user_plans
+--  17.  data-pipeline.sql           — connector_raw_snapshots, company_kpi_daily, company_anomalies
+--  18.  competitor-alerts.sql       — competitor_alerts, competitor_monitoring_config
+--  19.  swarm-competitive-intelligence.sql — swarm_watchdog_runs, competitive_intelligence
+--  20.  conversations.sql           — conversations, messages
+--  21.  social-accounts-user-rls.sql — updates social_accounts RLS
+-- =============================================================================
+
+-- NOTE: Paste each file's content below, or run them individually via psql:
+--   psql $DATABASE_URL -f database/migrations/workspace.sql
+--   psql $DATABASE_URL -f database/migrations/workspace-context.sql
+--   ... etc.
+--
+-- Supabase SQL Editor has a 50k character limit per query.
+-- If you hit it, run each migration file separately.
+-- =============================================================================

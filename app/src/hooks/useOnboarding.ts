@@ -45,7 +45,7 @@ export function useOnboarding(onComplete: () => void) {
   const [phase, setPhase] = useState<Phase>('welcome');
   const [stepIdx, setStepIdx] = useState(0);
   const [formData, setFormData] = useState<FormData>({
-    company: '', websiteUrl: '', industry: '', icp: '', competitors: '', monthlyMarketingBudget: '', primaryGoal: '', goals: '', kpis: '', channels: '',
+    company: '', websiteUrl: '', industry: '', icp: '', competitors: '', connectedIntegrations: '', monthlyMarketingBudget: '', primaryGoal: '', goals: '', kpis: '', channels: '',
   });
 
   const [activatedAgents, setActivatedAgents] = useState<Set<string>>(new Set());

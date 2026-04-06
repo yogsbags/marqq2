@@ -47,7 +47,7 @@ export function CreateWorkspaceModal({ open, onOpenChange, onCreated }: CreateWo
           // non-blocking
         }
       }
-      toast.success(`Workspace "${name.trim()}" created${url ? ' — opening Company Intelligence' : ''}`);
+      toast.success(`Brand "${name.trim()}" created${url ? ' — opening Company Intelligence' : ''}`);
       setName('');
       setWebsiteUrl('');
       onOpenChange(false);
@@ -63,14 +63,14 @@ export function CreateWorkspaceModal({ open, onOpenChange, onCreated }: CreateWo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create a workspace</DialogTitle>
+          <DialogTitle>New brand</DialogTitle>
           <DialogDescription>
-            Create a workspace and optionally add the company website to start background company intelligence.
+            Add a brand or client workspace. Optionally enter the company website to kick off background company intelligence.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="ws-name">Workspace name</Label>
+            <Label htmlFor="ws-name">Brand name</Label>
             <Input
               id="ws-name"
               placeholder="e.g. Acme Corp, Client A"
@@ -96,7 +96,7 @@ export function CreateWorkspaceModal({ open, onOpenChange, onCreated }: CreateWo
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleCreate} disabled={!name.trim() || loading}>
-            {loading ? 'Creating…' : 'Create workspace'}
+            {loading ? 'Creating…' : 'Create brand'}
           </Button>
         </DialogFooter>
       </DialogContent>

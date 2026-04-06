@@ -297,31 +297,33 @@ function buildDraftPrompt({
   leads,
   offerName,
   mkg,
+  companyName,
 }: {
   channel: OutreachChannel
   leads: Lead[]
   offerName: string
   mkg: MkgRecord | null
+  companyName: string
 }) {
   const positioning = flattenMkgText(getMkgValue(mkg, 'positioning')).slice(0, 700)
   const messaging = flattenMkgText(getMkgValue(mkg, 'messaging')).slice(0, 700)
   const icp = flattenMkgText(getMkgValue(mkg, 'icp')).slice(0, 700)
-  const selectedOffer = offerName || extractOfferNames(mkg)[0] || 'the most relevant Productverse offer'
+  const selectedOffer = offerName || extractOfferNames(mkg)[0] || `the most relevant ${companyName} offer`
   const leadSummary = summarizeLeadSegment(leads.slice(0, 50))
 
   if (channel === 'email') {
-    return `Write outreach copy for Productverse.\nChannel: email.\nOffer focus: ${selectedOffer}.\nLead segment summary: ${leadSummary}.\nCompany positioning: ${positioning || 'Not available'}.\nMessaging context: ${messaging || 'Not available'}.\nICP context: ${icp || 'Not available'}.\n\nReturn plain text only in this exact format:\nSUBJECT: <one short subject line>\nBODY:\n<email body with {{first_name}} and {{company}} placeholders where helpful>\n\nKeep it concise, specific, and focused on one offer angle plus one CTA.`
+    return `Write outreach copy for ${companyName}.\nChannel: email.\nOffer focus: ${selectedOffer}.\nLead segment summary: ${leadSummary}.\nCompany positioning: ${positioning || 'Not available'}.\nMessaging context: ${messaging || 'Not available'}.\nICP context: ${icp || 'Not available'}.\n\nReturn plain text only in this exact format:\nSUBJECT: <one short subject line>\nBODY:\n<email body with {{first_name}} and {{company}} placeholders where helpful>\n\nKeep it concise, specific, and focused on one offer angle plus one CTA.`
   }
 
   if (channel === 'linkedin') {
-    return `Write outreach copy for Productverse.\nChannel: LinkedIn connection or DM.\nOffer focus: ${selectedOffer}.\nLead segment summary: ${leadSummary}.\nCompany positioning: ${positioning || 'Not available'}.\nMessaging context: ${messaging || 'Not available'}.\nICP context: ${icp || 'Not available'}.\n\nReturn plain text only in this exact format:\nMESSAGE:\n<short LinkedIn message with {{first_name}} and {{company}} placeholders where helpful>\n\nKeep it natural and short enough for first-touch outreach.`
+    return `Write outreach copy for ${companyName}.\nChannel: LinkedIn connection or DM.\nOffer focus: ${selectedOffer}.\nLead segment summary: ${leadSummary}.\nCompany positioning: ${positioning || 'Not available'}.\nMessaging context: ${messaging || 'Not available'}.\nICP context: ${icp || 'Not available'}.\n\nReturn plain text only in this exact format:\nMESSAGE:\n<short LinkedIn message with {{first_name}} and {{company}} placeholders where helpful>\n\nKeep it natural and short enough for first-touch outreach.`
   }
 
   if (channel === 'voicebot') {
-    return `Write outreach copy for Productverse.\nChannel: outbound voice call opener.\nOffer focus: ${selectedOffer}.\nLead segment summary: ${leadSummary}.\nCompany positioning: ${positioning || 'Not available'}.\nMessaging context: ${messaging || 'Not available'}.\nICP context: ${icp || 'Not available'}.\n\nReturn plain text only in this exact format:\nMESSAGE:\n<short voicebot opening line with {{first_name}} and {{company}} placeholders where helpful>\n\nKeep it natural, conversational, and suitable as an outbound call opener.`
+    return `Write outreach copy for ${companyName}.\nChannel: outbound voice call opener.\nOffer focus: ${selectedOffer}.\nLead segment summary: ${leadSummary}.\nCompany positioning: ${positioning || 'Not available'}.\nMessaging context: ${messaging || 'Not available'}.\nICP context: ${icp || 'Not available'}.\n\nReturn plain text only in this exact format:\nMESSAGE:\n<short voicebot opening line with {{first_name}} and {{company}} placeholders where helpful>\n\nKeep it natural, conversational, and suitable as an outbound call opener.`
   }
 
-  return `Write outreach copy for Productverse.\nChannel: WhatsApp.\nOffer focus: ${selectedOffer}.\nLead segment summary: ${leadSummary}.\nCompany positioning: ${positioning || 'Not available'}.\nMessaging context: ${messaging || 'Not available'}.\nICP context: ${icp || 'Not available'}.\n\nReturn plain text only in this exact format:\nMESSAGE:\n<short WhatsApp outreach message with {{first_name}} and {{company}} placeholders where helpful>\n\nKeep it brief, conversational, and first-touch appropriate.`
+  return `Write outreach copy for ${companyName}.\nChannel: WhatsApp.\nOffer focus: ${selectedOffer}.\nLead segment summary: ${leadSummary}.\nCompany positioning: ${positioning || 'Not available'}.\nMessaging context: ${messaging || 'Not available'}.\nICP context: ${icp || 'Not available'}.\n\nReturn plain text only in this exact format:\nMESSAGE:\n<short WhatsApp outreach message with {{first_name}} and {{company}} placeholders where helpful>\n\nKeep it brief, conversational, and first-touch appropriate.`
 }
 
 function parseDraftResponse(channel: OutreachChannel, text: string) {
@@ -1302,6 +1304,7 @@ function EnrichTab({
 
 function OutreachTab({
   companyId,
+  workspaceName,
   sharedLeads,
   sharedLeadSource,
   aiOutreachDraft,
@@ -1311,6 +1314,7 @@ function OutreachTab({
   onStageComplete,
 }: {
   companyId: string
+  workspaceName: string
   sharedLeads: Lead[]
   sharedLeadSource: string
   aiOutreachDraft: string
@@ -1417,6 +1421,7 @@ function OutreachTab({
         leads,
         offerName: selectedOffer?.name || offerName,
         mkg,
+        companyName: workspaceName,
       }),
       'proposal_draft',
       companyId || undefined,
@@ -1856,7 +1861,7 @@ function OutreachTab({
                   : channel === 'linkedin'
                     ? 'Hi {{first_name}}, impressed by what you are building at {{company}}...'
                     : channel === 'voicebot'
-                      ? 'Hi {{first_name}}, this is Productverse calling because {{company}} may be a fit for our outreach automation workflows...'
+                      ? `Hi {{first_name}}, this is ${workspaceName} calling because {{company}} may be a fit for our outreach automation workflows...`
                     : 'Hi {{first_name}}, reaching out because {{company}} looks like a strong fit...'}
                 value={body} onChange={e => { setBody(e.target.value); setCopyApproved(false); setDraftSource('manual') }}
               />
@@ -2326,7 +2331,7 @@ function RoutingTab({
       } else if (channel === 'whatsapp') {
         res = await apiAutomation('whatsapp_send_campaign', {
           campaign_name: `ICP WhatsApp — ${new Date().toLocaleDateString('en-IN')}`,
-          text: 'Hi {{first_name}}, this is Productverse. Reaching out because {{company}} looks like a strong fit for our AI growth and outreach workflows. Open to a quick conversation?',
+          text: `Hi {{first_name}}, this is ${workspaceName}. Reaching out because {{company}} looks like a strong fit for our AI growth and outreach workflows. Open to a quick conversation?`,
           leads: channelLeads.map(l => ({
             phone: l.phone,
             full_name: l.full_name || '',
@@ -2338,7 +2343,7 @@ function RoutingTab({
       } else if (channel === 'voicebot') {
         res = await apiAutomation('voicebot_campaign_launch', {
           campaign_name: `ICP Voicebot — ${new Date().toLocaleDateString('en-IN')}`,
-          script_hint: 'Hi {{first_name}}, this is Productverse calling because {{company}} may be a fit for our AI growth and outreach workflows. Is this a bad time for a quick conversation?',
+          script_hint: `Hi {{first_name}}, this is ${workspaceName} calling because {{company}} may be a fit for our AI growth and outreach workflows. Is this a bad time for a quick conversation?`,
           leads: channelLeads.map(l => ({
             phone: l.phone,
             name: l.full_name || '',
@@ -2815,6 +2820,7 @@ export function LeadIntelligenceFlow({ autoStart = false, initialTab, initialLea
         <div role="tabpanel" hidden={tab !== 'outreach'} className={tab === 'outreach' ? 'mt-2' : 'hidden'}>
           <OutreachTab
             companyId={companyId}
+            workspaceName={workspaceName}
             sharedLeads={sharedLeads}
             sharedLeadSource={sharedLeadSource}
             aiOutreachDraft={aiOutreachDraft}
