@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { PageSectionHeader } from '@/components/layout/PageSectionHeader'
 import { cn } from '@/lib/utils'
 import {
   CalendarClock, Pause, Play, Pencil, Trash2,
@@ -255,27 +256,28 @@ export function ScheduledJobsPage() {
 
   return (
     <ScrollArea className="h-full">
-      <div className="px-6 pb-10 pt-4 max-w-3xl mx-auto space-y-6">
+      <div className="w-full px-6 pb-10 pt-4 space-y-6">
 
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold text-foreground">Tasks</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">Tasks that run automatically on a schedule.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={refresh}
-              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
-            </button>
-            <button className="flex items-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium px-3 py-1.5 transition-colors">
-              <Plus className="h-3.5 w-3.5" />
-              New task
-            </button>
-          </div>
-        </div>
+        <PageSectionHeader
+          eyebrow="Automation"
+          title="Tasks"
+          description="Tasks that run automatically on a schedule so Veena and the specialist agents keep work moving without manual follow-up."
+          actions={(
+            <>
+              <button
+                onClick={refresh}
+                className="flex items-center gap-1 rounded-lg border border-border/70 bg-background/80 px-3 py-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+                Refresh
+              </button>
+              <button className="flex items-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium px-3 py-2 transition-colors">
+                <Plus className="h-3.5 w-3.5" />
+                New task
+              </button>
+            </>
+          )}
+        />
 
         {/* Loading */}
         {loading && (

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { PageSectionHeader } from '@/components/layout/PageSectionHeader'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -181,29 +182,32 @@ export function ProfilePage() {
     <ScrollArea className="h-full">
       <div className="px-6 pb-10 pt-4 w-full space-y-5">
 
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold text-foreground">Profile</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
+        <PageSectionHeader
+          eyebrow="Identity"
+          title="Profile"
+          description="Keep the account, company, and messaging details Veena uses to personalize briefs, reports, and ongoing automation."
+          meta={(
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-orange-700 dark:text-orange-300">
               {activeWorkspace?.name || 'Your workspace'} · {user?.email}
             </p>
-          </div>
-          <button
-            onClick={save}
-            disabled={saving}
-            className={cn(
-              'flex items-center gap-1.5 rounded-lg text-white text-xs font-semibold px-3 py-1.5 transition-colors',
-              saved ? 'bg-emerald-500' : 'bg-orange-500 hover:bg-orange-600',
-              saving && 'opacity-60 cursor-not-allowed',
-            )}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
-             saved   ? <CheckCircle2 className="h-3.5 w-3.5" /> :
-                       <Save className="h-3.5 w-3.5" />}
-            {saved ? 'Saved' : 'Save changes'}
-          </button>
-        </div>
+          )}
+          actions={(
+            <button
+              onClick={save}
+              disabled={saving}
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg text-white text-xs font-semibold px-3 py-2 transition-colors',
+                saved ? 'bg-emerald-500' : 'bg-orange-500 hover:bg-orange-600',
+                saving && 'opacity-60 cursor-not-allowed',
+              )}
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
+               saved   ? <CheckCircle2 className="h-3.5 w-3.5" /> :
+                         <Save className="h-3.5 w-3.5" />}
+              {saved ? 'Saved' : 'Save changes'}
+            </button>
+          )}
+        />
 
         {/* Subscription */}
         <SubscriptionBanner />

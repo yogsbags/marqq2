@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { PageSectionHeader } from '@/components/layout/PageSectionHeader'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { markdownToRichText } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
@@ -263,28 +264,17 @@ export function LibraryView() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden rounded-[1.9rem] border-orange-200/70 bg-[linear-gradient(135deg,rgba(255,247,237,0.97),rgba(255,237,213,0.86))] shadow-[0_28px_60px_-34px_rgba(249,115,22,0.35)] dark:border-orange-900/40 dark:bg-[linear-gradient(135deg,rgba(52,30,16,0.92),rgba(18,18,22,0.92))]">
-        <CardContent className="flex flex-col gap-5 p-6 md:flex-row md:items-end md:justify-between md:p-8">
-          <div className="max-w-2xl space-y-3">
-            <div className="inline-flex items-center rounded-full border border-orange-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-700 dark:border-orange-900/40 dark:bg-white/10 dark:text-orange-300">
-              Asset Desk
-            </div>
-            <div className="space-y-2">
-              <h1 className="font-brand-syne text-3xl tracking-tight text-slate-950 dark:text-orange-50 md:text-4xl">
-                Library
-              </h1>
-              <p className="max-w-xl text-sm leading-6 text-slate-600 dark:text-orange-100/72">
-                Keep the briefs, reports, and documents worth reusing instead of losing them inside old runs.
-              </p>
-              {activeWorkspace?.name ? (
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-orange-700 dark:text-orange-300">
-                  Workspace: {activeWorkspace.name}
-                </p>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="grid min-w-[240px] gap-3 rounded-[1.4rem] border border-orange-200/70 bg-white/75 p-4 text-sm shadow-[0_20px_40px_-28px_rgba(15,23,42,0.35)] dark:border-orange-900/40 dark:bg-white/5">
+      <PageSectionHeader
+        eyebrow="Asset Desk"
+        title="Library"
+        description="Keep the briefs, reports, and documents worth reusing instead of losing them inside old runs."
+        meta={activeWorkspace?.name ? (
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-orange-700 dark:text-orange-300">
+            Workspace: {activeWorkspace.name}
+          </p>
+        ) : undefined}
+        actions={(
+          <div className="grid min-w-[220px] gap-2 rounded-[1.2rem] border border-border/70 bg-background/80 p-4 text-sm shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Saved</span>
               <span className="text-lg font-semibold text-foreground">{stats.total}</span>
@@ -298,8 +288,8 @@ export function LibraryView() {
               <span className="text-sm font-medium text-orange-700 dark:text-orange-300">{stats.docs}</span>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      />
 
       <Card className="rounded-[1.5rem] border-border/70 bg-background/90">
         <CardContent className="space-y-4 p-5">

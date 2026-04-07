@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { cn } from '@/lib/utils';
 import { askVeena, GroqService, ChatMessage, type VeenaResponse } from '@/services/groqService';
 import { toast } from 'sonner';
@@ -656,36 +657,37 @@ type SequenceAgent = {
 const URL_RE = /https?:\/\/[^\s)>"]+/i;
 
 function buildUrlAnalysisSequence(url: string): SequenceAgent[] {
+  const concise = '\n\nBe concise and specific. Use 3-5 short bullet points (- item). Each bullet max 15 words. No intro sentence, no conclusion, no headers.';
   return [
     {
       name: 'maya',
       displayName: 'Maya',
       role: 'SEO & LLMO Monitor',
-      query: `Analyse the SEO and AI answer engine (LLMO) presence for ${url}. Surface the top keyword opportunities, ranking gaps, and visibility in AI summaries. Use any connected Google Search Console or Ahrefs data if available via Composio.`,
+      query: `Analyse the SEO and AI answer engine (LLMO) presence for ${url}. Surface the top 3 keyword opportunities and the single most urgent ranking gap. Use any connected Google Search Console or Ahrefs data if available via Composio.${concise}`,
     },
     {
       name: 'arjun',
       displayName: 'Arjun',
       role: 'Lead Intelligence',
-      query: `Based on the business at ${url}, define the ideal customer profile. Identify the top 3 target segments, key buying signals, and recommended outreach approach. Use Apollo or LinkedIn data if available via Composio.`,
+      query: `Based on the business at ${url}, define the ideal customer profile. Name the top 2 target segments and the recommended first outreach move. Use Apollo or LinkedIn data if available via Composio.${concise}`,
     },
     {
       name: 'dev',
       displayName: 'Dev',
       role: 'Performance Analyst',
-      query: `Analyse the estimated performance and analytics footprint for ${url}. What are the traffic trends, funnel drop-offs, and top 3 conversion improvements to prioritise? Use GA4 or PostHog data if connected via Composio.`,
+      query: `Analyse the estimated performance footprint for ${url}. What are the top 3 conversion improvements to prioritise? Use GA4 or PostHog data if connected via Composio.${concise}`,
     },
     {
       name: 'riya',
       displayName: 'Riya',
       role: 'Content Producer',
-      query: `Review the content strategy visible at ${url}. What content gaps exist, which formats are underused, and what are the top 3 content pieces to publish next for maximum impact?`,
+      query: `Review the content strategy visible at ${url}. Name the biggest content gap and the top 3 pieces to publish next for maximum organic impact.${concise}`,
     },
     {
       name: 'zara',
       displayName: 'Zara',
       role: 'Campaign Strategist',
-      query: `Based on the website ${url} and its market position, what campaign strategy would you recommend? Which paid and organic channels, messaging angles, and campaign formats should we prioritise for Q2?`,
+      query: `Based on the website ${url} and its market position, what channels and campaign angles should be prioritised for the next 90 days?${concise}`,
     },
   ];
 }
@@ -694,46 +696,96 @@ function buildBroadQuerySequence(query: string): SequenceAgent[] | null {
   if (!/audit|full.?analysis|analyse (my|our)|analyze (my|our)|review (my|our)|(marketing|growth) strategy|go.?to.?market|gtm plan/i.test(query)) {
     return null;
   }
+  const concise = '\n\nBe concise and specific. Use 3-5 short bullet points (- item). Each bullet max 15 words. No intro sentence, no conclusion, no headers.';
   return [
     {
       name: 'maya',
       displayName: 'Maya',
       role: 'SEO & LLMO Monitor',
-      query: `${query} — give your SEO and LLMO perspective: keyword opportunities, ranking position, and AI answer engine visibility.`,
+      query: `${query} — give your SEO and LLMO perspective: keyword opportunities, ranking position, and AI answer engine visibility.${concise}`,
     },
     {
       name: 'arjun',
       displayName: 'Arjun',
       role: 'Lead Intelligence',
-      query: `${query} — from a lead intelligence angle: ICP definition, top segments, and outreach priorities.`,
+      query: `${query} — from a lead intelligence angle: ICP definition, top segments, and outreach priorities.${concise}`,
     },
     {
       name: 'dev',
       displayName: 'Dev',
       role: 'Performance Analyst',
-      query: `${query} — identify the key performance metrics, funnel gaps, and top 3 growth levers.`,
+      query: `${query} — identify the key performance metrics, funnel gaps, and top 3 growth levers.${concise}`,
     },
     {
       name: 'riya',
       displayName: 'Riya',
       role: 'Content Producer',
-      query: `${query} — what content strategy and specific content pieces do you recommend for the next 30 days?`,
+      query: `${query} — what content strategy and specific content pieces do you recommend for the next 30 days?${concise}`,
+    },
+  ];
+}
+
+// ── Onboarding context helpers ────────────────────────────────────────────────
+
+type OnboardingCtx = { company?: string; industry?: string; icp?: string; goals?: string; connectedIntegrations?: string };
+
+function readOnboardingCtx(workspaceId: string): OnboardingCtx {
+  try {
+    return JSON.parse(localStorage.getItem(`marqq_onboarding_ctx_${workspaceId}`) || '{}');
+  } catch { return {}; }
+}
+
+function buildOnboardingWelcomeSequence(url: string, ctx: OnboardingCtx): SequenceAgent[] {
+  const industryPart = ctx.industry ? ` in the ${ctx.industry} space` : '';
+  const icpPart      = ctx.icp        ? ` Target customer: ${ctx.icp}.`             : '';
+  const goalsPart    = ctx.goals       ? ` Goals: ${ctx.goals}.`                     : '';
+  const toolsPart    = ctx.connectedIntegrations ? ` Connected tools: ${ctx.connectedIntegrations}.` : '';
+  const context      = `${url}${industryPart}.${icpPart}${goalsPart}${toolsPart}`.trim();
+  const concise      = '\n\nBe concise and specific. Use 3-5 short bullet points (- item). Each bullet max 15 words. No intro sentence, no conclusion, no headers.';
+  return [
+    {
+      name: 'maya',
+      displayName: 'Maya',
+      role: 'SEO & LLMO Monitor',
+      query: `Analyse the SEO and AI answer engine (LLMO) presence for ${context} What are the top 3 keyword opportunities and the single most urgent ranking gap to fix?${concise}`,
+    },
+    {
+      name: 'arjun',
+      displayName: 'Arjun',
+      role: 'Lead Intelligence',
+      query: `Based on the business at ${context} Define the ideal customer profile and name the top 2 outreach segments to prioritise first.${concise}`,
+    },
+    {
+      name: 'dev',
+      displayName: 'Dev',
+      role: 'Performance Analyst',
+      query: `Analyse the estimated performance footprint for ${context} What are the top 3 conversion improvements to prioritise in the next 30 days?${concise}`,
+    },
+    {
+      name: 'riya',
+      displayName: 'Riya',
+      role: 'Content Producer',
+      query: `Review the content strategy visible at ${context} What are the top 3 content pieces to publish next for maximum organic impact?${concise}`,
+    },
+    {
+      name: 'zara',
+      displayName: 'Zara',
+      role: 'Campaign Strategist',
+      query: `Based on ${context} What channels and campaign angles should be prioritised for the next 90 days?${concise}`,
     },
   ];
 }
 
 function SubagentMessageCard({ message, onModuleSelect }: { message: Message; onModuleSelect?: (id: string) => void }) {
   const colors = (message.agentId ? AGENT_COLORS[message.agentId] : null) ?? DEFAULT_AGENT_COLORS;
-  const initial = (message.agentName ?? 'A').charAt(0).toUpperCase();
   const plain = stripMarkdown(message.content);
   const artifacts = extractFileArtifacts(message.content);
+  const avatarName = (message.agentId || message.agentName || 'zara').toLowerCase();
   return (
     <div className={cn('w-full rounded-2xl border px-4 pt-3 pb-3', colors.border, colors.bg)}>
       {/* Agent header */}
       <div className="flex items-center gap-2.5 mb-2.5">
-        <div className={cn('h-7 w-7 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0', colors.avatar)}>
-          {initial}
-        </div>
+        <AgentAvatar name={avatarName} size="sm" className="h-7 w-7 rounded-full flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <p className={cn('text-xs font-semibold leading-tight', colors.label)}>{message.agentName}</p>
           {message.agentRole && <p className="text-[10px] text-muted-foreground">{message.agentRole}</p>}
@@ -747,7 +799,10 @@ function SubagentMessageCard({ message, onModuleSelect }: { message: Message; on
         <p className="text-xs text-muted-foreground italic mb-1 animate-pulse">{message.toolStatus}</p>
       )}
       {/* Content */}
-      <p className="text-sm whitespace-pre-wrap leading-6">{plain}</p>
+      <div
+        className="text-sm prose prose-sm dark:prose-invert max-w-none leading-6 [&_ul]:mt-1 [&_li]:my-0.5"
+        dangerouslySetInnerHTML={{ __html: markdownToRichText(message.content) }}
+      />
       {/* Inline tool status shown alongside partial content while streaming */}
       {message.toolStatus && message.content && (
         <p className="text-xs text-muted-foreground italic mt-1 animate-pulse">{message.toolStatus}</p>
@@ -1295,8 +1350,12 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
               }
               if (parsed.text) {
                 accumulated += parsed.text;
+                // Sanitize during streaming to prevent contract JSON from appearing in the UI
+                const displayContent = sanitizeAgentStreamText(accumulated);
                 setMessages(prev => prev.map(m =>
-                  m.id === slashPlaceholderId ? { ...m, content: accumulated, toolStatus: undefined } : m,
+                  m.id === slashPlaceholderId
+                    ? { ...m, content: displayContent, toolStatus: displayContent ? undefined : m.toolStatus }
+                    : m,
                 ));
               }
               if (parsed.error) throw new Error(parsed.error);
@@ -1418,8 +1477,12 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
                 }
                 if (parsed.text) {
                   accumulated += parsed.text;
+                  // Sanitize during streaming to prevent contract JSON from appearing in the UI
+                  const displayContent = sanitizeAgentStreamText(accumulated);
                   setMessages(prev => prev.map(m =>
-                    m.id === placeholderId ? { ...m, content: accumulated, toolStatus: undefined } : m,
+                    m.id === placeholderId
+                      ? { ...m, content: displayContent, toolStatus: displayContent ? undefined : m.toolStatus }
+                      : m,
                   ));
                 }
                 if (parsed.error) throw new Error(parsed.error);
@@ -1472,16 +1535,19 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     localStorage.setItem(key, '1');
 
     const timer = setTimeout(() => {
-      // Replace static greeting with the Helena-style opener
+      // Replace static greeting with the Helena-style opener, personalised with onboarding context
+      const ctx = readOnboardingCtx(activeWorkspace!.id);
+      const companyLabel = ctx.company || activeWorkspace!.name || url;
+      const industryHint = ctx.industry ? ` (${ctx.industry})` : '';
       setMessages([{
         id: 'welcome-opener',
-        content: `Let me dive into ${url} and start pulling everything together for you! 🚀`,
+        content: `I've got ${companyLabel}${industryHint} — briefing your team across SEO, leads, performance, content, and campaigns now.`,
         sender: 'ai' as const,
         timestamp: new Date(),
       }]);
       runAgentSequence(
-        buildUrlAnalysisSequence(url),
-        `Scanning ${url} — briefing each specialist now.`,
+        buildOnboardingWelcomeSequence(url, ctx),
+        `Scanning ${url} — each specialist is briefing you now.`,
       );
 
       // Schedule the first "Weekly Intelligence Brief" task — shows in right panel Upcoming Tasks

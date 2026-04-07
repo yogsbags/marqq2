@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { User, Users, CreditCard } from 'lucide-react';
+import { PageSectionHeader } from '@/components/layout/PageSectionHeader';
 import { cn } from '@/lib/utils';
 import { GeneralTab } from './tabs/GeneralTab';
 import { MembersTab } from './tabs/MembersTab';
@@ -29,14 +30,17 @@ export function SettingsPanel({ initialTab = 'general' }: SettingsPanelProps) {
   };
 
   return (
-    <div className="flex gap-6 min-h-full">
+    <div className="space-y-6 min-h-full">
+      <PageSectionHeader
+        eyebrow="Workspace"
+        title="Settings"
+        description="Manage workspace details, members, and billing without leaving the product shell."
+      />
+
+      <div className="flex gap-6 min-h-full">
       <aside className="w-60 shrink-0 self-start rounded-[28px] border border-border/70 bg-background/80 shadow-sm">
-        <div className="px-5 py-5 pb-3">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500">Workspace</div>
-          <h1 className="mt-2 font-brand-syne text-xl font-semibold tracking-tight text-foreground">Settings</h1>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Manage workspace details, members, and billing without leaving the product shell.
-          </p>
+        <div className="px-5 py-5 pb-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Preferences</div>
         </div>
         <nav className="px-3 pb-3 space-y-1">
           {TABS.map(tab => (
@@ -61,6 +65,7 @@ export function SettingsPanel({ initialTab = 'general' }: SettingsPanelProps) {
       <main className="flex-1 overflow-auto">
         {renderTab()}
       </main>
+      </div>
     </div>
   );
 }
