@@ -500,7 +500,7 @@ function ContentDistributionActions({
   if (!target || !companyId) return null
 
   const openAccounts = () => {
-    window.dispatchEvent(new CustomEvent('marqq:navigate', { detail: { moduleId: 'settings-accounts' } }))
+    window.dispatchEvent(new CustomEvent('marqq:navigate', { detail: { moduleId: 'integrations' } }))
   }
 
   const runAction = async (mode: 'publish' | 'schedule') => {

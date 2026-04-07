@@ -1,6 +1,6 @@
 {
   "company_id": "ade8db63-dc0e-45c6-a9bc-b733b857021d",
-  "updated_at": "2026-03-24T05:45:34.364Z",
+  "updated_at": "2026-04-06T22:05:49.546Z",
   "positioning": {
     "value": "Unlock the full potential of AI‑driven growth with our expert development services, tailored to prop‑tech, fintech, and e‑commerce.",
     "confidence": 0.9,
@@ -146,39 +146,56 @@
     "expires_at": null
   },
   "messaging": {
-    "value": "Empower your business with AI‑native development solutions, designed to drive growth and innovation in prop‑tech, fintech, and e‑commerce.",
-    "confidence": 0.9,
-    "last_verified": "2026-03-24",
+    "value": {
+      "core_message_spine": "AI-native product development for fintech, prop-tech, and e-commerce founders who need to build fast without rebuilding later.",
+      "primary_differentiator_term": "AI-native",
+      "language_to_retire": [
+        "unlock the full potential",
+        "empower your business",
+        "drive growth and innovation",
+        "expert development services",
+        "tailored to"
+      ],
+      "objection_handling": {
+        "dev_shop_comparison": "They build apps. We build AI-native products in fintech, prop-tech, and e-commerce — that's the only thing we do.",
+        "slow_dev_shop_experience": "We build AI-native from day one — no retrofitting, no rework cycles.",
+        "ai_readiness_concern": "You don't need to be ready for AI. You need a product that works. We make sure AI is the engine, not the afterthought.",
+        "size_credibility": "Our size is the advantage — you get senior attention, not a junior team after the pitch."
+      },
+      "status": "hypothesis — not yet validated against performance data"
+    },
+    "confidence": 0.65,
+    "last_verified": "2026-04-06",
     "source_agent": "sam",
-    "expires_at": "2026-04-24"
+    "expires_at": "2026-05-06"
   },
   "channels": {
-    "value": [
-      {
-        "channel": "Google Ads",
-        "evidence": "Primary channel for reaching CTOs and Founders in India",
-        "priority": "high"
+    "value": {
+      "organic_search": {
+        "status": "underdeveloped",
+        "q2_action": "publish_vertical_landing_pages_and_4_6_articles_per_month"
       },
-      {
-        "channel": "LinkedIn Ads",
-        "evidence": "Effective for targeting professionals and decision‑makers",
-        "priority": "high"
+      "linkedin_organic": {
+        "status": "not_active",
+        "q2_action": "launch_3x_weekly_cadence_ai_development_pillar"
       },
-      {
-        "channel": "Meta Ads",
-        "evidence": "Wide reach and cost‑effective for lead generation",
-        "priority": "medium"
+      "google_search_ads": {
+        "status": "not_active",
+        "q2_action": "activate_after_landing_pages_live_fintech_vertical_first"
       },
-      {
-        "channel": "Content/SEO",
-        "evidence": "Long‑term strategy for organic growth and thought leadership",
-        "priority": "low"
+      "linkedin_ads": {
+        "status": "not_active",
+        "q2_action": "thought_leader_ads_plus_lead_gen_plus_retargeting"
+      },
+      "ai_answer_engines": {
+        "status": "not_visible",
+        "q2_action": "add_faq_schema_comparison_tables_definition_blocks"
       }
-    ],
-    "confidence": 0,
-    "last_verified": null,
-    "source_agent": null,
-    "expires_at": null
+    },
+    "confidence": 0.75,
+    "last_verified": "2026-04-06",
+    "source_agent": "zara",
+    "expires_at": "2026-05-06"
   },
   "funnel": {
     "value": {
@@ -199,133 +216,135 @@
   },
   "metrics": {
     "value": {
-      "last_month": {
-        "Google Ads": {
-          "spend": 50000,
-          "revenue": 300000,
-          "ROAS": 6,
-          "CPA": 8000,
-          "CPL": 2000
-        },
-        "Meta Ads": {
-          "spend": 30000,
-          "revenue": 120000,
-          "ROAS": 4,
-          "CPA": 10000,
-          "CPL": 3000
-        },
-        "LinkedIn Ads": {
-          "spend": 20000,
-          "revenue": 80000,
-          "ROAS": 4,
-          "CPA": 12000,
-          "CPL": 4000
-        }
-      }
+      "organic_traffic": "unknown — no GA4 connected",
+      "paid_traffic": "zero — no active Google Ads campaigns",
+      "conversion_rate": "unknown — no funnel instrumentation",
+      "lead_volume": "unknown"
     },
-    "confidence": 0,
-    "last_verified": null,
-    "source_agent": null,
-    "expires_at": null
+    "confidence": 0.2,
+    "last_verified": "2026-04-06",
+    "source_agent": "dev",
+    "expires_at": "2026-05-06"
   },
   "baselines": {
     "value": {
-      "Google Ads": {
-        "ROAS": 6,
-        "CPA": 8000,
-        "CPL": 2000
-      },
-      "Meta Ads": {
-        "ROAS": 4,
-        "CPA": 10000,
-        "CPL": 3000
-      },
-      "LinkedIn Ads": {
-        "ROAS": 4,
-        "CPA": 12000,
-        "CPL": 4000
-      }
+      "status": "not_established",
+      "blocker": "No analytics connectors configured — GA4, PostHog, and Meta Ads all unconnected",
+      "minimum_required": [
+        "GA4 property ID",
+        "COMPOSIO_API_KEY",
+        "Google Search Console"
+      ]
     },
-    "confidence": 0,
-    "last_verified": null,
-    "source_agent": null,
-    "expires_at": null
+    "confidence": 0.2,
+    "last_verified": "2026-04-06",
+    "source_agent": "dev",
+    "expires_at": "2026-05-06"
   },
   "content_pillars": {
     "value": [
       {
-        "name": "AI in Prop‑Tech",
-        "formats": [
-          "blog posts",
-          "infographics",
-          "case studies"
+        "pillar": "AI Development for Fintech",
+        "target_keywords": [
+          "AI fintech product development India",
+          "AI app development fintech India"
         ],
-        "example": "5 Ways AI is Revolutionizing Property Management"
+        "priority": "high",
+        "next_asset": "SEO article — How AI Development Companies Are Transforming Fintech Products in India",
+        "status": "ready_to_brief"
       },
       {
-        "name": "AI in Fin‑Tech",
-        "formats": [
-          "blog posts",
-          "whitepapers",
-          "webinars"
+        "pillar": "AI Development for Proptech",
+        "target_keywords": [
+          "proptech AI development India",
+          "proptech software development India"
         ],
-        "example": "The Future of Fin‑Tech: How AI is Transforming Financial Services"
+        "priority": "high",
+        "next_asset": "Vertical landing page + supporting article",
+        "status": "queued"
       },
       {
-        "name": "AI in E‑Commerce",
-        "formats": [
-          "blog posts",
-          "videos",
-          "podcasts"
+        "pillar": "AI Development for Ecommerce",
+        "target_keywords": [
+          "ecommerce AI development India",
+          "AI ecommerce platform India"
         ],
-        "example": "How AI‑Powered Chatbots are Enhancing E‑Commerce Customer Experience"
+        "priority": "medium",
+        "next_asset": "TBD",
+        "status": "backlog"
       },
       {
-        "name": "AI Development Best Practices",
-        "formats": [
-          "blog posts",
-          "tutorials",
-          "case studies"
+        "pillar": "AI Development Partner Selection",
+        "target_keywords": [
+          "AI development company India",
+          "hire AI developers India",
+          "AI MVP development India"
         ],
-        "example": "A Step‑by‑Step Guide to Deploying AI Models in Production"
-      },
-      {
-        "name": "Success Stories and Case Studies",
-        "formats": [
-          "case studies",
-          "videos",
-          "infographics"
-        ],
-        "example": "How XYZ Fin‑Tech Company Achieved 30% Reduction in Fraud with AI‑Powered Risk Management"
+        "priority": "high",
+        "next_asset": "Comparison article — Productverse vs traditional dev shops",
+        "status": "ready_to_brief"
       }
     ],
-    "confidence": 0,
-    "last_verified": null,
-    "source_agent": null,
-    "expires_at": null
+    "confidence": 0.78,
+    "last_verified": "2026-04-06",
+    "source_agent": "riya",
+    "expires_at": "2026-05-06"
   },
   "campaigns": {
-    "value": [
-      {
-        "campaign": "AI-Powered Development Services",
-        "status": "active",
-        "last_verified": "2026-03-24",
-        "source_agent": "dev",
-        "expires_at": "2026-04-24"
+    "value": {
+      "nurture_fintech_inbound": {
+        "type": "nurture",
+        "trigger": "inbound_lead_fintech_vertical",
+        "emails": 3,
+        "send_days": [
+          0,
+          3,
+          7
+        ],
+        "status": "copy_ready_pending_automation_setup"
+      },
+      "linkedin_organic_launch": {
+        "type": "organic_social",
+        "verticals": [
+          "fintech",
+          "proptech"
+        ],
+        "post_angles_ready": 2,
+        "status": "copy_ready_pending_channel_launch"
       }
-    ],
-    "confidence": 0,
-    "last_verified": null,
-    "source_agent": null,
-    "expires_at": null
+    },
+    "confidence": 0.6,
+    "last_verified": "2026-04-06",
+    "source_agent": "sam",
+    "expires_at": "2026-05-06"
   },
   "insights": {
-    "value": {
-      "budget_reallocation": "Increase Google Ads spend to ₹60k, reduce Meta to ₹24k and LinkedIn to ₹16k to improve overall ROI."
-    },
-    "confidence": 0,
-    "last_verified": null,
-    "source_agent": null,
-    "expires_at": null
+    "value": [
+      {
+        "insight": "Current positioning language is generic and undifferentiated — 'unlock the full potential' and 'empower your business' appear across multiple competitors",
+        "action": "Retire legacy phrases; adopt AI-native message spine across all touchpoints",
+        "confidence": 0.8,
+        "source": "messaging_audit",
+        "date": "2026-04-06"
+      },
+      {
+        "insight": "Fintech vertical has the most developed messaging and should be the first channel activation priority",
+        "action": "Launch fintech landing page and Google Ads first; use fintech nurture sequence for all inbound leads",
+        "confidence": 0.75,
+        "source": "content_pillar_priority_alignment",
+        "date": "2026-04-06"
+      },
+      {
+        "insight": "No proof points, case studies, or delivery metrics exist in company knowledge — all copy is currently claim-only",
+        "action": "Prioritise capturing one client outcome story per vertical to anchor future copy",
+        "confidence": 0.9,
+        "source": "messaging_audit",
+        "date": "2026-04-06"
+      }
+    ],
+    "confidence": 0.7,
+    "last_verified": "2026-04-06",
+    "source_agent": "sam",
+    "expires_at": "2026-05-06"
   }
 }

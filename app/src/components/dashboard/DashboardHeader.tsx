@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bell, CalendarDays, Settings, User, LogOut, Moon, Sun, MessageSquare, Zap } from 'lucide-react';
+import { Bell, CalendarDays, Settings, User, LogOut, Moon, Sun, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -22,10 +22,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 interface DashboardHeaderProps {
   selectedModule: string | null;
   onModuleSelect: (moduleId: string | null) => void;
-  onOpenChat?: () => void;
 }
 
-export function DashboardHeader({ selectedModule, onModuleSelect, onOpenChat }: DashboardHeaderProps) {
+export function DashboardHeader({ selectedModule, onModuleSelect }: DashboardHeaderProps) {
   const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -76,19 +75,6 @@ export function DashboardHeader({ selectedModule, onModuleSelect, onOpenChat }: 
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-
-          {onOpenChat && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onOpenChat}
-              data-tour="header-ask-ai"
-              className="gap-1.5 text-xs font-medium rounded-full border-orange-200 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400"
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              Ask AI
-            </Button>
-          )}
 
           <Button
             variant="ghost"

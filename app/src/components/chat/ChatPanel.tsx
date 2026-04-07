@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import {
   HiX as X,
   HiPaperAirplane as Send,
@@ -581,9 +582,7 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-orange-500 to-orange-600 text-white">
           <div className="flex items-center space-x-3">
-            <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center text-white">
-              <Bot className="h-5 w-5" style={{ display: 'block', color: '#ffffff' }} />
-            </div>
+            <AgentAvatar name="veena" size="sm" className="h-8 w-8 rounded-full" />
             <div>
               <h3 className="font-semibold">Veena</h3>
             </div>
@@ -625,8 +624,8 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
               >
                 <Avatar className="h-8 w-8">
                   {message.sender === 'ai' ? (
-                    <AvatarFallback className="bg-orange-100 text-orange-600">
-                      <Bot className="h-4 w-4" />
+                    <AvatarFallback className="bg-transparent p-0">
+                      <AgentAvatar name="veena" size="sm" className="h-8 w-8 rounded-full" />
                     </AvatarFallback>
                   ) : (
                     <AvatarFallback className="bg-blue-100 text-blue-600">

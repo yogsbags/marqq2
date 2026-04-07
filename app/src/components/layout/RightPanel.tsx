@@ -8,16 +8,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-
-// Agent team — product config, not user data
-const AGENT_TEAM = [
-  { name: 'Veena', role: 'Marketing OS',      color: 'bg-orange-500' },
-  { name: 'Maya',  role: 'SEO & LLMO',        color: 'bg-green-500' },
-  { name: 'Arjun', role: 'Lead Intelligence', color: 'bg-blue-500' },
-  { name: 'Riya',  role: 'Content',           color: 'bg-purple-500' },
-  { name: 'Zara',  role: 'Campaigns',         color: 'bg-pink-500' },
-  { name: 'Dev',   role: 'Analytics',         color: 'bg-amber-500' },
-];
+import { AGENTS } from '@/components/onboarding/constants';
 
 // ── Collapsible section wrapper ───────────────────────────────────────────────
 
@@ -378,14 +369,17 @@ function AgentsSection() {
   return (
     <Section title="Your AI Team" defaultOpen={false}>
       <div className="px-3 space-y-0.5">
-        {AGENT_TEAM.map(a => (
-          <div key={a.name} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted/50 transition-colors">
-            <div className={cn('h-6 w-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0', a.color)}>
+        {AGENTS.map(a => (
+          <div key={a.id} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted/50 transition-colors">
+            <div
+              className="h-6 w-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
+              style={{ backgroundColor: a.color }}
+            >
               {a.name[0]}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium">{a.name}</p>
-              <p className="text-[10px] text-muted-foreground">{a.role}</p>
+              <p className="text-[10px] text-muted-foreground">{a.role} · {a.specialty}</p>
             </div>
           </div>
         ))}

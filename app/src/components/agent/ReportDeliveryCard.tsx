@@ -16,6 +16,7 @@ import { FileText, Link2, Mail, Send, ExternalLink, CheckCircle2 } from 'lucide-
 import { useAgentRun } from '@/hooks/useAgentRun'
 import { AgentRunPanel } from './AgentRunPanel'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { addIntegrationConnectedListener, connectComposioConnector } from '@/lib/composio'
 import { toast } from 'sonner'
 
 type ReportDeliveryCardProps = {
@@ -107,17 +108,13 @@ export function ReportDeliveryCard({
   }, [loadConnectors])
 
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return
-      if (e.data?.type !== 'composio_oauth_success') return
-      const connectorId = e.data?.connectorId as string | undefined
+    return addIntegrationConnectedListener(({ companyId, connectorId }) => {
+      if (companyId !== activeWorkspace?.id) return
       setConnectorActionId(null)
       toast.success(`${connectorId ? CONNECTOR_LABELS[connectorId] || connectorId : 'Integration'} connected successfully`)
       void loadConnectors()
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [loadConnectors])
+    })
+  }, [activeWorkspace?.id, loadConnectors])
 
   const connectorStatus = useMemo(() => {
     const map = new Map<string, ConnectorState>()
@@ -181,25 +178,15 @@ export function ReportDeliveryCard({
     }
     setConnectorActionId(connectorId)
     try {
-      const res = await fetch('/api/integrations/connect', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ companyId: activeWorkspace.id, connectorId }),
+      toast.info('Complete the connection in the popup window')
+      const result = await connectComposioConnector({
+        companyId: activeWorkspace.id,
+        connectorId,
+        onConnected: async () => {
+          await loadConnectors()
+        },
       })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json?.error || 'connect failed')
-      if (json.redirectUrl) {
-        const popup = window.open(json.redirectUrl, 'composio_oauth', 'width=600,height=700,left=200,top=100')
-        toast.info('Complete the connection in the popup window')
-        const poll = setInterval(() => {
-          if (!popup || popup.closed) {
-            clearInterval(poll)
-            setConnectorActionId(null)
-            void loadConnectors()
-          }
-        }, 1500)
-      } else {
-        toast.success('Connected')
+      if (result.status === 'closed') {
         setConnectorActionId(null)
         void loadConnectors()
       }

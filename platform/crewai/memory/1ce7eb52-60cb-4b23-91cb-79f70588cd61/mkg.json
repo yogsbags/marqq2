@@ -1,6 +1,6 @@
 {
   "company_id": "1ce7eb52-60cb-4b23-91cb-79f70588cd61",
-  "updated_at": "2026-03-23T17:29:16.561Z",
+  "updated_at": "2026-04-06T18:07:58.663Z",
   "positioning": {
     "value": "Productverse Technologies is the partner of choice for real‑estate and fintech enterprises seeking custom‑built AI applications that drive efficiency and deliver measurable ROI quickly.",
     "confidence": 0.9,
@@ -19,19 +19,38 @@
       "roles": [
         "Business Owner",
         "Head of Digital Transformation",
-        "IT Director"
+        "IT Director",
+        "CTO"
       ],
       "budget_min": 1000000,
       "pain_points": [
         "Manual workflow bottlenecks",
         "Data siloes",
-        "Slow time‑to‑insight"
-      ]
+        "Slow time-to-insight"
+      ],
+      "segments": [
+        {
+          "name": "Mid-Market Real Estate Developers & Brokerages",
+          "size": "50-200",
+          "priority": "high"
+        },
+        {
+          "name": "Fintech Lenders & NBFC Platforms",
+          "size": "100-300",
+          "priority": "high"
+        },
+        {
+          "name": "Real Estate SaaS & PropTech Platforms",
+          "size": "50-150",
+          "priority": "medium"
+        }
+      ],
+      "qualification_min_signals": 3
     },
-    "confidence": 0.85,
-    "last_verified": "2026-03-23",
-    "source_agent": "neel",
-    "expires_at": "2026-04-23"
+    "confidence": 0.72,
+    "last_verified": "2026-04-06",
+    "source_agent": "arjun",
+    "expires_at": "2026-05-06"
   },
   "competitors": {
     "value": null,
@@ -102,78 +121,191 @@
   "channels": {
     "value": [
       {
-        "name": "LinkedIn Ads",
-        "status": "planned"
+        "name": "Organic Search",
+        "status": "gap-identified",
+        "assessment": "Zero published content for all target keyword clusters — unranked for all priority terms",
+        "q2_action": "Publish 4 priority SEO articles in Weeks 1–6"
+      },
+      {
+        "name": "AI Answer Engines (LLMO)",
+        "status": "not-present",
+        "assessment": "No FAQ schema, no definition blocks, no comparison tables — zero citation surface for AI search engines",
+        "q2_action": "Add FAQ schema, definition blocks, comparison tables to all published pages"
+      },
+      {
+        "name": "LinkedIn Organic",
+        "status": "activating",
+        "q2_action": "3 posts per week from Week 1"
       },
       {
         "name": "Google Ads",
-        "status": "planned"
+        "status": "planned",
+        "q2_action": "Activate Week 3 after landing pages live"
+      },
+      {
+        "name": "LinkedIn Ads",
+        "status": "planned",
+        "q2_action": "Activate Week 6"
+      },
+      {
+        "name": "Outbound Email + LinkedIn DM",
+        "status": "planned",
+        "q2_action": "Launch Week 2 targeting Fintech NBFCs"
       }
     ],
-    "confidence": 0.8,
-    "last_verified": "2026-03-23",
-    "source_agent": "neel",
-    "expires_at": "2026-04-22"
+    "confidence": 0.75,
+    "last_verified": "2026-04-06",
+    "source_agent": "maya",
+    "expires_at": "2026-05-06"
   },
   "funnel": {
-    "value": null,
-    "confidence": 0,
-    "last_verified": null,
-    "source_agent": null,
-    "expires_at": null
+    "value": {
+      "qualification_gate": {
+        "min_signals": 3,
+        "signals": [
+          "Industry match",
+          "Company size 50-300",
+          "Role match",
+          "Budget signal ₹10L+",
+          "Trigger event"
+        ]
+      },
+      "top_of_funnel_channels": [
+        "LinkedIn Outreach",
+        "Google Ads",
+        "Organic Search"
+      ],
+      "status": "no_live_data — qualification framework defined, no conversion data available"
+    },
+    "confidence": 0.6,
+    "last_verified": "2026-04-06",
+    "source_agent": "arjun",
+    "expires_at": "2026-05-06"
   },
   "metrics": {
-    "value": null,
-    "confidence": 0,
-    "last_verified": null,
-    "source_agent": null,
-    "expires_at": null
+    "value": {
+      "traffic_volume": "unmeasured_no_ga4_connection",
+      "conversion_rate": "unmeasured",
+      "funnel_drop_off": "unmeasured",
+      "active_acquisition_channels": 0
+    },
+    "confidence": 0.5,
+    "last_verified": "2026-04-06",
+    "source_agent": "dev",
+    "expires_at": "2026-05-06"
   },
   "baselines": {
     "value": {
-      "cpl_target": 5000,
-      "ctr_google_search": 2.5,
-      "ctr_linkedin_content": 1.2
+      "status": "no_baseline_established",
+      "reason": "No GA4, PostHog, or Search Console data connected",
+      "minimum_data_needed": [
+        "ga4_90d_export",
+        "search_console_ctr",
+        "crm_lead_volume"
+      ]
     },
-    "confidence": 0.8,
-    "last_verified": "2026-03-23",
-    "source_agent": "zara",
-    "expires_at": "2026-04-23"
+    "confidence": 0.5,
+    "last_verified": "2026-04-06",
+    "source_agent": "dev",
+    "expires_at": "2026-05-06"
   },
   "content_pillars": {
     "value": [
-      "AI in Real Estate",
-      "AI in Fintech",
-      "Custom AI Solutions"
+      {
+        "pillar": "AI in Real Estate",
+        "target_keywords": [
+          "AI app development real estate India",
+          "property management AI software India",
+          "real estate automation software India"
+        ],
+        "priority_asset": "AI App Development for Real Estate Companies in India — The Complete Guide",
+        "gap_status": "article triggered — pending publish",
+        "priority": "high"
+      },
+      {
+        "pillar": "AI in Fintech",
+        "target_keywords": [
+          "KYC automation AI India",
+          "fraud detection AI fintech India",
+          "fintech automation software India"
+        ],
+        "priority_asset": "KYC Automation with AI for NBFCs and Fintech Lenders in India",
+        "gap_status": "article triggered — pending publish",
+        "priority": "high"
+      },
+      {
+        "pillar": "Custom AI Solutions",
+        "target_keywords": [
+          "custom AI app development India",
+          "enterprise AI solutions India",
+          "custom AI vs SaaS"
+        ],
+        "priority_asset": "Custom AI vs. Off-the-Shelf SaaS: A Decision Framework for Indian Enterprises",
+        "gap_status": "article triggered — pending publish",
+        "priority": "medium"
+      },
+      {
+        "pillar": "AI Development Process",
+        "target_keywords": [
+          "AI development partner India",
+          "how to build AI workflow automation"
+        ],
+        "priority_asset": "How to Choose an AI Development Partner in India (Without Getting Burned)",
+        "gap_status": "article triggered — pending publish",
+        "priority": "medium"
+      }
     ],
-    "confidence": 0.7,
-    "last_verified": "2026-03-23",
-    "source_agent": "neel",
-    "expires_at": "2026-04-22"
+    "confidence": 0.88,
+    "last_verified": "2026-04-06",
+    "source_agent": "riya",
+    "expires_at": "2026-05-06"
   },
   "campaigns": {
     "value": [
       {
-        "name": "AI‑Driven Efficiency for Business Growth",
-        "status": "active",
+        "campaign_name": "Q2 Organic SEO Launch — 4 Pillar Articles",
+        "status": "in-production",
+        "assets_triggered": 4,
         "channels": [
-          "LinkedIn",
-          "Instagram"
+          "Organic Search",
+          "AI Answer Engines"
         ],
-        "start_date": "2026-03-23",
-        "end_date": "2026-04-06"
+        "target_segments": [
+          "Mid-Market Real Estate Developers",
+          "Fintech Lenders and NBFCs"
+        ],
+        "publish_sequence": [
+          "Article 1 (Week 1)",
+          "Article 2 (Week 2)",
+          "Article 3 (Week 3)",
+          "Article 4 (Week 4)"
+        ],
+        "next_action": "Review generated HTML, add FAQ JSON-LD schema if not auto-included, publish to productverse.in blog"
       }
     ],
-    "confidence": 0.9,
-    "last_verified": "2026-03-23",
+    "confidence": 0.82,
+    "last_verified": "2026-04-06",
     "source_agent": "riya",
-    "expires_at": "2026-04-23"
+    "expires_at": "2026-05-06"
   },
   "insights": {
-    "value": "LinkedIn remains the highest‑performing acquisition channel for mid‑market B2B SaaS in India; email nurture can lift demo conversion by ~20 % when paired with webinar content.",
-    "confidence": 0.8,
-    "last_verified": "2026-03-23",
-    "source_agent": "neel",
-    "expires_at": "2026-04-23"
+    "value": [
+      {
+        "insight": "Website has zero published content across all priority keyword clusters — CRO is severely limited by lack of trust-building content; highest-leverage action is publishing 4 SEO pillar articles in 30 days",
+        "source_agent": "riya",
+        "date": "2026-04-06",
+        "confidence": 0.88
+      },
+      {
+        "insight": "No FAQ schema or AI answer engine optimization exists — Productverse is invisible in Perplexity, ChatGPT, and Gemini search results; adding FAQ schema to homepage is a quick win",
+        "source_agent": "riya",
+        "date": "2026-04-06",
+        "confidence": 0.85
+      }
+    ],
+    "confidence": 0.85,
+    "last_verified": "2026-04-06",
+    "source_agent": "riya",
+    "expires_at": "2026-05-06"
   }
 }

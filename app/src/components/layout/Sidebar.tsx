@@ -1,5 +1,6 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { BRAND } from '@/lib/brand';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,12 +14,9 @@ import {
   Settings,
   LayoutDashboard,
   Puzzle,
-  BookOpen,
-  Calendar,
   FolderOpen,
   CalendarClock,
   UserCircle,
-  History,
   Check,
   Plus,
   LogOut,
@@ -41,11 +39,20 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
+function formatConvName(name: string): string {
+  return (
+    name
+      .replace(/^\//, '')                          // strip leading slash
+      .replace(/[-_]/g, ' ')                       // hyphens/underscores → spaces
+      .replace(/\b\w/g, (c) => c.toUpperCase())   // title-case each word
+      .trim() || 'New Conversation'
+  );
+}
+
 const channels: NavItem[] = [
   { id: 'home',                  title: 'main',        icon: Hash },
   { id: 'performance-scorecard', title: 'performance', icon: Hash },
-  { id: 'channel-health',        title: 'daily-brief', icon: Hash },
-  { id: 'calendar',              title: 'calendar',    icon: Calendar },
+  { id: 'calendar',              title: 'calendar',    icon: Hash },
 ];
 
 
@@ -53,9 +60,7 @@ const workspaceItems: NavItem[] = [
   { id: 'integrations',    title: 'Integrations',    icon: Puzzle },
   { id: 'workspace-files', title: 'Files',           icon: FolderOpen },
   { id: 'scheduled-jobs',  title: 'Tasks',           icon: CalendarClock },
-  { id: 'chat-sessions',   title: 'Chat History',    icon: History },
   { id: 'profile',         title: 'Your Profile',    icon: UserCircle },
-  { id: 'library',         title: 'Library',         icon: BookOpen },
   { id: 'settings',        title: 'Settings',        icon: Settings },
   { id: 'help',            title: 'Help',            icon: HelpCircle },
 ];
@@ -96,14 +101,14 @@ export function Sidebar({
     <div
       className={cn(
         'fixed left-0 top-0 z-30 flex flex-col h-full transition-[width] duration-300 ease-in-out',
-        'bg-[#1A1A2E] border-r border-white/[0.08]',
+        'bg-card/95 border-r border-border/70 supports-[backdrop-filter]:backdrop-blur-xl',
         collapsed ? 'w-14' : 'w-60',
       )}
     >
       {/* ── Logo header ─────────────────────────────────────────── */}
       <div
         className={cn(
-          'flex items-center border-b border-white/[0.08]',
+          'flex items-center border-b border-border/60',
           collapsed ? 'flex-col justify-center gap-2 py-3 px-2' : 'justify-between px-4 py-3',
         )}
       >
@@ -113,7 +118,7 @@ export function Sidebar({
             <button
               onClick={onToggleCollapse}
               aria-label="Expand sidebar"
-              className="p-1 text-white/40 hover:text-white/80 transition-colors rounded"
+              className="p-1 text-muted-foreground hover:text-foreground transition-colors rounded"
             >
               <PanelLeftOpen className="h-3.5 w-3.5" />
             </button>
@@ -123,10 +128,10 @@ export function Sidebar({
             <div className="flex items-center gap-2.5 min-w-0">
               <img src={BRAND.logoSrc} alt={BRAND.name} className="h-8 w-8 rounded-lg flex-shrink-0" />
               <div className="min-w-0">
-                <div className={`${BRAND.wordmarkFontClass} text-sm font-bold uppercase tracking-wider text-white truncate`}>
+                <div className={`${BRAND.wordmarkFontClass} text-sm font-bold uppercase tracking-wider text-foreground truncate`}>
                   {BRAND.name}
                 </div>
-                <div className="text-[9px] font-medium uppercase tracking-[0.13em] text-white/40 truncate">
+                <div className="text-[9px] font-medium uppercase tracking-[0.13em] text-muted-foreground truncate">
                   Marketing OS
                 </div>
               </div>
@@ -134,7 +139,7 @@ export function Sidebar({
             <button
               onClick={onToggleCollapse}
               aria-label="Collapse sidebar"
-              className="p-1.5 text-white/40 hover:text-white/80 transition-colors rounded flex-shrink-0"
+              className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded flex-shrink-0"
             >
               <PanelLeftClose className="h-3.5 w-3.5" />
             </button>
@@ -148,7 +153,7 @@ export function Sidebar({
         {/* WORKSPACE NAME */}
         {!collapsed && activeWorkspace?.name && (
           <div className="px-5 mb-3">
-            <p className="text-[11px] font-semibold text-white/70 truncate">
+            <p className="text-[11px] font-semibold text-foreground/75 truncate">
               {activeWorkspace.name}
             </p>
           </div>
@@ -156,7 +161,7 @@ export function Sidebar({
 
         {/* CHANNELS */}
         {!collapsed && (
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35 px-5 mb-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground px-5 mb-1">
             Channels
           </p>
         )}
@@ -172,8 +177,8 @@ export function Sidebar({
                   'w-full flex items-center rounded-md transition-all duration-150 text-left',
                   collapsed ? 'p-2 justify-center' : 'gap-2 px-2 py-1.5',
                   active
-                    ? 'bg-[#F97316]/20 text-white'
-                    : 'text-white/50 hover:text-white/85 hover:bg-white/[0.07]',
+                    ? 'bg-primary/10 text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/70',
                 )}
               >
                 {collapsed ? (
@@ -181,11 +186,11 @@ export function Sidebar({
                 ) : (
                   <>
                     <ch.icon
-                      className={cn('h-3.5 w-3.5 flex-shrink-0', active ? 'text-[#fb923c]' : 'text-white/35')}
+                      className={cn('h-3.5 w-3.5 flex-shrink-0', active ? 'text-primary' : 'text-muted-foreground')}
                     />
                     <span className="text-sm font-medium truncate">{ch.title}</span>
                     {active && (
-                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#fb923c] flex-shrink-0" />
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                     )}
                   </>
                 )}
@@ -196,11 +201,11 @@ export function Sidebar({
 
         {/* DIRECT MESSAGES */}
         {!collapsed && (
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35 px-5 mt-4 mb-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground px-5 mt-4 mb-1">
             Direct Messages
           </p>
         )}
-        {collapsed && <div className="mx-2 mt-4 mb-2 h-px bg-white/[0.08]" />}
+        {collapsed && <div className="mx-2 mt-4 mb-2 h-px bg-border/70" />}
         <div className={cn('space-y-0.5 mt-1', collapsed ? 'px-2' : 'px-3')}>
           {/* Agent DM row */}
           <div className={cn('w-full rounded-md transition-all duration-150', collapsed ? '' : '')}>
@@ -211,8 +216,8 @@ export function Sidebar({
                 className={cn(
                   'w-full flex items-center p-2 justify-center rounded-md transition-all duration-150',
                   homeActive
-                    ? 'bg-[#F97316]/20 text-white'
-                    : 'text-white/50 hover:text-white/85 hover:bg-white/[0.07]',
+                    ? 'bg-primary/10 text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/70',
                 )}
               >
                 <LayoutDashboard className="h-4 w-4" />
@@ -220,7 +225,7 @@ export function Sidebar({
             ) : (
               <div className={cn(
                 'flex items-center gap-2.5 px-2 py-1.5 rounded-md',
-                homeActive ? 'bg-[#F97316]/20' : '',
+                homeActive ? 'bg-primary/10' : '',
               )}>
                 <button
                   onClick={() => onModuleSelect(null)}
@@ -228,22 +233,20 @@ export function Sidebar({
                   className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
                 >
                   <div className="relative flex-shrink-0">
-                    <div className="h-6 w-6 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[9px] font-bold">
-                      {BRAND.agentInitial}
-                    </div>
-                    <div className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-green-500 border-[1.5px] border-[#1A1A2E]" />
+                    <AgentAvatar name="veena" size="sm" className="h-6 w-6 rounded-full" />
+                    <div className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-green-500 border-[1.5px] border-card" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
-                      <span className={cn('text-sm font-medium truncate', homeActive ? 'text-white' : 'text-white/80')}>{BRAND.agentName}</span>
+                      <span className={cn('text-sm font-medium truncate', homeActive ? 'text-foreground' : 'text-foreground/85')}>{BRAND.agentName}</span>
                     </div>
-                    <p className="text-[10px] text-white/35 truncate">{BRAND.agentTagline}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{BRAND.agentTagline}</p>
                   </div>
                 </button>
                 <button
                   onClick={() => onModuleSelect(null)}
                   title="New chat"
-                  className="flex-shrink-0 text-[10px] text-white/30 hover:text-white/70 transition-colors font-medium px-1.5 py-0.5 rounded hover:bg-white/[0.08]"
+                  className="flex-shrink-0 text-[10px] text-muted-foreground hover:text-foreground transition-colors font-medium px-1.5 py-0.5 rounded hover:bg-muted/70"
                 >
                   + New
                 </button>
@@ -254,10 +257,10 @@ export function Sidebar({
           {/* Conversation previews (not collapsed) */}
           {!collapsed && conversations && conversations.length > 0 && (
             <>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-white/20 px-2 mt-3 mb-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground px-2 mt-3 mb-1">
                 Chat History
               </p>
-              {conversations.slice(0, 2).map(conv => (
+              {conversations.slice(0, 3).map(conv => (
                 <button
                   key={conv.id}
                   onClick={() => {
@@ -265,25 +268,25 @@ export function Sidebar({
                     onModuleSelect(null);
                   }}
                   className={cn(
-                    'w-full flex flex-col px-2 py-1.5 rounded-md text-left transition-all duration-150',
+                    'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-all duration-150',
                     activeConversationId === conv.id
-                      ? 'bg-white/[0.10] text-white'
-                      : 'text-white/45 hover:text-white/75 hover:bg-white/[0.06]',
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
                   )}
                 >
-                  <span className="text-xs font-medium truncate text-white/70">{conv.name}</span>
-                  <span className="text-[10px] text-white/30 truncate mt-0.5">
-                    {conv.messages[conv.messages.length - 1]?.content?.slice(0, 38) ?? ''}
-                    {(conv.messages[conv.messages.length - 1]?.content?.length ?? 0) > 38 ? '...' : ''}
-                  </span>
+                  {/* Same avatar as DM section */}
+                  <div className="relative flex-shrink-0">
+                    <AgentAvatar name="veena" size="sm" className="h-6 w-6 rounded-full" />
+                  </div>
+                  <span className="text-xs font-medium text-foreground/85 truncate flex-1">{formatConvName(conv.name)}</span>
                 </button>
               ))}
               {conversations.length > 0 && (
                 <button
                   onClick={() => onModuleSelect('chat-sessions')}
-                  className="w-full text-left px-2 py-1 text-[10px] text-white/30 hover:text-white/55 transition-colors"
+                  className="w-full text-left px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
                 >
-                  See all conversations
+                  <span className="text-muted-foreground/60">›</span> See all conversations
                 </button>
               )}
             </>
@@ -292,11 +295,11 @@ export function Sidebar({
 
         {/* WORKSPACE */}
         {!collapsed && (
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35 px-5 mt-4 mb-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground px-5 mt-4 mb-1">
             Workspace
           </p>
         )}
-        {collapsed && <div className="mx-2 mt-3 mb-2 h-px bg-white/[0.08]" />}
+        {collapsed && <div className="mx-2 mt-3 mb-2 h-px bg-border/70" />}
         <div className={cn('space-y-0.5 mt-1', collapsed ? 'px-2' : 'px-3')}>
           {workspaceItems.map((item) => {
             const isSelected = selectedModule === item.id;
@@ -310,14 +313,14 @@ export function Sidebar({
                   'w-full flex items-center rounded-md transition-all duration-150 text-left',
                   collapsed ? 'p-2 justify-center' : 'gap-2 px-2 py-1.5',
                   isSelected
-                    ? 'bg-[#F97316]/20 text-white'
-                    : 'text-white/45 hover:text-white/80 hover:bg-white/[0.07]',
+                    ? 'bg-primary/10 text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/70',
                 )}
               >
                 <item.icon
                   className={cn(
                     'h-3.5 w-3.5 flex-shrink-0',
-                    isSelected ? 'text-[#fb923c]' : 'text-white/30',
+                    isSelected ? 'text-primary' : 'text-muted-foreground',
                   )}
                 />
                 {!collapsed && <span className="text-sm truncate">{item.title}</span>}
@@ -331,7 +334,7 @@ export function Sidebar({
       <div
         ref={profileRef}
         className={cn(
-          'border-t border-white/[0.08] flex-shrink-0 relative',
+          'border-t border-border/60 flex-shrink-0 relative',
           collapsed ? 'px-2 py-2 flex justify-center' : 'px-3 py-2',
         )}
       >
@@ -404,14 +407,14 @@ export function Sidebar({
         ) : (
           <button
             onClick={() => setProfileOpen(prev => !prev)}
-            className="w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-white/[0.06] transition-colors text-left"
+            className="w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/70 transition-colors text-left"
           >
             <div className="h-7 w-7 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
               {(user?.email?.[0] ?? 'M').toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-white/80 truncate">{user?.name || user?.email?.split('@')[0] || 'Account'}</p>
-              <p className="text-[10px] text-white/35 truncate">{activeWorkspace?.name || user?.email || ''}</p>
+              <p className="text-xs font-medium text-foreground/85 truncate">{user?.name || user?.email?.split('@')[0] || 'Account'}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{activeWorkspace?.name || user?.email || ''}</p>
             </div>
           </button>
         )}

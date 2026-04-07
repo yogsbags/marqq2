@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { addIntegrationConnectedListener, connectComposioConnector } from '@/lib/composio'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -1048,34 +1049,15 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
   }, [companyId])
 
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return
-      if (e.data?.type !== 'composio_oauth_success') return
-      const connectorId = e.data?.connectorId as string | undefined
+    return addIntegrationConnectedListener(({ companyId: connectedCompanyId }) => {
+      if (!companyId || connectedCompanyId !== companyId) return
       setConnectorActionId(null)
-      if (!companyId) return
       fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
         .then((res) => res.json())
         .then((json) => setConnectors(Array.isArray(json?.connectors) ? json.connectors : []))
         .catch(() => {})
       toast.success('Account connected successfully')
-      // Trigger Helena-style proactive automation suggestion email
-      if (connectorId && user?.email) {
-        fetch('/api/agents/integration-connected', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            connectorId,
-            workspaceId: companyId,
-            userEmail: user.email,
-            userName: user.name,
-          }),
-        }).catch(() => {})
-      }
-    }
-
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
+    })
   }, [companyId])
 
   const getGoalKey = (goal: GoalTarget) => `${goal.moduleId}:${goal.title}`
@@ -1424,7 +1406,8 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
   const connectConnector = async (label: string) => {
     const connectorId = CONNECTOR_LABEL_TO_ID[label]
     if (!connectorId) {
-      toast.info(`${label} can be connected from Setup`)
+      toast.info(`${label} can be connected from Integrations`)
+      onModuleSelect('integrations')
       return
     }
     if (!companyId) {
@@ -1434,33 +1417,24 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
 
     setConnectorActionId(connectorId)
     try {
-      const res = await fetch('/api/integrations/connect', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ companyId, connectorId }),
+      toast.info('Complete the connection in the popup window')
+      const result = await connectComposioConnector({
+        companyId,
+        connectorId,
+        userEmail: user?.email,
+        userName: user?.name,
+        onConnected: async () => {
+          const refreshRes = await fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
+          const refreshJson = await refreshRes.json().catch(() => ({}))
+          setConnectors(Array.isArray(refreshJson?.connectors) ? refreshJson.connectors : [])
+        },
       })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json?.error || 'connect failed')
 
-      if (json.redirectUrl) {
-        const popup = window.open(json.redirectUrl, 'composio_oauth', 'width=600,height=700,left=200,top=100')
-        toast.info('Complete the connection in the popup window')
-        const poll = setInterval(() => {
-          if (!popup || popup.closed) {
-            clearInterval(poll)
-            setConnectorActionId(null)
-            fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
-              .then((refreshRes) => refreshRes.json())
-              .then((refreshJson) => setConnectors(Array.isArray(refreshJson?.connectors) ? refreshJson.connectors : []))
-              .catch(() => {})
-          }
-        }, 1500)
-      } else {
+      if (result.status === 'closed') {
+        setConnectorActionId(null)
         const refreshRes = await fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
         const refreshJson = await refreshRes.json().catch(() => ({}))
         setConnectors(Array.isArray(refreshJson?.connectors) ? refreshJson.connectors : [])
-        toast.success('Connected')
-        setConnectorActionId(null)
       }
     } catch (err: any) {
       toast.error(err?.message || 'Connect failed')

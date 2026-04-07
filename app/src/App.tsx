@@ -53,8 +53,10 @@ function updateDocumentTitle(selectedModule: string | null) {
     document.title = `Library - ${BRAND.titleSuffix}`;
     return;
   }
-  if (selectedModule === 'settings' || selectedModule === 'settings-accounts') {
+  if (selectedModule === 'settings') {
     document.title = `Settings - ${BRAND.titleSuffix}`;
+  } else if (selectedModule === 'integrations') {
+    document.title = `Integrations - ${BRAND.titleSuffix}`;
   } else if (selectedModule === 'help') {
     document.title = `Help & Support - ${BRAND.titleSuffix}`;
   } else if (selectedModule) {
@@ -185,7 +187,6 @@ function Dashboard() {
 
     if (selectedModule === 'integrations') return <IntegrationsHub />;
     if (selectedModule === 'settings') return <SettingsPanel />;
-    if (selectedModule === 'settings-accounts') return <SettingsPanel initialTab="accounts" />;
     if (selectedModule === 'help') return <HelpPanel />;
     if (selectedModule === 'dashboard') return <AgentDashboard />;
     if (selectedModule === 'library') return <LibraryView />;

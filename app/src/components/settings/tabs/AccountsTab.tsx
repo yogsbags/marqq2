@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { addIntegrationConnectedListener, connectComposioConnector } from '@/lib/composio';
 
 type Connector = {
   id: string;
@@ -152,32 +152,14 @@ export function AccountsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Listen for OAuth success message from popup
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return
-      if (e.data?.type !== 'composio_oauth_success') return
-      const connectorId = e.data?.connectorId as string | undefined
+    return addIntegrationConnectedListener(({ companyId, connectorId }) => {
+      if (companyId !== entityId) return
       setActionId(null)
       toast.success(`${connectorId ? CONNECTOR_META[connectorId]?.logoLabel || connectorId : 'Account'} connected successfully`)
       load()
-      // Trigger Helena-style proactive automation suggestion email
-      if (connectorId && user?.email) {
-        fetch('/api/agents/integration-connected', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            connectorId,
-            workspaceId: entityId,
-            userEmail: user.email,
-            userName: user.name,
-          }),
-        }).catch(() => {})
-      }
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [load]);
+    })
+  }, [entityId, load]);
 
   const groupedConnectors = useMemo(() => {
     const buckets: Record<string, Connector[]> = {};
@@ -204,27 +186,19 @@ export function AccountsTab() {
     if (!entityId) { toast.error('Select a workspace to connect integrations'); return; }
     setActionId(id);
     try {
-      const res = await fetch('/api/integrations/connect', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ companyId: entityId, connectorId: id }),
+      toast.info('Complete the connection in the popup window');
+      const result = await connectComposioConnector({
+        companyId: entityId,
+        connectorId: id,
+        userEmail: user?.email,
+        userName: user?.name,
+        onConnected: async () => {
+          await load()
+        },
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || 'connect failed');
-      if (json.redirectUrl) {
-        const popup = window.open(json.redirectUrl, 'composio_oauth', 'width=600,height=700,left=200,top=100');
-        toast.info('Complete the connection in the popup window');
-        // Fallback: if user closes popup without completing, clear the loading state
-        const poll = setInterval(() => {
-          if (!popup || popup.closed) {
-            clearInterval(poll);
-            setActionId(null);
-            load();
-          }
-        }, 1500);
-      } else {
-        await load();
-        toast.success('Connected');
+      if (result.status === 'closed') {
         setActionId(null);
+        await load();
       }
     } catch (err: any) {
       toast.error(err?.message || 'Connect failed');

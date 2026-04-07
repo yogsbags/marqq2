@@ -2,7 +2,6 @@ import { Sidebar } from './Sidebar';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { ChannelHeader } from './ChannelHeader';
 import { RightPanel } from './RightPanel';
-import { ChatDrawer } from '@/components/chat/ChatDrawer';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import type { Conversation } from '@/types/chat';
@@ -85,7 +84,6 @@ export function MainLayout({
             <DashboardHeader
               selectedModule={selectedModule}
               onModuleSelect={onModuleSelect}
-              onOpenChat={() => onChatOpenChange(true)}
             />
           )}
 
@@ -112,15 +110,6 @@ export function MainLayout({
         )}
       </div>
 
-      {/* Chat Drawer — only shown for module pages (not when chat is the primary view) */}
-      {!isChatView && (
-        <ChatDrawer
-          open={chatOpen}
-          onOpenChange={onChatOpenChange}
-          onModuleSelect={onModuleSelect}
-          onConversationsChange={onConversationsChange}
-        />
-      )}
     </div>
   );
 }

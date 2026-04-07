@@ -8759,8 +8759,82 @@ const ANALYTICS_COMPOSIO_CONNECTORS = [
   { id: "manual_csv",    name: "Upload CSV/XLS", description: "Upload any spreadsheet export",                  status: "always_available" },
 ];
 
+function buildAnalyticsDashboard(period = "30d") {
+  const periodDays =
+    period === "7d" ? 7 :
+    period === "90d" ? 90 :
+    30;
+
+  const today = new Date();
+  const trafficChart = Array.from({ length: periodDays }, (_, idx) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - (periodDays - 1 - idx));
+    const base = 1200 + Math.sin(idx * 0.42) * 260;
+    const value = Math.round(base + ((idx % 5) * 37));
+    const prev = Math.round(base * 0.86 + ((idx % 4) * 29));
+    return {
+      date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      value,
+      prev,
+    };
+  });
+
+  const conversionChart = trafficChart.map((point, idx) => ({
+    date: point.date,
+    value: Math.round(point.value * 0.032 + (idx % 3)),
+    prev: Math.round((point.prev || 0) * 0.028 + (idx % 2)),
+  }));
+
+  const periodLabel =
+    period === "7d" ? "Last 7 days" :
+    period === "90d" ? "Last 90 days" :
+    "Last 30 days";
+
+  return {
+    lastUpdated: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+    period: periodLabel,
+    connected: false,
+    kpis: [
+      { label: "Sessions", value: "38,214", delta: "+12.4%", trend: "up", sub: "vs prev period" },
+      { label: "Organic Clicks", value: "14,892", delta: "+8.7%", trend: "up", sub: "Google Search Console" },
+      { label: "Impressions", value: "312,740", delta: "+21.3%", trend: "up", sub: "GSC total" },
+      { label: "Avg. Position", value: "11.2", delta: "-1.4", trend: "up", sub: "lower is better" },
+      { label: "Bounce Rate", value: "54.1%", delta: "-3.2pp", trend: "up", sub: "engagement rate" },
+      { label: "Goal Completions", value: "1,243", delta: "+18.9%", trend: "up", sub: "all goals" },
+    ],
+    trafficChart,
+    conversionChart,
+    topPages: [
+      { path: "/blog/ai-marketing-guide", sessions: 4820, delta: 22 },
+      { path: "/pricing", sessions: 3210, delta: 8 },
+      { path: "/features/lead-scoring", sessions: 2980, delta: 15 },
+      { path: "/blog/seo-automation", sessions: 2540, delta: -4 },
+      { path: "/integrations", sessions: 1890, delta: 31 },
+    ],
+    topQueries: [
+      { query: "ai marketing automation", clicks: 1240, impressions: 18400, position: 3.2 },
+      { query: "b2b lead scoring software", clicks: 890, impressions: 12100, position: 5.7 },
+      { query: "marketing intelligence platform", clicks: 760, impressions: 9800, position: 4.1 },
+      { query: "content automation tool", clicks: 640, impressions: 8200, position: 6.8 },
+      { query: "seo content generator", clicks: 590, impressions: 7600, position: 7.4 },
+    ],
+    channels: [
+      { channel: "Organic Search", sessions: 18420, pct: 48, delta: 14 },
+      { channel: "Direct", sessions: 9810, pct: 26, delta: 5 },
+      { channel: "Referral", sessions: 5430, pct: 14, delta: -2 },
+      { channel: "Social", sessions: 3020, pct: 8, delta: 22 },
+      { channel: "Email", sessions: 1534, pct: 4, delta: 9 },
+    ],
+  };
+}
+
 app.get("/api/analytics/connectors", (_req, res) => {
   res.json({ connectors: ANALYTICS_COMPOSIO_CONNECTORS });
+});
+
+app.get("/api/analytics/dashboard", (req, res) => {
+  const period = String(req.query.period || "30d");
+  res.json(buildAnalyticsDashboard(period));
 });
 
 /** Parse uploaded CSV → array of row objects */

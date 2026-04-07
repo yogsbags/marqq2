@@ -1,16 +1,14 @@
 import { useState } from 'react';
-import { User, Plug, Users, CreditCard } from 'lucide-react';
+import { User, Users, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GeneralTab } from './tabs/GeneralTab';
-import { AccountsTab } from './tabs/AccountsTab';
 import { MembersTab } from './tabs/MembersTab';
 import { BillingTab } from './tabs/BillingTab';
 
-type TabId = 'general' | 'accounts' | 'members' | 'billing';
+type TabId = 'general' | 'members' | 'billing';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'general',  label: 'General',  icon: <User className="h-4 w-4" /> },
-  { id: 'accounts', label: 'Accounts', icon: <Plug className="h-4 w-4" /> },
   { id: 'members',  label: 'Members',  icon: <Users className="h-4 w-4" /> },
   { id: 'billing',  label: 'Billing',  icon: <CreditCard className="h-4 w-4" /> },
 ];
@@ -25,7 +23,6 @@ export function SettingsPanel({ initialTab = 'general' }: SettingsPanelProps) {
   const renderTab = () => {
     switch (activeTab) {
       case 'general':  return <GeneralTab />;
-      case 'accounts': return <AccountsTab />;
       case 'members':  return <MembersTab />;
       case 'billing':  return <BillingTab />;
     }
@@ -38,7 +35,7 @@ export function SettingsPanel({ initialTab = 'general' }: SettingsPanelProps) {
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500">Workspace</div>
           <h1 className="mt-2 font-brand-syne text-xl font-semibold tracking-tight text-foreground">Settings</h1>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Manage workspace details, connected apps, members, and billing without leaving the product shell.
+            Manage workspace details, members, and billing without leaving the product shell.
           </p>
         </div>
         <nav className="px-3 pb-3 space-y-1">

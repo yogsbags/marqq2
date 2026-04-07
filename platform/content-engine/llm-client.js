@@ -98,7 +98,6 @@ export function createLLMClient() {
         baseURL: 'https://api.anthropic.com/v1',
         defaultHeaders: {
           'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'claude-3-7-sonnet-20250219,interleaved-thinking-2025-05-14',
         },
       });
       console.log(`[llm-client] Provider: Anthropic Claude (${LLM_MODEL})`);

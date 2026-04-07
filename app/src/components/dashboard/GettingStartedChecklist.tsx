@@ -246,7 +246,7 @@ export function GettingStartedChecklist({ onNavigate, onWebsiteSaved }: GettingS
     }
     if (!step2Complete) {
       toast.error('Connect an account before running your first agent.');
-      onNavigate('settings-accounts');
+      onNavigate('integrations');
       return;
     }
 
@@ -395,7 +395,7 @@ export function GettingStartedChecklist({ onNavigate, onWebsiteSaved }: GettingS
                     localStorage.setItem(getIntegrationStepKey(activeWorkspace.id), '1');
                     setIntegrationStepCompleted(true);
                   } else {
-                    onNavigate('settings-accounts');
+                    onNavigate('integrations');
                   }
                 }}
               >

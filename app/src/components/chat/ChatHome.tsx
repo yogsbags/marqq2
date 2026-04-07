@@ -780,6 +780,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentConvIdRef = useRef<string | null>(null);
   const hasRunWelcomeRef = useRef(false);
+  const hasHydratedConversationRef = useRef(false);
   const [showCSVAnalysis, setShowCSVAnalysis] = useState(false);
   const [csvFile, setCSVFile] = useState<File | null>(null);
   const [taskAgent, setTaskAgent] = useState<EmployeeName | null>(null);
@@ -799,10 +800,46 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     return () => clearInterval(timer);
   }, [isTyping]);
 
+  // -- Rehydrate the current workspace's most recent home conversation.
+  // Home chats created directly in ChatHome do not set activeConversationId in the
+  // parent, so when this view remounts after tab switches we need to restore the
+  // latest saved conversation instead of falling back to the default greeting.
+  useEffect(() => {
+    const conversations = loadConversations(activeWorkspace?.id)
+      .slice()
+      .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
+
+    if (activeConversationId) {
+      const conv = conversations.find(c => c.id === activeConversationId);
+      if (conv) {
+        setMessages(conv.messages);
+        setCurrentConvId(conv.id);
+        currentConvIdRef.current = conv.id;
+        hasHydratedConversationRef.current = true;
+      }
+      return;
+    }
+
+    if (hasHydratedConversationRef.current) return;
+
+    const latestConversation = conversations[0];
+    if (!latestConversation) return;
+
+    setMessages(latestConversation.messages);
+    setCurrentConvId(latestConversation.id);
+    currentConvIdRef.current = latestConversation.id;
+    hasHydratedConversationRef.current = true;
+  }, [activeConversationId, activeWorkspace?.id]);
+
+  useEffect(() => {
+    hasHydratedConversationRef.current = false;
+  }, [activeWorkspace?.id]);
+
   // -- Load today's report for the #main channel feed (Helena-style)
-  // Only runs on fresh mount before any conversation is loaded.
+  // Only runs when there is no persisted conversation to restore.
   useEffect(() => {
     if (activeConversationId) return; // a conversation will be loaded by the other effect
+    if (loadConversations(activeWorkspace?.id).length > 0) return;
     fetch('/api/agents/today-report')
       .then(r => r.ok ? r.json() : null)
       .then((data: { hasReport?: boolean; subject?: string; body?: string; recipients?: string[]; agentName?: string } | null) => {
@@ -825,8 +862,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         }]);
       })
       .catch(() => { /* keep greeting */ });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Mount only — intentionally not watching activeConversationId
+  }, [activeConversationId, activeWorkspace?.id]);
 
   const sendQuickMessage = (text: string) => {
     setInputValue(text);
@@ -968,19 +1004,6 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
       return next;
     });
   };
-
-  // -- Load conversation when activeConversationId changes
-
-  useEffect(() => {
-    if (!activeConversationId) return;
-    const conversations = loadConversations(activeWorkspace?.id);
-    const conv = conversations.find(c => c.id === activeConversationId);
-    if (conv) {
-      setMessages(conv.messages);
-      setCurrentConvId(conv.id);
-      currentConvIdRef.current = conv.id;
-    }
-  }, [activeConversationId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -1439,6 +1462,8 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     const url = activeWorkspace?.website_url;
     if (!url || !activeWorkspace?.id) return;
     if (activeConversationId) return; // don't override an already-open conversation
+    if (currentConvIdRef.current) return;
+    if (loadConversations(activeWorkspace?.id).length > 0) return;
 
     const key = `marqq_welcomed_${activeWorkspace.id}`;
     if (localStorage.getItem(key)) return;

@@ -114,14 +114,16 @@ export function useOnboarding(onComplete: () => void) {
     setActivatingAgent(null);
 
     const websiteUrl = formData.websiteUrl.trim();
+    const companyName = formData.company?.trim();
+
+    // Rename workspace to company name whenever one is provided
+    if (companyName && activeWorkspace?.id && companyName !== activeWorkspace.name) {
+      renameWorkspace(companyName).catch(() => {/* non-blocking */});
+    }
+
     if (websiteUrl && activeWorkspace?.id) {
       try {
         await updateWebsiteUrl(websiteUrl);
-        // Rename workspace to company name entered during onboarding
-        const companyName = formData.company?.trim();
-        if (companyName && companyName !== activeWorkspace.name) {
-          await renameWorkspace(companyName).catch(() => {/* non-blocking */});
-        }
       } catch {
         // non-blocking
       }

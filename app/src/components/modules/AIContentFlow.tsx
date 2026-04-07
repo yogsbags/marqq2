@@ -585,7 +585,7 @@ export function AIContentFlow({
   const heygenAssetsEmpty = !heygenLoading && !heygenLoadError && heygenAvatars.length === 0 && heygenVoices.length === 0
   const openHeyGenAccounts = () => {
     if (typeof window === 'undefined') return
-    window.dispatchEvent(new CustomEvent('marqq:navigate', { detail: { moduleId: 'settings-accounts' } }))
+    window.dispatchEvent(new CustomEvent('marqq:navigate', { detail: { moduleId: 'integrations' } }))
   }
   const avatarInstruction = contentType === 'video-avatar' && selectedHeyGenAvatar
     ? ` Use this exact HeyGen avatar_id: ${selectedHeyGenAvatar.avatar_id}${selectedHeyGenAvatar.avatar_name ? ` (${selectedHeyGenAvatar.avatar_name})` : ''}.`

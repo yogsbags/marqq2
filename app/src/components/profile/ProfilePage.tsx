@@ -179,7 +179,7 @@ export function ProfilePage() {
 
   return (
     <ScrollArea className="h-full">
-      <div className="px-6 pb-10 pt-4 max-w-2xl mx-auto space-y-5">
+      <div className="px-6 pb-10 pt-4 w-full space-y-5">
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -217,79 +217,86 @@ export function ProfilePage() {
           />
         </Section>
 
-        {/* Personal info */}
-        <Section icon={<User className="h-4 w-4" />} title="Personal information">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Name" value={data.name} onChange={set('name')} placeholder="Your full name" />
-            <Field label="Email" value={data.email} onChange={set('email')} type="email" placeholder="you@company.com" />
-            <Field label="Phone" value={data.phone} onChange={set('phone')} type="tel" placeholder="+91 98765 43210" />
-          </div>
-        </Section>
+        {/* Two-column grid on large screens */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-        {/* Business info */}
-        <Section icon={<Building2 className="h-4 w-4" />} title="Business information">
-          <div className="space-y-3">
-            <Field label="Business name" value={data.businessName} onChange={set('businessName')} placeholder="Acme Corp" />
-            <Field
-              label="Company description"
-              value={data.companyDescription}
-              onChange={set('companyDescription')}
-              type="textarea"
-              placeholder="Brief description of your company, products, and what makes you unique…"
-              hint="Used by Veena to personalise content and research."
-            />
-            <Field
-              label="Target customers"
-              value={data.targetCustomers}
-              onChange={set('targetCustomers')}
-              type="textarea"
-              placeholder="Who are your ideal customers? Include industry, role, company size…"
-            />
-          </div>
-        </Section>
+          {/* Personal info */}
+          <Section icon={<User className="h-4 w-4" />} title="Personal information">
+            <div className="space-y-3">
+              <Field label="Name" value={data.name} onChange={set('name')} placeholder="Your full name" />
+              <Field label="Email" value={data.email} onChange={set('email')} type="email" placeholder="you@company.com" />
+              <Field label="Phone" value={data.phone} onChange={set('phone')} type="tel" placeholder="+91 98765 43210" />
+            </div>
+          </Section>
 
-        {/* Social handles */}
-        <Section icon={<Linkedin className="h-4 w-4" />} title="Social media">
-          <div className="space-y-3">
-            <Field
-              label="LinkedIn"
-              value={data.linkedin}
-              onChange={set('linkedin')}
-              placeholder="https://linkedin.com/company/your-company"
-              type="url"
-            />
-            <Field
-              label="X / Twitter"
-              value={data.twitter}
-              onChange={set('twitter')}
-              placeholder="https://x.com/yourhandle"
-              type="url"
-            />
-          </div>
-        </Section>
+          {/* Social handles */}
+          <Section icon={<Linkedin className="h-4 w-4" />} title="Social media">
+            <div className="space-y-3">
+              <Field
+                label="LinkedIn"
+                value={data.linkedin}
+                onChange={set('linkedin')}
+                placeholder="https://linkedin.com/company/your-company"
+                type="url"
+              />
+              <Field
+                label="X / Twitter"
+                value={data.twitter}
+                onChange={set('twitter')}
+                placeholder="https://x.com/yourhandle"
+                type="url"
+              />
+            </div>
+          </Section>
 
-        {/* Brand */}
-        <Section icon={<Sparkles className="h-4 w-4" />} title="Brand voice">
-          <Field
-            label="Brand voice"
-            value={data.brandVoice}
-            onChange={set('brandVoice')}
-            type="textarea"
-            placeholder="Describe your brand tone — e.g. professional but conversational, bold and confident, empathetic…"
-            hint="Veena uses this when writing content on your behalf."
-          />
-          <Field
-            label="Value proposition"
-            value={data.valueProposition}
-            onChange={set('valueProposition')}
-            type="textarea"
-            placeholder="What core value do you deliver? e.g. 'We help B2B SaaS teams 3× pipeline without extra headcount.'"
-          />
-        </Section>
+          {/* Business info */}
+          <Section icon={<Building2 className="h-4 w-4" />} title="Business information">
+            <div className="space-y-3">
+              <Field label="Business name" value={data.businessName} onChange={set('businessName')} placeholder="Acme Corp" />
+              <Field
+                label="Company description"
+                value={data.companyDescription}
+                onChange={set('companyDescription')}
+                type="textarea"
+                placeholder="Brief description of your company, products, and what makes you unique…"
+                hint="Used by Veena to personalise content and research."
+              />
+              <Field
+                label="Target customers"
+                value={data.targetCustomers}
+                onChange={set('targetCustomers')}
+                type="textarea"
+                placeholder="Who are your ideal customers? Include industry, role, company size…"
+              />
+            </div>
+          </Section>
 
-        {/* SEO */}
+          {/* Brand */}
+          <Section icon={<Sparkles className="h-4 w-4" />} title="Brand voice">
+            <div className="space-y-3">
+              <Field
+                label="Brand voice"
+                value={data.brandVoice}
+                onChange={set('brandVoice')}
+                type="textarea"
+                placeholder="Describe your brand tone — e.g. professional but conversational, bold and confident, empathetic…"
+                hint="Veena uses this when writing content on your behalf."
+              />
+              <Field
+                label="Value proposition"
+                value={data.valueProposition}
+                onChange={set('valueProposition')}
+                type="textarea"
+                placeholder="What core value do you deliver? e.g. 'We help B2B SaaS teams 3× pipeline without extra headcount.'"
+              />
+            </div>
+          </Section>
+
+        </div>
+
+        {/* SEO — full width */}
         <Section icon={<Globe className="h-4 w-4" />} title="SEO & website configuration">
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field
               label="Website URL"
               value={data.website}
