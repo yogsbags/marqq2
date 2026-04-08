@@ -535,14 +535,17 @@ function FormattedMessage({
   onModuleSelect?: (moduleId: string) => void;
 }) {
   if (!isAI) return <p className="text-sm whitespace-pre-wrap">{content}</p>;
-  const plain = stripMarkdown(content);
   const artifacts = isAI ? extractFileArtifacts(content) : [];
+  const richTextHtml = markdownToRichText(content);
   return (
     <>
       {(reasoning || isReasoningStreaming) && (
         <ThinkingBlock reasoning={reasoning ?? ''} isStreaming={isReasoningStreaming} />
       )}
-      <p className="text-sm whitespace-pre-wrap leading-6">{plain}</p>
+      <div
+        className="text-sm prose prose-sm dark:prose-invert max-w-none leading-6 [&_ul]:mt-1 [&_li]:my-0.5"
+        dangerouslySetInnerHTML={{ __html: richTextHtml }}
+      />
       {artifacts.map(name => (
         <FileArtifactCard
           key={name}
