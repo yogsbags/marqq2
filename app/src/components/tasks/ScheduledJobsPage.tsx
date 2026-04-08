@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { PageSectionHeader } from '@/components/layout/PageSectionHeader'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { cn } from '@/lib/utils'
 import {
   CalendarClock, Pause, Play, Pencil, Trash2,
@@ -201,26 +202,33 @@ function JobCard({
 // ─── Root export ──────────────────────────────────────────────────────────────
 
 export function ScheduledJobsPage() {
+  const { activeWorkspace } = useWorkspace()
   const [jobs, setJobs] = useState<ScheduledJob[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
   async function load() {
+    if (!activeWorkspace?.id) {
+      setJobs(MOCK_JOBS)
+      return
+    }
+
     try {
-      const resp = await fetch('/api/agent-deployments')
+      const resp = await fetch(`/api/workspaces/${activeWorkspace.id}/agent-deployments`)
       if (resp.ok) {
         const json = await resp.json()
-        if (Array.isArray(json) && json.length > 0) {
+        const deployments = Array.isArray(json) ? json : Array.isArray(json?.deployments) ? json.deployments : []
+        if (deployments.length > 0) {
           // Map API shape to our ScheduledJob shape
-          const mapped: ScheduledJob[] = json.map((d: any) => ({
+          const mapped: ScheduledJob[] = deployments.map((d: any) => ({
             id: d.id || d.deploymentId,
-            title: d.name || d.title || 'Scheduled Task',
-            description: d.description || '',
-            schedule: d.schedule || d.cron || 'On demand',
+            title: d.sectionTitle || d.name || d.title || 'Scheduled Task',
+            description: d.summary || d.description || '',
+            schedule: d.schedule || d.cron || (d.scheduledFor ? new Date(d.scheduledFor).toLocaleString() : 'On demand'),
             status: d.status === 'paused' ? 'paused' : d.status === 'error' ? 'error' : 'active',
             agentName: d.agentName || d.agent || 'Veena',
-            lastRun: d.lastRun || d.lastRunAt,
-            nextRun: d.nextRun || d.nextRunAt,
+            lastRun: d.lastRun || d.lastRunAt || (d.status === 'completed' ? d.scheduledFor : undefined),
+            nextRun: d.nextRun || d.nextRunAt || (d.status !== 'completed' ? d.scheduledFor : undefined),
             channel: d.channel,
           }))
           setJobs(mapped)
@@ -233,7 +241,7 @@ export function ScheduledJobsPage() {
 
   useEffect(() => {
     load().finally(() => setLoading(false))
-  }, [])
+  }, [activeWorkspace?.id])
 
   async function refresh() {
     setRefreshing(true)

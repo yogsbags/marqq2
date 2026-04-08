@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { AGENTS } from '@/components/onboarding/constants';
 import { getGA4PropertyId } from '@/components/settings/tabs/AccountsTab';
+import { loadLibraryArtifacts, type LibraryArtifactRow } from '@/lib/persistence';
 
 // ── Collapsible section wrapper ───────────────────────────────────────────────
 
@@ -366,6 +367,17 @@ function TasksSection({ onModuleSelect }: { onModuleSelect?: (id: string) => voi
 
 type BrandFile = { name: string; updatedAt?: string };
 
+function extractArtifactTitle(row: LibraryArtifactRow): string {
+  const artifact = row.artifact || {};
+  const candidates = ['report_title', 'title', 'headline', 'name', 'subject'];
+  for (const key of candidates) {
+    const value = artifact[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  const agent = typeof row.agent === 'string' && row.agent.trim() ? row.agent.trim() : 'Saved';
+  return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} artifact`;
+}
+
 function BrandKBSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
   const { activeWorkspace } = useWorkspace();
   const [files, setFiles] = useState<BrandFile[]>([]);
@@ -376,16 +388,23 @@ function BrandKBSection({ onModuleSelect }: { onModuleSelect?: (id: string) => v
 
   useEffect(() => {
     if (!activeWorkspace?.id || loaded) return;
-    fetch(`/api/workspaces/${activeWorkspace.id}/files`)
-      .then(r => r.ok ? r.json() : null)
-      .then((data: unknown) => {
+    loadLibraryArtifacts(activeWorkspace.id)
+      .then((rows) => {
         setLoaded(true);
-        const arr: BrandFile[] = Array.isArray(data) ? data
-          : (data as { files?: BrandFile[] } | null)?.files ?? [];
-        setFiles(arr.slice(0, 10));
+        const arr: BrandFile[] = rows.slice(0, 10).map((row) => ({
+          name: extractArtifactTitle(row),
+          updatedAt: row.saved_at,
+        }));
+        setFiles(arr);
       })
       .catch(() => setLoaded(true));
   }, [activeWorkspace?.id, loaded]);
+
+  useEffect(() => {
+    const handler = () => setLoaded(false);
+    window.addEventListener('marqq:library-updated', handler);
+    return () => window.removeEventListener('marqq:library-updated', handler);
+  }, []);
 
   return (
     <Section title="Brand Knowledge Base" defaultOpen={true}>
