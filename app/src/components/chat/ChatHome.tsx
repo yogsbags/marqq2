@@ -45,6 +45,8 @@ import {
   saveConversations,
   deleteConversation as deleteConversationFromStorage,
 } from '@/lib/conversationPersistence';
+import { hasWorkflowForm, WORKFLOW_FORMS, buildWorkflowSummary } from '@/lib/workflowRequirements';
+import type { WorkflowFormData } from '@/types/chat';
 
 // -- Conversation persistence helpers
 
@@ -821,6 +823,120 @@ function SubagentMessageCard({ message, onModuleSelect }: { message: Message; on
   );
 }
 
+// ── Workflow form card ────────────────────────────────────────────────────────
+function WorkflowFormCard({
+  form,
+  onSubmit,
+  onSkip,
+}: {
+  form: WorkflowFormData;
+  onSubmit: (values: Record<string, string>) => void;
+  onSkip: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  const set = (id: string, val: string) =>
+    setValues(prev => ({ ...prev, [id]: val }));
+
+  return (
+    <div className="w-full rounded-2xl border border-orange-200/70 bg-gradient-to-br from-orange-50 via-white to-amber-50 dark:border-orange-900/30 dark:from-orange-950/30 dark:via-gray-950 dark:to-amber-950/20 px-4 pt-3 pb-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500 mb-0.5">
+        {form.moduleName}
+      </div>
+      <p className="text-sm text-foreground mb-3">{form.prompt}</p>
+      <div className="space-y-3">
+        {form.fields.map(field => (
+          <div key={field.id}>
+            <p className="text-[11px] font-medium text-muted-foreground mb-1.5">{field.label}</p>
+            {field.type === 'text' ? (
+              <input
+                type="text"
+                value={values[field.id] ?? ''}
+                onChange={e => set(field.id, e.target.value)}
+                placeholder={field.placeholder}
+                className="w-full rounded-lg border border-border/70 bg-background/80 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-orange-400"
+              />
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {field.options?.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => set(field.id, values[field.id] === opt.value ? '' : opt.value)}
+                    className={cn(
+                      'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                      values[field.id] === opt.value
+                        ? 'border-orange-400 bg-orange-100 text-orange-700 dark:border-orange-600 dark:bg-orange-900/30 dark:text-orange-300'
+                        : 'border-border/60 bg-background/70 text-muted-foreground hover:border-orange-300 hover:text-foreground'
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 mt-4">
+        <Button
+          type="button"
+          size="sm"
+          className="rounded-full bg-orange-500 hover:bg-orange-600 text-white px-4"
+          onClick={() => onSubmit(values)}
+        >
+          Let's go
+        </Button>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Skip — just open it
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Workflow confirm card ─────────────────────────────────────────────────────
+function WorkflowConfirmCard({
+  summary,
+  onConfirm,
+  onCancel,
+}: {
+  summary: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const richTextHtml = markdownToRichText(summary);
+  return (
+    <div className="w-full rounded-2xl border border-border/70 bg-background/80 px-4 pt-3 pb-4 shadow-sm">
+      <div
+        className="text-sm prose prose-sm dark:prose-invert max-w-none leading-6 mb-3"
+        dangerouslySetInnerHTML={{ __html: richTextHtml }}
+      />
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          className="rounded-full bg-orange-500 hover:bg-orange-600 text-white px-4"
+          onClick={onConfirm}
+        >
+          Open it
+        </Button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConversationsChange, hideHeader }: ChatHomeProps) {
   const { activeWorkspace, clearWebsiteUrl } = useWorkspace();
   const { plan, creditsRemaining, creditsTotal } = usePlan();
@@ -849,6 +965,13 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   const [reasoningStreamingId, setReasoningStreamingId] = useState<string | null>(null);
   const [typingLabelIdx, setTypingLabelIdx] = useState(0);
   const [activeTypingAgent, setActiveTypingAgent] = useState<SequenceAgent | null>(null);
+
+  // -- Workflow orchestration state
+  const [pendingWorkflow, setPendingWorkflow] = useState<{
+    moduleId: string;
+    moduleLabel: string;
+    formMessageId: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!isTyping) { setTypingLabelIdx(0); return; }
@@ -970,11 +1093,28 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         }
         if (veena.route === 'module') {
           setMessages(prev => prev.filter(m => m.id !== placeholderId));
+          setIsTyping(false);
+
+          if (hasWorkflowForm(veena.moduleId)) {
+            const form = WORKFLOW_FORMS[veena.moduleId];
+            const formMsgId = `wf-form-${Date.now()}`;
+            const formMsg: Message = {
+              id: formMsgId,
+              content: '',
+              sender: 'ai',
+              timestamp: new Date(),
+              workflowForm: form,
+              workflowState: 'gathering_inputs',
+            };
+            onMessagesChange(prev => [...prev, formMsg]);
+            setPendingWorkflow({ moduleId: veena.moduleId, moduleLabel: veena.label, formMessageId: formMsgId });
+            return;
+          }
+
           if (onModuleSelect) onModuleSelect(veena.moduleId);
           const navKey = navResponseKey(veena.moduleId);
           const msg: Message = { id: (Date.now() + 2).toString(), content: MODULE_NAV_RESPONSES[navKey] ?? `I've opened ${veena.label} for you.`, sender: 'ai', timestamp: new Date() };
           onMessagesChange(prev => [...prev, msg]);
-          setIsTyping(false);
           return;
         }
         // answer — persist final streamed content + reasoning
@@ -1691,6 +1831,72 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     }
   };
 
+  // -- Workflow form handlers
+
+  const handleWorkflowFormSubmit = (formMessageId: string, moduleId: string, moduleLabel: string, values: Record<string, string>) => {
+    // Mark the form message as done (remove workflowForm, add workflowState=awaiting_confirmation)
+    const summary = buildWorkflowSummary(moduleId, values);
+    const confirmMsgId = `wf-confirm-${Date.now()}`;
+    const confirmMsg: Message = {
+      id: confirmMsgId,
+      content: summary,
+      sender: 'ai',
+      timestamp: new Date(),
+      workflowState: 'awaiting_confirmation',
+      workflowParams: values,
+    };
+    // Remove the form message, add the confirm message
+    onMessagesChange(prev => {
+      const filtered = prev.filter(m => m.id !== formMessageId);
+      return [...filtered, confirmMsg];
+    });
+    setPendingWorkflow({ moduleId, moduleLabel, formMessageId: confirmMsgId });
+  };
+
+  const handleWorkflowSkip = (formMessageId: string, moduleId: string, moduleLabel: string) => {
+    // Just open the module with no params
+    onMessagesChange(prev => prev.filter(m => m.id !== formMessageId));
+    setPendingWorkflow(null);
+    if (onModuleSelect) onModuleSelect(moduleId);
+    const navKey = navResponseKey(moduleId);
+    const msg: Message = {
+      id: Date.now().toString(),
+      content: MODULE_NAV_RESPONSES[navKey] ?? `I've opened ${moduleLabel} for you.`,
+      sender: 'ai',
+      timestamp: new Date(),
+    };
+    onMessagesChange(prev => [...prev, msg]);
+  };
+
+  const handleWorkflowConfirm = (confirmMsgId: string, moduleId: string, moduleLabel: string, params: Record<string, string>) => {
+    // Remove confirm message, open module with params
+    onMessagesChange(prev => prev.filter(m => m.id !== confirmMsgId));
+    setPendingWorkflow(null);
+    // Pass params via a custom event so App.tsx can forward them to the module
+    window.dispatchEvent(new CustomEvent('marqq:workflow-params', { detail: { moduleId, params } }));
+    if (onModuleSelect) onModuleSelect(moduleId);
+    const navKey = navResponseKey(moduleId);
+    const msg: Message = {
+      id: Date.now().toString(),
+      content: MODULE_NAV_RESPONSES[navKey] ?? `I've opened ${moduleLabel} for you.`,
+      sender: 'ai',
+      timestamp: new Date(),
+    };
+    onMessagesChange(prev => [...prev, msg]);
+  };
+
+  const handleWorkflowCancel = (confirmMsgId: string) => {
+    onMessagesChange(prev => prev.filter(m => m.id !== confirmMsgId));
+    setPendingWorkflow(null);
+    const msg: Message = {
+      id: Date.now().toString(),
+      content: "No problem — let me know when you're ready.",
+      sender: 'ai',
+      timestamp: new Date(),
+    };
+    onMessagesChange(prev => [...prev, msg]);
+  };
+
   // -- Send message
 
   const handleSendMessage = async () => {
@@ -1834,10 +2040,29 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
 
       if (veena.route === 'module') {
         setMessages(prev => prev.filter(m => m.id !== placeholderId));
+        setIsTyping(false);
+
+        // For modules with workflow forms, inject a guided input form before opening
+        if (hasWorkflowForm(veena.moduleId)) {
+          const form = WORKFLOW_FORMS[veena.moduleId];
+          const formMsgId = `wf-form-${Date.now()}`;
+          const formMsg: Message = {
+            id: formMsgId,
+            content: '',
+            sender: 'ai',
+            timestamp: new Date(),
+            workflowForm: form,
+            workflowState: 'gathering_inputs',
+          };
+          onMessagesChange(prev => [...prev, formMsg]);
+          setPendingWorkflow({ moduleId: veena.moduleId, moduleLabel: veena.label, formMessageId: formMsgId });
+          return;
+        }
+
+        // Default: open module directly
         if (onModuleSelect) onModuleSelect(veena.moduleId);
         const navKey = navResponseKey(veena.moduleId);
         addMessage(MODULE_NAV_RESPONSES[navKey] ?? `I've opened ${veena.label} for you.`);
-        setIsTyping(false);
         return;
       }
 
@@ -1966,6 +2191,54 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         <ScrollArea className="flex-1 px-4 py-4">
           <div className="space-y-4">
             {messages.map((message) => {
+              // Workflow input form — render interactive form card
+              if (message.workflowForm && message.workflowState === 'gathering_inputs') {
+                const wf = pendingWorkflow;
+                return (
+                  <div key={message.id} className="w-full">
+                    <WorkflowFormCard
+                      form={message.workflowForm}
+                      onSubmit={(values) =>
+                        handleWorkflowFormSubmit(
+                          message.id,
+                          message.workflowForm!.moduleId,
+                          wf?.moduleLabel ?? message.workflowForm!.moduleName,
+                          values,
+                        )
+                      }
+                      onSkip={() =>
+                        handleWorkflowSkip(
+                          message.id,
+                          message.workflowForm!.moduleId,
+                          wf?.moduleLabel ?? message.workflowForm!.moduleName,
+                        )
+                      }
+                    />
+                  </div>
+                );
+              }
+
+              // Workflow confirmation card
+              if (message.workflowState === 'awaiting_confirmation') {
+                const wf = pendingWorkflow;
+                return (
+                  <div key={message.id} className="w-full">
+                    <WorkflowConfirmCard
+                      summary={message.content}
+                      onConfirm={() =>
+                        handleWorkflowConfirm(
+                          message.id,
+                          wf?.moduleId ?? '',
+                          wf?.moduleLabel ?? '',
+                          message.workflowParams ?? {},
+                        )
+                      }
+                      onCancel={() => handleWorkflowCancel(message.id)}
+                    />
+                  </div>
+                );
+              }
+
               // Specialist subagent message — render as distinct branded card
               if (message.sender === 'ai' && message.agentName) {
                 return (

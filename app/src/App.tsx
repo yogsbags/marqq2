@@ -99,6 +99,7 @@ function Dashboard() {
     return loadConversationsLocal(activeWorkspace?.id);
   });
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [workflowParams, setWorkflowParams] = useState<Record<string, Record<string, string>>>({});
 
   const handleConversationsChange = () => {
     setConversations(loadConversationsLocal(activeWorkspace?.id));
@@ -137,6 +138,18 @@ function Dashboard() {
     }
     window.addEventListener('marqq:navigate', handler)
     return () => window.removeEventListener('marqq:navigate', handler)
+  }, [])
+
+  // Listen for workflow params collected from in-chat forms before module opens
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { moduleId, params } = (e as CustomEvent<{ moduleId: string; params: Record<string, string> }>).detail ?? {}
+      if (moduleId && params) {
+        setWorkflowParams(prev => ({ ...prev, [moduleId]: params }))
+      }
+    }
+    window.addEventListener('marqq:workflow-params', handler)
+    return () => window.removeEventListener('marqq:workflow-params', handler)
   }, [])
 
   // Set initial document title
@@ -212,6 +225,7 @@ function Dashboard() {
           onBack={() => setSelectedModule(null)}
           onModuleSelect={handleModuleSelect}
           autoStart={autoStartModule}
+          workflowParams={workflowParams[currentModule.id]}
         />
       );
     }

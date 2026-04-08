@@ -50,6 +50,8 @@ interface ModuleDetailProps {
   onBack: () => void;
   onModuleSelect?: (moduleId: string) => void;
   autoStart?: boolean;
+  /** Params collected from the in-chat workflow form before this module opened */
+  workflowParams?: Record<string, string>;
 }
 
 type GuidedGoal = 'leads' | 'roi' | 'content' | null;
@@ -245,10 +247,29 @@ function parseGoalPresetFromHash(): GoalPreset {
   };
 }
 
-export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false }: ModuleDetailProps) {
+export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false, workflowParams }: ModuleDetailProps) {
   const [shouldAutoStart, setShouldAutoStart] = useState(autoStart);
   const [guidedGoal, setGuidedGoal] = useState<GuidedGoal>(() => parseGuidedGoalFromHash());
-  const [goalPreset, setGoalPreset] = useState<GoalPreset>(() => parseGoalPresetFromHash());
+  const [goalPreset, setGoalPreset] = useState<GoalPreset>(() => {
+    const hashPreset = parseGoalPresetFromHash();
+    // Merge workflow params (from in-chat form) with hash preset, giving precedence to workflow params
+    if (workflowParams && Object.keys(workflowParams).length > 0) {
+      return {
+        ...hashPreset,
+        // Map standard workflow param keys to GoalPreset keys
+        question: workflowParams.question ?? hashPreset.question ?? null,
+        // revenue-ops params
+        revopsProblem: workflowParams.problem ?? hashPreset.revopsProblem ?? null,
+        revopsBreakdown: workflowParams.breakdown ?? hashPreset.revopsBreakdown ?? null,
+        revopsSystems: workflowParams.systems ?? hashPreset.revopsSystems ?? null,
+        // seo-llmo params
+        seoFocus: workflowParams.focus ?? hashPreset.seoFocus ?? null,
+        seoSurface: workflowParams.surface ?? hashPreset.seoSurface ?? null,
+        seoGoal: workflowParams.goal ?? hashPreset.seoGoal ?? null,
+      };
+    }
+    return hashPreset;
+  });
   const { plan } = usePlan();
 
   // Reset auto-start after first use

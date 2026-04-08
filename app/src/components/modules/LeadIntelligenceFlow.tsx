@@ -2224,6 +2224,7 @@ function normalizeRouteResult(data: RouteResult): RouteResult & { summary: Routi
 
 function RoutingTab({
   companyId,
+  workspaceName,
   sharedLeads,
   sharedLeadSource,
   aiRoutingNotes,
@@ -2233,6 +2234,7 @@ function RoutingTab({
   onPrepareOutreachChannel,
 }: {
   companyId: string
+  workspaceName: string
   sharedLeads: Lead[]
   sharedLeadSource: string
   aiRoutingNotes: string
@@ -2808,6 +2810,7 @@ export function LeadIntelligenceFlow({ autoStart = false, initialTab, initialLea
         <div role="tabpanel" hidden={tab !== 'route'} className={tab === 'route' ? 'mt-2' : 'hidden'}>
           <RoutingTab
             companyId={companyId}
+            workspaceName={workspaceName}
             sharedLeads={sharedLeads}
             sharedLeadSource={sharedLeadSource}
             aiRoutingNotes={aiRoutingNotes}
