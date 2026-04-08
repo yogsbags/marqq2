@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { addIntegrationConnectedListener, connectComposioConnector } from '@/lib/composio';
+import { cn } from '@/lib/utils';
+import { BarChart2, Check, ChevronDown, Loader2, Search, X } from 'lucide-react';
 
 type Connector = {
   id: string;
@@ -129,12 +131,173 @@ function IntegrationLogo({ id, name }: { id: string; name: string }) {
   );
 }
 
+// ─── GA4 property picker helpers ─────────────────────────────────────────────
+
+type GA4Property = { id: string; displayName: string; account: string; timeZone?: string };
+
+const GA4_PROPERTY_KEY = (wsId: string) => `marqq_ga4_property_${wsId}`;
+
+export function getGA4PropertyId(workspaceId: string): string | null {
+  try { return localStorage.getItem(GA4_PROPERTY_KEY(workspaceId)); } catch { return null; }
+}
+
+function saveGA4PropertyId(workspaceId: string, propertyId: string) {
+  try { localStorage.setItem(GA4_PROPERTY_KEY(workspaceId), propertyId); } catch {}
+}
+
+// ─── GA4 Property Modal ───────────────────────────────────────────────────────
+
+function GA4PropertyModal({
+  workspaceId,
+  onClose,
+}: { workspaceId: string; onClose: () => void }) {
+  const [properties, setProperties] = useState<GA4Property[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
+  const [selected, setSelected]     = useState<string | null>(null);
+  const [saving, setSaving]         = useState(false);
+  const [open, setOpen]             = useState(false);
+
+  const current = getGA4PropertyId(workspaceId);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/analytics/ga4/properties?companyId=${encodeURIComponent(workspaceId)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        setProperties(data.properties || []);
+        // Pre-select current saved property
+        const saved = getGA4PropertyId(workspaceId);
+        if (saved) setSelected(saved);
+        else if (data.properties?.length === 1) setSelected(data.properties[0].id);
+      })
+      .catch(e => setError(e.message || 'Failed to load properties'))
+      .finally(() => setLoading(false));
+  }, [workspaceId]);
+
+  function save() {
+    if (!selected) return;
+    setSaving(true);
+    saveGA4PropertyId(workspaceId, selected);
+    const prop = properties.find(p => p.id === selected);
+    toast.success(`GA4 property set to "${prop?.displayName || selected}"`);
+    setSaving(false);
+    onClose();
+  }
+
+  const selectedProp = properties.find(p => p.id === selected);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-border/70 bg-background shadow-xl">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50">
+          <div className="h-8 w-8 rounded-lg bg-[#F9AB00]/15 flex items-center justify-center flex-shrink-0">
+            <BarChart2 className="h-4 w-4 text-[#F9AB00]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-foreground">Select GA4 Property</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Choose which property to use for your Performance dashboard</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-3">
+          {loading && (
+            <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading properties…
+            </div>
+          )}
+          {!loading && error && (
+            <div className="rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/40 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+              {error}
+            </div>
+          )}
+          {!loading && !error && properties.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-6">No GA4 properties found for this account.</p>
+          )}
+          {!loading && !error && properties.length > 0 && (
+            <>
+              {/* Custom dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setOpen(o => !o)}
+                  className="w-full flex items-center justify-between rounded-xl border border-border/60 bg-background px-3 py-2.5 text-sm hover:border-orange-400/60 transition-colors"
+                >
+                  <span className={cn('text-left flex-1', !selectedProp && 'text-muted-foreground')}>
+                    {selectedProp ? (
+                      <span className="flex flex-col">
+                        <span className="font-medium text-foreground">{selectedProp.displayName}</span>
+                        <span className="text-[10px] text-muted-foreground">{selectedProp.account} · {selectedProp.id}</span>
+                      </span>
+                    ) : 'Select a property…'}
+                  </span>
+                  <ChevronDown className={cn('h-4 w-4 text-muted-foreground ml-2 flex-shrink-0 transition-transform', open && 'rotate-180')} />
+                </button>
+                {open && (
+                  <div className="absolute z-10 mt-1 w-full rounded-xl border border-border/60 bg-popover shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+                    {properties.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => { setSelected(p.id); setOpen(false); }}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors',
+                          selected === p.id && 'bg-orange-50/60 dark:bg-orange-950/20',
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{p.displayName}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{p.account} · {p.id}</p>
+                        </div>
+                        {selected === p.id && <Check className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Current saved property note */}
+              {current && current !== selected && (
+                <p className="text-[11px] text-muted-foreground">
+                  Currently saved: <span className="font-medium text-foreground">{properties.find(p => p.id === current)?.displayName || current}</span>
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border/50">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            disabled={!selected || saving || loading}
+            onClick={save}
+            className="bg-orange-500 hover:bg-orange-600 text-white"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+            Save property
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function AccountsTab() {
   const { activeWorkspace } = useWorkspace();
   const { user } = useAuth();
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [ga4ModalOpen, setGa4ModalOpen] = useState(false);
 
   // Composio connections are per workspace/company — each workspace is a separate entityId
   // so an agency user can have different Google Ads, Meta Ads etc. per client workspace
@@ -158,6 +321,8 @@ export function AccountsTab() {
       setActionId(null)
       toast.success(`${connectorId ? CONNECTOR_META[connectorId]?.logoLabel || connectorId : 'Account'} connected successfully`)
       load()
+      // Auto-open property picker after GA4 connects
+      if (connectorId === 'ga4') setGa4ModalOpen(true)
     })
   }, [entityId, load]);
 
@@ -282,6 +447,16 @@ export function AccountsTab() {
                         ) : (
                           <Badge variant="secondary">Not connected</Badge>
                         )}
+                        {c.connected && c.id === 'ga4' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setGa4ModalOpen(true)}
+                            className="text-[#F9AB00] border-[#F9AB00]/40 hover:border-[#F9AB00]/70 hover:bg-[#F9AB00]/10"
+                          >
+                            Property
+                          </Button>
+                        )}
                         {c.connected ? (
                           <Button
                             variant="outline"
@@ -309,6 +484,14 @@ export function AccountsTab() {
             </section>
           ))}
         </div>
+      )}
+
+      {/* GA4 property picker modal */}
+      {ga4ModalOpen && activeWorkspace?.id && (
+        <GA4PropertyModal
+          workspaceId={activeWorkspace.id}
+          onClose={() => setGa4ModalOpen(false)}
+        />
       )}
     </div>
   );

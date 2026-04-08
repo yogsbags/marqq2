@@ -133,6 +133,18 @@ export function useOnboarding(onComplete: () => void) {
     }
 
     await new Promise(r => setTimeout(r, 900));
+
+    // Save onboarding context so the first-run welcome sequence can personalise agent queries
+    if (activeWorkspace?.id) {
+      localStorage.setItem(`marqq_onboarding_ctx_${activeWorkspace.id}`, JSON.stringify({
+        company: formData.company?.trim() || '',
+        industry: formData.industry?.trim() || '',
+        icp: formData.icp?.trim() || '',
+        goals: formData.goals?.trim() || '',
+        connectedIntegrations: formData.connectedIntegrations?.trim() || '',
+      }));
+    }
+
     setPhase('done');
     sessionStorage.removeItem('marqq_just_signed_up');
     localStorage.setItem('marqq_onboarded', '1');

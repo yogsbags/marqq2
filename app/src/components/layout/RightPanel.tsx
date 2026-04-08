@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { AGENTS } from '@/components/onboarding/constants';
+import { getGA4PropertyId } from '@/components/settings/tabs/AccountsTab';
 
 // ── Collapsible section wrapper ───────────────────────────────────────────────
 
@@ -48,7 +49,80 @@ function Section({
 
 // ── Metrics section ───────────────────────────────────────────────────────────
 
+type MiniKpi = { label: string; value: string; delta: string; trend: 'up' | 'down' | 'flat'; source: string }
+
 function MetricsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
+  const { activeWorkspace } = useWorkspace();
+  const [kpis, setKpis] = useState<MiniKpi[]>([]);
+  const [connectedSources, setConnectedSources] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!activeWorkspace?.id || loaded) return;
+    const wsId = activeWorkspace.id;
+    const ga4Prop = getGA4PropertyId(wsId) || '';
+    const dashUrl = `/api/analytics/dashboard?period=30d&companyId=${encodeURIComponent(wsId)}${ga4Prop ? `&ga4PropertyId=${encodeURIComponent(ga4Prop)}` : ''}`;
+    fetch(dashUrl)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { connected?: boolean; connectedSources?: Array<{id:string;name:string}>; kpis?: Array<{label:string;value:string;delta:string;trend:string;sub?:string}> } | null) => {
+        setLoaded(true);
+        if (!data?.connected || !data.kpis?.length) return;
+        // Pick top 4 KPIs for the mini panel
+        const top = data.kpis.slice(0, 4).map(k => ({
+          label: k.label,
+          value: k.value,
+          delta: k.delta,
+          trend: (k.trend as 'up' | 'down' | 'flat') || 'flat',
+          source: k.sub || '',
+        }));
+        setKpis(top);
+        setConnectedSources((data.connectedSources ?? []).map((s: {id:string;name:string}) => s.name));
+      })
+      .catch(() => setLoaded(true));
+  }, [activeWorkspace?.id, loaded]);
+
+  if (loaded && kpis.length > 0) {
+    return (
+      <Section title="Metrics">
+        <div className="px-3 py-1 space-y-2">
+          {/* Connected sources pill row */}
+          <div className="flex flex-wrap gap-1.5">
+            {connectedSources.map(name => (
+              <span key={name} className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                {name}
+              </span>
+            ))}
+          </div>
+          {/* Mini KPI grid */}
+          <div className="grid grid-cols-2 gap-1.5">
+            {kpis.map(k => (
+              <button
+                key={k.label}
+                onClick={() => onModuleSelect?.('performance')}
+                className="rounded-lg border border-border/50 bg-background/80 p-2 text-left hover:border-orange-300/60 transition-colors"
+              >
+                <p className="text-[10px] text-muted-foreground truncate">{k.label}</p>
+                <p className="text-sm font-bold text-foreground leading-tight mt-0.5">{k.value}</p>
+                <p className={cn(
+                  'text-[10px] font-medium mt-0.5',
+                  k.trend === 'up' ? 'text-emerald-600 dark:text-emerald-400' :
+                  k.trend === 'down' ? 'text-red-500' : 'text-muted-foreground'
+                )}>{k.delta}</p>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => onModuleSelect?.('performance')}
+            className="w-full text-[10px] text-orange-500 hover:underline text-center py-0.5"
+          >
+            View full report →
+          </button>
+        </div>
+      </Section>
+    );
+  }
+
   return (
     <Section title="Metrics">
       <div className="px-3 py-1">

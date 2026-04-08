@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { cn } from '@/lib/utils'
+import { getGA4PropertyId } from '@/components/settings/tabs/AccountsTab'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   TrendingUp, TrendingDown, Minus,
-  BarChart2, Globe, Search, Users, MousePointerClick,
-  Eye, ArrowUpRight, RefreshCw, PlugZap,
+  BarChart2, Globe, Search, MousePointerClick,
+  Eye, ArrowUpRight, RefreshCw, PlugZap, CheckCircle2,
   ChevronDown, ChevronUp,
 } from 'lucide-react'
 import {
@@ -32,6 +33,8 @@ type TopPage = { path: string; sessions: number; delta: number }
 type TopQuery = { query: string; clicks: number; impressions: number; position: number }
 type ChannelRow = { channel: string; sessions: number; pct: number; delta: number }
 
+type ConnectedSource = { id: string; name: string; connectedAt?: string | null }
+
 type DashboardData = {
   lastUpdated: string
   period: string
@@ -42,6 +45,7 @@ type DashboardData = {
   topQueries: TopQuery[]
   channels: ChannelRow[]
   connected: boolean
+  connectedSources?: ConnectedSource[]
 }
 
 // ─── Placeholder / skeleton data ─────────────────────────────────────────────
@@ -183,7 +187,7 @@ function ChartTooltip({ active, payload, label }: any) {
   )
 }
 
-// ─── Connect CTA ──────────────────────────────────────────────────────────────
+// ─── Connect / Connected banner ───────────────────────────────────────────────
 
 function ConnectBanner({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
   return (
@@ -197,6 +201,36 @@ function ConnectBanner({ onModuleSelect }: { onModuleSelect?: (id: string) => vo
         className="flex items-center gap-1 text-orange-600 dark:text-orange-400 font-medium hover:underline text-[11px] flex-shrink-0"
       >
         Connect <ArrowUpRight className="h-3 w-3" />
+      </button>
+    </div>
+  )
+}
+
+function ConnectedBanner({ sources, onModuleSelect }: { sources: ConnectedSource[]; onModuleSelect?: (id: string) => void }) {
+  const SOURCE_COLORS: Record<string, string> = {
+    ga4: 'bg-[#F9AB00]',
+    gsc: 'bg-[#34A853]',
+    google_ads: 'bg-[#4285F4]',
+    meta_ads: 'bg-[#0866FF]',
+    linkedin_ads: 'bg-[#0A66C2]',
+  }
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-emerald-300/50 bg-emerald-50/40 dark:border-emerald-800/40 dark:bg-emerald-950/20 px-4 py-3 text-sm">
+      <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+      <div className="flex-1 flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground text-xs">Live data from</span>
+        {sources.map(s => (
+          <span key={s.id} className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
+            <span className={cn('h-2 w-2 rounded-full', SOURCE_COLORS[s.id] ?? 'bg-slate-400')} />
+            {s.name}
+          </span>
+        ))}
+      </div>
+      <button
+        onClick={() => onModuleSelect?.('integrations')}
+        className="flex items-center gap-1 text-muted-foreground hover:text-foreground text-[11px] flex-shrink-0"
+      >
+        Manage <ArrowUpRight className="h-3 w-3" />
       </button>
     </div>
   )
@@ -363,35 +397,50 @@ type PerformanceScorecardProps = {
 }
 
 export function PerformanceScorecard({ onModuleSelect }: PerformanceScorecardProps = {}) {
-  const { activeWorkspace: _ws } = useWorkspace()
+  const { activeWorkspace } = useWorkspace()
   const [period, setPeriod] = useState('30d')
   const [data, setData] = useState<DashboardData>(buildMockData)
   const [refreshing, setRefreshing] = useState(false)
   const [showAllPages, setShowAllPages] = useState(false)
   const [showAllQueries, setShowAllQueries] = useState(false)
 
-  // Attempt to load real data from API; fall back to mock silently
+  // Load dashboard data — passes companyId so backend checks real connector status
   useEffect(() => {
     let cancelled = false
     async function load() {
       try {
-        const resp = await fetch(`/api/analytics/dashboard?period=${period}`)
+        const wsId = activeWorkspace?.id
+        const ga4Prop = wsId ? (getGA4PropertyId(wsId) || '') : ''
+        const url = wsId
+          ? `/api/analytics/dashboard?period=${period}&companyId=${encodeURIComponent(wsId)}${ga4Prop ? `&ga4PropertyId=${encodeURIComponent(ga4Prop)}` : ''}`
+          : `/api/analytics/dashboard?period=${period}`
+        const resp = await fetch(url)
         if (!resp.ok) return
         const json = await resp.json()
         if (cancelled) return
-        if (json?.kpis?.length) setData({ ...json, connected: true })
+        if (json?.kpis?.length) setData(json)
       } catch {
         // silently keep mock data
       }
     }
     load()
     return () => { cancelled = true }
-  }, [period])
+  }, [period, activeWorkspace?.id])
 
   async function refresh() {
     setRefreshing(true)
-    await new Promise(r => setTimeout(r, 800))
-    setData(buildMockData())
+    try {
+      const wsId = activeWorkspace?.id
+      const ga4Prop = wsId ? (getGA4PropertyId(wsId) || '') : ''
+      const url = wsId
+        ? `/api/analytics/dashboard?period=${period}&companyId=${encodeURIComponent(wsId)}${ga4Prop ? `&ga4PropertyId=${encodeURIComponent(ga4Prop)}` : ''}`
+        : `/api/analytics/dashboard?period=${period}`
+      const resp = await fetch(url)
+      if (resp.ok) {
+        const json = await resp.json()
+        if (json?.kpis?.length) setData(json)
+      }
+    } catch { /* keep current data */ }
     setRefreshing(false)
   }
 
@@ -436,8 +485,11 @@ export function PerformanceScorecard({ onModuleSelect }: PerformanceScorecardPro
           </div>
         </div>
 
-        {/* Connect banner if not live */}
-        {!data.connected && <ConnectBanner onModuleSelect={onModuleSelect} />}
+        {/* Connection status banner */}
+        {data.connected && data.connectedSources?.length
+          ? <ConnectedBanner sources={data.connectedSources} onModuleSelect={onModuleSelect} />
+          : <ConnectBanner onModuleSelect={onModuleSelect} />
+        }
 
         {/* KPI tiles */}
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">

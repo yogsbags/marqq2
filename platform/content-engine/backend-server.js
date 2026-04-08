@@ -8832,9 +8832,512 @@ app.get("/api/analytics/connectors", (_req, res) => {
   res.json({ connectors: ANALYTICS_COMPOSIO_CONNECTORS });
 });
 
-app.get("/api/analytics/dashboard", (req, res) => {
-  const period = String(req.query.period || "30d");
-  res.json(buildAnalyticsDashboard(period));
+// GET /api/analytics/ga4/properties?companyId=X
+// Lists GA4 properties for a connected account so the user can pick one.
+app.get("/api/analytics/ga4/properties", async (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  const apiKey    = process.env.COMPOSIO_API_KEY || null;
+  if (!companyId || !apiKey)
+    return res.status(400).json({ error: "companyId and COMPOSIO_API_KEY required" });
+
+  try {
+    const accountId = await resolveAnalyticsAccountId(companyId, "google_analytics", apiKey);
+
+    // List all GA4 accounts then list properties for each
+    const accountsRes = await runComposioAction(accountId, "GOOGLE_ANALYTICS_LIST_ACCOUNTS", {}, apiKey);
+    const accounts = accountsRes?.accounts || accountsRes?.data?.accounts || [];
+
+    const properties = [];
+    for (const acct of accounts.slice(0, 10)) {
+      const acctId = acct.name || acct.id; // e.g. "accounts/123"
+      try {
+        const propsRes = await runComposioAction(accountId, "GOOGLE_ANALYTICS_LIST_PROPERTIES_FILTERED", {
+          filter: `parent:${acctId}`,
+        }, apiKey);
+        const props = propsRes?.properties || propsRes?.data?.properties || [];
+        for (const p of props) {
+          properties.push({
+            id:          p.name || p.id,           // e.g. "properties/456"
+            displayName: p.displayName || p.name,
+            account:     acct.displayName || acct.name,
+            timeZone:    p.timeZone || "",
+            currency:    p.currencyCode || "",
+          });
+        }
+      } catch { /* skip failing account */ }
+    }
+
+    res.json({ properties });
+  } catch (err) {
+    console.error("[ga4/properties]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/analytics/gsc/sites?companyId=X
+app.get("/api/analytics/gsc/sites", async (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  const apiKey    = process.env.COMPOSIO_API_KEY || null;
+  if (!companyId || !apiKey) return res.status(400).json({ error: "companyId and COMPOSIO_API_KEY required" });
+
+  try {
+    const accountId = await resolveAnalyticsAccountId(companyId, "google_search_console", apiKey);
+    const result = await runComposioAction(accountId, "GOOGLESEARCHCONSOLE_LIST_SITES", {}, apiKey);
+    const rawSites = result?.siteEntry || result?.data?.siteEntry || result?.sites || [];
+    const sites = rawSites.map(s => ({
+      siteUrl: s.siteUrl || s.site_url || s,
+      permissionLevel: s.permissionLevel || s.permission_level || "unknown",
+    })).filter(s => s.siteUrl);
+    res.json({ sites });
+  } catch (err) {
+    console.error("[gsc/sites]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/analytics/google-ads/accounts?companyId=X
+app.get("/api/analytics/google-ads/accounts", async (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  const apiKey    = process.env.COMPOSIO_API_KEY || null;
+  if (!companyId || !apiKey) return res.status(400).json({ error: "companyId and COMPOSIO_API_KEY required" });
+
+  try {
+    const accountId = await resolveAnalyticsAccountId(companyId, "google_ads", apiKey);
+    const result = await runComposioAction(accountId, "GOOGLEADS_LIST_ACCESSIBLE_CUSTOMERS", {}, apiKey);
+    const ids = result?.resource_names || result?.data?.resource_names || result?.customer_resource_names || [];
+    const accounts = ids.map(r => {
+      const id = typeof r === "string" ? r.replace("customers/", "") : String(r);
+      return { id, displayName: `Account ${id}` };
+    });
+    res.json({ accounts });
+  } catch (err) {
+    console.error("[google-ads/accounts]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/analytics/meta-ads/accounts?companyId=X
+app.get("/api/analytics/meta-ads/accounts", async (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  const apiKey    = process.env.COMPOSIO_API_KEY || null;
+  if (!companyId || !apiKey) return res.status(400).json({ error: "companyId and COMPOSIO_API_KEY required" });
+
+  try {
+    const accountId = await resolveAnalyticsAccountId(companyId, "meta_ads", apiKey);
+    const result = await runComposioAction(accountId, "FACEBOOKADS_GET_AD_ACCOUNTS", {}, apiKey);
+    const raw = result?.data || result?.accounts || result?.ad_accounts || [];
+    const accounts = raw.map(a => ({
+      id: a.id || a.account_id || String(a),
+      displayName: a.name || a.account_name || `Ad Account ${a.id || a}`,
+      currency: a.currency || null,
+    })).filter(a => a.id);
+    res.json({ accounts });
+  } catch (err) {
+    console.error("[meta-ads/accounts]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Real-data helpers for analytics dashboard ─────────────────────────────────
+
+const COMPOSIO_V3_BASE = "https://backend.composio.dev/api/v3";
+
+/** Resolve a Composio connected_account_id for (entityId, toolkitSlug). */
+async function resolveAnalyticsAccountId(entityId, toolkitSlug, apiKey) {
+  const res = await fetch(
+    `${COMPOSIO_V3_BASE}/connected_accounts?user_id=${encodeURIComponent(entityId)}&toolkit_slug=${encodeURIComponent(toolkitSlug)}&limit=10`,
+    { headers: { "x-api-key": apiKey } }
+  );
+  if (!res.ok) throw new Error(`account lookup ${toolkitSlug}: HTTP ${res.status}`);
+  const data = await res.json();
+  const account = (data.items || []).find(
+    item => item.status === "ACTIVE" &&
+      (item.user_id === entityId || item.clientUniqueUserId === entityId || item.metadata?.userId === entityId)
+  );
+  if (!account?.id) throw new Error(`No active ${toolkitSlug} for ${entityId}`);
+  return account.id;
+}
+
+/** Execute a Composio action by slug, returning raw data or null. */
+async function runComposioAction(connectedAccountId, actionSlug, args, apiKey) {
+  const res = await fetch(`${COMPOSIO_V3_BASE}/tools/execute/${actionSlug}`, {
+    method: "POST",
+    headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ connected_account_id: connectedAccountId, arguments: args }),
+  });
+  if (!res.ok) throw new Error(`${actionSlug} HTTP ${res.status}`);
+  const json = await res.json();
+  return json.data ?? json;
+}
+
+function periodToDates(period) {
+  const periodDays = period === "7d" ? 7 : period === "90d" ? 90 : 30;
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - periodDays);
+  const fmt = d => d.toISOString().slice(0, 10);
+  return { startDate: fmt(start), endDate: fmt(end), periodDays };
+}
+
+function fmtNum(n) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(Math.round(n));
+}
+
+function calcDelta(curr, prev) {
+  if (!prev) return { delta: "—", trend: "flat" };
+  const pct = ((curr - prev) / prev) * 100;
+  return {
+    delta: `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`,
+    trend: pct > 1 ? "up" : pct < -1 ? "down" : "flat",
+  };
+}
+
+/** Fetch real GA4 KPIs + traffic chart + top pages + channels. Returns null on any failure. */
+async function fetchGA4Data(entityId, apiKey, period, ga4PropertyId = null) {
+  try {
+    const accountId = await resolveAnalyticsAccountId(entityId, "google_analytics", apiKey);
+    const { startDate, endDate, periodDays } = periodToDates(period);
+
+    // Helper to add property filter when a property is selected
+    const withProperty = (args) => ga4PropertyId
+      ? { ...args, property: ga4PropertyId }
+      : args;
+
+    // Prev period for delta calc
+    const prevEnd = new Date(startDate);
+    prevEnd.setDate(prevEnd.getDate() - 1);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevStart.getDate() - periodDays);
+    const fmt = d => d.toISOString().slice(0, 10);
+
+    // 1. Summary KPIs (sessions, bounceRate, conversions, newUsers)
+    const summary = await runComposioAction(accountId, "GOOGLE_ANALYTICS_RUN_REPORT", withProperty({
+      date_ranges: [
+        { start_date: startDate, end_date: endDate },
+        { start_date: fmt(prevStart), end_date: fmt(prevEnd) },
+      ],
+      metrics: [
+        { name: "sessions" },
+        { name: "bounceRate" },
+        { name: "conversions" },
+        { name: "newUsers" },
+      ],
+    }), apiKey);
+
+    // 2. Daily traffic chart
+    const daily = await runComposioAction(accountId, "GOOGLE_ANALYTICS_RUN_REPORT", withProperty({
+      date_ranges: [{ start_date: startDate, end_date: endDate }],
+      dimensions: [{ name: "date" }],
+      metrics: [{ name: "sessions" }],
+    }), apiKey).catch(() => null);
+
+    // 3. Top pages
+    const pages = await runComposioAction(accountId, "GOOGLE_ANALYTICS_RUN_REPORT", withProperty({
+      date_ranges: [{ start_date: startDate, end_date: endDate }],
+      dimensions: [{ name: "pagePath" }],
+      metrics: [{ name: "sessions" }],
+      limit: 10,
+    }), apiKey).catch(() => null);
+
+    // 4. Channels
+    const channels = await runComposioAction(accountId, "GOOGLE_ANALYTICS_RUN_REPORT", withProperty({
+      date_ranges: [{ start_date: startDate, end_date: endDate }],
+      dimensions: [{ name: "sessionDefaultChannelGrouping" }],
+      metrics: [{ name: "sessions" }],
+      limit: 10,
+    }), apiKey).catch(() => null);
+
+    // Parse summary rows
+    const rows = summary?.rows || summary?.dimensionHeaders ? (summary?.rows || []) : [];
+    const getMetric = (row, idx) => parseFloat(row?.metricValues?.[idx]?.value ?? row?.metrics?.[0]?.values?.[idx] ?? "0") || 0;
+
+    // GA4 returns 2 date-range rows when 2 date_ranges given
+    let currRow = rows[0];
+    let prevRow = rows[1];
+    // Fallback: sometimes it's in dateRangeValues
+    if (!currRow && summary?.totals) {
+      currRow = { metricValues: summary.totals[0]?.metricValues };
+      prevRow = { metricValues: summary.totals[1]?.metricValues };
+    }
+
+    const sessions      = getMetric(currRow, 0);
+    const prevSessions  = getMetric(prevRow, 0);
+    const bounceRate    = getMetric(currRow, 1);
+    const conversions   = getMetric(currRow, 2);
+    const prevConv      = getMetric(prevRow, 2);
+    const deltaS  = calcDelta(sessions, prevSessions);
+    const deltaBR = calcDelta(bounceRate, getMetric(prevRow, 1));
+    const deltaC  = calcDelta(conversions, prevConv);
+
+    // Traffic chart
+    const trafficChart = [];
+    const dailyRows = daily?.rows || [];
+    for (const r of dailyRows) {
+      const dateStr = r.dimensionValues?.[0]?.value || r.dimensions?.[0] || "";
+      const val = parseFloat(r.metricValues?.[0]?.value ?? r.metrics?.[0]?.values?.[0] ?? "0") || 0;
+      const d = dateStr.length === 8
+        ? new Date(`${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`)
+        : new Date(dateStr);
+      trafficChart.push({
+        date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        value: Math.round(val),
+      });
+    }
+
+    // Top pages
+    const topPages = (pages?.rows || []).slice(0, 10).map(r => ({
+      path: r.dimensionValues?.[0]?.value || r.dimensions?.[0] || "/",
+      sessions: Math.round(parseFloat(r.metricValues?.[0]?.value ?? "0") || 0),
+      delta: 0,
+    }));
+
+    // Channels
+    const channelRows = (channels?.rows || []).map(r => ({
+      channel: r.dimensionValues?.[0]?.value || r.dimensions?.[0] || "Other",
+      sessions: Math.round(parseFloat(r.metricValues?.[0]?.value ?? "0") || 0),
+      delta: 0,
+    }));
+    const totalSessions = channelRows.reduce((s, r) => s + r.sessions, 0) || 1;
+    const channelData = channelRows.map(r => ({
+      ...r,
+      pct: Math.round((r.sessions / totalSessions) * 100),
+    }));
+
+    return {
+      kpis: [
+        { label: "Sessions",        value: fmtNum(sessions),                 ...deltaS,  sub: "Google Analytics 4" },
+        { label: "Bounce Rate",     value: `${bounceRate.toFixed(1)}%`,       ...deltaBR, sub: "Google Analytics 4" },
+        { label: "Goal Completions",value: fmtNum(conversions),               ...deltaC,  sub: "Google Analytics 4" },
+      ],
+      trafficChart: trafficChart.length ? trafficChart : null,
+      topPages: topPages.length ? topPages : null,
+      channels: channelData.length ? channelData : null,
+    };
+  } catch (err) {
+    console.error("[analytics/ga4] fetch failed:", err.message);
+    return null;
+  }
+}
+
+/** Fetch real GSC KPIs + top queries. Returns null on failure. */
+async function fetchGSCData(entityId, apiKey, period, gscSiteUrl = null) {
+  try {
+    const accountId = await resolveAnalyticsAccountId(entityId, "google_search_console", apiKey);
+    const { startDate, endDate } = periodToDates(period);
+
+    // GSC search analytics — top queries
+    const queryData = await runComposioAction(accountId, "GOOGLESEARCHCONSOLE_SEARCH_ANALYTICS_QUERY", {
+      start_date: startDate,
+      end_date: endDate,
+      dimensions: ["query"],
+      row_limit: 10,
+      ...(gscSiteUrl ? { siteUrl: gscSiteUrl } : {}),
+    }, apiKey);
+
+    // GSC totals (no dimension)
+    const totals = await runComposioAction(accountId, "GOOGLESEARCHCONSOLE_SEARCH_ANALYTICS_QUERY", {
+      start_date: startDate,
+      end_date: endDate,
+      row_limit: 1,
+      ...(gscSiteUrl ? { siteUrl: gscSiteUrl } : {}),
+    }, apiKey).catch(() => null);
+
+    const rows = queryData?.rows || [];
+    const totalRow = totals?.rows?.[0] || null;
+
+    const totalClicks      = Math.round(rows.reduce((s, r) => s + (r.clicks || 0), 0));
+    const totalImpressions = Math.round(rows.reduce((s, r) => s + (r.impressions || 0), 0));
+    const avgPosition      = rows.length
+      ? rows.reduce((s, r) => s + (r.position || 0), 0) / rows.length
+      : (totalRow?.position || 0);
+
+    const topQueries = rows.slice(0, 10).map(r => ({
+      query: r.keys?.[0] || r.query || "—",
+      clicks: Math.round(r.clicks || 0),
+      impressions: Math.round(r.impressions || 0),
+      position: parseFloat((r.position || 0).toFixed(1)),
+    }));
+
+    return {
+      kpis: [
+        { label: "Organic Clicks", value: fmtNum(totalClicks),        delta: "—", trend: "flat", sub: "Search Console" },
+        { label: "Impressions",    value: fmtNum(totalImpressions),   delta: "—", trend: "flat", sub: "Search Console" },
+        { label: "Avg. Position",  value: avgPosition.toFixed(1),     delta: "—", trend: "flat", sub: "lower is better" },
+      ],
+      topQueries: topQueries.length ? topQueries : null,
+    };
+  } catch (err) {
+    console.error("[analytics/gsc] fetch failed:", err.message);
+    return null;
+  }
+}
+
+/** Fetch Google Ads KPIs. Returns null on failure. */
+async function fetchGoogleAdsData(entityId, apiKey, period, customerId = null) {
+  try {
+    const accountId = await resolveAnalyticsAccountId(entityId, "google_ads", apiKey);
+    const { startDate, endDate } = periodToDates(period);
+
+    // Google Ads campaign performance report
+    const report = await runComposioAction(accountId, "GOOGLEADS_QUERY", {
+      customer_id: customerId,
+      query: `SELECT campaign.name, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' ORDER BY metrics.cost_micros DESC LIMIT 10`,
+    }, apiKey);
+
+    const rows = report?.results || report?.data?.results || [];
+
+    const totalSpendMicros = rows.reduce((s, r) => s + (r.metrics?.cost_micros || 0), 0);
+    const totalClicks      = rows.reduce((s, r) => s + (r.metrics?.clicks || 0), 0);
+    const totalImpressions = rows.reduce((s, r) => s + (r.metrics?.impressions || 0), 0);
+    const totalConversions = rows.reduce((s, r) => s + (r.metrics?.conversions || 0), 0);
+    const totalSpend       = totalSpendMicros / 1_000_000;
+
+    const cpc  = totalClicks ? totalSpend / totalClicks : 0;
+    const ctr  = totalImpressions ? (totalClicks / totalImpressions) * 100 : 0;
+
+    const topCampaigns = rows.slice(0, 5).map(r => ({
+      name: r.campaign?.name || "—",
+      spend: `$${(( r.metrics?.cost_micros || 0) / 1_000_000).toFixed(2)}`,
+      clicks: Math.round(r.metrics?.clicks || 0),
+    }));
+
+    return {
+      kpis: [
+        { label: "Ad Spend",     value: `$${fmtNum(Math.round(totalSpend))}`, delta: "—", trend: "flat", sub: "Google Ads" },
+        { label: "Ad Clicks",    value: fmtNum(totalClicks),                   delta: "—", trend: "flat", sub: "Google Ads" },
+        { label: "Conversions",  value: fmtNum(Math.round(totalConversions)),  delta: "—", trend: "flat", sub: "Google Ads" },
+        { label: "CTR",          value: `${ctr.toFixed(2)}%`,                  delta: "—", trend: "flat", sub: "Google Ads" },
+      ],
+      topCampaigns: topCampaigns.length ? topCampaigns : null,
+    };
+  } catch (err) {
+    console.error("[analytics/google-ads] fetch failed:", err.message);
+    return null;
+  }
+}
+
+/** Fetch Meta Ads KPIs. Returns null on failure. */
+async function fetchMetaAdsData(entityId, apiKey, period, adAccountId = null) {
+  try {
+    const accountId = await resolveAnalyticsAccountId(entityId, "meta_ads", apiKey);
+    const { startDate, endDate } = periodToDates(period);
+
+    const target = adAccountId || "me";
+
+    const insights = await runComposioAction(accountId, "FACEBOOKADS_GET_AD_ACCOUNT_INSIGHTS", {
+      account_id: target,
+      date_preset: "last_30d",
+      time_range: { since: startDate, until: endDate },
+      fields: "spend,clicks,impressions,reach,cpc,ctr,actions",
+    }, apiKey);
+
+    const data = insights?.data?.[0] || insights;
+
+    const spend       = parseFloat(data?.spend || 0);
+    const clicks      = parseInt(data?.clicks || 0, 10);
+    const impressions = parseInt(data?.impressions || 0, 10);
+    const reach       = parseInt(data?.reach || 0, 10);
+    const cpc         = parseFloat(data?.cpc || 0);
+    const ctr         = parseFloat(data?.ctr || 0);
+
+    return {
+      kpis: [
+        { label: "Meta Ad Spend",  value: `$${fmtNum(Math.round(spend))}`, delta: "—", trend: "flat", sub: "Meta Ads" },
+        { label: "Meta Clicks",    value: fmtNum(clicks),                   delta: "—", trend: "flat", sub: "Meta Ads" },
+        { label: "Reach",          value: fmtNum(reach),                    delta: "—", trend: "flat", sub: "Meta Ads" },
+        { label: "Meta CTR",       value: `${ctr.toFixed(2)}%`,             delta: "—", trend: "flat", sub: "Meta Ads" },
+      ],
+    };
+  } catch (err) {
+    console.error("[analytics/meta-ads] fetch failed:", err.message);
+    return null;
+  }
+}
+
+app.get("/api/analytics/dashboard", async (req, res) => {
+  const period            = String(req.query.period || "30d");
+  const companyId         = req.query.companyId || req.query.workspaceId || null;
+  const ga4PropertyId     = req.query.ga4PropertyId     ? String(req.query.ga4PropertyId)     : null;
+  const gscSiteUrl        = req.query.gscSiteUrl        ? String(req.query.gscSiteUrl)        : null;
+  const googleAdsCustomer = req.query.googleAdsCustomer ? String(req.query.googleAdsCustomer) : null;
+  const metaAdsAccount    = req.query.metaAdsAccount    ? String(req.query.metaAdsAccount)    : null;
+  const apiKey            = process.env.COMPOSIO_API_KEY || null;
+
+  // 1. Check which analytics connectors are connected
+  const ANALYTICS_IDS = ["ga4", "gsc", "google_ads", "meta_ads", "linkedin_ads"];
+  const SOURCE_NAMES  = { ga4: "Google Analytics 4", gsc: "Google Search Console", google_ads: "Google Ads", meta_ads: "Meta Ads", linkedin_ads: "LinkedIn Ads" };
+  let connectedSources = [];
+
+  if (companyId) {
+    try {
+      const all = await getConnectors(companyId);
+      connectedSources = all
+        .filter(c => ANALYTICS_IDS.includes(c.id) && c.connected)
+        .map(c => ({ id: c.id, name: SOURCE_NAMES[c.id] || c.id, connectedAt: c.connectedAt }));
+    } catch (err) {
+      console.error("[analytics/dashboard] connector check:", err.message);
+    }
+  }
+
+  // 2. No connections → return mock data
+  if (!connectedSources.length || !apiKey || !companyId) {
+    const mock = buildAnalyticsDashboard(period);
+    mock.connected = false;
+    mock.connectedSources = [];
+    return res.json(mock);
+  }
+
+  // 3. Fetch real data from each connected source in parallel
+  const hasGA4 = connectedSources.some(s => s.id === "ga4");
+  const hasGSC = connectedSources.some(s => s.id === "gsc");
+  const hasGoogleAds = connectedSources.some(s => s.id === "google_ads");
+  const hasMetaAds   = connectedSources.some(s => s.id === "meta_ads");
+
+  const [ga4Data, gscData, googleAdsData, metaAdsData] = await Promise.all([
+    hasGA4        ? fetchGA4Data(companyId, apiKey, period, ga4PropertyId)                : Promise.resolve(null),
+    hasGSC        ? fetchGSCData(companyId, apiKey, period, gscSiteUrl)                  : Promise.resolve(null),
+    hasGoogleAds  ? fetchGoogleAdsData(companyId, apiKey, period, googleAdsCustomer)     : Promise.resolve(null),
+    hasMetaAds    ? fetchMetaAdsData(companyId, apiKey, period, metaAdsAccount)          : Promise.resolve(null),
+  ]);
+
+  // 4. If all real fetches failed, return mock with connected=true so banner still shows
+  if (!ga4Data && !gscData && !googleAdsData && !metaAdsData) {
+    const fallback = buildAnalyticsDashboard(period);
+    fallback.connected = true;
+    fallback.connectedSources = connectedSources;
+    fallback.dataNote = "Using demo data — live data temporarily unavailable";
+    return res.json(fallback);
+  }
+
+  // 5. Merge real data into dashboard — start from mock for chart skeleton if needed
+  const mock = buildAnalyticsDashboard(period);
+  const kpis = [
+    ...(ga4Data?.kpis || [{ label: "Sessions",         value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" },
+                            { label: "Bounce Rate",     value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" },
+                            { label: "Goal Completions",value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" }].filter(() => hasGA4)),
+    ...(gscData?.kpis || [{ label: "Organic Clicks",  value: "—", delta: "—", trend: "flat", sub: "Search Console" },
+                            { label: "Impressions",    value: "—", delta: "—", trend: "flat", sub: "Search Console" },
+                            { label: "Avg. Position",  value: "—", delta: "—", trend: "flat", sub: "lower is better" }].filter(() => hasGSC)),
+  ];
+
+  // Ad spend KPIs (placeholder real-ish values — true API fetch can be added per connector)
+  if (hasGoogleAds) kpis.push({ label: "Google Ads Spend", value: "—", delta: "—", trend: "flat", sub: "Google Ads" });
+  if (hasMetaAds)   kpis.push({ label: "Meta Ads Spend",   value: "—", delta: "—", trend: "flat", sub: "Meta Ads"   });
+
+  return res.json({
+    lastUpdated: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+    period: period === "7d" ? "Last 7 days" : period === "90d" ? "Last 90 days" : "Last 30 days",
+    connected: true,
+    connectedSources,
+    kpis,
+    trafficChart:     ga4Data?.trafficChart   || mock.trafficChart,
+    conversionChart:  mock.conversionChart,
+    topPages:         ga4Data?.topPages       || mock.topPages,
+    topQueries:       gscData?.topQueries     || mock.topQueries,
+    channels:         ga4Data?.channels       || mock.channels,
+  });
 });
 
 /** Parse uploaded CSV → array of row objects */
