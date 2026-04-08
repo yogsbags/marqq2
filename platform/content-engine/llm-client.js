@@ -71,7 +71,14 @@ export function getLLMModel(role = 'default') {
     'company-profile':process.env.GROQ_COMPANY_PROFILE_MODEL || process.env.GROQ_COMPANY_INTEL_MODEL,
     'voicebot':       process.env.GROQ_VOICEBOT_MODEL,
   };
-  return roleEnvMap[role] || LLM_MODEL;
+  const resolved = roleEnvMap[role] || LLM_MODEL;
+  // When falling back to Groq (no ANTHROPIC_API_KEY), ensure we return a Groq-compatible model.
+  const isFallingBackToGroq = (LLM_PROVIDER === 'claude' || LLM_PROVIDER === 'anthropic')
+    && !process.env.ANTHROPIC_API_KEY;
+  if (isFallingBackToGroq && resolved.startsWith('claude')) {
+    return PROVIDER_DEFAULT_MODELS['groq'] || 'llama-3.3-70b-versatile';
+  }
+  return resolved;
 }
 
 // ── Client factory ────────────────────────────────────────────────────────────

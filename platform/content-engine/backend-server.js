@@ -5738,7 +5738,7 @@ Rules:
 
   try {
     const completion = await groq.chat.completions.create({
-      model: LLM_MODEL,
+      model: getLLMModel('agent-plan'),
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
@@ -5839,7 +5839,33 @@ app.post("/api/agents/chain/run", async (req, res) => {
       }
 
       const runId = randomUUID();
-      const contractInstruction = buildContractInstruction(agentName, companyId, runId, null, null, null, {});
+      const contractInstruction = `
+
+## Output Contract (REQUIRED — do not skip)
+
+After your COMPLETE response, append the following block EXACTLY at the very END.
+
+---CONTRACT---
+{
+  "agent": "${agentName}",
+  "task": "<one-line description of what you just did>",
+  "company_id": "${companyId ?? "unknown"}",
+  "run_id": "${runId}",
+  "timestamp": "${new Date().toISOString()}",
+  "input": { "mkg_version": null, "dependencies_read": [], "assumptions_made": [] },
+  "artifact": {
+    "data": {},
+    "summary": "<one paragraph summary of your output>",
+    "confidence": 0.75
+  },
+  "context_patch": { "writes_to": [], "patch": {} },
+  "handoff_notes": "",
+  "missing_data": [],
+  "tasks_created": [],
+  "outcome_prediction": null,
+  "automation_triggers": []
+}
+`;
 
       const fullSystem = [systemPrompt, skillsBlock, memory ? `\n\n## Your Recent Memory\n${memory}` : "", calibrationNote ? `\n\n## Calibration Notes\n${calibrationNote}` : "", mkgBlock, `\n\n## Run Context\ncompany_id: ${companyId ?? "unknown"}\nrun_id: ${runId}\nchain_step: ${i + 1} of ${steps.length}`, contractInstruction].filter(Boolean).join("");
 
@@ -5876,9 +5902,9 @@ app.post("/api/agents/chain/run", async (req, res) => {
         }
       }
 
-      const fullText = await runAgenticLoop({
+      const { fullText } = await runAgenticLoop({
         groqClient: groq,
-        model: LLM_MODEL,
+        model: getLLMModel('agent-run'),
         messages,
         tools: composioTools,
         res,
@@ -5888,7 +5914,7 @@ app.post("/api/agents/chain/run", async (req, res) => {
       });
 
       // Parse contract and patch MKG
-      const contractMatch = fullText.match(/---CONTRACT---\s*([\s\S]*?)(?:---END CONTRACT---|$)/);
+      const contractMatch = String(fullText ?? '').match(/---CONTRACT---\s*([\s\S]*?)(?:---END CONTRACT---|$)/);
       let contractObj = null;
       if (contractMatch) {
         try {
