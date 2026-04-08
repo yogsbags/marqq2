@@ -26,6 +26,7 @@ import { BRAND } from '@/lib/brand';
 import { supabase } from '@/lib/supabase';
 import type { Conversation } from '@/types/chat';
 import { loadConversationsLocal } from '@/lib/conversationPersistence';
+import { pinChannel } from '@/lib/pinnedChannels';
 import { useEffect, useState } from 'react';
 import './App.css';
 
@@ -111,8 +112,15 @@ function Dashboard() {
     // Check if this was triggered by a slash command (indicated by URL hash)
     if (window.location.hash === '#auto-start') {
       setAutoStartModule(true);
-      // Clear the hash
       window.history.replaceState(null, '', window.location.pathname);
+    }
+    // Pin as a dynamic channel whenever a module is opened
+    if (moduleId && activeWorkspace?.id) {
+      const updated = pinChannel(activeWorkspace.id, moduleId);
+      // Notify sidebar so it re-renders without a full reload
+      window.dispatchEvent(
+        new CustomEvent('marqq:channels-updated', { detail: { channels: updated } })
+      );
     }
   };
 

@@ -20,7 +20,9 @@ import {
   Check,
   Plus,
   LogOut,
+  X,
 } from 'lucide-react';
+import { loadPinnedChannels, unpinChannel, type PinnedChannel } from '@/lib/pinnedChannels';
 import type { Conversation } from '@/types/chat';
 
 interface SidebarProps {
@@ -77,6 +79,26 @@ export function Sidebar({
   const { user, logout } = useAuth();
   const { workspaces, activeWorkspace, switchWorkspace } = useWorkspace();
   const homeActive = !selectedModule || selectedModule === 'home';
+
+  const workspaceId = activeWorkspace?.id;
+  const [dynamicChannels, setDynamicChannels] = useState<PinnedChannel[]>(() =>
+    loadPinnedChannels(workspaceId),
+  );
+
+  // Reload when workspace changes
+  useEffect(() => {
+    setDynamicChannels(loadPinnedChannels(workspaceId));
+  }, [workspaceId]);
+
+  // Listen for new channel pins from App.tsx
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { channels } = (e as CustomEvent<{ channels: PinnedChannel[] }>).detail ?? {};
+      if (channels) setDynamicChannels(channels);
+    };
+    window.addEventListener('marqq:channels-updated', handler);
+    return () => window.removeEventListener('marqq:channels-updated', handler);
+  }, []);
 
   // Profile popover state
   const [profileOpen, setProfileOpen] = useState(false);
@@ -166,6 +188,7 @@ export function Sidebar({
           </p>
         )}
         <div className={cn('space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
+          {/* Static channels */}
           {channels.map((ch) => {
             const active = isChannelActive(ch.id);
             return (
@@ -195,6 +218,56 @@ export function Sidebar({
                   </>
                 )}
               </button>
+            );
+          })}
+
+          {/* Dynamic (user-pinned) channels */}
+          {dynamicChannels.map((ch) => {
+            const active = selectedModule === ch.id;
+            return (
+              <div key={ch.id} className="group relative">
+                <button
+                  onClick={() => onModuleSelect(ch.id)}
+                  className={cn(
+                    'w-full flex items-center rounded-md transition-all duration-150 text-left',
+                    collapsed ? 'p-2 justify-center' : 'gap-2 px-2 py-1.5',
+                    active
+                      ? 'bg-primary/10 text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/70',
+                  )}
+                >
+                  {collapsed ? (
+                    <Hash className="h-4 w-4 flex-shrink-0" />
+                  ) : (
+                    <>
+                      <Hash
+                        className={cn('h-3.5 w-3.5 flex-shrink-0', active ? 'text-primary' : 'text-muted-foreground')}
+                      />
+                      <span className="text-sm font-medium truncate flex-1">{ch.title}</span>
+                      {active && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      )}
+                    </>
+                  )}
+                </button>
+                {/* Un-pin (×) button — only visible on hover, not in collapsed mode */}
+                {!collapsed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!workspaceId) return;
+                      const updated = unpinChannel(workspaceId, ch.id);
+                      setDynamicChannels(updated);
+                      // If currently viewing this channel, go home
+                      if (selectedModule === ch.id) onModuleSelect(null);
+                    }}
+                    title="Remove channel"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center justify-center h-4 w-4 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
