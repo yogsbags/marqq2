@@ -7,11 +7,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Loader2, Bot, CheckCircle, AlertCircle, Copy, ClipboardList, ChevronDown, ChevronRight, Wrench, Brain, Zap, CheckCheck, XCircle, ArrowRight, Sparkles, Bookmark, Download, PanelTopClose, Radio, Target, PenLine, FileText, Users, Monitor, Briefcase, Mail, Search, CalendarDays, BadgeDollarSign, TrendingDown, BarChart2, FlaskConical, Send, Link2, Hash, Type, AlignLeft, Globe, Image as ImageIcon, Film } from 'lucide-react'
+import { Loader2, Bot, CheckCircle, AlertCircle, Copy, ClipboardList, ClipboardCheck, ChevronDown, ChevronRight, Wrench, Brain, Zap, CheckCheck, XCircle, ArrowRight, Sparkles, Bookmark, Download, PanelTopClose, Radio, Target, PenLine, FileText, Users, Monitor, Briefcase, Mail, Search, CalendarDays, BadgeDollarSign, TrendingDown, BarChart2, FlaskConical, Send, Link2, Hash, Type, AlignLeft, Globe, Image as ImageIcon, Film } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AgentRunResult, ToolCallEvent, ToolResultEvent, ContractTask } from '@/hooks/useAgentRun'
 import { saveLibraryArtifact } from '@/lib/persistence'
 import { markdownToRichText } from '@/lib/markdown'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 
 interface AgentRunPanelProps extends AgentRunResult {
   agentName: string
@@ -481,13 +482,17 @@ function ContentDistributionActions({
   companyId,
   platform,
   payload,
+  agentName,
+  workspaceId,
 }: {
   companyId?: string | null
   platform: string
   payload: Record<string, unknown>
+  agentName?: string
+  workspaceId?: string | null
 }) {
   const target = normalizeDistributionTarget(platform)
-  const [submitting, setSubmitting] = useState<'publish' | 'schedule' | null>(null)
+  const [submitting, setSubmitting] = useState<'publish' | 'schedule' | 'draft-queue' | null>(null)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [scheduleAt, setScheduleAt] = useState(() => {
     const nextHour = new Date(Date.now() + 60 * 60 * 1000)
@@ -498,6 +503,40 @@ function ContentDistributionActions({
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   if (!target || !companyId) return null
+
+  const sendToDraftQueue = async () => {
+    if (!workspaceId) {
+      toast.error('No active workspace')
+      return
+    }
+    setSubmitting('draft-queue')
+    setErrorMessage(null)
+    try {
+      const content = typeof payload['post'] === 'string' ? payload['post'] : JSON.stringify(payload, null, 2)
+      const resp = await fetch(`${BACKEND_URL}/api/workspaces/${workspaceId}/draft-approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent: agentName ?? 'agent',
+          type: 'social_post',
+          platform: target.platform,
+          content,
+          artifact: payload,
+          companyId,
+        }),
+      })
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}))
+        throw new Error(typeof d?.error === 'string' ? d.error : 'Failed to queue draft')
+      }
+      toast.success('Added to draft approval queue')
+      setSuccessMessage('Draft queued for approval')
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to queue draft')
+    } finally {
+      setSubmitting(null)
+    }
+  }
 
   const openAccounts = () => {
     window.dispatchEvent(new CustomEvent('marqq:navigate', { detail: { moduleId: 'integrations' } }))
@@ -564,6 +603,19 @@ function ContentDistributionActions({
             {target.secondaryLabel}
           </Button>
         ) : null}
+        {workspaceId ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1 px-3 text-xs text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-300 dark:border-amber-800 dark:hover:bg-amber-950/30"
+            disabled={submitting !== null}
+            onClick={() => { void sendToDraftQueue() }}
+            title="Add to approval queue — you'll review before publishing"
+          >
+            <ClipboardCheck className="h-3 w-3" />
+            {submitting === 'draft-queue' ? 'Queuing…' : 'Queue for approval'}
+          </Button>
+        ) : null}
       </div>
       {scheduleOpen ? (
         <div className="flex flex-col gap-2 rounded-lg border border-border/50 bg-muted/20 p-3">
@@ -621,7 +673,7 @@ function ContentDistributionActions({
   )
 }
 
-function ContentPostCard({ artifact, companyId }: { artifact: Record<string, unknown>; companyId?: string | null }) {
+function ContentPostCard({ artifact, companyId, agentName, workspaceId }: { artifact: Record<string, unknown>; companyId?: string | null; agentName?: string; workspaceId?: string | null }) {
   const post       = typeof artifact['post']       === 'string' ? artifact['post']       : ''
   const hook       = typeof artifact['hook']       === 'string' ? artifact['hook']       : ''
   const cta        = typeof artifact['cta']        === 'string' ? artifact['cta']        : ''
@@ -770,6 +822,8 @@ ${ctaHtml}
           companyId={companyId}
           platform={platform}
           payload={distributionPayload}
+          agentName={agentName}
+          workspaceId={workspaceId}
         />
 
         {hashtags.length > 0 && (
@@ -1885,6 +1939,8 @@ export function AgentRunPanel({
   const [elapsed, setElapsed] = useState(0)
   // Fix 4: toggle to reveal full raw markdown when structured blocks are shown
   const [showFull, setShowFull] = useState(false)
+  const { activeWorkspace } = useWorkspace()
+  const workspaceId = activeWorkspace?.id ?? null
 
   useEffect(() => {
     if (streaming) {
@@ -2153,7 +2209,7 @@ export function AgentRunPanel({
         {artifact && !renderArtifact && (() => {
           // Social/text post
           if (typeof artifact['post'] === 'string' && artifact['post']) {
-            return <ContentPostCard artifact={artifact} companyId={companyId} />
+            return <ContentPostCard artifact={artifact} companyId={companyId} agentName={agentName} workspaceId={workspaceId} />
           }
           // Email draft (body without html — html is handled below)
           if (typeof artifact['body'] === 'string' && artifact['body'] && !artifact['generate_email_html']) {

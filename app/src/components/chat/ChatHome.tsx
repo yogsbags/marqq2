@@ -23,6 +23,7 @@ import type { Message, Conversation } from '@/types/chat';
 import { markdownToRichText } from '@/lib/markdown';
 import { BRAND } from '@/lib/brand';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Send,
   MessageSquare as Bot,
@@ -45,7 +46,8 @@ import {
   saveConversations,
   deleteConversation as deleteConversationFromStorage,
 } from '@/lib/conversationPersistence';
-import { hasWorkflowForm, WORKFLOW_FORMS, buildWorkflowSummary } from '@/lib/workflowRequirements';
+import { hasWorkflowForm, WORKFLOW_FORMS, buildWorkflowSummary, checkConnectorReadiness } from '@/lib/workflowRequirements';
+import { connectComposioConnector } from '@/lib/composio';
 import type { WorkflowFormData } from '@/types/chat';
 
 // -- Conversation persistence helpers
@@ -899,6 +901,123 @@ function WorkflowFormCard({
   );
 }
 
+// ── Connector readiness card ──────────────────────────────────────────────────
+const CONNECTOR_DISPLAY: Record<string, { label: string; bg: string }> = {
+  ga4:          { label: 'Google Analytics 4', bg: 'bg-[#F9AB00]' },
+  gsc:          { label: 'Search Console',     bg: 'bg-[#34A853]' },
+  google_ads:   { label: 'Google Ads',         bg: 'bg-[#4285F4]' },
+  meta_ads:     { label: 'Meta Ads',           bg: 'bg-[#0866FF]' },
+  linkedin_ads: { label: 'LinkedIn Ads',       bg: 'bg-[#0A66C2]' },
+  hubspot:      { label: 'HubSpot',            bg: 'bg-[#FF7A59]' },
+  salesforce:   { label: 'Salesforce',         bg: 'bg-[#00A1E0]' },
+  zoho_crm:     { label: 'Zoho CRM',           bg: 'bg-[#E71E63]' },
+  apollo:       { label: 'Apollo',             bg: 'bg-[#5B6CFF]' },
+  semrush:      { label: 'Semrush',            bg: 'bg-[#FF6A00]' },
+  ahrefs:       { label: 'Ahrefs',             bg: 'bg-[#0A66FF]' },
+  mixpanel:     { label: 'Mixpanel',           bg: 'bg-[#5F2EEA]' },
+  amplitude:    { label: 'Amplitude',          bg: 'bg-[#1C6BFF]' },
+  klaviyo:      { label: 'Klaviyo',            bg: 'bg-[#1A1A1A]' },
+  mailchimp:    { label: 'Mailchimp',          bg: 'bg-[#FFE01B]' },
+  instantly:    { label: 'Instantly',          bg: 'bg-[#6366F1]' },
+  sendgrid:     { label: 'SendGrid',           bg: 'bg-[#1A82E2]' },
+  gmail:        { label: 'Gmail',              bg: 'bg-[#EA4335]' },
+  shopify:      { label: 'Shopify',            bg: 'bg-[#008060]' },
+  linkedin:     { label: 'LinkedIn',           bg: 'bg-[#0A66C2]' },
+  facebook:     { label: 'Facebook',           bg: 'bg-[#0866FF]' },
+  instagram:    { label: 'Instagram',          bg: 'bg-[#E1306C]' },
+  moengage:     { label: 'MoEngage',           bg: 'bg-[#4F46E5]' },
+  clevertap:    { label: 'CleverTap',          bg: 'bg-[#FF6B6B]' },
+  google_calendar: { label: 'Google Calendar', bg: 'bg-[#4285F4]' },
+};
+
+function ConnectorReadinessCard({
+  missingConnectorIds,
+  moduleLabel,
+  workspaceId,
+  onConnected,
+  onSkip,
+}: {
+  missingConnectorIds: string[];
+  moduleLabel: string;
+  workspaceId: string | undefined;
+  onConnected: (connectorId: string) => void;
+  onSkip: () => void;
+}) {
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const { user } = useAuth();
+  // Show at most 3 connector options to keep the card concise
+  const shown = missingConnectorIds.slice(0, 3);
+
+  const handleConnect = async (connectorId: string) => {
+    if (!workspaceId) return;
+    setConnecting(connectorId);
+    try {
+      await connectComposioConnector({
+        companyId: workspaceId,
+        connectorId,
+        userEmail: user?.email,
+        userName: user?.name ?? user?.email,
+        onConnected: () => onConnected(connectorId),
+      });
+    } catch {
+      // ignore — user may have closed popup
+    } finally {
+      setConnecting(null);
+    }
+  };
+
+  return (
+    <div className="w-full rounded-2xl border border-amber-200/70 bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:border-amber-900/30 dark:from-amber-950/30 dark:via-gray-950 dark:to-orange-950/20 px-4 pt-3 pb-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-600 mb-0.5">
+        Connect an account
+      </div>
+      <p className="text-sm text-foreground mb-3">
+        {moduleLabel} works best with live data. Connect at least one account to get started:
+      </p>
+      <div className="space-y-2">
+        {shown.map(id => {
+          const meta = CONNECTOR_DISPLAY[id] ?? { label: id, bg: 'bg-gray-500' };
+          return (
+            <div key={id} className="flex items-center gap-3">
+              <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white', meta.bg)}>
+                {meta.label.slice(0, 2).toUpperCase()}
+              </span>
+              <span className="flex-1 text-sm text-foreground">{meta.label}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={connecting === id}
+                onClick={() => handleConnect(id)}
+                className="h-7 rounded-full border-amber-400/60 px-3 text-xs text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30"
+              >
+                {connecting === id ? 'Connecting…' : 'Connect'}
+              </Button>
+            </div>
+          );
+        })}
+        {missingConnectorIds.length > 3 && (
+          <p className="text-[11px] text-muted-foreground">
+            +{missingConnectorIds.length - 3} more available in{' '}
+            <button type="button" className="underline hover:text-foreground" onClick={onSkip}>
+              Integrations
+            </button>
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-2 mt-4">
+        <button
+          type="button"
+          onClick={onSkip}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Skip — open anyway
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Workflow confirm card ─────────────────────────────────────────────────────
 function WorkflowConfirmCard({
   summary,
@@ -972,6 +1091,24 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     moduleLabel: string;
     formMessageId: string;
   } | null>(null);
+
+  // -- Connected connector IDs for the current workspace (used for readiness checks)
+  const [activeConnectorIds, setActiveConnectorIds] = useState<string[]>([]);
+  const [connectingConnector, setConnectingConnector] = useState<string | null>(null);
+
+  useEffect(() => {
+    const workspaceId = activeWorkspace?.id;
+    if (!workspaceId) return;
+    fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`)
+      .then(r => r.json())
+      .catch(() => ({}))
+      .then(json => {
+        const ids: string[] = (json?.connectors ?? [])
+          .filter((c: { status: string }) => c.status === 'active')
+          .map((c: { id: string }) => c.id);
+        setActiveConnectorIds(ids);
+      });
+  }, [activeWorkspace?.id]);
 
   useEffect(() => {
     if (!isTyping) { setTypingLabelIdx(0); return; }
@@ -1094,6 +1231,21 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         if (veena.route === 'module') {
           setMessages(prev => prev.filter(m => m.id !== placeholderId));
           setIsTyping(false);
+
+          // ── Connector readiness check ──────────────────────────────────────
+          const readiness = checkConnectorReadiness(veena.moduleId, activeConnectorIds);
+          if (!readiness.ready && readiness.missing.length > 0) {
+            const ctaMsgId = `wf-cta-${Date.now()}`;
+            const ctaMsg: Message = {
+              id: ctaMsgId,
+              content: `__connector_cta__:${veena.moduleId}:${veena.label}:${readiness.missing.join(',')}`,
+              sender: 'ai',
+              timestamp: new Date(),
+            };
+            onMessagesChange(prev => [...prev, ctaMsg]);
+            setPendingWorkflow({ moduleId: veena.moduleId, moduleLabel: veena.label, formMessageId: ctaMsgId });
+            return;
+          }
 
           if (hasWorkflowForm(veena.moduleId)) {
             const form = WORKFLOW_FORMS[veena.moduleId];
@@ -2042,6 +2194,21 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         setMessages(prev => prev.filter(m => m.id !== placeholderId));
         setIsTyping(false);
 
+        // ── Connector readiness check ──────────────────────────────────────
+        const readiness2 = checkConnectorReadiness(veena.moduleId, activeConnectorIds);
+        if (!readiness2.ready && readiness2.missing.length > 0) {
+          const ctaMsgId = `wf-cta-${Date.now()}`;
+          const ctaMsg: Message = {
+            id: ctaMsgId,
+            content: `__connector_cta__:${veena.moduleId}:${veena.label}:${readiness2.missing.join(',')}`,
+            sender: 'ai',
+            timestamp: new Date(),
+          };
+          onMessagesChange(prev => [...prev, ctaMsg]);
+          setPendingWorkflow({ moduleId: veena.moduleId, moduleLabel: veena.label, formMessageId: ctaMsgId });
+          return;
+        }
+
         // For modules with workflow forms, inject a guided input form before opening
         if (hasWorkflowForm(veena.moduleId)) {
           const form = WORKFLOW_FORMS[veena.moduleId];
@@ -2191,6 +2358,66 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         <ScrollArea className="flex-1 px-4 py-4">
           <div className="space-y-4">
             {messages.map((message) => {
+              // Connector readiness CTA — show connect buttons when required accounts are missing
+              if (message.sender === 'ai' && message.content.startsWith('__connector_cta__:')) {
+                const parts = message.content.split(':');
+                // format: __connector_cta__:<moduleId>:<moduleLabel>:<comma-ids>
+                const ctaModuleId    = parts[1] ?? '';
+                const ctaModuleLabel = parts[2] ?? '';
+                const ctaMissing     = parts[3]?.split(',').filter(Boolean) ?? [];
+                return (
+                  <div key={message.id} className="w-full">
+                    <ConnectorReadinessCard
+                      missingConnectorIds={ctaMissing}
+                      moduleLabel={ctaModuleLabel}
+                      workspaceId={activeWorkspace?.id}
+                      onConnected={(connectorId) => {
+                        // Mark this connector as active and proceed to workflow form / module
+                        setActiveConnectorIds(prev => [...prev.filter(id => id !== connectorId), connectorId]);
+                        onMessagesChange(prev => prev.filter(m => m.id !== message.id));
+                        setPendingWorkflow(null);
+                        // After connecting, open the module directly (or show form if available)
+                        if (hasWorkflowForm(ctaModuleId)) {
+                          const form = WORKFLOW_FORMS[ctaModuleId];
+                          const formMsgId = `wf-form-${Date.now()}`;
+                          const formMsg: Message = {
+                            id: formMsgId, content: '', sender: 'ai', timestamp: new Date(),
+                            workflowForm: form, workflowState: 'gathering_inputs',
+                          };
+                          onMessagesChange(prev => [...prev, formMsg]);
+                          setPendingWorkflow({ moduleId: ctaModuleId, moduleLabel: ctaModuleLabel, formMessageId: formMsgId });
+                        } else {
+                          if (onModuleSelect) onModuleSelect(ctaModuleId);
+                          const navKey = navResponseKey(ctaModuleId);
+                          const navMsg: Message = { id: Date.now().toString(), content: MODULE_NAV_RESPONSES[navKey] ?? `I've opened ${ctaModuleLabel} for you.`, sender: 'ai', timestamp: new Date() };
+                          onMessagesChange(prev => [...prev, navMsg]);
+                        }
+                      }}
+                      onSkip={() => {
+                        // Let user proceed without connecting
+                        onMessagesChange(prev => prev.filter(m => m.id !== message.id));
+                        setPendingWorkflow(null);
+                        if (hasWorkflowForm(ctaModuleId)) {
+                          const form = WORKFLOW_FORMS[ctaModuleId];
+                          const formMsgId = `wf-form-${Date.now()}`;
+                          const formMsg: Message = {
+                            id: formMsgId, content: '', sender: 'ai', timestamp: new Date(),
+                            workflowForm: form, workflowState: 'gathering_inputs',
+                          };
+                          onMessagesChange(prev => [...prev, formMsg]);
+                          setPendingWorkflow({ moduleId: ctaModuleId, moduleLabel: ctaModuleLabel, formMessageId: formMsgId });
+                        } else {
+                          if (onModuleSelect) onModuleSelect(ctaModuleId);
+                          const navKey = navResponseKey(ctaModuleId);
+                          const navMsg: Message = { id: Date.now().toString(), content: MODULE_NAV_RESPONSES[navKey] ?? `I've opened ${ctaModuleLabel} for you.`, sender: 'ai', timestamp: new Date() };
+                          onMessagesChange(prev => [...prev, navMsg]);
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              }
+
               // Workflow input form — render interactive form card
               if (message.workflowForm && message.workflowState === 'gathering_inputs') {
                 const wf = pendingWorkflow;

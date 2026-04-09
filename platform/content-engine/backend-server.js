@@ -10159,6 +10159,254 @@ app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
   }
 });
 
+// ─── Draft Approval Queue ─────────────────────────────────────────────────────
+// Agents produce content as DRAFTs. Before autopilot publishes, the user must
+// approve (or reject) via the in-app queue or an approval email.
+//
+// Draft lifecycle:
+//   pending  → user sees it, can approve/reject/edit
+//   approved → autopilot may publish
+//   rejected → discarded, agent notified
+//   published → live on channel
+
+const DRAFT_APPROVALS_PATH = join(__dirname, "data", "draft-approvals.json");
+
+async function readDraftApprovals() {
+  try {
+    const raw = await readFile(DRAFT_APPROVALS_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeDraftApprovals(entries) {
+  await mkdir(dirname(DRAFT_APPROVALS_PATH), { recursive: true });
+  await writeFile(DRAFT_APPROVALS_PATH, JSON.stringify(entries, null, 2), "utf-8");
+}
+
+/**
+ * Send an approval email for a draft content piece.
+ * Uses the same AgentMail infrastructure as integration suggestion emails.
+ */
+async function sendDraftApprovalEmail({ draft, userEmail, companyId, userName }) {
+  const apiKey = process.env.AGENTMAIL_API_KEY || "";
+  if (!apiKey || !userEmail) return { sent: false, reason: "missing apiKey or email" };
+
+  const greeting = userName ? `Hey ${userName.split(" ")[0]},` : "Hey,";
+  const platformLabel = draft.platform ? ` for ${draft.platform}` : "";
+  const agentLabel = draft.agent ? draft.agent.charAt(0).toUpperCase() + draft.agent.slice(1) : "Your agent";
+  const approvalUrl = `${process.env.APP_URL || "http://localhost:5173"}/?draft=${encodeURIComponent(draft.id)}`;
+
+  const contentPreview = typeof draft.content === "string"
+    ? draft.content.slice(0, 400) + (draft.content.length > 400 ? "…" : "")
+    : JSON.stringify(draft.artifact || {}).slice(0, 300);
+
+  const text = `${greeting}
+
+${agentLabel} has prepared a new ${draft.type || "content"} draft${platformLabel} ready for your review.
+
+---
+${contentPreview}
+---
+
+Approve it here: ${approvalUrl}
+
+Or reply:
+• "approve" — publish as scheduled
+• "reject" — discard this draft
+• "edit: [your changes]" — apply edits and re-queue
+
+— Marqq`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Marqq · Draft ready for approval</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <div style="max-width:600px;margin:40px auto;background:#1e293b;border-radius:12px;overflow:hidden;">
+    <div style="padding:28px 32px;border-bottom:1px solid #334155;">
+      <div style="font-size:13px;font-weight:600;color:#f97316;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px;">Marqq · Draft Ready</div>
+      <h1 style="margin:0;font-size:20px;font-weight:700;color:#f1f5f9;">${agentLabel} needs your approval</h1>
+    </div>
+    <div style="padding:28px 32px;">
+      <p style="margin:0 0 16px;font-size:15px;color:#94a3b8;">${greeting}</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#cbd5e1;">
+        A new <strong style="color:#f1f5f9;">${draft.type || "content"} draft</strong>${platformLabel ? ` for <strong style="color:#f97316;">${draft.platform}</strong>` : ""} is ready for your review.
+      </p>
+      <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:20px 24px;margin-bottom:24px;">
+        <div style="font-size:11px;font-weight:600;color:#64748b;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;">Content Preview</div>
+        <p style="margin:0;font-size:14px;color:#cbd5e1;line-height:1.7;white-space:pre-wrap;">${contentPreview}</p>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+        <tr>
+          <td style="padding:6px 0;font-size:13px;color:#64748b;width:100px;">Agent</td>
+          <td style="padding:6px 0;font-size:13px;color:#e2e8f0;">${agentLabel}</td>
+        </tr>
+        ${draft.platform ? `<tr><td style="padding:6px 0;font-size:13px;color:#64748b;">Platform</td><td style="padding:6px 0;font-size:13px;color:#e2e8f0;">${draft.platform}</td></tr>` : ""}
+        ${draft.scheduledFor ? `<tr><td style="padding:6px 0;font-size:13px;color:#64748b;">Scheduled</td><td style="padding:6px 0;font-size:13px;color:#e2e8f0;">${new Date(draft.scheduledFor).toLocaleString()}</td></tr>` : ""}
+      </table>
+      <a href="${approvalUrl}" style="display:inline-block;background:#f97316;color:#fff;font-size:14px;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none;margin-bottom:20px;">Review &amp; Approve →</a>
+      <div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:16px 20px;margin-bottom:24px;">
+        <p style="margin:0 0 8px;font-size:12px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;">Or reply to this email:</p>
+        <ul style="margin:0;padding:0 0 0 16px;font-size:13px;color:#94a3b8;line-height:2;">
+          <li><strong style="color:#e2e8f0;">"approve"</strong> — publish as scheduled</li>
+          <li><strong style="color:#e2e8f0;">"reject"</strong> — discard this draft</li>
+          <li><strong style="color:#e2e8f0;">"edit: [your changes]"</strong> — apply edits and re-queue</li>
+        </ul>
+      </div>
+      <p style="margin:0;font-size:13px;color:#64748b;">— Marqq</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    const inbox = await ensureAgentMailInbox(apiKey, companyId || "default");
+    await agentMailFetch(
+      `/inboxes/${encodeURIComponent(inbox.inbox_id)}/messages/send`,
+      apiKey,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          to: [userEmail],
+          subject: `Draft ready for approval — ${agentLabel}${platformLabel}`,
+          text,
+          html,
+        }),
+      }
+    );
+    return { sent: true };
+  } catch (err) {
+    console.error("[draft_approval_email] failed:", err.message);
+    return { sent: false, error: err.message };
+  }
+}
+
+// GET /api/workspaces/:id/draft-approvals — list drafts pending approval
+app.get("/api/workspaces/:id/draft-approvals", async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.query; // optional filter: pending | approved | rejected | published
+  try {
+    const all = await readDraftApprovals();
+    const filtered = all
+      .filter((d) => d?.workspaceId === id)
+      .filter((d) => !status || d.status === status)
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 50);
+    res.json({ drafts: filtered });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// POST /api/workspaces/:id/draft-approvals — create a new draft pending approval
+app.post("/api/workspaces/:id/draft-approvals", async (req, res) => {
+  const { id } = req.params;
+  const {
+    agent,
+    type,           // 'social_post' | 'article' | 'email' | 'video' | 'image'
+    platform,       // 'linkedin' | 'wordpress' | 'instagram' | etc.
+    content,        // plain text / markdown of the artifact
+    artifact,       // full artifact JSON for rendering
+    scheduledFor,   // ISO string — when to publish if approved
+    companyId,
+    userEmail,
+    userName,
+    sendEmail = true,
+  } = req.body ?? {};
+
+  if (!agent || !type) {
+    return res.status(400).json({ error: "agent and type are required" });
+  }
+
+  try {
+    const drafts = await readDraftApprovals();
+    const draft = {
+      id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      workspaceId: id,
+      companyId: companyId || null,
+      agent,
+      type,
+      platform: platform || null,
+      content: content || null,
+      artifact: artifact || null,
+      scheduledFor: scheduledFor || null,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      approvedAt: null,
+      rejectedAt: null,
+      publishedAt: null,
+      approvalEmailSent: false,
+    };
+    drafts.unshift(draft);
+    await writeDraftApprovals(drafts.slice(0, 500));
+
+    // Send approval email (non-blocking)
+    if (sendEmail && userEmail) {
+      sendDraftApprovalEmail({ draft, userEmail, companyId, userName })
+        .then((r) => {
+          if (r.sent) {
+            // Mark email as sent
+            readDraftApprovals().then((all) => {
+              const idx = all.findIndex((d) => d.id === draft.id);
+              if (idx >= 0) {
+                all[idx].approvalEmailSent = true;
+                writeDraftApprovals(all);
+              }
+            });
+          }
+        })
+        .catch(() => {});
+    }
+
+    res.status(201).json({ draft });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// PATCH /api/workspaces/:id/draft-approvals/:draftId — approve | reject | publish
+app.patch("/api/workspaces/:id/draft-approvals/:draftId", async (req, res) => {
+  const { id, draftId } = req.params;
+  const { action, editedContent } = req.body ?? {};
+  // action: 'approve' | 'reject' | 'publish' | 'edit'
+
+  if (!["approve", "reject", "publish", "edit"].includes(action)) {
+    return res.status(400).json({ error: "action must be approve | reject | publish | edit" });
+  }
+
+  try {
+    const drafts = await readDraftApprovals();
+    const idx = drafts.findIndex((d) => d.id === draftId && d.workspaceId === id);
+    if (idx < 0) return res.status(404).json({ error: "Draft not found" });
+
+    const draft = drafts[idx];
+    const now = new Date().toISOString();
+
+    if (action === "approve") {
+      draft.status = "approved";
+      draft.approvedAt = now;
+    } else if (action === "reject") {
+      draft.status = "rejected";
+      draft.rejectedAt = now;
+    } else if (action === "publish") {
+      draft.status = "published";
+      draft.publishedAt = now;
+    } else if (action === "edit") {
+      draft.content = editedContent ?? draft.content;
+      draft.status = "pending"; // re-queue for approval
+      draft.approvedAt = null;
+    }
+
+    drafts[idx] = draft;
+    await writeDraftApprovals(drafts);
+    res.json({ draft });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── MKG Endpoints ───────────────────────────────────────────────────────────
 
 // GET /api/mkg/:companyId — return the full MKG document for a company

@@ -21,6 +21,7 @@ import {
   Plus,
   LogOut,
   X,
+  ClipboardCheck,
 } from 'lucide-react';
 import { loadPinnedChannels, unpinChannel, type PinnedChannel } from '@/lib/pinnedChannels';
 import type { Conversation } from '@/types/chat';
@@ -62,6 +63,7 @@ const workspaceItems: NavItem[] = [
   { id: 'integrations',    title: 'Integrations',    icon: Puzzle },
   { id: 'workspace-files', title: 'Files',           icon: FolderOpen },
   { id: 'scheduled-jobs',  title: 'Tasks',           icon: CalendarClock },
+  { id: 'draft-approvals', title: 'Approvals',       icon: ClipboardCheck },
   { id: 'profile',         title: 'Your Profile',    icon: UserCircle },
   { id: 'settings',        title: 'Settings',        icon: Settings },
   { id: 'help',            title: 'Help',            icon: HelpCircle },

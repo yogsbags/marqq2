@@ -44,6 +44,8 @@ import { SalesEnablementFlow } from './SalesEnablementFlow';
 import { PaidAdsFlow } from './PaidAdsFlow';
 import { ReferralProgramFlow } from './ReferralProgramFlow';
 import { ChurnPreventionFlow } from './ChurnPreventionFlow';
+import { DraftApprovalsView } from '../approvals/DraftApprovalsView';
+import { mapWorkflowParamsToGoalPreset } from '@/lib/workflowRequirements';
 
 interface ModuleDetailProps {
   module: ModuleStats;
@@ -254,19 +256,9 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
     const hashPreset = parseGoalPresetFromHash();
     // Merge workflow params (from in-chat form) with hash preset, giving precedence to workflow params
     if (workflowParams && Object.keys(workflowParams).length > 0) {
-      return {
-        ...hashPreset,
-        // Map standard workflow param keys to GoalPreset keys
-        question: workflowParams.question ?? hashPreset.question ?? null,
-        // revenue-ops params
-        revopsProblem: workflowParams.problem ?? hashPreset.revopsProblem ?? null,
-        revopsBreakdown: workflowParams.breakdown ?? hashPreset.revopsBreakdown ?? null,
-        revopsSystems: workflowParams.systems ?? hashPreset.revopsSystems ?? null,
-        // seo-llmo params
-        seoFocus: workflowParams.focus ?? hashPreset.seoFocus ?? null,
-        seoSurface: workflowParams.surface ?? hashPreset.seoSurface ?? null,
-        seoGoal: workflowParams.goal ?? hashPreset.seoGoal ?? null,
-      };
+      // Use the generic key mapper so ALL flows benefit, not just revenue-ops / seo-llmo
+      const mapped = mapWorkflowParamsToGoalPreset(module.id, workflowParams) as Partial<GoalPreset>;
+      return { ...hashPreset, ...mapped };
     }
     return hashPreset;
   });
@@ -661,6 +653,7 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
     );
   }
   if (module.id === 'churn-prevention') return <ChurnPreventionFlow initialQuestion={goalPreset.question ?? undefined} />;
+  if (module.id === 'draft-approvals') return <DraftApprovalsView />;
 
   return (
     <div className="space-y-6">

@@ -8,27 +8,64 @@
 import type { WorkflowFormData } from '@/types/chat';
 
 // ── Connector requirements per module ────────────────────────────────────────
+// Each array lists the Composio connector IDs that make the module significantly
+// more useful. At least ONE connected connector from the list will trigger a
+// "you're ready" signal; zero connected triggers a CTA nudge (non-blocking).
 export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
-  'revenue-ops':        [],
-  'seo-llmo':           [],
-  'budget-optimization': [],
-  'lead-intelligence':  [],
-  'email-sequence':     [],
-  'lead-magnets':       [],
-  'launch-strategy':    [],
-  'messaging':          [],
-  'offer-design':       [],
-  'ab-test':            [],
-  'sales-enablement':   [],
-  'positioning':        [],
-  'user-engagement':    [],
-  'lead-outreach':      [],
-  'ad-creative':        [],
-  'paid-ads':           [],
-  'marketing-audit':    [],
-  'audience-profiles':  [],
-  'referral-program':   [],
-  'unified-customer-view': [],
+  // CRM pipeline data — at least one CRM boosts analysis quality
+  'revenue-ops':           ['hubspot', 'salesforce', 'zoho_crm'],
+  // SEO / LLMO — Search Console is the most impactful single connector
+  'seo-llmo':              ['gsc', 'ga4', 'semrush', 'ahrefs'],
+  // Budget & attribution — needs at least one ad platform or analytics
+  'budget-optimization':   ['google_ads', 'meta_ads', 'ga4', 'linkedin_ads'],
+  // Lead scoring — needs a CRM or prospecting tool
+  'lead-intelligence':     ['apollo', 'hubspot', 'salesforce'],
+  // Email sequences — needs a sending/CRM tool
+  'email-sequence':        ['mailchimp', 'klaviyo', 'hubspot', 'instantly', 'sendgrid'],
+  // Lead magnets — GA4 for conversion data; CRM for lead capture
+  'lead-magnets':          ['ga4', 'hubspot'],
+  // Launch strategy — baseline traffic + CRM for contacts
+  'launch-strategy':       ['ga4', 'hubspot'],
+  // Messaging / copy — analytics shows what's working
+  'messaging':             ['ga4', 'hubspot', 'gsc'],
+  // Offer design — ecommerce or funnel conversion data
+  'offer-design':          ['ga4', 'shopify', 'hubspot'],
+  // A/B testing — needs analytics to measure variants
+  'ab-test':               ['ga4', 'mixpanel', 'amplitude'],
+  // Sales enablement — CRM for deal stage context
+  'sales-enablement':      ['hubspot', 'salesforce'],
+  // Positioning — competitive intelligence + search data
+  'positioning':           ['gsc', 'semrush', 'ahrefs'],
+  // User engagement — product analytics
+  'user-engagement':       ['ga4', 'mixpanel', 'amplitude', 'moengage', 'clevertap'],
+  // Lead outreach — prospecting + sending tool
+  'lead-outreach':         ['apollo', 'instantly', 'hubspot', 'gmail'],
+  // Ad creative — needs at least one ad platform for performance context
+  'ad-creative':           ['google_ads', 'meta_ads', 'linkedin_ads'],
+  // Paid ads — full ad account management
+  'paid-ads':              ['google_ads', 'meta_ads', 'linkedin_ads'],
+  // Marketing audit — broadest coverage needed
+  'marketing-audit':       ['ga4', 'google_ads', 'meta_ads', 'hubspot', 'gsc'],
+  // Audience profiles — analytics + CRM
+  'audience-profiles':     ['ga4', 'mixpanel', 'hubspot', 'amplitude'],
+  // Referral program — CRM for customer data; ecommerce for revenue
+  'referral-program':      ['hubspot', 'shopify', 'salesforce'],
+  // 360° customer view — multi-source: analytics + CRM minimum
+  'unified-customer-view': ['hubspot', 'ga4', 'mixpanel', 'salesforce'],
+  // Social performance — at least one social platform
+  'social-media':          ['linkedin', 'facebook', 'instagram'],
+  'social-calendar':       ['linkedin', 'facebook', 'instagram', 'google_calendar'],
+  // AI content — no hard requirements (LLM-only is still useful)
+  'ai-content':            [],
+  // Market signals / industry intel — no hard requirements
+  'market-signals':        ['semrush', 'ahrefs', 'gsc'],
+  'industry-intelligence': [],
+  // Churn prevention — product + CRM data
+  'churn-prevention':      ['mixpanel', 'amplitude', 'hubspot', 'moengage'],
+  // Channel health — analytics
+  'channel-health':        ['ga4', 'google_ads', 'meta_ads', 'gsc'],
+  // Performance scorecard — rich multi-source dashboard
+  'performance-scorecard': ['ga4', 'gsc', 'google_ads', 'meta_ads'],
 };
 
 // ── Input form definitions per module ────────────────────────────────────────
@@ -973,4 +1010,41 @@ export function mapWorkflowParamsToGoalPreset(
     result[presetKey] = params[formKey] ?? null;
   }
   return result;
+}
+
+// ── Connector readiness check ─────────────────────────────────────────────────
+
+export type ConnectorReadiness = {
+  /** True when at least one required connector is active */
+  ready: boolean;
+  /** Connector IDs that are already active */
+  connected: string[];
+  /** Connector IDs that are required but not yet connected */
+  missing: string[];
+  /** All required connector IDs for this module */
+  required: string[];
+};
+
+/**
+ * Given a module ID and the list of currently active connector IDs,
+ * returns a readiness report. When a module has no connector requirements
+ * it is always considered ready.
+ */
+export function checkConnectorReadiness(
+  moduleId: string,
+  activeConnectorIds: string[],
+): ConnectorReadiness {
+  const required = WORKFLOW_CONNECTOR_REQUIREMENTS[moduleId] ?? [];
+  if (required.length === 0) {
+    return { ready: true, connected: [], missing: [], required: [] };
+  }
+  const activeSet = new Set(activeConnectorIds);
+  const connected = required.filter(id => activeSet.has(id));
+  const missing    = required.filter(id => !activeSet.has(id));
+  return {
+    ready: connected.length > 0,
+    connected,
+    missing,
+    required,
+  };
 }
