@@ -28,21 +28,24 @@ function Section({
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border-b border-border/50 last:border-b-0">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-muted/30 transition-colors"
-      >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {title}
-        </span>
-        <div className="flex items-center gap-2">
-          {action && <span onClick={e => e.stopPropagation()}>{action}</span>}
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-muted/30 transition-colors">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="min-w-0 flex flex-1 items-center justify-between gap-2 text-left"
+        >
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {title}
+          </span>
           {open
-            ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
-            : <ChevronRight className="h-3 w-3 text-muted-foreground" />
+            ? <ChevronDown className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+            : <ChevronRight className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
           }
+        </button>
+        <div className="flex items-center gap-2">
+          {action}
         </div>
-      </button>
+      </div>
       {open && <div className="pb-2">{children}</div>}
     </div>
   );
