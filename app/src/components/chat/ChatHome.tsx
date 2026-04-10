@@ -1748,7 +1748,8 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
           toolStatus: `Working on ${agent.name}…`,
         };
         // Add placeholder and hide typing indicator once the card is live
-        setMessages(prev => [...prev, placeholder]);
+        // Use onMessagesChange to ensure persistence to localStorage
+        onMessagesChange(prev => [...prev, placeholder]);
         setIsTyping(false);
         setActiveTypingAgent(null);
 
@@ -1830,12 +1831,66 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   };
 
   // ── Helena-style auto-first-message ──────────────────────────────────────────
-  // DISABLED: Auto-spawning agents on load causes repeated "Analysis complete" messages
-  // Users should manually trigger agent sequences via /commands or sidebar
-  // Onboarding flow can be re-triggered via /setup command if needed
-  // useEffect(() => {
-  //   // Auto-spawn disabled — let conversations persist naturally
-  // }, [activeWorkspace?.id, activeWorkspace?.website_url]);
+  // Fires once per workspace when a websiteUrl is present (i.e. just after onboarding).
+  // Uses localStorage to ensure it only runs once per workspace.
+  // CRITICAL: Waits for conversation hydration (useEffect above) before checking.
+  useEffect(() => {
+    const url = activeWorkspace?.website_url;
+    if (!url || !activeWorkspace?.id) return;
+    if (activeConversationId) return; // don't override an already-open conversation
+    if (currentConvIdRef.current) return;
+
+    // WAIT for conversation hydration to complete before deciding to run onboarding
+    // This ensures that if a conversation was restored from localStorage, we don't re-run
+    if (!hasHydratedConversationRef.current) return;
+
+    // Check if conversations exist — if so, don't run onboarding
+    if (loadConversations(activeWorkspace?.id).length > 0) return;
+
+    const key = `marqq_welcomed_${activeWorkspace.id}`;
+    if (localStorage.getItem(key)) return;
+    if (hasRunWelcomeRef.current) return;
+    hasRunWelcomeRef.current = true;
+    localStorage.setItem(key, '1');
+
+    const timer = setTimeout(() => {
+      // Replace static greeting with the Helena-style opener, personalised with onboarding context
+      const ctx = readOnboardingCtx(activeWorkspace!.id);
+      const companyLabel = ctx.company || activeWorkspace!.name || url;
+      const industryHint = ctx.industry ? ` (${ctx.industry})` : '';
+      setMessages([{
+        id: 'welcome-opener',
+        content: `I've got ${companyLabel}${industryHint} — briefing your team across SEO, leads, performance, content, and campaigns now.`,
+        sender: 'ai' as const,
+        timestamp: new Date(),
+      }]);
+      runAgentSequence(
+        buildOnboardingWelcomeSequence(url, ctx),
+        `Scanning ${url} — each specialist is briefing you now.`,
+      );
+
+      // Schedule the first "Weekly Intelligence Brief" task — shows in right panel Upcoming Tasks
+      const scheduledFor = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(); // 6h from now
+      fetch(`/api/workspaces/${activeWorkspace!.id}/agent-deployments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentName: 'sam',
+          sectionId: 'weekly_intelligence_brief',
+          sectionTitle: 'Weekly Intelligence Brief',
+          summary: 'First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.',
+          tasks: [{ label: 'Run weekly intelligence brief', horizon: 'week' }],
+          scheduledFor,
+          source: 'onboarding',
+        }),
+      }).then(() => {
+        window.dispatchEvent(new CustomEvent('marqq:deployment-created'));
+      }).catch(() => { /* non-blocking */ });
+    }, 1000);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspace?.id, activeWorkspace?.website_url]);
 
   const createAgentTaskPlan = async () => {
     if (!taskAgent) return;
