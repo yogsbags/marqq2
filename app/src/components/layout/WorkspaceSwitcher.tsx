@@ -77,7 +77,7 @@ export function WorkspaceSwitcher({ onModuleSelect }: WorkspaceSwitcherProps) {
       <CreateWorkspaceModal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        onCreated={(_ws, url) => url && onModuleSelect?.('company-intelligence')}
+        onCreated={(_ws, url) => url && onModuleSelect?.('home')}
       />
     </>
   );

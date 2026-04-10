@@ -550,7 +550,7 @@ export function Sidebar({
       <CreateWorkspaceModal
         open={createBrandOpen}
         onOpenChange={setCreateBrandOpen}
-        onCreated={(_ws, url) => url && onModuleSelect('company-intelligence')}
+        onCreated={(_ws, url) => url && onModuleSelect('home')}
       />
     </div>
   );

@@ -9779,31 +9779,54 @@ app.patch("/api/workspaces/:id", async (req, res) => {
 app.delete("/api/workspaces/:id", async (req, res) => {
   const { id } = req.params;
   const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: "userId required" });
+  console.log(`[DELETE /api/workspaces/:id] workspace=${id}, userId=${userId}`);
+
+  if (!userId) {
+    console.error('Missing userId');
+    return res.status(400).json({ error: "userId required" });
+  }
+
   const db = workspaceDbOr503(res);
-  if (!db) return;
+  if (!db) {
+    console.error('DB connection failed');
+    return;
+  }
+
   try {
     // Verify the user is the owner
+    console.log('Fetching workspace...');
     const { data: ws, error: wsErr } = await db
       .from("workspaces")
       .select("owner_id")
       .eq("id", id)
       .single();
+
+    console.log('Workspace data:', ws, 'Error:', wsErr);
     if (wsErr) throw wsErr;
-    if (ws?.owner_id !== userId) {
+    if (!ws) {
+      console.error('Workspace not found');
+      return res.status(404).json({ error: "Workspace not found" });
+    }
+    if (ws.owner_id !== userId) {
+      console.error(`Owner mismatch: ${ws.owner_id} !== ${userId}`);
       return res.status(403).json({ error: "Only workspace owner can delete" });
     }
 
     // Delete workspace (cascade should handle members, conversations, etc.)
+    console.log('Deleting workspace...');
     const { error: delErr } = await db
       .from("workspaces")
       .delete()
       .eq("id", id);
+
+    console.log('Delete error:', delErr);
     if (delErr) throw delErr;
 
+    console.log('Workspace deleted successfully');
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[DELETE workspace] Error:', err);
+    res.status(500).json({ error: err.message || String(err) });
   }
 });
 
@@ -10538,6 +10561,12 @@ app.post("/api/agents/integration-connected", express.json(), async (req, res) =
     hasSuggestions: Boolean(CONNECTOR_AUTOMATIONS[connectorId]?.length),
     suggestionCount: CONNECTOR_AUTOMATIONS[connectorId]?.length ?? 0,
   });
+});
+
+// Keep API misses machine-readable so frontend error handling does not receive
+// Express's default HTML 404 page.
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "API route not found" });
 });
 
 export { app, startBackendRuntime, stopBackendRuntime };

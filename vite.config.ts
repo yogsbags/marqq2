@@ -97,7 +97,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      '/api/workspaces': { target: 'http://localhost:3008', changeOrigin: true },
+      '/api/workspaces': {
+        target: backendTarget,
+        changeOrigin: true,
+        secure: false,
+      },
       // Catch-all: forward any /api/* not matched above to the backend
       '/api': {
         target: backendTarget,

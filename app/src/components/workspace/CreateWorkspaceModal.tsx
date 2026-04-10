@@ -34,20 +34,29 @@ export function CreateWorkspaceModal({ open, onOpenChange, onCreated }: CreateWo
     if (!name.trim()) return;
     setLoading(true);
     try {
-      const workspace = await createWorkspace(name.trim());
+      const workspaceName = name.trim();
+      const workspace = await createWorkspace(workspaceName);
       const url = normalizeUrl(websiteUrl);
       if (url) {
         await updateWebsiteUrl(url);
         try {
+          localStorage.setItem(`marqq_onboarding_ctx_${workspace.id}`, JSON.stringify({
+            company: workspaceName,
+            industry: '',
+            icp: '',
+            goals: '',
+            connectedIntegrations: '',
+          }));
           sessionStorage.setItem('marqq_company_intel_autorun', JSON.stringify({
-            companyName: name.trim(),
+            companyName: workspaceName,
             websiteUrl: url,
           }));
+          sessionStorage.setItem('marqq_post_onboard_home_tour', '1');
         } catch {
           // non-blocking
         }
       }
-      toast.success(`Brand "${name.trim()}" created${url ? ' — opening Company Intelligence' : ''}`);
+      toast.success(`Brand "${workspaceName}" created${url ? ' — opening main channel' : ''}`);
       setName('');
       setWebsiteUrl('');
       onOpenChange(false);

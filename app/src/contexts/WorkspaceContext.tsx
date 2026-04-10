@@ -27,6 +27,28 @@ const WorkspaceContext = createContext<WorkspaceContextType | null>(null);
 const STORAGE_KEY = 'marqq_workspace_id';
 const ACTIVE_WS_KEY = 'marqq_active_workspace';
 
+async function getResponseError(res: Response, fallback: string): Promise<string> {
+  const contentType = res.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    const payload = await res.json().catch(() => null);
+    if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+      return payload.error;
+    }
+    return fallback;
+  }
+
+  const text = await res.text().catch(() => '');
+  if (!text) return fallback;
+
+  // Avoid surfacing raw HTML fallback pages to the UI.
+  if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+    return fallback;
+  }
+
+  return text.trim();
+}
+
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -70,7 +92,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user?.id, name }),
     });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to create workspace');
+    if (!res.ok) throw new Error(await getResponseError(res, 'Failed to create workspace'));
     const { workspace } = await res.json();
     setWorkspaces(prev => [...prev, workspace]);
     switchWorkspace(workspace.id);
@@ -84,7 +106,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id, name: name.trim() }),
     });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to rename workspace');
+    if (!res.ok) throw new Error(await getResponseError(res, 'Failed to rename workspace'));
     const { workspace } = await res.json();
     setWorkspaces(prev => prev.map(w => w.id === workspace.id ? { ...w, name: workspace.name } : w));
     setActiveWorkspace(prev => prev?.id === workspace.id ? ({ ...prev, name: workspace.name } as Workspace) : prev);
@@ -98,7 +120,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id, website_url: url }),
     });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to update');
+    if (!res.ok) throw new Error(await getResponseError(res, 'Failed to update'));
     const { workspace } = await res.json();
     setWorkspaces(prev => prev.map(w => w.id === workspace.id ? { ...w, website_url: workspace.website_url } : w));
     setActiveWorkspace(prev => prev?.id === workspace.id ? ({ ...prev, website_url: workspace.website_url } as Workspace) : prev);
@@ -111,7 +133,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id, website_url: null }),
     });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to clear website URL');
+    if (!res.ok) throw new Error(await getResponseError(res, 'Failed to clear website URL'));
     const { workspace } = await res.json();
     setWorkspaces(prev => prev.map(w => w.id === workspace.id ? { ...w, website_url: workspace.website_url } : w));
     setActiveWorkspace(prev => prev?.id === workspace.id ? ({ ...prev, website_url: workspace.website_url } as Workspace) : prev);
@@ -124,7 +146,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id }),
     });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to delete workspace');
+    if (!res.ok) throw new Error(await getResponseError(res, 'Failed to delete workspace'));
 
     // Remove from list
     const updated = workspaces.filter(w => w.id !== id);
