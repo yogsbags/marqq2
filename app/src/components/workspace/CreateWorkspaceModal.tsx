@@ -38,7 +38,8 @@ export function CreateWorkspaceModal({ open, onOpenChange, onCreated }: CreateWo
       const workspace = await createWorkspace(workspaceName);
       const url = normalizeUrl(websiteUrl);
       if (url) {
-        await updateWebsiteUrl(url);
+        // Pass workspace id — activeWorkspace from context can still be stale this tick after create.
+        await updateWebsiteUrl(url, workspace.id);
         try {
           localStorage.setItem(`marqq_onboarding_ctx_${workspace.id}`, JSON.stringify({
             company: workspaceName,

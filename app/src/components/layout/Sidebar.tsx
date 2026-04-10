@@ -476,28 +476,30 @@ export function Sidebar({
                         </div>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => { switchWorkspace(ws.id); setProfileOpen(false); }}
-                        className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/60 transition-colors text-left group"
-                      >
-                        <div className="h-6 w-6 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
-                          {(ws.name?.[0] ?? 'W').toUpperCase()}
-                        </div>
-                        <span className="flex-1 text-sm text-foreground truncate">{ws.name}</span>
-                        {activeWorkspace?.id === ws.id && (
-                          <Check className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                        )}
+                      <div className="flex w-full items-center gap-0 rounded-lg group hover:bg-muted/60 transition-colors">
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirm(ws.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          type="button"
+                          onClick={() => { switchWorkspace(ws.id); setProfileOpen(false); }}
+                          className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 rounded-lg text-left"
+                        >
+                          <div className="h-6 w-6 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                            {(ws.name?.[0] ?? 'W').toUpperCase()}
+                          </div>
+                          <span className="flex-1 text-sm text-foreground truncate">{ws.name}</span>
+                          {activeWorkspace?.id === ws.id && (
+                            <Check className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirm(ws.id)}
+                          className="mr-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted/80"
                           title="Delete workspace"
+                          aria-label={`Delete workspace ${ws.name}`}
                         >
                           <Trash2 className="h-4 w-4 text-destructive hover:text-destructive/80" />
                         </button>
-                      </button>
+                      </div>
                     )}
                   </div>
                 ))}

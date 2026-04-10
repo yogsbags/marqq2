@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 
 export interface Workspace {
@@ -15,7 +15,7 @@ interface WorkspaceContextType {
   switchWorkspace: (id: string) => void;
   createWorkspace: (name: string) => Promise<Workspace>;
   renameWorkspace: (name: string) => Promise<void>;
-  updateWebsiteUrl: (url: string) => Promise<void>;
+  updateWebsiteUrl: (url: string, workspaceId?: string) => Promise<void>;
   clearWebsiteUrl: () => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
   refreshWorkspaces: () => Promise<void>;
@@ -54,6 +54,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const workspacesRef = useRef<Workspace[]>([]);
+  workspacesRef.current = workspaces;
 
   const fetchWorkspaces = useCallback(async () => {
     if (!user?.id) { setIsLoading(false); return; }
@@ -79,7 +81,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { fetchWorkspaces(); }, [fetchWorkspaces]);
 
   const switchWorkspace = (id: string) => {
-    const ws = workspaces.find(w => w.id === id);
+    // Use ref so switching works the same tick as setWorkspaces (e.g. after create).
+    const ws = workspacesRef.current.find(w => w.id === id);
     if (!ws) return;
     localStorage.setItem(STORAGE_KEY, id);
     localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: ws.id, name: ws.name }));
@@ -94,8 +97,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     });
     if (!res.ok) throw new Error(await getResponseError(res, 'Failed to create workspace'));
     const { workspace } = await res.json();
-    setWorkspaces(prev => [...prev, workspace]);
-    switchWorkspace(workspace.id);
+    const nextList = [...workspacesRef.current, workspace];
+    workspacesRef.current = nextList;
+    setWorkspaces(nextList);
+    localStorage.setItem(STORAGE_KEY, workspace.id);
+    localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: workspace.id, name: workspace.name }));
+    setActiveWorkspace(workspace);
     return workspace;
   };
 
@@ -113,9 +120,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: workspace.id, name: workspace.name }));
   };
 
-  const updateWebsiteUrl = async (url: string) => {
-    if (!activeWorkspace || !user?.id) return;
-    const res = await fetch(`/api/workspaces/${activeWorkspace.id}`, {
+  const updateWebsiteUrl = async (url: string, workspaceId?: string) => {
+    const id = workspaceId ?? activeWorkspace?.id;
+    if (!id || !user?.id) return;
+    const res = await fetch(`/api/workspaces/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id, website_url: url }),

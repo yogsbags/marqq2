@@ -1173,11 +1173,14 @@ export function ChatHome({
 
   // -- Load today's report for the #main channel feed (Helena-style)
   // Only runs when there is no persisted conversation to restore.
+  // Skip when a website URL is set — the onboarding / specialist scan flow owns the feed.
   useEffect(() => {
     if (scope !== 'main') return;
     if (activeConversationId) return; // a conversation will be loaded by the other effect
+    if (activeWorkspace?.website_url?.trim()) return;
     if (loadConversations(activeWorkspace?.id, scope).length > 0) return;
-    fetch('/api/agents/today-report')
+    const ac = new AbortController();
+    fetch('/api/agents/today-report', { signal: ac.signal })
       .then(r => r.ok ? r.json() : null)
       .then((data: { hasReport?: boolean; subject?: string; body?: string; recipients?: string[]; agentName?: string } | null) => {
         if (!data?.hasReport || !data.body) return;
@@ -1198,8 +1201,9 @@ export function ChatHome({
           agentRole: 'Email Marketing Monitor',
         }]);
       })
-      .catch(() => { /* keep greeting */ });
-  }, [activeConversationId, activeWorkspace?.id, scope]);
+      .catch(() => { /* keep greeting; ignore abort */ });
+    return () => ac.abort();
+  }, [activeConversationId, activeWorkspace?.id, activeWorkspace?.website_url, scope]);
 
   const sendQuickMessage = (text: string) => {
     setInputValue(text);
