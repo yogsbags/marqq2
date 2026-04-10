@@ -488,10 +488,10 @@ export function Sidebar({
                             e.stopPropagation();
                             setDeleteConfirm(ws.id);
                           }}
-                          className="h-6 w-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/20 transition-all"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
                           title="Delete workspace"
                         >
-                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          <Trash2 className="h-4 w-4 text-destructive hover:text-destructive/80" />
                         </button>
                       </button>
                     )}
