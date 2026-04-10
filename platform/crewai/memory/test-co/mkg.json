@@ -1,0 +1,279 @@
+{
+  "company_id": "test-co",
+  "updated_at": "2026-04-09T06:03:36.701Z",
+  "positioning": {
+    "value": "AI marketing coordination platform for B2B SaaS founders — proven in India ($25K MRR, 50 customers), expanding to Southeast Asia with Singapore as primary beachhead and Indonesia as secondary market. Positioned against HubSpot (pricing exclusion), Zoho (configuration overhead), and Sprinklr (enterprise-only, social-first).",
+    "confidence": 0.82,
+    "last_verified": "2026-04-09",
+    "source_agent": "neel",
+    "expires_at": "2026-05-09"
+  },
+  "icp": {
+    "value": {
+      "segments": [
+        {
+          "name": "Series A B2B SaaS Founders — India",
+          "headcount": "20–150",
+          "arr_range": "$500K–$3M",
+          "funding_stage": "Series A",
+          "geography": [
+            "Bangalore",
+            "Mumbai",
+            "Delhi-NCR",
+            "Pune",
+            "Hyderabad"
+          ],
+          "top_fears": [
+            "Marketing spend with no measurable return",
+            "Losing to better-funded competitors",
+            "Team burnout"
+          ],
+          "top_goals": [
+            "Hit next ARR milestone",
+            "Build repeatable pipeline",
+            "Reduce founder-led sales dependency"
+          ],
+          "buying_triggers": [
+            "Series A close",
+            "First missed pipeline quarter",
+            "New sales hire onboarded"
+          ],
+          "priority": "high"
+        },
+        {
+          "name": "Fintech Product Leaders — Series A–C",
+          "headcount": "50–500",
+          "funding_stage": "Series A–C",
+          "geography": [
+            "India",
+            "Singapore",
+            "Indonesia"
+          ],
+          "top_fears": [
+            "Compliance risk from uncoordinated content",
+            "CAC creep",
+            "Tool lock-in"
+          ],
+          "top_goals": [
+            "Faster GTM cycles",
+            "Coordinated messaging",
+            "Attribution clarity"
+          ],
+          "buying_triggers": [
+            "New product launch",
+            "New geography entry",
+            "Board pressure on growth efficiency"
+          ],
+          "priority": "medium"
+        },
+        {
+          "name": "Real Estate Tech Founders — 10–500 Employees",
+          "headcount": "10–500",
+          "geography": [
+            "India"
+          ],
+          "top_fears": [
+            "Losing leads to faster competitors",
+            "No ROI visibility",
+            "Tool adoption failure"
+          ],
+          "top_goals": [
+            "Automate lead qualification",
+            "Shorten sales cycles",
+            "Differentiate digitally"
+          ],
+          "buying_triggers": [
+            "Rising ops costs",
+            "Sales team scaling",
+            "Failed DIY marketing"
+          ],
+          "priority": "medium"
+        }
+      ]
+    },
+    "confidence": 0.74,
+    "last_verified": "2026-04-09",
+    "source_agent": "isha",
+    "expires_at": "2026-05-09"
+  },
+  "competitors": {
+    "value": [
+      {
+        "name": "HubSpot",
+        "position": "Market-leading CRM/automation; enterprise-priced",
+        "weakness": "No strategic coordination layer; pricing excludes sub-150-employee teams",
+        "last_checked": "2026-04-09"
+      },
+      {
+        "name": "Jasper",
+        "position": "AI content generation; copy-focused",
+        "weakness": "Content-only; no campaign orchestration or strategy layer",
+        "last_checked": "2026-04-09"
+      },
+      {
+        "name": "Recently AI",
+        "position": "AI-native marketing workflow automation",
+        "weakness": "Narrower scope; weaker India/SEA presence; less B2B SaaS-specific",
+        "last_checked": "2026-04-09"
+      }
+    ],
+    "confidence": 0.72,
+    "last_verified": "2026-04-09",
+    "source_agent": "isha",
+    "expires_at": "2026-05-09"
+  },
+  "offers": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "messaging": {
+    "value": {
+      "sea_singapore": {
+        "primary_angle": "outcome-led",
+        "headline": "Your Singapore SaaS team of 3 is doing the marketing work of 10. Torqq coordinates it — without adding headcount.",
+        "competitor_wedge_hubspot": "HubSpot charges $800-$3,200/month for features SG Series A teams use 20% of",
+        "competitor_wedge_sprinklr": "Sprinklr is enterprise-only and social-first; Torqq coordinates the full B2B marketing motion"
+      },
+      "sea_indonesia": {
+        "primary_angle": "pain-led",
+        "headline": "Jakarta's fastest-growing SaaS teams are losing deals because marketing and sales aren't coordinated. Torqq fixes that.",
+        "competitor_wedge_zoho": "Zoho is feature-heavy and requires dedicated ops; Torqq is AI-native — coordinates without configuration overhead"
+      }
+    },
+    "confidence": 0.72,
+    "last_verified": "2026-04-09",
+    "source_agent": "neel",
+    "expires_at": "2026-05-09"
+  },
+  "channels": {
+    "value": {
+      "sea_expansion": {
+        "singapore": {
+          "primary": [
+            "cold_email_english",
+            "linkedin_organic_outbound"
+          ],
+          "secondary": [
+            "community_seeding_sg",
+            "seo_sea_keywords"
+          ],
+          "budget_split": {
+            "cold_email": "40%",
+            "linkedin": "35%",
+            "community": "15%",
+            "seo": "10%"
+          }
+        },
+        "indonesia": {
+          "primary": [
+            "cold_email_english_localized",
+            "linkedin_outbound"
+          ],
+          "secondary": [
+            "whatsapp_warm_referrals",
+            "sg_to_id_partner_referrals"
+          ],
+          "activation_day": 36
+        }
+      }
+    },
+    "confidence": 0.75,
+    "last_verified": "2026-04-09",
+    "source_agent": "neel",
+    "expires_at": "2026-05-09"
+  },
+  "funnel": {
+    "value": {
+      "known_gaps": [
+        "No attribution tracking between top-of-funnel channels and pipeline",
+        "Email nurture (Mailchimp) disconnected from CRM deal stage triggers",
+        "No SEO/organic tracking despite strong content pillar alignment"
+      ],
+      "tool_ownership": {
+        "cold_outbound": "Apollo",
+        "warm_nurture": "HubSpot Email (recommended)",
+        "crm_pipeline": "HubSpot",
+        "attribution": "To be added"
+      }
+    },
+    "confidence": 0.72,
+    "last_verified": "2026-04-09",
+    "source_agent": "tara",
+    "expires_at": "2026-05-09"
+  },
+  "metrics": {
+    "value": {
+      "monthly_visitors": 10000,
+      "signup_rate_pct": 2,
+      "trial_to_paid_rate_pct": 15,
+      "monthly_paid_customers": 30,
+      "arpu_usd": 499,
+      "monthly_revenue_usd": 14970
+    },
+    "confidence": 0.8,
+    "last_verified": "2026-04-09",
+    "source_agent": "dev",
+    "expires_at": "2026-05-09"
+  },
+  "baselines": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "content_pillars": {
+    "value": [
+      "AI marketing automation for B2B SaaS India",
+      "B2B lead generation and scoring for Indian SaaS",
+      "Content marketing and SEO strategy for SaaS India",
+      "Marketing metrics and attribution for lean SaaS teams",
+      "Coordination-layer messaging: replacing spreadsheets and Slack with AI"
+    ],
+    "confidence": 0.8,
+    "last_verified": "2026-04-09",
+    "source_agent": "riya",
+    "expires_at": "2026-05-09"
+  },
+  "campaigns": {
+    "value": {
+      "cold_outreach_ab_test": {
+        "priority": "V1 vs V3",
+        "rationale": "Pain vs. proof is highest-signal variable for Series A ICP",
+        "v2_role": "Day 5 non-opener follow-up",
+        "status": "ready_to_deploy"
+      }
+    },
+    "confidence": 0.75,
+    "last_verified": "2026-04-09",
+    "source_agent": "sam",
+    "expires_at": "2026-05-09"
+  },
+  "insights": {
+    "value": {
+      "expansion_audit_findings": {
+        "date": "2026-04-09",
+        "overall_risk_rating": "MEDIUM-HIGH",
+        "critical_gaps": [
+          "India unit economics (CAC, LTV, payback) not in MKG — blocks expansion ROI modelling",
+          "Singapore ICP fit unvalidated — discovery calls required before outbound scale",
+          "Indonesia parallel-track creates execution risk — sequencing decision needed"
+        ],
+        "recommended_pre-scale_checklist": [
+          "Pull India unit economics",
+          "Complete 10–15 Singapore discovery calls",
+          "Recruit 2–3 Singapore lighthouse customers",
+          "Shift community seeding budget to 30% of early SEA effort",
+          "Commission 4–6 SEA-localised content pieces"
+        ]
+      }
+    },
+    "confidence": 0.78,
+    "last_verified": "2026-04-09",
+    "source_agent": "tara",
+    "expires_at": "2026-05-09"
+  }
+}

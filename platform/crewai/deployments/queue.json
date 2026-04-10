@@ -1,5 +1,29 @@
 [
   {
+    "id": "dep-1775825950714-2t6xa3",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "ade8db63-dc0e-45c6-a9bc-b733b857021d",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "pending",
+    "createdAt": "2026-04-10T12:59:10.715Z",
+    "scheduledFor": "2026-04-10T18:59:10.707Z"
+  },
+  {
     "id": "dep-1775497566261-xiqe7u",
     "agentName": "sam",
     "agentTarget": null,

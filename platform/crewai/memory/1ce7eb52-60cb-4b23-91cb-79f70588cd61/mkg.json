@@ -1,6 +1,6 @@
 {
   "company_id": "1ce7eb52-60cb-4b23-91cb-79f70588cd61",
-  "updated_at": "2026-04-06T18:07:58.663Z",
+  "updated_at": "2026-04-07T15:37:24.502Z",
   "positioning": {
     "value": "Productverse Technologies is the partner of choice for real‑estate and fintech enterprises seeking custom‑built AI applications that drive efficiency and deliver measurable ROI quickly.",
     "confidence": 0.9,
@@ -26,7 +26,9 @@
       "pain_points": [
         "Manual workflow bottlenecks",
         "Data siloes",
-        "Slow time-to-insight"
+        "Slow time-to-insight",
+        "KYC inefficiency",
+        "Fraud detection gaps"
       ],
       "segments": [
         {
@@ -47,10 +49,10 @@
       ],
       "qualification_min_signals": 3
     },
-    "confidence": 0.72,
-    "last_verified": "2026-04-06",
+    "confidence": 0.78,
+    "last_verified": "2026-04-07",
     "source_agent": "arjun",
-    "expires_at": "2026-05-06"
+    "expires_at": "2026-05-07"
   },
   "competitors": {
     "value": null,
@@ -121,66 +123,50 @@
   "channels": {
     "value": [
       {
-        "name": "Organic Search",
-        "status": "gap-identified",
-        "assessment": "Zero published content for all target keyword clusters — unranked for all priority terms",
-        "q2_action": "Publish 4 priority SEO articles in Weeks 1–6"
-      },
-      {
-        "name": "AI Answer Engines (LLMO)",
-        "status": "not-present",
-        "assessment": "No FAQ schema, no definition blocks, no comparison tables — zero citation surface for AI search engines",
-        "q2_action": "Add FAQ schema, definition blocks, comparison tables to all published pages"
-      },
-      {
         "name": "LinkedIn Organic",
-        "status": "activating",
-        "q2_action": "3 posts per week from Week 1"
+        "status": "activate-now",
+        "phase": "days-1-30",
+        "angle": "proof-of-outcome"
       },
       {
-        "name": "Google Ads",
+        "name": "Outbound Email",
+        "status": "activate-now",
+        "phase": "days-1-30",
+        "angle": "proof-of-outcome"
+      },
+      {
+        "name": "Google Search Ads",
         "status": "planned",
-        "q2_action": "Activate Week 3 after landing pages live"
+        "phase": "days-31-60",
+        "angle": "high-intent query capture"
       },
       {
         "name": "LinkedIn Ads",
         "status": "planned",
-        "q2_action": "Activate Week 6"
-      },
-      {
-        "name": "Outbound Email + LinkedIn DM",
-        "status": "planned",
-        "q2_action": "Launch Week 2 targeting Fintech NBFCs"
+        "phase": "days-61-90",
+        "angle": "retargeting warm audience"
       }
     ],
-    "confidence": 0.75,
-    "last_verified": "2026-04-06",
-    "source_agent": "maya",
-    "expires_at": "2026-05-06"
+    "confidence": 0.55,
+    "last_verified": "2026-04-07",
+    "source_agent": "zara",
+    "expires_at": "2026-05-07"
   },
   "funnel": {
     "value": {
-      "qualification_gate": {
-        "min_signals": 3,
-        "signals": [
-          "Industry match",
-          "Company size 50-300",
-          "Role match",
-          "Budget signal ₹10L+",
-          "Trigger event"
-        ]
-      },
-      "top_of_funnel_channels": [
-        "LinkedIn Outreach",
-        "Google Ads",
-        "Organic Search"
+      "top_of_funnel_channel": "LinkedIn DM + Outbound Email",
+      "primary_entry_segments": [
+        "Fintech Lenders & NBFC Platforms",
+        "Mid-Market Real Estate Developers & Brokerages"
       ],
-      "status": "no_live_data — qualification framework defined, no conversion data available"
+      "recommended_first_touch": "LinkedIn DM to CTO/Head of Digital Transformation with KYC or property workflow pain hook",
+      "outreach_status": "planned — Week 2 per channel plan",
+      "live_lead_data_available": false
     },
-    "confidence": 0.6,
-    "last_verified": "2026-04-06",
+    "confidence": 0.65,
+    "last_verified": "2026-04-07",
     "source_agent": "arjun",
-    "expires_at": "2026-05-06"
+    "expires_at": "2026-05-07"
   },
   "metrics": {
     "value": {
@@ -289,23 +275,14 @@
     "expires_at": "2026-05-06"
   },
   "insights": {
-    "value": [
-      {
-        "insight": "Website has zero published content across all priority keyword clusters — CRO is severely limited by lack of trust-building content; highest-leverage action is publishing 4 SEO pillar articles in 30 days",
-        "source_agent": "riya",
-        "date": "2026-04-06",
-        "confidence": 0.88
-      },
-      {
-        "insight": "No FAQ schema or AI answer engine optimization exists — Productverse is invisible in Perplexity, ChatGPT, and Gemini search results; adding FAQ schema to homepage is a quick win",
-        "source_agent": "riya",
-        "date": "2026-04-06",
-        "confidence": 0.85
-      }
-    ],
-    "confidence": 0.85,
-    "last_verified": "2026-04-06",
+    "value": {
+      "observation": "Biggest content gap is zero indexed organic content across all priority keyword clusters. Top 3 publish-next articles ranked by organic impact: (1) KYC Automation AI India, (2) AI App Development Real Estate India, (3) Custom AI vs SaaS India. All require FAQ and definition schema for LLMO visibility.",
+      "source": "content strategy gap analysis — April 2026",
+      "action_required": true
+    },
+    "confidence": 0.82,
+    "last_verified": "2026-04-07",
     "source_agent": "riya",
-    "expires_at": "2026-05-06"
+    "expires_at": "2026-05-07"
   }
 }

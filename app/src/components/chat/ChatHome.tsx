@@ -1786,10 +1786,26 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
           }
         }
 
-        const finalContent = sanitizeAgentStreamText(accumulated) || 'Analysis complete.';
+        const finalContent = sanitizeAgentStreamText(accumulated);
+
+        // Use agent-specific fallback if no content was extracted
+        const displayContent = finalContent || (() => {
+          const fallbacks: Record<string, string> = {
+            maya: 'Maya is analyzing your SEO presence. Check back with a specific query for detailed insights.',
+            arjun: 'Arjun is reviewing your lead strategy. Provide more context about your ICP for recommendations.',
+            dev: 'Dev analyzed your performance. Ask about specific conversion metrics for more detail.',
+            riya: 'Riya reviewed your content. Request specific topics or channels for recommendations.',
+            zara: 'Zara assessed your campaigns. Ask about a specific goal or timeframe for recommendations.',
+            priya: 'Priya noted your positioning. Add company context for a detailed brand brief.',
+            kiran: 'Kiran checked social performance. Ask about specific platforms for detailed analysis.',
+            sam: 'Sam reviewed your email health. Ask about specific segments for recommendations.',
+          };
+          return fallbacks[agent.name.toLowerCase()] || 'Analysis in progress. Try a more specific query.';
+        })();
+
         // Persist the final content via onMessagesChange so it's saved (clear toolStatus)
         onMessagesChange(prev => prev.map(m =>
-          m.id === placeholderId ? { ...m, content: finalContent, toolStatus: undefined } : m,
+          m.id === placeholderId ? { ...m, content: displayContent, toolStatus: undefined } : m,
         ));
       } catch {
         setIsTyping(false);
@@ -1814,59 +1830,12 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   };
 
   // ── Helena-style auto-first-message ──────────────────────────────────────────
-  // Fires once per workspace when a websiteUrl is present (i.e. just after onboarding).
-  // Uses localStorage to ensure it only runs once per workspace.
-  useEffect(() => {
-    const url = activeWorkspace?.website_url;
-    if (!url || !activeWorkspace?.id) return;
-    if (activeConversationId) return; // don't override an already-open conversation
-    if (currentConvIdRef.current) return;
-    if (loadConversations(activeWorkspace?.id).length > 0) return;
-
-    const key = `marqq_welcomed_${activeWorkspace.id}`;
-    if (localStorage.getItem(key)) return;
-    if (hasRunWelcomeRef.current) return;
-    hasRunWelcomeRef.current = true;
-    localStorage.setItem(key, '1');
-
-    const timer = setTimeout(() => {
-      // Replace static greeting with the Helena-style opener, personalised with onboarding context
-      const ctx = readOnboardingCtx(activeWorkspace!.id);
-      const companyLabel = ctx.company || activeWorkspace!.name || url;
-      const industryHint = ctx.industry ? ` (${ctx.industry})` : '';
-      setMessages([{
-        id: 'welcome-opener',
-        content: `I've got ${companyLabel}${industryHint} — briefing your team across SEO, leads, performance, content, and campaigns now.`,
-        sender: 'ai' as const,
-        timestamp: new Date(),
-      }]);
-      runAgentSequence(
-        buildOnboardingWelcomeSequence(url, ctx),
-        `Scanning ${url} — each specialist is briefing you now.`,
-      );
-
-      // Schedule the first "Weekly Intelligence Brief" task — shows in right panel Upcoming Tasks
-      const scheduledFor = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(); // 6h from now
-      fetch(`/api/workspaces/${activeWorkspace!.id}/agent-deployments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentName: 'sam',
-          sectionId: 'weekly_intelligence_brief',
-          sectionTitle: 'Weekly Intelligence Brief',
-          summary: 'First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.',
-          tasks: [{ label: 'Run weekly intelligence brief', horizon: 'week' }],
-          scheduledFor,
-          source: 'onboarding',
-        }),
-      }).then(() => {
-        window.dispatchEvent(new CustomEvent('marqq:deployment-created'));
-      }).catch(() => { /* non-blocking */ });
-    }, 1000);
-
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace?.id, activeWorkspace?.website_url]);
+  // DISABLED: Auto-spawning agents on load causes repeated "Analysis complete" messages
+  // Users should manually trigger agent sequences via /commands or sidebar
+  // Onboarding flow can be re-triggered via /setup command if needed
+  // useEffect(() => {
+  //   // Auto-spawn disabled — let conversations persist naturally
+  // }, [activeWorkspace?.id, activeWorkspace?.website_url]);
 
   const createAgentTaskPlan = async () => {
     if (!taskAgent) return;

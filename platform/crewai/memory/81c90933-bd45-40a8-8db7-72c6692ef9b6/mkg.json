@@ -1,0 +1,155 @@
+{
+  "company_id": "81c90933-bd45-40a8-8db7-72c6692ef9b6",
+  "updated_at": "2026-04-07T15:33:23.471Z",
+  "positioning": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "icp": {
+    "value": {
+      "age_range": "35–55",
+      "geography": [
+        "Mumbai",
+        "Delhi",
+        "Bengaluru"
+      ],
+      "portfolio_minimum": "₹10L investable assets",
+      "primary_segments": [
+        "Senior fintech professionals (CTO/CFO/Innovation Officer) at Series A–C firms, 50–500 employees",
+        "Independent wealth advisors and RIAs managing HNI client books in Tier 1 cities"
+      ],
+      "digital_profile": "LinkedIn-active, AI-aware, compliance-sensitive"
+    },
+    "confidence": 0.78,
+    "last_verified": "2026-04-07",
+    "source_agent": "arjun",
+    "expires_at": "2026-05-07"
+  },
+  "competitors": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "offers": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "messaging": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "channels": {
+    "value": [
+      {
+        "channel": "organic_search",
+        "status": "underperforming",
+        "gap": "No content targeting WealthTech or HNI AI keyword clusters",
+        "priority_action": "Publish pillar page with FAQ schema on AI-powered wealth management India"
+      },
+      {
+        "channel": "linkedin",
+        "status": "planned",
+        "target_audience": "Fintech CTOs, Innovation Officers, HNI advisors — 35-55, Tier 1 India",
+        "recommended_angle": "Secure scalable AI for risk assessment and compliance in WealthTech"
+      }
+    ],
+    "confidence": 0.65,
+    "last_verified": "2026-04-07",
+    "source_agent": "maya",
+    "expires_at": "2026-05-07"
+  },
+  "funnel": {
+    "value": {
+      "top_of_funnel_priority": "LinkedIn outreach to two defined segments",
+      "segment_1_hook": "AI for portfolio risk and compliance — technology trust angle",
+      "segment_2_hook": "Scale HNI client base without headcount — practice growth angle",
+      "qualification_signal": "Portfolio ₹10L+, Tier 1 city, LinkedIn-active, fintech or advisory role"
+    },
+    "confidence": 0.72,
+    "last_verified": "2026-04-07",
+    "source_agent": "arjun",
+    "expires_at": "2026-05-07"
+  },
+  "metrics": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "baselines": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "content_pillars": {
+    "value": [
+      {
+        "pillar": "AI for WealthTech India",
+        "target_segment": "Fintech Innovation Officer / HNI advisor ecosystem",
+        "primary_keyword": "AI-powered wealth management India",
+        "asset_types": [
+          "pillar page",
+          "FAQ schema page",
+          "comparison table post"
+        ],
+        "priority": "high"
+      },
+      {
+        "pillar": "Fintech AI Risk & Compliance Automation",
+        "target_segment": "Fintech Innovation Officer",
+        "primary_keyword": "fintech AI risk assessment India",
+        "asset_types": [
+          "how-to guide",
+          "case study",
+          "LinkedIn thought leadership"
+        ],
+        "priority": "high"
+      }
+    ],
+    "confidence": 0.68,
+    "last_verified": "2026-04-07",
+    "source_agent": "maya",
+    "expires_at": "2026-05-07"
+  },
+  "campaigns": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "insights": {
+    "value": [
+      {
+        "insight": "plcapital.in is currently invisible in WealthTech AI search — no indexed content targets HNI or wealth management AI keywords",
+        "source": "MKG positioning + competitor analysis",
+        "action_required": true,
+        "priority": "high"
+      },
+      {
+        "insight": "FAQ schema and definition-led content blocks are the fastest path to AI answer engine (Perplexity, ChatGPT) citation for this domain",
+        "source": "LLMO best practices + industry intelligence",
+        "action_required": true,
+        "priority": "high"
+      }
+    ],
+    "confidence": 0.68,
+    "last_verified": "2026-04-07",
+    "source_agent": "maya",
+    "expires_at": "2026-05-07"
+  }
+}
