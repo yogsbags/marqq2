@@ -9775,6 +9775,38 @@ app.patch("/api/workspaces/:id", async (req, res) => {
   }
 });
 
+// DELETE /api/workspaces/:id — delete a workspace (owner only)
+app.delete("/api/workspaces/:id", async (req, res) => {
+  const { id } = req.params;
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
+  const db = workspaceDbOr503(res);
+  if (!db) return;
+  try {
+    // Verify the user is the owner
+    const { data: ws, error: wsErr } = await db
+      .from("workspaces")
+      .select("owner_id")
+      .eq("id", id)
+      .single();
+    if (wsErr) throw wsErr;
+    if (ws?.owner_id !== userId) {
+      return res.status(403).json({ error: "Only workspace owner can delete" });
+    }
+
+    // Delete workspace (cascade should handle members, conversations, etc.)
+    const { error: delErr } = await db
+      .from("workspaces")
+      .delete()
+      .eq("id", id);
+    if (delErr) throw delErr;
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/workspaces/:id/plan — get plan + credits (user-level, shared across workspaces)
 // Accepts optional ?userId= query param; falls back to workspace owner_id.
 app.get("/api/workspaces/:id/plan", async (req, res) => {

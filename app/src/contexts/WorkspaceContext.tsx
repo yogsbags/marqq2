@@ -17,6 +17,7 @@ interface WorkspaceContextType {
   renameWorkspace: (name: string) => Promise<void>;
   updateWebsiteUrl: (url: string) => Promise<void>;
   clearWebsiteUrl: () => Promise<void>;
+  deleteWorkspace: (id: string) => Promise<void>;
   refreshWorkspaces: () => Promise<void>;
   isLoading: boolean;
 }
@@ -116,10 +117,37 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setActiveWorkspace(prev => prev?.id === workspace.id ? ({ ...prev, website_url: workspace.website_url } as Workspace) : prev);
   };
 
+  const deleteWorkspace = async (id: string) => {
+    if (!user?.id) return;
+    const res = await fetch(`/api/workspaces/${id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Failed to delete workspace');
+
+    // Remove from list
+    const updated = workspaces.filter(w => w.id !== id);
+    setWorkspaces(updated);
+
+    // If deleted workspace was active, switch to the first remaining one
+    if (activeWorkspace?.id === id) {
+      const next = updated[0] ?? null;
+      setActiveWorkspace(next);
+      if (next) {
+        localStorage.setItem(STORAGE_KEY, next.id);
+        localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: next.id, name: next.name }));
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(ACTIVE_WS_KEY);
+      }
+    }
+  };
+
   return (
     <WorkspaceContext.Provider value={{
       workspaces, activeWorkspace, switchWorkspace,
-      createWorkspace, renameWorkspace, updateWebsiteUrl, clearWebsiteUrl,
+      createWorkspace, renameWorkspace, updateWebsiteUrl, clearWebsiteUrl, deleteWorkspace,
       refreshWorkspaces: fetchWorkspaces, isLoading,
     }}>
       {children}

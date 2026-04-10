@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-04-10T12:59:23.931Z",
+  "updated_at": "2026-04-10T13:10:24.623Z",
   "agents": {
     "veena": {
       "status": "idle",
@@ -7,19 +7,19 @@
       "duration_ms": null
     },
     "isha": {
-      "status": "completed",
-      "last_run": "2026-04-09T05:49:52.023Z",
-      "duration_ms": 107129
+      "status": "running",
+      "last_run": "2026-04-10T13:10:12.753Z",
+      "duration_ms": null
     },
     "neel": {
-      "status": "completed",
-      "last_run": "2026-04-09T05:46:45.961Z",
-      "duration_ms": 105610
+      "status": "running",
+      "last_run": "2026-04-10T13:10:18.391Z",
+      "duration_ms": null
     },
     "tara": {
-      "status": "completed",
-      "last_run": "2026-04-09T05:47:59.074Z",
-      "duration_ms": 77335
+      "status": "running",
+      "last_run": "2026-04-10T13:10:24.623Z",
+      "duration_ms": null
     },
     "zara": {
       "status": "error",
@@ -34,10 +34,9 @@
       "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
     },
     "riya": {
-      "status": "error",
-      "last_run": "2026-04-10T12:59:21.114Z",
-      "duration_ms": 1163,
-      "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+      "status": "running",
+      "last_run": "2026-04-10T13:10:16.507Z",
+      "duration_ms": null
     },
     "arjun": {
       "status": "error",
@@ -46,10 +45,9 @@
       "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
     },
     "dev": {
-      "status": "error",
-      "last_run": "2026-04-10T12:59:18.738Z",
-      "duration_ms": 1103,
-      "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+      "status": "running",
+      "last_run": "2026-04-10T13:10:21.360Z",
+      "duration_ms": null
     },
     "priya": {
       "status": "completed",
@@ -57,14 +55,14 @@
       "duration_ms": 75353
     },
     "kiran": {
-      "status": "completed",
-      "last_run": "2026-04-09T05:45:16.142Z",
-      "duration_ms": 110776
+      "status": "running",
+      "last_run": "2026-04-10T13:10:23.369Z",
+      "duration_ms": null
     },
     "sam": {
-      "status": "completed",
-      "last_run": "2026-04-09T05:51:00.001Z",
-      "duration_ms": 80298
+      "status": "running",
+      "last_run": "2026-04-10T13:10:20.366Z",
+      "duration_ms": null
     }
   }
 }

@@ -22,6 +22,7 @@ import {
   LogOut,
   X,
   ClipboardCheck,
+  Trash2,
 } from 'lucide-react';
 import { loadPinnedChannels, unpinChannel, type PinnedChannel } from '@/lib/pinnedChannels';
 import type { Conversation } from '@/types/chat';
@@ -79,13 +80,15 @@ export function Sidebar({
   onConversationSelect,
 }: SidebarProps) {
   const { user, logout } = useAuth();
-  const { workspaces, activeWorkspace, switchWorkspace } = useWorkspace();
+  const { workspaces, activeWorkspace, switchWorkspace, deleteWorkspace } = useWorkspace();
   const homeActive = !selectedModule || selectedModule === 'home';
 
   const workspaceId = activeWorkspace?.id;
   const [dynamicChannels, setDynamicChannels] = useState<PinnedChannel[]>(() =>
     loadPinnedChannels(workspaceId),
   );
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Reload when workspace changes
   useEffect(() => {
@@ -106,6 +109,20 @@ export function Sidebar({
   const [profileOpen, setProfileOpen] = useState(false);
   const [createBrandOpen, setCreateBrandOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Handle workspace deletion
+  const handleDeleteWorkspace = async (wsId: string) => {
+    setDeleting(true);
+    try {
+      await deleteWorkspace(wsId);
+      setDeleteConfirm(null);
+    } catch (err) {
+      console.error('Failed to delete workspace:', err);
+      alert('Failed to delete workspace. Try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Close profile popover on outside click
   useEffect(() => {
@@ -432,19 +449,53 @@ export function Sidebar({
               </div>
               <div className="px-2 pb-1 space-y-0.5">
                 {workspaces.map(ws => (
-                  <button
-                    key={ws.id}
-                    onClick={() => { switchWorkspace(ws.id); setProfileOpen(false); }}
-                    className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/60 transition-colors text-left"
-                  >
-                    <div className="h-6 w-6 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
-                      {(ws.name?.[0] ?? 'W').toUpperCase()}
-                    </div>
-                    <span className="flex-1 text-sm text-foreground truncate">{ws.name}</span>
-                    {activeWorkspace?.id === ws.id && (
-                      <Check className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                  <div key={ws.id}>
+                    {deleteConfirm === ws.id ? (
+                      <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 space-y-2">
+                        <p className="text-xs text-foreground font-medium">Delete {ws.name}?</p>
+                        <p className="text-xs text-muted-foreground">This cannot be undone.</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleDeleteWorkspace(ws.id)}
+                            disabled={deleting}
+                            className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-white hover:bg-destructive/90 disabled:opacity-50"
+                          >
+                            {deleting ? 'Deleting...' : 'Delete'}
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(null)}
+                            disabled={deleting}
+                            className="flex-1 text-xs px-2 py-1 rounded border border-border hover:bg-muted disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { switchWorkspace(ws.id); setProfileOpen(false); }}
+                        className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/60 transition-colors text-left group"
+                      >
+                        <div className="h-6 w-6 rounded-full bg-gradient-to-br from-[#F97316] to-violet-500 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                          {(ws.name?.[0] ?? 'W').toUpperCase()}
+                        </div>
+                        <span className="flex-1 text-sm text-foreground truncate">{ws.name}</span>
+                        {activeWorkspace?.id === ws.id && (
+                          <Check className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm(ws.id);
+                          }}
+                          className="h-6 w-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/20 transition-all"
+                          title="Delete workspace"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </button>
+                      </button>
                     )}
-                  </button>
+                  </div>
                 ))}
               </div>
 
