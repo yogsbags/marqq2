@@ -1144,15 +1144,18 @@ export function ChatHome({
         setMessages(conv.messages);
         setCurrentConvId(conv.id);
         currentConvIdRef.current = conv.id;
-        hasHydratedConversationRef.current = true;
       }
+      hasHydratedConversationRef.current = true;
       return;
     }
 
     if (hasHydratedConversationRef.current) return;
 
     const latestConversation = conversations[0];
-    if (!latestConversation) return;
+    if (!latestConversation) {
+      hasHydratedConversationRef.current = true;
+      return;
+    }
 
     setMessages(latestConversation.messages);
     setCurrentConvId(latestConversation.id);
@@ -1161,6 +1164,10 @@ export function ChatHome({
   }, [activeConversationId, activeWorkspace?.id, scope]);
 
   useEffect(() => {
+    setMessages(buildInitialMessages());
+    setCurrentConvId(null);
+    currentConvIdRef.current = null;
+    hasRunWelcomeRef.current = false;
     hasHydratedConversationRef.current = false;
   }, [activeWorkspace?.id, scope]);
 
