@@ -12,12 +12,17 @@
 import { supabase } from './supabase';
 import type { Conversation, Message } from '@/types/chat';
 
+export type ConversationScope = 'main' | 'veena-dm';
+
 // ── localStorage helpers ──────────────────────────────────────────────────────
 
 const CONV_KEY_PREFIX = 'marqq_conversations';
 
-function getConvKey(workspaceId: string | undefined): string {
-  return workspaceId ? `${CONV_KEY_PREFIX}_${workspaceId}` : CONV_KEY_PREFIX;
+function getConvKey(workspaceId: string | undefined, scope: ConversationScope = 'main'): string {
+  if (!workspaceId) return scope === 'main' ? CONV_KEY_PREFIX : `${CONV_KEY_PREFIX}_${scope}`;
+  return scope === 'main'
+    ? `${CONV_KEY_PREFIX}_${workspaceId}`
+    : `${CONV_KEY_PREFIX}_${workspaceId}_${scope}`;
 }
 
 function deserialiseConversations(raw: string): Conversation[] {
@@ -33,9 +38,9 @@ function deserialiseConversations(raw: string): Conversation[] {
   }));
 }
 
-export function loadConversationsLocal(workspaceId?: string): Conversation[] {
+export function loadConversationsLocal(workspaceId?: string, scope: ConversationScope = 'main'): Conversation[] {
   try {
-    const raw = localStorage.getItem(getConvKey(workspaceId));
+    const raw = localStorage.getItem(getConvKey(workspaceId, scope));
     if (!raw) return [];
     return deserialiseConversations(raw);
   } catch {
@@ -43,9 +48,9 @@ export function loadConversationsLocal(workspaceId?: string): Conversation[] {
   }
 }
 
-export function saveConversationsLocal(convs: Conversation[], workspaceId?: string): void {
+export function saveConversationsLocal(convs: Conversation[], workspaceId?: string, scope: ConversationScope = 'main'): void {
   try {
-    localStorage.setItem(getConvKey(workspaceId), JSON.stringify(convs));
+    localStorage.setItem(getConvKey(workspaceId, scope), JSON.stringify(convs));
   } catch {
     // localStorage quota exceeded – silently ignore
   }
@@ -129,6 +134,7 @@ export async function syncConversationToSupabase(
  */
 export async function loadConversationsFromSupabase(
   workspaceId: string,
+  scope: ConversationScope = 'main',
 ): Promise<Conversation[]> {
   try {
     const userId = await getCurrentUserId();
@@ -188,7 +194,8 @@ export async function loadConversationsFromSupabase(
       createdAt: new Date(c.created_at),
       lastMessageAt: new Date(c.last_message_at),
       messages: messagesByConv[c.id] ?? [],
-    }));
+      channelId: c.channel_id ?? undefined,
+    })).filter((conversation) => (conversation.channelId ?? 'main') === scope);
   } catch (err) {
     console.warn('[ConvSync] unexpected load error:', err);
     return [];
@@ -201,16 +208,16 @@ export async function loadConversationsFromSupabase(
  * Load conversations from localStorage; if empty and workspaceId is provided,
  * also tries Supabase and populates the local cache.
  */
-export async function loadConversations(workspaceId?: string): Promise<Conversation[]> {
-  const local = loadConversationsLocal(workspaceId);
+export async function loadConversations(workspaceId?: string, scope: ConversationScope = 'main'): Promise<Conversation[]> {
+  const local = loadConversationsLocal(workspaceId, scope);
   if (local.length > 0) return local;
 
   if (!workspaceId) return [];
 
   // No local data — try fetching from Supabase (cross-device scenario)
-  const remote = await loadConversationsFromSupabase(workspaceId);
+  const remote = await loadConversationsFromSupabase(workspaceId, scope);
   if (remote.length > 0) {
-    saveConversationsLocal(remote, workspaceId);
+    saveConversationsLocal(remote, workspaceId, scope);
   }
   return remote;
 }
@@ -222,8 +229,9 @@ export function saveConversations(
   convs: Conversation[],
   workspaceId?: string,
   changedConvId?: string,
+  scope: ConversationScope = 'main',
 ): void {
-  saveConversationsLocal(convs, workspaceId);
+  saveConversationsLocal(convs, workspaceId, scope);
 
   if (workspaceId) {
     const conv = changedConvId ? convs.find((c) => c.id === changedConvId) : convs[0];
@@ -240,10 +248,11 @@ export function saveConversations(
 export async function deleteConversation(
   convId: string,
   workspaceId?: string,
+  scope: ConversationScope = 'main',
 ): Promise<void> {
   // localStorage
-  const convs = loadConversationsLocal(workspaceId).filter((c) => c.id !== convId);
-  saveConversationsLocal(convs, workspaceId);
+  const convs = loadConversationsLocal(workspaceId, scope).filter((c) => c.id !== convId);
+  saveConversationsLocal(convs, workspaceId, scope);
 
   // Supabase (cascade deletes messages too)
   if (workspaceId) {

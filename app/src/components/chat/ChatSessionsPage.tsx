@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { Conversation } from '@/types/chat'
 import { deleteConversation as deleteConversationFromStorage } from '@/lib/conversationPersistence'
 import { BRAND } from '@/lib/brand'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 import {
   MessageSquare, Trash2, Search, CalendarClock,
   Clock, ChevronRight,
@@ -121,12 +122,13 @@ export function ChatSessionsPage({
   onConversationSelect,
   onConversationsChange,
 }: ChatSessionsPageProps) {
+  const { activeWorkspace } = useWorkspace()
   const [tab, setTab] = useState<Tab>('conversations')
   const [search, setSearch] = useState('')
 
   function deleteConversation(id: string) {
     // Remove from localStorage + Supabase (fire-and-forget)
-    deleteConversationFromStorage(id).then(() => {
+    deleteConversationFromStorage(id, activeWorkspace?.id, 'veena-dm').then(() => {
       onConversationsChange()
     }).catch(() => {
       onConversationsChange()
@@ -207,7 +209,7 @@ export function ChatSessionsPage({
                 <p className="text-xs text-muted-foreground max-w-xs">
                   {search
                     ? 'Try a different search term.'
-                    : `Head back to the main channel and start chatting with ${BRAND.agentName}.`}
+                    : `Open Veena direct messages and start chatting with ${BRAND.agentName}.`}
                 </p>
               </div>
             )}

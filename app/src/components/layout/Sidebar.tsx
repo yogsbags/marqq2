@@ -82,6 +82,7 @@ export function Sidebar({
   const { user, logout } = useAuth();
   const { workspaces, activeWorkspace, switchWorkspace, deleteWorkspace } = useWorkspace();
   const homeActive = !selectedModule || selectedModule === 'home';
+  const veenaDmActive = selectedModule === 'veena-dm';
 
   const workspaceId = activeWorkspace?.id;
   const [dynamicChannels, setDynamicChannels] = useState<PinnedChannel[]>(() =>
@@ -303,11 +304,11 @@ export function Sidebar({
           <div className={cn('w-full rounded-md transition-all duration-150', collapsed ? '' : '')}>
             {collapsed ? (
               <button
-                onClick={() => onModuleSelect(null)}
+                onClick={() => onModuleSelect('veena-dm')}
                 data-tour="nav-dashboard"
                 className={cn(
                   'w-full flex items-center p-2 justify-center rounded-md transition-all duration-150',
-                  homeActive
+                  veenaDmActive
                     ? 'bg-primary/10 text-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/70',
                 )}
@@ -317,10 +318,10 @@ export function Sidebar({
             ) : (
               <div className={cn(
                 'flex items-center gap-2.5 px-2 py-1.5 rounded-md',
-                homeActive ? 'bg-primary/10' : '',
+                veenaDmActive ? 'bg-primary/10' : '',
               )}>
                 <button
-                  onClick={() => onModuleSelect(null)}
+                  onClick={() => onModuleSelect('veena-dm')}
                   data-tour="nav-dashboard"
                   className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
                 >
@@ -330,13 +331,16 @@ export function Sidebar({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
-                      <span className={cn('text-sm font-medium truncate', homeActive ? 'text-foreground' : 'text-foreground/85')}>{BRAND.agentName}</span>
+                      <span className={cn('text-sm font-medium truncate', veenaDmActive ? 'text-foreground' : 'text-foreground/85')}>{BRAND.agentName}</span>
                     </div>
                     <p className="text-[10px] text-muted-foreground truncate">{BRAND.agentTagline}</p>
                   </div>
                 </button>
                 <button
-                  onClick={() => onModuleSelect(null)}
+                  onClick={() => {
+                    onModuleSelect('veena-dm');
+                    window.dispatchEvent(new CustomEvent('marqq:new-veena-dm'));
+                  }}
                   title="New chat"
                   className="flex-shrink-0 text-[10px] text-muted-foreground hover:text-foreground transition-colors font-medium px-1.5 py-0.5 rounded hover:bg-muted/70"
                 >
@@ -357,11 +361,11 @@ export function Sidebar({
                   key={conv.id}
                   onClick={() => {
                     if (onConversationSelect) onConversationSelect(conv.id);
-                    onModuleSelect(null);
+                    onModuleSelect('veena-dm');
                   }}
                   className={cn(
                     'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-all duration-150',
-                    activeConversationId === conv.id
+                    veenaDmActive && activeConversationId === conv.id
                       ? 'bg-muted text-foreground'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
                   )}

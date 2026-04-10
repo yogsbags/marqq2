@@ -22,6 +22,7 @@ interface MainLayoutProps {
 const CHANNEL_NAMES: Record<string, { name: string; description: string }> = {
   home: { name: 'main', description: 'Your autonomous AI marketing team' },
   main: { name: 'main', description: 'Your autonomous AI marketing team' },
+  'veena-dm': { name: 'veena', description: 'Direct message with Veena' },
   'performance-scorecard': { name: 'performance', description: 'Analytics & KPI tracking' },
   'channel-health': { name: 'daily-brief', description: 'Daily marketing intelligence brief' },
   'calendar': { name: 'calendar', description: 'Content schedule across all channels' },
@@ -46,7 +47,7 @@ export function MainLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Chat/channel view = home, main (+ channel pages use ChannelHeader)
-  const isChatView = !selectedModule || selectedModule === 'home' || selectedModule === 'main'
+  const isChatView = !selectedModule || selectedModule === 'home' || selectedModule === 'main' || selectedModule === 'veena-dm'
     || selectedModule === 'performance-scorecard' || selectedModule === 'channel-health'
     || selectedModule === 'calendar' || selectedModule === 'workspace-files'
     || selectedModule === 'scheduled-jobs' || selectedModule === 'chat-sessions'
@@ -105,7 +106,7 @@ export function MainLayout({
         </div>
 
         {/* Right panel — only in main chat/home view (not calendar, files, etc.) */}
-        {isChatView && selectedModule !== 'calendar' && selectedModule !== 'workspace-files' && (
+        {isChatView && selectedModule !== 'calendar' && selectedModule !== 'workspace-files' && selectedModule !== 'veena-dm' && (
           <RightPanel onModuleSelect={onModuleSelect} />
         )}
       </div>

@@ -45,6 +45,7 @@ import {
   loadConversationsLocal,
   saveConversations,
   deleteConversation as deleteConversationFromStorage,
+  type ConversationScope,
 } from '@/lib/conversationPersistence';
 import { hasWorkflowForm, WORKFLOW_FORMS, buildWorkflowSummary, checkConnectorReadiness } from '@/lib/workflowRequirements';
 import { connectComposioConnector } from '@/lib/composio';
@@ -53,8 +54,8 @@ import type { WorkflowFormData } from '@/types/chat';
 // -- Conversation persistence helpers
 
 // Synchronous local load — instant reads without waiting for Supabase
-function loadConversations(workspaceId?: string): Conversation[] {
-  return loadConversationsLocal(workspaceId);
+function loadConversations(workspaceId?: string, scope: ConversationScope = 'main'): Conversation[] {
+  return loadConversationsLocal(workspaceId, scope);
 }
 
 function generateName(firstUserMessage: string): string {
@@ -611,7 +612,9 @@ const GREETING_MESSAGE: Message = {
   timestamp: new Date(),
 };
 
-const initialMessages: Message[] = [GREETING_MESSAGE];
+function buildInitialMessages(): Message[] {
+  return [{ ...GREETING_MESSAGE, timestamp: new Date() }];
+}
 
 // -- Props
 
@@ -621,6 +624,7 @@ interface ChatHomeProps {
   activeConversationId?: string | null;
   onConversationsChange?: () => void;
   hideHeader?: boolean;
+  scope?: ConversationScope;
 }
 
 // -- Component
@@ -1056,10 +1060,17 @@ function WorkflowConfirmCard({
   );
 }
 
-export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConversationsChange, hideHeader }: ChatHomeProps) {
+export function ChatHome({
+  onClose,
+  onModuleSelect,
+  activeConversationId,
+  onConversationsChange,
+  hideHeader,
+  scope = 'main',
+}: ChatHomeProps) {
   const { activeWorkspace, clearWebsiteUrl } = useWorkspace();
   const { plan, creditsRemaining, creditsTotal } = usePlan();
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [messages, setMessages] = useState<Message[]>(buildInitialMessages);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -1123,7 +1134,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   // parent, so when this view remounts after tab switches we need to restore the
   // latest saved conversation instead of falling back to the default greeting.
   useEffect(() => {
-    const conversations = loadConversations(activeWorkspace?.id)
+    const conversations = loadConversations(activeWorkspace?.id, scope)
       .slice()
       .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
 
@@ -1147,17 +1158,18 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     setCurrentConvId(latestConversation.id);
     currentConvIdRef.current = latestConversation.id;
     hasHydratedConversationRef.current = true;
-  }, [activeConversationId, activeWorkspace?.id]);
+  }, [activeConversationId, activeWorkspace?.id, scope]);
 
   useEffect(() => {
     hasHydratedConversationRef.current = false;
-  }, [activeWorkspace?.id]);
+  }, [activeWorkspace?.id, scope]);
 
   // -- Load today's report for the #main channel feed (Helena-style)
   // Only runs when there is no persisted conversation to restore.
   useEffect(() => {
+    if (scope !== 'main') return;
     if (activeConversationId) return; // a conversation will be loaded by the other effect
-    if (loadConversations(activeWorkspace?.id).length > 0) return;
+    if (loadConversations(activeWorkspace?.id, scope).length > 0) return;
     fetch('/api/agents/today-report')
       .then(r => r.ok ? r.json() : null)
       .then((data: { hasReport?: boolean; subject?: string; body?: string; recipients?: string[]; agentName?: string } | null) => {
@@ -1180,7 +1192,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         }]);
       })
       .catch(() => { /* keep greeting */ });
-  }, [activeConversationId, activeWorkspace?.id]);
+  }, [activeConversationId, activeWorkspace?.id, scope]);
 
   const sendQuickMessage = (text: string) => {
     setInputValue(text);
@@ -1327,7 +1339,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   // -- Conversation persistence
 
   const persistMessages = (updatedMessages: Message[], convId: string | null): string => {
-    const conversations = loadConversations(activeWorkspace?.id);
+    const conversations = loadConversations(activeWorkspace?.id, scope);
     const id = convId ?? `conv-${Date.now()}`;
     const firstUserMsg = updatedMessages.find(m => m.sender === 'user');
     const name = firstUserMsg ? generateName(firstUserMsg.content) : 'New conversation';
@@ -1337,10 +1349,10 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
       existing.messages = updatedMessages;
       existing.lastMessageAt = now;
     } else {
-      conversations.push({ id, name, createdAt: now, lastMessageAt: now, messages: updatedMessages });
+      conversations.push({ id, name, createdAt: now, lastMessageAt: now, messages: updatedMessages, channelId: scope });
     }
     // Dual-write: localStorage (sync) + Supabase (async fire-and-forget)
-    saveConversations(conversations, activeWorkspace?.id, id);
+    saveConversations(conversations, activeWorkspace?.id, id, scope);
     currentConvIdRef.current = id;
     if (!convId) setCurrentConvId(id);
     onConversationsChange?.();
@@ -1372,16 +1384,23 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
   // -- New conversation
 
   const handleNewConversation = () => {
-    setMessages(initialMessages);
+    setMessages(buildInitialMessages());
     setCurrentConvId(null);
     currentConvIdRef.current = null;
   };
+
+  useEffect(() => {
+    if (scope !== 'veena-dm') return;
+    const handler = () => handleNewConversation();
+    window.addEventListener('marqq:new-veena-dm', handler);
+    return () => window.removeEventListener('marqq:new-veena-dm', handler);
+  }, [scope]);
 
   const handleDeleteConversation = async () => {
     try {
       if (currentConvId) {
         // Remove from localStorage + Supabase
-        await deleteConversationFromStorage(currentConvId, activeWorkspace?.id);
+        await deleteConversationFromStorage(currentConvId, activeWorkspace?.id, scope);
       }
 
       try {
@@ -1390,12 +1409,14 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
         // non-blocking
       }
 
-      await clearWebsiteUrl();
-      setMessages(initialMessages);
+      if (scope === 'main') {
+        await clearWebsiteUrl();
+      }
+      setMessages(buildInitialMessages());
       setCurrentConvId(null);
       currentConvIdRef.current = null;
       onConversationsChange?.();
-      toast.success('Home screen reset');
+      toast.success(scope === 'main' ? 'Home screen reset' : 'Chat reset');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to reset home screen');
     }
@@ -1845,7 +1866,8 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
     if (!hasHydratedConversationRef.current) return;
 
     // Check if conversations exist — if so, don't run onboarding
-    if (loadConversations(activeWorkspace?.id).length > 0) return;
+    if (scope !== 'main') return;
+    if (loadConversations(activeWorkspace?.id, scope).length > 0) return;
 
     const key = `marqq_welcomed_${activeWorkspace.id}`;
     if (localStorage.getItem(key)) return;
@@ -1890,7 +1912,7 @@ export function ChatHome({ onClose, onModuleSelect, activeConversationId, onConv
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace?.id, activeWorkspace?.website_url]);
+  }, [activeWorkspace?.id, activeWorkspace?.website_url, scope]);
 
   const createAgentTaskPlan = async () => {
     if (!taskAgent) return;

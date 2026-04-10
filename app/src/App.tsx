@@ -97,16 +97,19 @@ function Dashboard() {
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [autoStartModule, setAutoStartModule] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>(() => {
-    return loadConversationsLocal(activeWorkspace?.id);
+    return loadConversationsLocal(activeWorkspace?.id, 'veena-dm');
   });
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [workflowParams, setWorkflowParams] = useState<Record<string, Record<string, string>>>({});
 
   const handleConversationsChange = () => {
-    setConversations(loadConversationsLocal(activeWorkspace?.id));
+    setConversations(loadConversationsLocal(activeWorkspace?.id, 'veena-dm'));
   };
 
   const handleModuleSelect = (moduleId: string | null) => {
+    if (moduleId !== 'veena-dm' && moduleId !== 'chat-sessions') {
+      setActiveConversationId(null);
+    }
     setSelectedModule(moduleId);
     updateDocumentTitle(moduleId);
     // Check if this was triggered by a slash command (indicated by URL hash)
@@ -202,6 +205,18 @@ function Dashboard() {
           onModuleSelect={handleModuleSelect}
           activeConversationId={activeConversationId}
           onConversationsChange={handleConversationsChange}
+          scope="main"
+        />
+      );
+    }
+
+    if (selectedModule === 'veena-dm') {
+      return (
+        <ChatHome
+          onModuleSelect={handleModuleSelect}
+          activeConversationId={activeConversationId}
+          onConversationsChange={handleConversationsChange}
+          scope="veena-dm"
         />
       );
     }
@@ -220,7 +235,7 @@ function Dashboard() {
         conversations={conversations}
         onConversationSelect={(id) => {
           setActiveConversationId(id);
-          setSelectedModule(null);
+          setSelectedModule('veena-dm');
         }}
         onConversationsChange={handleConversationsChange}
       />
