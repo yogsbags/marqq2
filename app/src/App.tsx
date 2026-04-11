@@ -27,7 +27,7 @@ import { supabase } from '@/lib/supabase';
 import type { Conversation } from '@/types/chat';
 import { loadConversationsLocal } from '@/lib/conversationPersistence';
 import { pinChannel } from '@/lib/pinnedChannels';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 
 // ── Composio OAuth popup callback ────────────────────────────────────────────
@@ -101,10 +101,18 @@ function Dashboard() {
   });
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [workflowParams, setWorkflowParams] = useState<Record<string, Record<string, string>>>({});
+  const conversationRefreshTimerRef = useRef<number | null>(null);
 
-  const handleConversationsChange = () => {
-    setConversations(loadConversationsLocal(activeWorkspace?.id, 'veena-dm'));
-  };
+  const handleConversationsChange = useCallback(() => {
+    // Debounce parent state updates to avoid "setState during render" warning
+    // This callback is called from child render phase, so defer the update
+    if (conversationRefreshTimerRef.current) {
+      clearTimeout(conversationRefreshTimerRef.current);
+    }
+    conversationRefreshTimerRef.current = window.setTimeout(() => {
+      setConversations(loadConversationsLocal(activeWorkspace?.id, 'veena-dm'));
+    }, 0);
+  }, [activeWorkspace?.id]);
 
   const handleModuleSelect = (moduleId: string | null) => {
     if (moduleId !== 'veena-dm' && moduleId !== 'chat-sessions') {

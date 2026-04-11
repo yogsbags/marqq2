@@ -58,6 +58,30 @@ export function saveConversationsLocal(convs: Conversation[], workspaceId?: stri
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 
+/** Set `VITE_DISABLE_CONVERSATION_SUPABASE_SYNC=true` in `.env` to skip remote sync (e.g. before migrations). */
+function isConversationSyncOptedOut(): boolean {
+  return import.meta.env.VITE_DISABLE_CONVERSATION_SUPABASE_SYNC === 'true';
+}
+
+/** After first "table missing / not exposed" response, skip further sync calls (stops 404 spam in Network). */
+let conversationRemoteSyncDisabled = false;
+
+/**
+ * Missing `conversations` / `messages` tables, or PostgREST schema cache out of date — not an app bug.
+ * PostgREST may use PGRST205; HTTP layer surfaces 404 without a Postgres code.
+ */
+function isConversationInfraUnavailableError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as Record<string, unknown>;
+  const code = String(e.code ?? '');
+  if (code === 'PGRST205' || code === '42P01' || code === 'PGRST204') return true;
+  const status = Number(e.status ?? e.statusCode ?? 0);
+  if (status === 404 || status === 406) return true;
+  const msg = String(e.message ?? '').toLowerCase();
+  if (msg.includes('schema cache') || msg.includes('could not find') || msg.includes('does not exist')) return true;
+  return false;
+}
+
 async function getCurrentUserId(): Promise<string | null> {
   const { data } = await supabase.auth.getUser();
   return data.user?.id ?? null;
@@ -72,6 +96,16 @@ export async function syncConversationToSupabase(
   workspaceId: string,
 ): Promise<void> {
   try {
+    if (isConversationSyncOptedOut() || conversationRemoteSyncDisabled) return;
+
+    // Skip sync if conversation ID is not a valid UUID (e.g., "conv-123456789")
+    // These IDs are fine for localStorage but Supabase requires UUID format
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(conv.id)) {
+      console.debug('[ConvSync] skipping sync for non-UUID conversation ID:', conv.id);
+      return;
+    }
+
     const userId = await getCurrentUserId();
     if (!userId) return;
 
@@ -88,14 +122,20 @@ export async function syncConversationToSupabase(
       { onConflict: 'id' },
     );
     if (convErr) {
-      // Table might not exist yet — skip silently
-      if ((convErr as any).code === 'PGRST205' || (convErr as any).code === '42P01') return;
+      if (isConversationInfraUnavailableError(convErr)) {
+        conversationRemoteSyncDisabled = true;
+        return;
+      }
       console.warn('[ConvSync] conversation upsert error:', convErr.message);
       return;
     }
 
     // Delete existing messages for this conversation (full replace)
-    await supabase.from('messages').delete().eq('conversation_id', conv.id);
+    const { error: delErr } = await supabase.from('messages').delete().eq('conversation_id', conv.id);
+    if (delErr && isConversationInfraUnavailableError(delErr)) {
+      conversationRemoteSyncDisabled = true;
+      return;
+    }
 
     // Insert all messages
     if (conv.messages.length === 0) return;
@@ -119,11 +159,18 @@ export async function syncConversationToSupabase(
     }));
 
     const { error: msgErr } = await supabase.from('messages').insert(rows);
-    if (msgErr && (msgErr as any).code !== 'PGRST205' && (msgErr as any).code !== '42P01') {
+    if (msgErr) {
+      if (isConversationInfraUnavailableError(msgErr)) {
+        conversationRemoteSyncDisabled = true;
+        return;
+      }
       console.warn('[ConvSync] messages insert error:', msgErr.message);
     }
   } catch (err) {
-    // Never throw — sync is fire-and-forget
+    if (isConversationInfraUnavailableError(err)) {
+      conversationRemoteSyncDisabled = true;
+      return;
+    }
     console.warn('[ConvSync] unexpected error:', err);
   }
 }
@@ -137,6 +184,7 @@ export async function loadConversationsFromSupabase(
   scope: ConversationScope = 'main',
 ): Promise<Conversation[]> {
   try {
+    if (isConversationSyncOptedOut() || conversationRemoteSyncDisabled) return [];
     const userId = await getCurrentUserId();
     if (!userId) return [];
 
@@ -149,7 +197,10 @@ export async function loadConversationsFromSupabase(
       .limit(50);
 
     if (convErr) {
-      if ((convErr as any).code === 'PGRST205' || (convErr as any).code === '42P01') return [];
+      if (isConversationInfraUnavailableError(convErr)) {
+        conversationRemoteSyncDisabled = true;
+        return [];
+      }
       console.warn('[ConvSync] load conversations error:', convErr.message);
       return [];
     }
@@ -255,9 +306,10 @@ export async function deleteConversation(
   saveConversationsLocal(convs, workspaceId, scope);
 
   // Supabase (cascade deletes messages too)
-  if (workspaceId) {
+  if (workspaceId && !isConversationSyncOptedOut() && !conversationRemoteSyncDisabled) {
     try {
-      await supabase.from('conversations').delete().eq('id', convId);
+      const { error } = await supabase.from('conversations').delete().eq('id', convId);
+      if (error && isConversationInfraUnavailableError(error)) conversationRemoteSyncDisabled = true;
     } catch {
       // Non-fatal
     }

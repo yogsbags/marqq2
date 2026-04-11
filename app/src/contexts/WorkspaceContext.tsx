@@ -1,28 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
+import { WorkspaceContext, type Workspace, type WorkspaceContextType } from './workspaceContextInstance';
 
-export interface Workspace {
-  id: string;
-  name: string;
-  website_url: string | null;
-  role: 'owner' | 'member';
-  created_at?: string;
-}
-
-interface WorkspaceContextType {
-  workspaces: Workspace[];
-  activeWorkspace: Workspace | null;
-  switchWorkspace: (id: string) => void;
-  createWorkspace: (name: string) => Promise<Workspace>;
-  renameWorkspace: (name: string) => Promise<void>;
-  updateWebsiteUrl: (url: string, workspaceId?: string) => Promise<void>;
-  clearWebsiteUrl: () => Promise<void>;
-  deleteWorkspace: (id: string) => Promise<void>;
-  refreshWorkspaces: () => Promise<void>;
-  isLoading: boolean;
-}
-
-const WorkspaceContext = createContext<WorkspaceContextType | null>(null);
+export type { Workspace };
 
 const STORAGE_KEY = 'marqq_workspace_id';
 const ACTIVE_WS_KEY = 'marqq_active_workspace';
@@ -69,8 +49,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const found = stored ? list.find(w => w.id === stored) : null;
       const active = found ?? list[0] ?? null;
       setActiveWorkspace(active);
-      if (active) localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: active.id, name: active.name }));
-      else localStorage.removeItem(ACTIVE_WS_KEY);
     } catch (err) {
       console.error('Failed to fetch workspaces:', err);
     } finally {
@@ -80,12 +58,32 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { fetchWorkspaces(); }, [fetchWorkspaces]);
 
+  // Keep localStorage in sync for getActiveAgentContext() / buildAgentHeaders — must include website_url
+  // or agent runs get no company URL and streams often end empty → generic fallbacks on ChatHome.
+  useEffect(() => {
+    try {
+      if (!activeWorkspace) {
+        localStorage.removeItem(ACTIVE_WS_KEY);
+        return;
+      }
+      localStorage.setItem(
+        ACTIVE_WS_KEY,
+        JSON.stringify({
+          id: activeWorkspace.id,
+          name: activeWorkspace.name,
+          website_url: activeWorkspace.website_url ?? null,
+        }),
+      );
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [activeWorkspace]);
+
   const switchWorkspace = (id: string) => {
     // Use ref so switching works the same tick as setWorkspaces (e.g. after create).
     const ws = workspacesRef.current.find(w => w.id === id);
     if (!ws) return;
     localStorage.setItem(STORAGE_KEY, id);
-    localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: ws.id, name: ws.name }));
     setActiveWorkspace(ws);
   };
 
@@ -101,7 +99,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     workspacesRef.current = nextList;
     setWorkspaces(nextList);
     localStorage.setItem(STORAGE_KEY, workspace.id);
-    localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: workspace.id, name: workspace.name }));
     setActiveWorkspace(workspace);
     return workspace;
   };
@@ -117,7 +114,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     const { workspace } = await res.json();
     setWorkspaces(prev => prev.map(w => w.id === workspace.id ? { ...w, name: workspace.name } : w));
     setActiveWorkspace(prev => prev?.id === workspace.id ? ({ ...prev, name: workspace.name } as Workspace) : prev);
-    localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: workspace.id, name: workspace.name }));
   };
 
   const updateWebsiteUrl = async (url: string, workspaceId?: string) => {
@@ -166,10 +162,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setActiveWorkspace(next);
       if (next) {
         localStorage.setItem(STORAGE_KEY, next.id);
-        localStorage.setItem(ACTIVE_WS_KEY, JSON.stringify({ id: next.id, name: next.name }));
       } else {
         localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem(ACTIVE_WS_KEY);
       }
     }
   };
@@ -185,8 +179,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function useWorkspace() {
+export function useWorkspace(): WorkspaceContextType {
   const ctx = useContext(WorkspaceContext);
-  if (!ctx) throw new Error('useWorkspace must be used inside WorkspaceProvider');
+  if (!ctx) {
+    throw new Error(
+      'useWorkspace must be used inside WorkspaceProvider. If you edited workspace code, do a full page reload (Vite HMR can desync context).',
+    );
+  }
   return ctx;
 }

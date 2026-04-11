@@ -1129,6 +1129,19 @@ export function ChatHome({
     return () => clearInterval(timer);
   }, [isTyping]);
 
+  // -- Reset thread state when workspace or channel scope changes.
+  // MUST run before the hydration effect below: otherwise hydration sees
+  // hasHydratedConversationRef still true from the *previous* workspace, returns
+  // early, then this effect sets the ref false — and the welcome effect never
+  // sees hasHydrated true on the same render (no second pass).
+  useEffect(() => {
+    setMessages(buildInitialMessages());
+    setCurrentConvId(null);
+    currentConvIdRef.current = null;
+    hasRunWelcomeRef.current = false;
+    hasHydratedConversationRef.current = false;
+  }, [activeWorkspace?.id, scope]);
+
   // -- Rehydrate the current workspace's most recent home conversation.
   // Home chats created directly in ChatHome do not set activeConversationId in the
   // parent, so when this view remounts after tab switches we need to restore the
@@ -1162,14 +1175,6 @@ export function ChatHome({
     currentConvIdRef.current = latestConversation.id;
     hasHydratedConversationRef.current = true;
   }, [activeConversationId, activeWorkspace?.id, scope]);
-
-  useEffect(() => {
-    setMessages(buildInitialMessages());
-    setCurrentConvId(null);
-    currentConvIdRef.current = null;
-    hasRunWelcomeRef.current = false;
-    hasHydratedConversationRef.current = false;
-  }, [activeWorkspace?.id, scope]);
 
   // -- Load today's report for the #main channel feed (Helena-style)
   // Only runs when there is no persisted conversation to restore.
@@ -1867,7 +1872,7 @@ export function ChatHome({
   // Uses localStorage to ensure it only runs once per workspace.
   // CRITICAL: Waits for conversation hydration (useEffect above) before checking.
   useEffect(() => {
-    const url = activeWorkspace?.website_url;
+    const url = (activeWorkspace?.website_url ?? '').trim();
     if (!url || !activeWorkspace?.id) return;
     if (activeConversationId) return; // don't override an already-open conversation
     if (currentConvIdRef.current) return;
@@ -1883,13 +1888,25 @@ export function ChatHome({
     const key = `marqq_welcomed_${activeWorkspace.id}`;
     if (localStorage.getItem(key)) return;
     if (hasRunWelcomeRef.current) return;
-    hasRunWelcomeRef.current = true;
-    localStorage.setItem(key, '1');
 
+    // Do NOT set hasRunWelcomeRef / localStorage here: React Strict Mode runs
+    // effect → cleanup(clearTimeout) → effect again; early persistence blocked the retry.
+
+    const workspaceId = activeWorkspace.id;
+    const workspaceName = activeWorkspace.name ?? '';
     const timer = setTimeout(() => {
+      if (hasRunWelcomeRef.current) return;
+      if (localStorage.getItem(key)) return;
+      hasRunWelcomeRef.current = true;
+      localStorage.setItem(key, '1');
+
+      if (import.meta.env.DEV) {
+        console.info('[marqq] #main welcome: starting specialist scan', { workspaceId, url });
+      }
+
       // Replace static greeting with the Helena-style opener, personalised with onboarding context
-      const ctx = readOnboardingCtx(activeWorkspace!.id);
-      const companyLabel = ctx.company || activeWorkspace!.name || url;
+      const ctx = readOnboardingCtx(workspaceId);
+      const companyLabel = ctx.company || workspaceName || url;
       const industryHint = ctx.industry ? ` (${ctx.industry})` : '';
       setMessages([{
         id: 'welcome-opener',
@@ -1904,7 +1921,7 @@ export function ChatHome({
 
       // Schedule the first "Weekly Intelligence Brief" task — shows in right panel Upcoming Tasks
       const scheduledFor = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(); // 6h from now
-      fetch(`/api/workspaces/${activeWorkspace!.id}/agent-deployments`, {
+      fetch(`/api/workspaces/${workspaceId}/agent-deployments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

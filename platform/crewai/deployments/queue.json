@@ -1,5 +1,58 @@
 [
   {
+    "id": "dep-1775893624307-aqvm19",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "f19e2995-9411-445b-ba33-441dea48df48",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "pending",
+    "createdAt": "2026-04-11T07:47:04.307Z",
+    "scheduledFor": "2026-04-11T13:47:04.297Z"
+  },
+  {
+    "id": "dep-1775830241924-h6lho2",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "8dd61725-6d1e-4512-8dc2-2def929a4aac",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-10T14:10:41.924Z",
+    "scheduledFor": "2026-04-10T20:10:41.900Z",
+    "startedAt": "2026-04-10T20:11:13.757Z",
+    "error": null,
+    "lastRunAt": "2026-04-10T20:11:17.277Z",
+    "runCount": 1,
+    "completedAt": "2026-04-10T20:11:17.277Z"
+  },
+  {
     "id": "dep-1775825950714-2t6xa3",
     "agentName": "sam",
     "agentTarget": null,
@@ -19,9 +72,14 @@
     "recurrenceMinutes": null,
     "runPrompt": "",
     "source": "onboarding",
-    "status": "pending",
+    "status": "completed",
     "createdAt": "2026-04-10T12:59:10.715Z",
-    "scheduledFor": "2026-04-10T18:59:10.707Z"
+    "scheduledFor": "2026-04-10T18:59:10.707Z",
+    "startedAt": "2026-04-10T18:59:13.612Z",
+    "error": null,
+    "lastRunAt": "2026-04-10T18:59:17.193Z",
+    "runCount": 1,
+    "completedAt": "2026-04-10T18:59:17.193Z"
   },
   {
     "id": "dep-1775497566261-xiqe7u",
