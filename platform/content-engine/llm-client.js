@@ -45,7 +45,7 @@ export const LLM_PROVIDER = (process.env.LLM_PROVIDER || 'claude').toLowerCase()
 const PROVIDER_DEFAULT_MODELS = {
   claude:  'claude-sonnet-4-5',
   openai:  'gpt-4o',
-  groq:    'llama-3.3-70b-versatile',
+  groq:    'openai/gpt-oss-120b',
 };
 
 /**
@@ -64,19 +64,19 @@ export const LLM_MODEL = process.env.LLM_MODEL || PROVIDER_DEFAULT_MODELS[LLM_PR
  */
 export function getLLMModel(role = 'default') {
   const roleEnvMap = {
-    'agent-run':      process.env.GROQ_AGENT_RUN_MODEL,
-    'agent-run-tool': process.env.GROQ_AGENT_RUN_TOOL_MODEL,
-    'agent-plan':     process.env.GROQ_AGENT_PLAN_MODEL,
-    'company-intel':  process.env.GROQ_COMPANY_INTEL_MODEL,
-    'company-profile':process.env.GROQ_COMPANY_PROFILE_MODEL || process.env.GROQ_COMPANY_INTEL_MODEL,
-    'voicebot':       process.env.GROQ_VOICEBOT_MODEL,
+    'agent-run':      process.env.AGENT_RUN_MODEL,
+    'agent-run-tool': process.env.AGENT_RUN_TOOL_MODEL,
+    'agent-plan':     process.env.AGENT_PLAN_MODEL,
+    'company-intel':  process.env.COMPANY_INTEL_MODEL,
+    'company-profile':process.env.COMPANY_PROFILE_MODEL || process.env.COMPANY_INTEL_MODEL,
+    'voicebot':       process.env.VOICEBOT_MODEL,
   };
-  const resolved = roleEnvMap[role] || LLM_MODEL;
+  const resolved = roleEnvMap[role] ?? LLM_MODEL;
   // When falling back to Groq (no ANTHROPIC_API_KEY), ensure we return a Groq-compatible model.
   const isFallingBackToGroq = (LLM_PROVIDER === 'claude' || LLM_PROVIDER === 'anthropic')
     && !process.env.ANTHROPIC_API_KEY;
   if (isFallingBackToGroq && resolved.startsWith('claude')) {
-    return PROVIDER_DEFAULT_MODELS['groq'] || 'llama-3.3-70b-versatile';
+    return PROVIDER_DEFAULT_MODELS['groq'] || 'openai/gpt-oss-120b';
   }
   return resolved;
 }
@@ -88,8 +88,10 @@ export function getLLMModel(role = 'default') {
  * Always returns an object with a `.chat.completions.create()` interface
  * matching the OpenAI / Groq SDK shape.
  */
-export function createLLMClient() {
-  switch (LLM_PROVIDER) {
+export function createLLMClient(providerOverride) {
+  const activeProvider = providerOverride || LLM_PROVIDER;
+  
+  switch (activeProvider) {
 
     case 'claude':
     case 'anthropic': {
@@ -138,3 +140,23 @@ export const defaultLLMClient = createLLMClient();
 export const isClaudeProvider   = LLM_PROVIDER === 'claude' || LLM_PROVIDER === 'anthropic';
 export const isGroqProvider     = LLM_PROVIDER === 'groq';
 export const isOpenAIProvider   = LLM_PROVIDER === 'openai';
+
+/**
+ * Infer provider from model string
+ * @param {string} model
+ * @returns {'claude'|'groq'|'openai'}
+ */
+export function inferProviderForModel(model = '') {
+  const normalizedModel = String(model || '').toLowerCase().trim();
+  if (!normalizedModel) return LLM_PROVIDER;
+  if (normalizedModel.startsWith('claude')) return 'claude';
+  // gpt-oss-* models run on Groq, not OpenAI
+  if (normalizedModel.includes('gpt-oss')) return 'groq';
+  if (
+    normalizedModel.startsWith('gpt') ||
+    normalizedModel.startsWith('o1') ||
+    normalizedModel.startsWith('o3') ||
+    normalizedModel.startsWith('o4')
+  ) return 'openai';
+  return 'groq';
+}

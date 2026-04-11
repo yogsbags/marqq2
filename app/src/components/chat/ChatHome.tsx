@@ -211,10 +211,56 @@ const MODULE_NAV_RESPONSES: Record<string, string> = {
 
 const CHAT_CONTRACT_KEY_RE = /"(agent|run_id|artifact|tasks_created|contract|confidence)"\s*:/
 
+function normalizeAgentDisplayText(text: string): string {
+  return text
+    .replace(/\bMKG\b/g, 'company context')
+    .replace(/\bSOUL\b/g, '')
+    .replace(/\b(run_id|company_id|task_type)\b/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractReadableTextFromContractObject(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+
+  const record = value as Record<string, unknown>;
+  const directCandidates = [
+    record.message,
+    record.summary,
+    record.handoff_notes,
+    (record.artifact as Record<string, unknown> | undefined)?.summary,
+  ];
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return normalizeAgentDisplayText(candidate.trim());
+    }
+  }
+
+  return '';
+}
+
 function sanitizeAgentStreamText(content: string): string {
   if (!content.trim()) return '';
 
   let cleaned = content;
+  let extractedContractText = '';
+
+  const fencedJsonBlocks = [...content.matchAll(/```json\s*([\s\S]*?)```/gi)];
+  for (const match of fencedJsonBlocks) {
+    const inner = match[1]?.trim();
+    if (!inner) continue;
+    try {
+      const parsed = JSON.parse(inner);
+      const readable = extractReadableTextFromContractObject(parsed);
+      if (readable) {
+        extractedContractText = readable;
+        break;
+      }
+    } catch {
+      // keep scanning
+    }
+  }
 
   // Hard delimiters — cut everything after these
   const contractMarkerIndex = cleaned.indexOf('---CONTRACT---');
@@ -225,6 +271,7 @@ function sanitizeAgentStreamText(content: string): string {
     .replace(/\n?Structured Output \(for downstream agents\)[\s\S]*$/i, '')
     .replace(/\n?Contract Block \(required\)[\s\S]*$/i, '')
     .replace(/\n?##\s*Output Contract[\s\S]*$/i, '')
+    .replace(/\n?\*\*Output Contract\*\*[\s\S]*$/i, '')
     // Raw JSON objects starting with known contract keys
     .replace(/\n?\{\s*"agent"\s*:[\s\S]*$/, '')
     .replace(/\n?\{\s*"run_id"\s*:[\s\S]*$/, '')
@@ -233,11 +280,14 @@ function sanitizeAgentStreamText(content: string): string {
 
   // Remove JSON code fences
   cleaned = cleaned.replace(/```json[\s\S]*?```/gi, '');
+  cleaned = cleaned.replace(/```json[\s\S]*$/gi, '');
   cleaned = cleaned.replace(/```[\s\S]*?```/g, (block) => {
     const inner = block.replace(/^```[^\n]*\n?/, '').replace(/```$/, '').trim();
     if (!inner) return '';
     try {
-      JSON.parse(inner);
+      const parsed = JSON.parse(inner);
+      const readable = extractReadableTextFromContractObject(parsed);
+      if (!extractedContractText && readable) extractedContractText = readable;
       return '';
     } catch {
       return block;
@@ -251,27 +301,67 @@ function sanitizeAgentStreamText(content: string): string {
   }
 
   const trimmed = cleaned.trim();
-  if (!trimmed) return '';
+  if (!trimmed) return extractedContractText;
 
   // If entire response is JSON, extract readable field or discard
   try {
     const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === 'object') {
-      if (typeof parsed.message === 'string' && parsed.message.trim()) return parsed.message.trim();
-      if (typeof parsed.summary === 'string' && parsed.summary.trim()) return parsed.summary.trim();
-      return '';
-    }
+    const readable = extractReadableTextFromContractObject(parsed);
+    if (readable) return readable;
+    return '';
   } catch {
     // not raw JSON, keep prose
   }
 
   // Strip internal system terms
-  return trimmed
-    .replace(/\bMKG\b/g, 'company context')
-    .replace(/\bSOUL\b/g, '')
-    .replace(/\b(run_id|company_id|task_type)\b/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return normalizeAgentDisplayText(trimmed);
+}
+
+/**
+ * Decode SSE from fetch ReadableStream without splitting JSON across chunk boundaries.
+ * Also decodes the last chunk when `done` is true (do not skip `value` on the final read).
+ */
+function consumeAgentSseBuffer(
+  decoder: TextDecoder,
+  buffer: { current: string },
+  chunk: Uint8Array | undefined,
+  streamDone: boolean,
+  handleParsed: (parsed: Record<string, unknown>) => void,
+): 'done' | 'continue' {
+  buffer.current += decoder.decode(chunk ?? new Uint8Array(), { stream: !streamDone });
+  const lines = buffer.current.split('\n');
+  buffer.current = lines.pop() ?? '';
+  for (const line of lines) {
+    if (!line.startsWith('data: ')) continue;
+    const payload = line.slice(6).trim();
+    if (payload === '[DONE]') return 'done';
+    if (!payload) continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    handleParsed(parsed);
+  }
+  if (streamDone && buffer.current.trim()) {
+    const tail = buffer.current.trimEnd();
+    buffer.current = '';
+    if (tail.startsWith('data: ')) {
+      const payload = tail.slice(6).trim();
+      if (payload === '[DONE]') return 'done';
+      if (payload) {
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(payload) as Record<string, unknown>;
+        } catch {
+          return 'continue';
+        }
+        handleParsed(parsed);
+      }
+    }
+  }
+  return 'continue';
 }
 
 type ParsedAgentPresentation = {
@@ -668,7 +758,7 @@ type SequenceAgent = {
 const URL_RE = /https?:\/\/[^\s)>"]+/i;
 
 function buildUrlAnalysisSequence(url: string): SequenceAgent[] {
-  const concise = '\n\nBe concise and specific. Use 3-5 short bullet points (- item). Each bullet max 15 words. No intro sentence, no conclusion, no headers.';
+  const concise = '\n\nProvide 2-3 clear bulleted paragraphs with specific, actionable recommendations. No headers or filler.';
   return [
     {
       name: 'maya',
@@ -707,7 +797,7 @@ function buildBroadQuerySequence(query: string): SequenceAgent[] | null {
   if (!/audit|full.?analysis|analyse (my|our)|analyze (my|our)|review (my|our)|(marketing|growth) strategy|go.?to.?market|gtm plan/i.test(query)) {
     return null;
   }
-  const concise = '\n\nBe concise and specific. Use 3-5 short bullet points (- item). Each bullet max 15 words. No intro sentence, no conclusion, no headers.';
+  const concise = '\n\nProvide 2-3 clear bulleted paragraphs with specific, actionable recommendations. No headers or filler.';
   return [
     {
       name: 'maya',
@@ -752,7 +842,7 @@ function buildOnboardingWelcomeSequence(url: string, ctx: OnboardingCtx): Sequen
   const goalsPart    = ctx.goals       ? ` Goals: ${ctx.goals}.`                     : '';
   const toolsPart    = ctx.connectedIntegrations ? ` Connected tools: ${ctx.connectedIntegrations}.` : '';
   const context      = `${url}${industryPart}.${icpPart}${goalsPart}${toolsPart}`.trim();
-  const concise      = '\n\nBe concise and specific. Use 3-5 short bullet points (- item). Each bullet max 15 words. No intro sentence, no conclusion, no headers.';
+  const concise      = '\n\nProvide 2-3 clear bulleted paragraphs with specific, actionable recommendations. No headers or filler.';
   return [
     {
       name: 'maya',
@@ -1663,36 +1753,32 @@ export function ChatHome({
       setIsTyping(false);
 
       if (reader) {
+        const sseBuf = { current: '' };
         outer: while (true) {
           const { done, value } = await reader.read();
+          const r = consumeAgentSseBuffer(dec, sseBuf, value, done, (parsed) => {
+            if (parsed.contract || parsed.contractError || parsed.details) return;
+            if (parsed.tool_call) {
+              const toolName = (parsed.tool_call as { function?: { name?: string }; name?: string })?.function?.name
+                || (parsed.tool_call as { name?: string })?.name || '';
+              const label = String(toolName).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+              setMessages(prev => prev.map(m =>
+                m.id === slashPlaceholderId ? { ...m, toolStatus: `Working on ${label}…` } : m,
+              ));
+            }
+            if (typeof parsed.text === 'string' && parsed.text) {
+              accumulated += parsed.text;
+              const displayContent = sanitizeAgentStreamText(accumulated);
+              setMessages(prev => prev.map(m =>
+                m.id === slashPlaceholderId
+                  ? { ...m, content: displayContent, toolStatus: displayContent ? undefined : m.toolStatus }
+                  : m,
+              ));
+            }
+            if (parsed.error) throw new Error(String(parsed.error));
+          });
+          if (r === 'done') break outer;
           if (done) break;
-          for (const line of dec.decode(value).split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            const payload = line.slice(6).trim();
-            if (payload === '[DONE]') break outer;
-            try {
-              const parsed = JSON.parse(payload);
-              if (parsed.contract || parsed.contractError || parsed.details) continue;
-              if (parsed.tool_call) {
-                const toolName = parsed.tool_call?.function?.name || parsed.tool_call?.name || '';
-                const label = toolName.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-                setMessages(prev => prev.map(m =>
-                  m.id === slashPlaceholderId ? { ...m, toolStatus: `Working on ${label}…` } : m,
-                ));
-              }
-              if (parsed.text) {
-                accumulated += parsed.text;
-                // Sanitize during streaming to prevent contract JSON from appearing in the UI
-                const displayContent = sanitizeAgentStreamText(accumulated);
-                setMessages(prev => prev.map(m =>
-                  m.id === slashPlaceholderId
-                    ? { ...m, content: displayContent, toolStatus: displayContent ? undefined : m.toolStatus }
-                    : m,
-                ));
-              }
-              if (parsed.error) throw new Error(parsed.error);
-            } catch { /* ignore parse errors on partial chunks */ }
-          }
         }
       }
 
@@ -1796,44 +1882,36 @@ export function ChatHome({
         setActiveTypingAgent(null);
 
         if (reader) {
-          console.log(`[Agent ${agent.name}] starting stream read`);
+          const seqSseBuf = { current: '' };
           outer: while (true) {
             const { done, value } = await reader.read();
+            const r = consumeAgentSseBuffer(dec, seqSseBuf, value, done, (parsed) => {
+              if (parsed.contract || parsed.contractError || parsed.details) return;
+              if (parsed.tool_call) {
+                const tc = parsed.tool_call as { function?: { name?: string }; name?: string };
+                const toolName = tc?.function?.name || tc?.name || '';
+                const label = String(toolName).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+                setMessages(prev => prev.map(m =>
+                  m.id === placeholderId ? { ...m, toolStatus: `Working on ${label}…` } : m,
+                ));
+              }
+              if (typeof parsed.text === 'string' && parsed.text) {
+                accumulated += parsed.text;
+                const displayContent = sanitizeAgentStreamText(accumulated);
+                setMessages(prev => prev.map(m =>
+                  m.id === placeholderId
+                    ? { ...m, content: displayContent, toolStatus: displayContent ? undefined : m.toolStatus }
+                    : m,
+                ));
+              }
+              if (parsed.error) throw new Error(String(parsed.error));
+            });
+            if (r === 'done') break outer;
             if (done) break;
-            for (const line of dec.decode(value).split('\n')) {
-              if (!line.startsWith('data: ')) continue;
-              const payload = line.slice(6).trim();
-              if (payload === '[DONE]') break outer;
-              try {
-                const parsed = JSON.parse(payload);
-                if (parsed.contract || parsed.contractError || parsed.details) continue;
-                if (parsed.tool_call) {
-                  const toolName = parsed.tool_call?.function?.name || parsed.tool_call?.name || '';
-                  const label = toolName.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-                  setMessages(prev => prev.map(m =>
-                    m.id === placeholderId ? { ...m, toolStatus: `Working on ${label}…` } : m,
-                  ));
-                }
-                if (parsed.text) {
-                  accumulated += parsed.text;
-                  // Sanitize during streaming to prevent contract JSON from appearing in the UI
-                  const displayContent = sanitizeAgentStreamText(accumulated);
-                  console.log(`[Agent ${agent.name}] stream chunk: length=${parsed.text.length}, accumulated=${accumulated.length}, displayContent=${displayContent.length}`);
-                  setMessages(prev => prev.map(m =>
-                    m.id === placeholderId
-                      ? { ...m, content: displayContent, toolStatus: displayContent ? undefined : m.toolStatus }
-                      : m,
-                  ));
-                }
-                if (parsed.error) throw new Error(parsed.error);
-              } catch { /* ignore partial chunks */ }
-            }
           }
         }
 
-        console.log(`[Agent ${agent.name}] final accumulated length: ${accumulated.length}, preview: ${accumulated.slice(0, 300)}`);
         const finalContent = sanitizeAgentStreamText(accumulated);
-        console.log(`[Agent ${agent.name}] final sanitized content length: ${finalContent.length}, preview: ${finalContent.slice(0, 300)}`);
 
         // Use agent-specific fallback if no content was extracted
         const displayContent = finalContent || (() => {
@@ -2017,22 +2095,16 @@ export function ChatHome({
       let accumulated = '';
 
       if (reader) {
+        const planSseBuf = { current: '' };
         outer: while (true) {
           const { done, value } = await reader.read();
+          const r = consumeAgentSseBuffer(dec, planSseBuf, value, done, (parsed) => {
+            if (parsed.contract || parsed.contractError || parsed.details) return;
+            if (typeof parsed.text === 'string' && parsed.text) accumulated += parsed.text;
+            if (parsed.error) throw new Error(String(parsed.error));
+          });
+          if (r === 'done') break outer;
           if (done) break;
-          for (const line of dec.decode(value).split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            const payload = line.slice(6).trim();
-            if (payload === '[DONE]') break outer;
-            try {
-              const parsed = JSON.parse(payload);
-              if (parsed.contract || parsed.contractError || parsed.details) continue;
-              if (parsed.text) accumulated += parsed.text;
-              if (parsed.error) throw new Error(parsed.error);
-            } catch {
-              // ignore partial chunks
-            }
-          }
         }
       }
 

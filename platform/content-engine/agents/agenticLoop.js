@@ -850,12 +850,22 @@ async function runAgenticLoop({
       requestParams.tool_choice = "auto";
     }
 
-    // Reasoning params only for reasoning-capable models
-    const isReasoningModel =
-      model.includes("qwen-qwq") || model.includes("deepseek-r1");
-    if (isReasoningModel) {
-      if (reasoningFormat) requestParams.reasoning_format = reasoningFormat;
-      if (reasoningEffort) requestParams.reasoning_effort = reasoningEffort;
+    // Extended thinking / reasoning support
+    if (model.includes("claude")) {
+      // Claude: enable extended thinking
+      const budgetTokens = reasoningEffort === 'high' ? 10000 : (reasoningEffort === 'medium' ? 5000 : 1000);
+      requestParams.thinking = {
+        type: 'enabled',
+        budget_tokens: budgetTokens
+      };
+    } else {
+      // Other providers: Groq/OpenAI reasoning models
+      const isReasoningModel =
+        model.includes("qwen-qwq") || model.includes("deepseek-r1");
+      if (isReasoningModel) {
+        if (reasoningFormat) requestParams.reasoning_format = reasoningFormat;
+        if (reasoningEffort) requestParams.reasoning_effort = reasoningEffort;
+      }
     }
 
     const stream = await groqClient.chat.completions.create(requestParams);

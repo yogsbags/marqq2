@@ -1336,12 +1336,14 @@ const AGENT_PLAN_GROQ_MODELS = [
   ...(isGroqProvider ? ["llama-3.3-70b-versatile"] : []),
 ];
 const AGENT_RUN_NO_TOOL_GROQ_MODELS = [
+  "openai/gpt-oss-120b",
   getLLMModel('agent-run'),
-  "llama-3.3-70b-versatile",
+  "openai/gpt-oss-120b",
 ].filter((model, index, models) => model && models.indexOf(model) === index);
 const AGENT_RUN_TOOL_GROQ_MODELS = [
+  "openai/gpt-oss-120b",
   getLLMModel('agent-run-tool'),
-  "llama-3.3-70b-versatile",
+  "openai/gpt-oss-120b",
 ].filter((model, index, models) => model && models.indexOf(model) === index);
 
 /**

@@ -87,9 +87,9 @@ async function* wrapStream(stream, generation, trace, startTime, inputMessages) 
  * @param {string} [opts.userId]    - company/workspace ID
  * @param {string[]} [opts.tags]    - e.g. ['agent-run', 'isha']
  */
-export function tracedLLM({ traceName = 'llm-call', sessionId, userId, tags } = {}) {
+export function tracedLLM({ traceName = 'llm-call', sessionId, userId, tags, provider } = {}) {
   // Use the provider-agnostic client (Claude / Groq / OpenAI based on LLM_PROVIDER env)
-  const groqClient = createLLMClient()
+  const groqClient = createLLMClient(provider)
 
   if (!hasLangfuse || !lf) return groqClient
 
