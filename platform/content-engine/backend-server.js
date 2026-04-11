@@ -249,7 +249,13 @@ async function generateAgentRunWithGemini({ model, systemPrompt, userQuery }) {
 
 function hasUsableAgentProse(fullText) {
   const prose = String(fullText || "").split("---CONTRACT---")[0].trim();
-  return prose.length >= 120 && /[A-Za-z]/.test(prose);
+  const hasEnoughLength = prose.length >= 120;
+  const hasLetters = /[A-Za-z]/.test(prose);
+  const result = hasEnoughLength && hasLetters;
+  if (!result) {
+    console.warn(`[prose-check] failed: length=${prose.length} (need 120), hasLetters=${hasLetters}, preview: ${prose.slice(0, 150)}`);
+  }
+  return result;
 }
 
 /**
@@ -5963,6 +5969,8 @@ app.post("/api/agents/:name/run", async (req, res) => {
     ? req.headers["x-user-id"].trim()
     : null;
 
+  console.log(`[agent:${name}] run started, workspace: ${workspaceId}, company_id: ${company_id}, query length: ${query?.length}`);
+
   if (!VALID_AGENTS.has(name)) {
     return res.status(404).json({ error: "Unknown agent" });
   }
@@ -6562,14 +6570,18 @@ Replace ALL placeholder values with your actual outputs.
         fullText = agenticResult.fullText;
         const toolExecutions = agenticResult.toolExecutions || [];
 
+        console.log(`[agent:${name}] fullText length: ${fullText.length}, first 300: ${fullText.slice(0, 300)}`);
+
         if (!hasUsableAgentProse(fullText)) {
           throw new Error(`Groq model "${model}" returned insufficient user-facing prose`);
         }
 
+        console.log(`[agent:${name}] prose check passed, model: ${model}`);
         completed = true;
         req._toolExecutions = toolExecutions;
         break;
       } catch (modelError) {
+        console.warn(`[agent:${name}] model error: ${modelError?.message || modelError}`);
         lastModelError = modelError;
         fullText = "";
       }

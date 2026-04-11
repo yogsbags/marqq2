@@ -752,37 +752,39 @@ function buildOnboardingWelcomeSequence(url: string, ctx: OnboardingCtx): Sequen
   const goalsPart    = ctx.goals       ? ` Goals: ${ctx.goals}.`                     : '';
   const toolsPart    = ctx.connectedIntegrations ? ` Connected tools: ${ctx.connectedIntegrations}.` : '';
   const context      = `${url}${industryPart}.${icpPart}${goalsPart}${toolsPart}`.trim();
-  const concise      = '\n\nBe concise and specific. Use 3-5 short bullet points (- item). Each bullet max 15 words. No intro sentence, no conclusion, no headers.';
+  // Use detailed format for onboarding to ensure rich, substantive output
+  // (not just bullet points which can be too sparse)
+  const format      = '\n\nProvide 2-3 clear paragraphs with specific, actionable recommendations. Skip intro/conclusion. Be direct.';
   return [
     {
       name: 'maya',
       displayName: 'Maya',
       role: 'SEO & LLMO Monitor',
-      query: `Analyse the SEO and AI answer engine (LLMO) presence for ${context} What are the top 3 keyword opportunities and the single most urgent ranking gap to fix?${concise}`,
+      query: `Analyse the SEO and AI answer engine (LLMO) presence for ${context} What are the top 3 keyword opportunities and the single most urgent ranking gap to fix?${format}`,
     },
     {
       name: 'arjun',
       displayName: 'Arjun',
       role: 'Lead Intelligence',
-      query: `Based on the business at ${context} Define the ideal customer profile and name the top 2 outreach segments to prioritise first.${concise}`,
+      query: `Based on the business at ${context} Define the ideal customer profile and name the top 2 outreach segments to prioritise first.${format}`,
     },
     {
       name: 'dev',
       displayName: 'Dev',
       role: 'Performance Analyst',
-      query: `Analyse the estimated performance footprint for ${context} What are the top 3 conversion improvements to prioritise in the next 30 days?${concise}`,
+      query: `Analyse the estimated performance footprint for ${context} What are the top 3 conversion improvements to prioritise in the next 30 days?${format}`,
     },
     {
       name: 'riya',
       displayName: 'Riya',
       role: 'Content Producer',
-      query: `Review the content strategy visible at ${context} What are the top 3 content pieces to publish next for maximum organic impact?${concise}`,
+      query: `Review the content strategy visible at ${context} What are the top 3 content pieces to publish next for maximum organic impact?${format}`,
     },
     {
       name: 'zara',
       displayName: 'Zara',
       role: 'Campaign Strategist',
-      query: `Based on ${context} What channels and campaign angles should be prioritised for the next 90 days?${concise}`,
+      query: `Based on ${context} What channels and campaign angles should be prioritised for the next 90 days?${format}`,
     },
   ];
 }
@@ -1753,8 +1755,11 @@ export function ChatHome({
           body: JSON.stringify(buildAgentRunPayload({ query: agent.query })),
         });
 
+        console.log(`[Agent ${agent.name}] response status: ${res.status}, ok: ${res.ok}`);
         if (!res.ok) {
           setIsTyping(false);
+          const errBody = await res.text().catch(() => '');
+          console.error(`[Agent ${agent.name}] error response:`, errBody.slice(0, 500));
           const errMsg: Message = {
             id: (Date.now() + Math.random()).toString(),
             content: 'Agent offline — skipping this step.',
@@ -1771,6 +1776,8 @@ export function ChatHome({
         const reader = res.body?.getReader();
         const dec = new TextDecoder();
         let accumulated = '';
+
+        console.log(`[Agent ${agent.name}] reader available: ${!!reader}`);
 
         // Create streaming placeholder card (with Helena-style tool-status indicator)
         const placeholderId = `seq-${agent.name}-${Date.now()}`;
@@ -1791,6 +1798,7 @@ export function ChatHome({
         setActiveTypingAgent(null);
 
         if (reader) {
+          console.log(`[Agent ${agent.name}] starting stream read`);
           outer: while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -1812,6 +1820,7 @@ export function ChatHome({
                   accumulated += parsed.text;
                   // Sanitize during streaming to prevent contract JSON from appearing in the UI
                   const displayContent = sanitizeAgentStreamText(accumulated);
+                  console.log(`[Agent ${agent.name}] stream chunk: length=${parsed.text.length}, accumulated=${accumulated.length}, displayContent=${displayContent.length}`);
                   setMessages(prev => prev.map(m =>
                     m.id === placeholderId
                       ? { ...m, content: displayContent, toolStatus: displayContent ? undefined : m.toolStatus }
@@ -1824,7 +1833,9 @@ export function ChatHome({
           }
         }
 
+        console.log(`[Agent ${agent.name}] final accumulated length: ${accumulated.length}, preview: ${accumulated.slice(0, 300)}`);
         const finalContent = sanitizeAgentStreamText(accumulated);
+        console.log(`[Agent ${agent.name}] final sanitized content length: ${finalContent.length}, preview: ${finalContent.slice(0, 300)}`);
 
         // Use agent-specific fallback if no content was extracted
         const displayContent = finalContent || (() => {
