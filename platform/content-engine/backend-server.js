@@ -64,7 +64,7 @@ import { canAccessModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers } from "./automations/registry.js";
 import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector } from "./mcp-router.js";
-import { getLLMModel, LLM_PROVIDER, LLM_MODEL, isClaudeProvider, isGroqProvider } from "./llm-client.js";
+import { getLLMModel, LLM_PROVIDER, LLM_MODEL, inferProviderForModel, isClaudeProvider, isGroqProvider } from "./llm-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -247,13 +247,18 @@ async function generateAgentRunWithGemini({ model, systemPrompt, userQuery }) {
   return trimmed;
 }
 
-function hasUsableAgentProse(fullText) {
+function hasUsableAgentProse(fullText, opts = {}) {
   const prose = String(fullText || "").split("---CONTRACT---")[0].trim();
-  const hasEnoughLength = prose.length >= 120;
-  const hasLetters = /[A-Za-z]/.test(prose);
+  const supplement = String(opts.streamSupplement || "").trim();
+  // Models may stream most of the work in thinking/reasoning while `content` stays short until the end.
+  const combined = [prose, supplement].filter(Boolean).join("\n").trim();
+  const hasEnoughLength = combined.length >= 120;
+  const hasLetters = /[A-Za-z]/.test(combined);
   const result = hasEnoughLength && hasLetters;
   if (!result) {
-    console.warn(`[prose-check] failed: length=${prose.length} (need 120), hasLetters=${hasLetters}, preview: ${prose.slice(0, 150)}`);
+    console.warn(
+      `[prose-check] failed: proseLen=${prose.length} supplementLen=${supplement.length} combined=${combined.length} (need 120), hasLetters=${hasLetters}, preview: ${combined.slice(0, 150)}`
+    );
   }
   return result;
 }
@@ -968,6 +973,11 @@ function buildAgentRunGuardrails(name, taskType) {
       "If no verified competitor move is available, say 'No verified recent competitor move found from current context' and continue with gaps and watch items.",
       "Never return an empty competitor section.",
     ],
+    riya: [
+      "CRITICAL: Always write readable prose BEFORE the contract block explaining your content strategy. Example: 'Based on your SEO gaps and target audience, here are the content pieces to prioritize:' — then your recommendations and outlines.",
+      "Provide complete content outlines with at least 4-5 sections per idea, not just titles.",
+      "Include target keywords, search intent, and estimated volume for each content piece.",
+    ],
     sam: [
       "Audit only real copy when it is present in context.",
       "If exact copy is missing, say that the audit is limited and provide optional sample rewrites in a separate 'Sample rewrite' section.",
@@ -977,6 +987,7 @@ function buildAgentRunGuardrails(name, taskType) {
       "When the task is a proposal template: your artifact.data MUST use the proposal schema — do NOT use strategy_overview/phases. Required fields: proposal_title (string), executive_summary (string), problem_statement (string), our_approach (string), deliverables (array), pricing_tiers (array of {name, price_signal, whats_included}), next_steps (string).",
     ],
     zara: [
+      "CRITICAL: Always write readable prose BEFORE the contract block explaining your channel and campaign logic. Example: 'Based on the company's positioning and ICP, here are the recommended channels for the next 90 days and why:' — then your channel breakdown.",
       "Do not fabricate agent activity, market signals, or channel performance.",
       "If today's activity or signal data is unavailable, say that explicitly and shift to a recommended action brief based on current company context.",
       "Do not imply that agent activity happened today unless the activity is explicitly present in current context.",
@@ -987,11 +998,13 @@ function buildAgentRunGuardrails(name, taskType) {
       "If search-trend, CRM, email, or channel metrics are not explicitly present, omit them rather than estimating them.",
     ],
     dev: [
+      "CRITICAL: Always write readable prose BEFORE the contract block, even if live metrics are missing. Example: 'Without real conversion data, based on industry benchmarks and your business model, here are the priority improvements:' — then your recommendations.",
       "Never invent KPI baselines, ROAS, CPA, spend, conversion rate, or variance numbers.",
       "If exact KPI data is not available, respond with 'Missing KPI dataset for verification' and list the minimum data needed.",
       "Do not use hypothetical numbers in the main output.",
     ],
     arjun: [
+      "CRITICAL: Always write readable prose BEFORE the contract block, even if live data is missing. Example: 'Without connected CRM data, I analyzed based on the industry and ICP context you provided. Here are the key segments and outreach priorities:' — then your recommendations.",
       "Never invent predicted or actual KPI values.",
       "If verified performance data is missing, respond with 'Missing outcome verification dataset' and list the required inputs.",
       "Do not score prediction accuracy without real observed metrics.",
@@ -1026,6 +1039,7 @@ function buildAgentRunGuardrails(name, taskType) {
       "Do not include specific percentage or numeric outcomes in case study narratives even when the company is anonymous (e.g. '30% lift in qualified leads', 'cut build time by 50%'). Describe results qualitatively: 'faster build cycles', 'higher lead quality', 'more demo requests' — the numbers are not verified and read as false advertising.",
     ],
     maya: [
+      "CRITICAL: Always write 2-3 sentences of readable prose BEFORE the contract block explaining your findings, even if live SEO data is missing. For example: 'Without direct GSC access, I analyzed the domain using public SEO patterns. Based on the URL structure and target market, here are the opportunities:' — then your bullet points or recommendations.",
       "Keep the preamble short and spend tokens on the actual SEO deliverables.",
       "When the task is to write a blog post or article: your artifact.data MUST use the article schema — do NOT use strategy_overview/phases. Required fields: title (string), meta_description (string), target_keyword (string), word_count (number), sections (array of {heading, content}). Write the full article content in sections.",
       "When the task is an SEO content strategy: your artifact.data MUST use the content_strategy schema — content_pillars, topic_clusters, publishing_calendar.",
@@ -1323,12 +1337,30 @@ const AGENT_PLAN_GROQ_MODELS = [
 ];
 const AGENT_RUN_NO_TOOL_GROQ_MODELS = [
   getLLMModel('agent-run'),
-  ...(isGroqProvider ? ["llama-3.3-70b-versatile"] : []),
-];
+  "llama-3.3-70b-versatile",
+].filter((model, index, models) => model && models.indexOf(model) === index);
 const AGENT_RUN_TOOL_GROQ_MODELS = [
   getLLMModel('agent-run-tool'),
-  ...(isGroqProvider ? ["llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct-0905"] : []),
-];
+  "llama-3.3-70b-versatile",
+].filter((model, index, models) => model && models.indexOf(model) === index);
+
+/**
+ * Firecrawl REST + optional browser_search are merged in runAgenticLoop only when
+ * inferProviderForModel(model) === "groq". If LLM_PROVIDER=claude, agent-run-tool
+ * may still resolve to a Claude id — so when FIRECRAWL_API_KEY is set we force
+ * Groq-native ids (gpt-oss first) for /api/agents/:name/run.
+ */
+function resolveAgentRunFirecrawlGroqModels() {
+  const fallbacks = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"];
+  const envModel = (process.env.GROQ_AGENT_RUN_TOOL_MODEL || "").trim();
+  const primary =
+    envModel && inferProviderForModel(envModel) === "groq"
+      ? envModel
+      : fallbacks[0];
+  const merged = [primary, ...fallbacks];
+  return merged.filter((model, index, models) => model && models.indexOf(model) === index);
+}
+
 const AGENT_RUN_PRIMARY_PROVIDER = (
   process.env.AGENT_RUN_PRIMARY_PROVIDER ||
   process.env.COMPANY_INTEL_PRIMARY_PROVIDER ||
@@ -1338,6 +1370,9 @@ const AGENT_RUN_GEMINI_MODEL =
   process.env.AGENT_RUN_GEMINI_MODEL ||
   process.env.GEMINI_PRIMARY_MODEL ||
   "gemini-3.1-pro-preview";
+/** Groq reasoning (gpt-oss / qwen-qwq / deepseek-r1): default `medium`; override with AGENT_REASONING_EFFORT */
+const RESOLVED_AGENT_REASONING_EFFORT =
+  (process.env.AGENT_REASONING_EFFORT || "medium").trim().toLowerCase() || "medium";
 const STALE_DEPLOYMENT_TIMEOUT_MS =
   Number(process.env.TORQQ_DEPLOYMENT_STALE_SECONDS || 1800) * 1000;
 const SARVAM_API_BASE = process.env.SARVAM_API_BASE || "https://api.sarvam.ai";
@@ -5916,6 +5951,8 @@ After your COMPLETE response, append the following block EXACTLY at the very END
         res,
         entityId: companyId,
         composioApiKey: composioTools.length ? composioApiKey : null,
+        reasoningFormat: process.env.AGENT_REASONING_FORMAT || undefined,
+        reasoningEffort: RESOLVED_AGENT_REASONING_EFFORT,
         maxRounds: 4,
       });
 
@@ -6334,6 +6371,10 @@ app.post("/api/agents/:name/run", async (req, res) => {
 
 ## Output Contract (REQUIRED — do not skip)
 
+⚠️ CRITICAL: You MUST always write substantive user-facing prose BEFORE the contract block.
+If data is missing, say exactly what is missing and provide your best analysis based on available context.
+Do NOT return only JSON, only contract, or empty prose. Your response is USELESS without readable text for the user.
+
 After your COMPLETE response (all prose, analysis, and recommendations have been written),
 append the following block EXACTLY at the very END. Do not include ---CONTRACT--- anywhere
 else in your response.
@@ -6446,14 +6487,7 @@ Replace ALL placeholder values with your actual outputs.
 
     let fullText = "";
     let lastModelError = null;
-    // Langfuse: per-agent traced client so every run is attributed to the agent + company
     const extraTags = Array.isArray(clientTags) ? clientTags.filter(t => typeof t === 'string') : [];
-    const agentGroq = tracedLLM({
-      traceName: `agent-run:${name}`,
-      sessionId: runId,
-      userId: companyId || undefined,
-      tags: ['agent-run', name, ...(task_type ? [task_type] : []), ...extraTags],
-    });
     let completed = false;
 
     if (AGENT_RUN_PRIMARY_PROVIDER === "gemini") {
@@ -6534,14 +6568,36 @@ Replace ALL placeholder values with your actual outputs.
       }
     }
 
-    const groqModelsForRun = composioTools.length > 0
-      ? AGENT_RUN_TOOL_GROQ_MODELS
+    const firecrawlApiKeyPresent = Boolean((process.env.FIRECRAWL_API_KEY || '').trim());
+    const groqBrowserSearchEnabled =
+      process.env.GROQ_BROWSER_SEARCH !== '0' && process.env.GROQ_BROWSER_SEARCH !== 'false';
+    // Firecrawl REST (firecrawl_scrape / firecrawl_search) runs in Node when the key is set; MCP remains opt-in.
+    const useToolCapableGroqModels =
+      composioTools.length > 0 || firecrawlApiKeyPresent || groqBrowserSearchEnabled;
+    const groqModelsForRun = useToolCapableGroqModels
+      ? (firecrawlApiKeyPresent ? resolveAgentRunFirecrawlGroqModels() : AGENT_RUN_TOOL_GROQ_MODELS)
       : AGENT_RUN_NO_TOOL_GROQ_MODELS;
+    if (firecrawlApiKeyPresent && useToolCapableGroqModels) {
+      console.log(
+        `[agent:${name}] Firecrawl REST: using Groq-native tool models (${groqModelsForRun.join(" → ")})`
+      );
+    }
+    const runModels = completed ? [] : groqModelsForRun;
 
-    for (const model of completed ? [] : groqModelsForRun) {
+    for (let modelIndex = 0; modelIndex < runModels.length; modelIndex += 1) {
+      const model = runModels[modelIndex];
       try {
+        const provider = inferProviderForModel(model);
+        console.log(`[agent:${name}] attempting model "${model}" via ${provider}`);
+        const agentLlm = tracedLLM({
+          traceName: `agent-run:${name}`,
+          sessionId: runId,
+          userId: companyId || undefined,
+          tags: ['agent-run', name, provider, ...(task_type ? [task_type] : []), ...extraTags],
+          provider,
+        });
         const agenticResult = await runAgenticLoop({
-          groqClient: agentGroq,
+          groqClient: agentLlm,
           model,
           messages: (() => {
             // Inject prior conversation turns (up to 6 most recent) for continuity
@@ -6563,16 +6619,17 @@ Replace ALL placeholder values with your actual outputs.
           taskType: task_type,
           composioApiKey,
           reasoningFormat: process.env.AGENT_REASONING_FORMAT || undefined,
-          reasoningEffort: process.env.AGENT_REASONING_EFFORT || undefined,
+          reasoningEffort: RESOLVED_AGENT_REASONING_EFFORT,
           maxTokens: 8192,
           temperature: 0.4,
         });
         fullText = agenticResult.fullText;
         const toolExecutions = agenticResult.toolExecutions || [];
+        const streamSupplement = agenticResult.streamSupplement || "";
 
         console.log(`[agent:${name}] fullText length: ${fullText.length}, first 300: ${fullText.slice(0, 300)}`);
 
-        if (!hasUsableAgentProse(fullText)) {
+        if (!hasUsableAgentProse(fullText, { streamSupplement })) {
           throw new Error(`Groq model "${model}" returned insufficient user-facing prose`);
         }
 
@@ -6581,7 +6638,22 @@ Replace ALL placeholder values with your actual outputs.
         req._toolExecutions = toolExecutions;
         break;
       } catch (modelError) {
-        console.warn(`[agent:${name}] model error: ${modelError?.message || modelError}`);
+        const failedProvider = inferProviderForModel(model);
+        console.warn(`[agent:${name}] model "${model}" (${failedProvider}) error: ${modelError?.message || modelError}`);
+        const nextModel = runModels[modelIndex + 1];
+        if (nextModel) {
+          const nextProvider = inferProviderForModel(nextModel);
+          if (failedProvider !== nextProvider) {
+            console.warn(
+              `[agent:${name}] provider failover: ${failedProvider} -> ${nextProvider} ` +
+              `(next model "${nextModel}")`
+            );
+          } else {
+            console.warn(
+              `[agent:${name}] retrying with ${nextProvider} model "${nextModel}"`
+            );
+          }
+        }
         lastModelError = modelError;
         fullText = "";
       }
