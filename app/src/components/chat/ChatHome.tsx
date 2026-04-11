@@ -752,39 +752,37 @@ function buildOnboardingWelcomeSequence(url: string, ctx: OnboardingCtx): Sequen
   const goalsPart    = ctx.goals       ? ` Goals: ${ctx.goals}.`                     : '';
   const toolsPart    = ctx.connectedIntegrations ? ` Connected tools: ${ctx.connectedIntegrations}.` : '';
   const context      = `${url}${industryPart}.${icpPart}${goalsPart}${toolsPart}`.trim();
-  // Use detailed format for onboarding to ensure rich, substantive output
-  // (not just bullet points which can be too sparse)
-  const format      = '\n\nProvide 2-3 clear paragraphs with specific, actionable recommendations. Skip intro/conclusion. Be direct.';
+  const concise      = '\n\nBe concise and specific. Use 3-5 short bullet points (- item). Each bullet max 15 words. No intro sentence, no conclusion, no headers.';
   return [
     {
       name: 'maya',
       displayName: 'Maya',
       role: 'SEO & LLMO Monitor',
-      query: `Analyse the SEO and AI answer engine (LLMO) presence for ${context} What are the top 3 keyword opportunities and the single most urgent ranking gap to fix?${format}`,
+      query: `Analyse the SEO and AI answer engine (LLMO) presence for ${context} What are the top 3 keyword opportunities and the single most urgent ranking gap to fix?${concise}`,
     },
     {
       name: 'arjun',
       displayName: 'Arjun',
       role: 'Lead Intelligence',
-      query: `Based on the business at ${context} Define the ideal customer profile and name the top 2 outreach segments to prioritise first.${format}`,
+      query: `Based on the business at ${context} Define the ideal customer profile and name the top 2 outreach segments to prioritise first.${concise}`,
     },
     {
       name: 'dev',
       displayName: 'Dev',
       role: 'Performance Analyst',
-      query: `Analyse the estimated performance footprint for ${context} What are the top 3 conversion improvements to prioritise in the next 30 days?${format}`,
+      query: `Analyse the estimated performance footprint for ${context} What are the top 3 conversion improvements to prioritise in the next 30 days?${concise}`,
     },
     {
       name: 'riya',
       displayName: 'Riya',
       role: 'Content Producer',
-      query: `Review the content strategy visible at ${context} What are the top 3 content pieces to publish next for maximum organic impact?${format}`,
+      query: `Review the content strategy visible at ${context} What are the top 3 content pieces to publish next for maximum organic impact?${concise}`,
     },
     {
       name: 'zara',
       displayName: 'Zara',
       role: 'Campaign Strategist',
-      query: `Based on ${context} What channels and campaign angles should be prioritised for the next 90 days?${format}`,
+      query: `Based on ${context} What channels and campaign angles should be prioritised for the next 90 days?${concise}`,
     },
   ];
 }
