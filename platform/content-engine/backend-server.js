@@ -6227,6 +6227,57 @@ After your COMPLETE response, append the following block EXACTLY at the very END
 });
 
 // ── POST /api/agents/:name/run ─────────────────────────────────────────────────
+// Generates contextual follow-up suggestions for a Veena direct answer (route==='answer')
+app.post("/api/veena/follow-ups", async (req, res) => {
+  const { content = "", company_id } = req.body || {};
+  if (!content.trim()) return res.json({ follow_ups: [] });
+
+  try {
+    let mkgSnippet = "";
+    if (company_id) {
+      try {
+        const mkg = await MKGService.read(company_id);
+        const parts = [];
+        if (mkg?.positioning?.value?.statement)
+          parts.push(`Positioning: ${mkg.positioning.value.statement}`);
+        if (mkg?.icp?.value?.industry?.length)
+          parts.push(`ICP industry: ${mkg.icp.value.industry.slice(0, 3).join(", ")}`);
+        if (mkg?.competitors?.value?.length)
+          parts.push(`Competitors: ${mkg.competitors.value.slice(0, 3).map(c => c.name).join(", ")}`);
+        mkgSnippet = parts.join("\n");
+      } catch { /* non-blocking */ }
+    }
+
+    const userContent = [
+      `Veena just answered: "${content.slice(0, 800)}"`,
+      mkgSnippet ? `Company context:\n${mkgSnippet}` : "",
+    ].filter(Boolean).join("\n\n");
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: FOLLOW_UP_SYSTEM_PROMPT },
+        { role: "user",   content: userContent },
+      ],
+      temperature: 0.4,
+      max_tokens: 200,
+      response_format: { type: "json_object" },
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim() || "";
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed) ? parsed
+      : Array.isArray(parsed.follow_ups) ? parsed.follow_ups
+      : Array.isArray(Object.values(parsed)[0]) ? Object.values(parsed)[0]
+      : [];
+    const follow_ups = arr.filter(s => typeof s === "string" && s.trim()).slice(0, 4);
+    res.json({ follow_ups });
+  } catch (err) {
+    console.warn("[veena/follow-ups] failed:", err?.message || err);
+    res.json({ follow_ups: [] });
+  }
+});
+
 // Runs an agent interactively (triggered by slash commands in ChatHome).
 // Loads SOUL.md + MEMORY.md + skills/*.md as system prompt, calls Groq, streams SSE.
 // Response format: data: {"text":"..."}\n\n ... data: [DONE]\n\n
@@ -6254,6 +6305,8 @@ app.post("/api/agents/:name/run", async (req, res) => {
     : null;
 
   console.log(`[agent:${name}] run started, workspace: ${workspaceId}, company_id: ${company_id}, query length: ${query?.length}`);
+  const agentRunTimeoutMs = Number(process.env.AGENT_RUN_TIMEOUT_MS || 45000);
+  let agentRunTimeoutId = null;
 
   if (!VALID_AGENTS.has(name)) {
     return res.status(404).json({ error: "Unknown agent" });
@@ -6682,6 +6735,19 @@ Replace ALL placeholder values with your actual outputs.
 
   const startedAt = Date.now();
   try {
+    agentRunTimeoutId = setTimeout(async () => {
+      try {
+        await markAgentHeartbeat(name, "error", Date.now() - startedAt, "Agent run timed out", companyId);
+      } catch (timeoutErr) {
+        console.warn(`[agent:${name}] timeout heartbeat update failed: ${timeoutErr?.message || timeoutErr}`);
+      }
+
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ error: "This agent took too long to respond." })}\n\n`);
+        res.end();
+      }
+    }, agentRunTimeoutMs);
+
     await markAgentHeartbeat(name, "running", null, null, companyId);
 
     if (TEST_MODE) {
@@ -6891,6 +6957,8 @@ Replace ALL placeholder values with your actual outputs.
       throw lastModelError || new Error("All agent run models failed");
     }
 
+    if (res.writableEnded) return;
+
     fullText = sanitizeAgentRunFullText(name, task_type, fullText);
 
     await finalizeAgentRunResponse({
@@ -6908,8 +6976,12 @@ Replace ALL placeholder values with your actual outputs.
 
   } catch (err) {
     await markAgentHeartbeat(name, "error", Date.now() - startedAt, String(err), companyId);
-    res.write(`data: ${JSON.stringify({ error: toUserFacingError(err) })}\n\n`);
-    res.end();
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ error: toUserFacingError(err) })}\n\n`);
+      res.end();
+    }
+  } finally {
+    if (agentRunTimeoutId !== null) clearTimeout(agentRunTimeoutId);
   }
 });
 

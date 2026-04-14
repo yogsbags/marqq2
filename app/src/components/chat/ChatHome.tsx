@@ -1006,6 +1006,27 @@ type SequenceAgent = {
 };
 
 const URL_RE = /https?:\/\/[^\s)>"]+/i;
+const AGENT_RUN_TIMEOUT_MS = 45_000;
+
+async function fetchAgentRun(
+  agentName: string,
+  query: string,
+  headers: Record<string, string>,
+  timeoutMs = AGENT_RUN_TIMEOUT_MS,
+) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(`/api/agents/${agentName}/run`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(buildAgentRunPayload({ query })),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 function buildUrlAnalysisSequence(url: string): SequenceAgent[] {
   const concise = '\n\nProvide 2-3 clear bulleted paragraphs with specific, actionable recommendations. No headers or filler.';
@@ -1127,7 +1148,11 @@ function buildOnboardingWelcomeSequence(url: string, ctx: OnboardingCtx): Sequen
   ];
 }
 
-function SubagentMessageCard({ message, onModuleSelect }: { message: Message; onModuleSelect?: (id: string) => void }) {
+function SubagentMessageCard({ message, onModuleSelect, onFollowUpClick }: {
+  message: Message;
+  onModuleSelect?: (id: string) => void;
+  onFollowUpClick?: (text: string) => void;
+}) {
   const colors = (message.agentId ? AGENT_COLORS[message.agentId] : null) ?? DEFAULT_AGENT_COLORS;
   const plain = stripMarkdown(message.content);
   const artifacts = extractFileArtifacts(message.content);
@@ -1165,6 +1190,25 @@ function SubagentMessageCard({ message, onModuleSelect }: { message: Message; on
           onView={onModuleSelect ? () => onModuleSelect('workspace-files') : undefined}
         />
       ))}
+      {/* Follow-up suggestion buttons */}
+      {message.follow_ups && message.follow_ups.length > 0 && onFollowUpClick && (
+        <div className="mt-3 space-y-1.5 border-t border-current/10 pt-2.5">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Next steps</p>
+          {message.follow_ups.map((fu, i) => (
+            <button
+              key={i}
+              onClick={() => onFollowUpClick(fu)}
+              className={cn(
+                'block w-full text-left text-xs px-2 py-1.5 rounded transition',
+                colors.label,
+                'hover:bg-black/5 dark:hover:bg-white/5'
+              )}
+            >
+              → {fu}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1965,11 +2009,7 @@ export function ChatHome({
     setIsTyping(true);
 
     try {
-      const res = await fetch(`/api/agents/${agentEntry.name}/run`, {
-        method: 'POST',
-        headers: buildAgentHeaders(),
-        body: JSON.stringify(buildAgentRunPayload({ query })),
-      });
+      const res = await fetchAgentRun(agentEntry.name, query, buildAgentHeaders());
 
       if (!res.ok) {
         let errMsg = `${agentEntry.label} is not available right now.`;
@@ -2087,9 +2127,12 @@ export function ChatHome({
       toast.success(`${agentEntry.label} responded`);
     } catch (err) {
       const [agentDisplayName, agentRole] = agentEntry.label.split(' · ');
+      const timedOut = err instanceof Error && err.name === 'AbortError';
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: `Offline or not configured. Make sure the AI backend is running (\`npm run dev:backend\`) and \`GROQ_API_KEY\` is set.`,
+        content: timedOut
+          ? `${agentEntry.label} took too long to respond. Please try again with a narrower request.`
+          : `Offline or not configured. Make sure the AI backend is running (\`npm run dev:backend\`) and \`GROQ_API_KEY\` is set.`,
         sender: 'ai',
         timestamp: new Date(),
         agentName: agentDisplayName?.trim() || agentEntry.label,
@@ -2097,7 +2140,7 @@ export function ChatHome({
         agentId: agentEntry.name,
       };
       onMessagesChange(prev => [...prev, errorMessage]);
-      toast.error(String(err));
+      toast.error(timedOut ? `${agentEntry.label} timed out.` : String(err));
     } finally {
       setIsTyping(false);
     }
@@ -2122,11 +2165,7 @@ export function ChatHome({
       await new Promise(r => setTimeout(r, 400));
 
       try {
-        const res = await fetch(`/api/agents/${agent.name}/run`, {
-          method: 'POST',
-          headers: buildAgentHeaders(),
-          body: JSON.stringify(buildAgentRunPayload({ query: agent.query })),
-        });
+        const res = await fetchAgentRun(agent.name, agent.query, buildAgentHeaders());
 
         console.log(`[Agent ${agent.name}] response status: ${res.status}, ok: ${res.ok}`);
         if (!res.ok) {
@@ -2241,11 +2280,13 @@ export function ChatHome({
             ...(seqFollowUps.length && { follow_ups: seqFollowUps }),
           } : m,
         ));
-      } catch {
+      } catch (error) {
         setIsTyping(false);
         const errMsg: Message = {
           id: (Date.now() + Math.random()).toString(),
-          content: 'Could not reach this agent right now.',
+          content: error instanceof Error && error.name === 'AbortError'
+            ? 'This step timed out, so I skipped to keep the team moving.'
+            : 'Could not reach this agent right now.',
           sender: 'ai',
           timestamp: new Date(),
           agentName: agent.displayName,
@@ -2711,6 +2752,25 @@ export function ChatHome({
           ? { ...m, content: streamedContent, reasoning: streamedReasoning || undefined }
           : m
       ));
+
+      // Fire background follow-ups call — update message once resolved (non-blocking)
+      if (streamedContent.trim()) {
+        const storedCompanyId = localStorage.getItem('company_id') || localStorage.getItem('companyId') || '';
+        fetch(`/api/veena/follow-ups`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: streamedContent, company_id: storedCompanyId }),
+        })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (Array.isArray(data?.follow_ups) && data.follow_ups.length) {
+              onMessagesChange(prev => prev.map(m =>
+                m.id === placeholderId ? { ...m, follow_ups: data.follow_ups } : m,
+              ));
+            }
+          })
+          .catch(() => { /* non-blocking — ignore */ });
+      }
     } catch (error) {
       console.error('Chat error:', error);
       toast.error('Failed to get AI response. Please try again.');
@@ -2942,7 +3002,11 @@ export function ChatHome({
               if (message.sender === 'ai' && message.agentName) {
                 return (
                   <div key={message.id} className="w-full">
-                    <SubagentMessageCard message={message} onModuleSelect={onModuleSelect} />
+                    <SubagentMessageCard
+                      message={message}
+                      onModuleSelect={onModuleSelect}
+                      onFollowUpClick={(text) => setInputValue(text)}
+                    />
                   </div>
                 );
               }
