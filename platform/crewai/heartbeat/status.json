@@ -1,10 +1,10 @@
 {
-  "updated_at": "2026-04-11T07:58:30.316Z",
+  "updated_at": "2026-04-12T12:41:02.127Z",
   "agents": {
     "veena": {
-      "status": "idle",
-      "last_run": null,
-      "duration_ms": null
+      "status": "completed",
+      "last_run": "2026-04-11T11:25:04.111Z",
+      "duration_ms": 1732
     },
     "isha": {
       "status": "running",
@@ -22,34 +22,29 @@
       "duration_ms": null
     },
     "zara": {
-      "status": "error",
-      "last_run": "2026-04-11T07:58:30.316Z",
-      "duration_ms": 653,
-      "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+      "status": "completed",
+      "last_run": "2026-04-11T14:36:44.216Z",
+      "duration_ms": 6467
     },
     "maya": {
-      "status": "error",
-      "last_run": "2026-04-11T07:58:21.090Z",
-      "duration_ms": 1116,
-      "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+      "status": "completed",
+      "last_run": "2026-04-11T14:36:20.662Z",
+      "duration_ms": 6808
     },
     "riya": {
-      "status": "error",
-      "last_run": "2026-04-11T07:58:28.465Z",
-      "duration_ms": 870,
-      "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+      "status": "completed",
+      "last_run": "2026-04-11T14:36:36.522Z",
+      "duration_ms": 3696
     },
     "arjun": {
-      "status": "error",
-      "last_run": "2026-04-11T07:58:23.147Z",
-      "duration_ms": 823,
-      "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+      "status": "completed",
+      "last_run": "2026-04-11T14:36:26.825Z",
+      "duration_ms": 4010
     },
     "dev": {
-      "status": "error",
-      "last_run": "2026-04-11T07:58:25.200Z",
-      "duration_ms": 840,
-      "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+      "status": "completed",
+      "last_run": "2026-04-11T14:36:31.524Z",
+      "duration_ms": 3481
     },
     "priya": {
       "status": "completed",
@@ -62,10 +57,9 @@
       "duration_ms": null
     },
     "sam": {
-      "status": "error",
-      "last_run": "2026-04-10T20:11:17.275Z",
-      "duration_ms": 2924,
-      "error": "Error: 400 Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+      "status": "completed",
+      "last_run": "2026-04-12T12:41:02.127Z",
+      "duration_ms": 6682
     }
   }
 }

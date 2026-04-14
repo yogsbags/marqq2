@@ -1,6 +1,6 @@
 {
   "company_id": "1ce7eb52-60cb-4b23-91cb-79f70588cd61",
-  "updated_at": "2026-04-07T15:37:24.502Z",
+  "updated_at": "2026-04-11T12:54:10.336Z",
   "positioning": {
     "value": "Productverse Technologies is the partner of choice for real‑estate and fintech enterprises seeking custom‑built AI applications that drive efficiency and deliver measurable ROI quickly.",
     "confidence": 0.9,
@@ -199,52 +199,24 @@
     "value": [
       {
         "pillar": "AI in Real Estate",
-        "target_keywords": [
-          "AI app development real estate India",
-          "property management AI software India",
-          "real estate automation software India"
-        ],
         "priority_asset": "AI App Development for Real Estate Companies in India — The Complete Guide",
-        "gap_status": "article triggered — pending publish",
-        "priority": "high"
+        "gap_status": "ready to publish"
       },
       {
         "pillar": "AI in Fintech",
-        "target_keywords": [
-          "KYC automation AI India",
-          "fraud detection AI fintech India",
-          "fintech automation software India"
-        ],
         "priority_asset": "KYC Automation with AI for NBFCs and Fintech Lenders in India",
-        "gap_status": "article triggered — pending publish",
-        "priority": "high"
+        "gap_status": "ready to publish"
       },
       {
         "pillar": "Custom AI Solutions",
-        "target_keywords": [
-          "custom AI app development India",
-          "enterprise AI solutions India",
-          "custom AI vs SaaS"
-        ],
         "priority_asset": "Custom AI vs. Off-the-Shelf SaaS: A Decision Framework for Indian Enterprises",
-        "gap_status": "article triggered — pending publish",
-        "priority": "medium"
-      },
-      {
-        "pillar": "AI Development Process",
-        "target_keywords": [
-          "AI development partner India",
-          "how to build AI workflow automation"
-        ],
-        "priority_asset": "How to Choose an AI Development Partner in India (Without Getting Burned)",
-        "gap_status": "article triggered — pending publish",
-        "priority": "medium"
+        "gap_status": "ready to publish"
       }
     ],
-    "confidence": 0.88,
-    "last_verified": "2026-04-06",
+    "confidence": 0.9,
+    "last_verified": "2026-04-11",
     "source_agent": "riya",
-    "expires_at": "2026-05-06"
+    "expires_at": "2026-05-11"
   },
   "campaigns": {
     "value": [
@@ -276,13 +248,20 @@
   },
   "insights": {
     "value": {
-      "observation": "Biggest content gap is zero indexed organic content across all priority keyword clusters. Top 3 publish-next articles ranked by organic impact: (1) KYC Automation AI India, (2) AI App Development Real Estate India, (3) Custom AI vs SaaS India. All require FAQ and definition schema for LLMO visibility.",
-      "source": "content strategy gap analysis — April 2026",
-      "action_required": true
+      "conversion_focus": [
+        "Segmented lead‑capture form with industry/role fields",
+        "Micro‑CTAs aligned to AI content pillars",
+        "High‑impact testimonial carousel with quantifiable results"
+      ],
+      "next_30d_actions": [
+        "Deploy new form and thank‑you page",
+        "Launch micro‑CTA assets and PDFs",
+        "Add testimonial carousel above form"
+      ]
     },
-    "confidence": 0.82,
-    "last_verified": "2026-04-07",
-    "source_agent": "riya",
-    "expires_at": "2026-05-07"
+    "confidence": 0.78,
+    "last_verified": "2026-04-11",
+    "source_agent": "dev",
+    "expires_at": "2026-05-11"
   }
 }

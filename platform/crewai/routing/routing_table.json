@@ -1,0 +1,595 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-04-13",
+  "goals": {
+    "find-leads": {
+      "goal_id": "find-leads",
+      "category": "acquire",
+      "agent": "arjun",
+      "crew": "lead-intelligence",
+      "keywords": ["find leads", "prospect list", "lead database", "get me leads", "b2b leads", "qualified leads"],
+      "required_connectors": ["apollo"],
+      "optional_connectors": ["hunter", "linkedin_sales_nav", "clearbit"],
+      "intake_fields": ["company_size", "industry", "geography", "seniority", "company_revenue"],
+      "response_type": "discovery",
+      "description": "Find qualified leads matching your ICP"
+    },
+    "enrich-leads": {
+      "goal_id": "enrich-leads",
+      "category": "acquire",
+      "agent": "arjun",
+      "crew": "lead-intelligence",
+      "keywords": ["enrich leads", "add emails", "lead enrichment", "missing data", "complete list"],
+      "required_connectors": ["apollo"],
+      "optional_connectors": ["hunter", "clearbit", "email_validator"],
+      "intake_fields": ["lead_list_format", "enrichment_fields_needed"],
+      "response_type": "discovery",
+      "description": "Enrich existing leads with missing contact and company data"
+    },
+    "build-sequences": {
+      "goal_id": "build-sequences",
+      "category": "acquire",
+      "agent": "sam",
+      "crew": "email-automation",
+      "keywords": ["build sequences", "outreach sequence", "email outreach", "linkedin outreach", "cold outreach"],
+      "required_connectors": ["instantly"],
+      "optional_connectors": ["lemlist", "sendgrid", "herreach"],
+      "intake_fields": ["target_audience", "campaign_goal", "tone_of_voice"],
+      "response_type": "creation",
+      "description": "Create outreach email/LinkedIn sequences"
+    },
+    "define-audiences": {
+      "goal_id": "define-audiences",
+      "category": "acquire",
+      "agent": "arjun",
+      "crew": "lead-intelligence",
+      "keywords": ["define audiences", "audience segments", "segment customers", "audience targeting"],
+      "required_connectors": ["ga4"],
+      "optional_connectors": ["mixpanel", "segment", "hubspot"],
+      "intake_fields": ["segmentation_criteria", "data_source"],
+      "response_type": "discovery",
+      "description": "Define and segment target audiences for campaigns"
+    },
+    "create-magnets": {
+      "goal_id": "create-magnets",
+      "category": "acquire",
+      "agent": "riya",
+      "crew": "content-automation",
+      "keywords": ["lead magnet", "opt-in asset", "lead magnet creation", "webinar magnet"],
+      "required_connectors": [],
+      "optional_connectors": ["wordpress", "sanity", "unbounce"],
+      "intake_fields": ["magnet_type", "target_audience", "campaign_goal"],
+      "response_type": "creation",
+      "description": "Generate lead magnets (ebooks, templates, webinars) to capture leads — auto-creates draft WordPress page when connected"
+    },
+    "referral-program": {
+      "goal_id": "referral-program",
+      "category": "acquire",
+      "agent": "arjun",
+      "crew": "lead-intelligence",
+      "keywords": ["referral program", "referral rewards", "referral loop", "activate referral"],
+      "required_connectors": ["hubspot"],
+      "optional_connectors": ["stripe", "zapier"],
+      "intake_fields": ["reward_structure", "target_participants"],
+      "response_type": "execution",
+      "description": "Set up and launch referral program automation"
+    },
+    "run-paid-ads": {
+      "goal_id": "run-paid-ads",
+      "category": "advertise",
+      "agent": "paid-ads-agent",
+      "crew": "paid-ads",
+      "keywords": ["run ads", "launch campaign", "paid ads", "google ads", "meta ads", "ad campaign"],
+      "required_connectors": ["google_ads"],
+      "optional_connectors": ["meta_ads", "linkedin_ads", "tiktok_ads"],
+      "intake_fields": ["campaign_name", "budget", "target_audience", "platforms"],
+      "response_type": "execution",
+      "description": "Launch and monitor paid advertising campaigns"
+    },
+    "generate-creatives": {
+      "goal_id": "generate-creatives",
+      "category": "advertise",
+      "agent": "riya",
+      "crew": "content-automation",
+      "keywords": ["generate creatives", "ad creatives", "ad variations", "ad copy", "ad images"],
+      "required_connectors": [],
+      "optional_connectors": ["falai", "dalle3", "canva"],
+      "intake_fields": ["platform", "product_info", "tone", "num_variations"],
+      "response_type": "creation",
+      "description": "Generate multiple ad creative variations for A/B testing — generates hero image via Fal.ai when connected"
+    },
+    "optimize-roas": {
+      "goal_id": "optimize-roas",
+      "category": "advertise",
+      "agent": "dev",
+      "crew": "budget-optimization",
+      "keywords": ["optimize roas", "ad spend", "improve efficiency", "waste money", "budget optimization", "channel performance"],
+      "required_connectors": ["google_ads", "meta_ads"],
+      "optional_connectors": ["ga4", "linkedin_ads"],
+      "intake_fields": ["timeframe", "platforms", "budget_range"],
+      "response_type": "optimization",
+      "description": "Analyze ad spend and recommend budget reallocation for better ROAS"
+    },
+    "produce-content": {
+      "goal_id": "produce-content",
+      "category": "create",
+      "agent": "riya",
+      "crew": "content-automation",
+      "keywords": ["write blog", "produce content", "blog post", "article", "content creation"],
+      "required_connectors": [],
+      "optional_connectors": ["wordpress", "notion", "sanity"],
+      "intake_fields": ["topic", "target_audience", "seo_keyword", "word_count"],
+      "response_type": "creation",
+      "description": "Write and publish blog posts, articles, and brand content — auto-publishes draft to WordPress (primary) → Notion (fallback) when connected"
+    },
+    "run-social": {
+      "goal_id": "run-social",
+      "category": "create",
+      "agent": "zara",
+      "crew": "social-campaign",
+      "keywords": ["social media", "social campaign", "social strategy", "content strategy"],
+      "required_connectors": [],
+      "optional_connectors": ["linkedin", "instagram", "facebook", "twitter"],
+      "intake_fields": ["platforms", "campaign_theme", "posting_frequency"],
+      "response_type": "creation",
+      "description": "Plan and execute multi-platform social media campaigns — publishes first LinkedIn post automatically when connector available"
+    },
+    "social-calendar": {
+      "goal_id": "social-calendar",
+      "category": "create",
+      "agent": "zara",
+      "crew": "social-campaign",
+      "keywords": ["social calendar", "content calendar", "posting schedule", "editorial calendar"],
+      "required_connectors": [],
+      "optional_connectors": ["linkedin", "notion", "airtable", "google_calendar", "zapier"],
+      "intake_fields": ["timeframe", "platforms", "themes"],
+      "response_type": "creation",
+      "description": "Build and manage social media content calendar — publishes week-1 LinkedIn posts automatically when connector available"
+    },
+    "email-sequences": {
+      "goal_id": "email-sequences",
+      "category": "create",
+      "agent": "sam",
+      "crew": "email-automation",
+      "keywords": ["email sequences", "email flow", "email automation", "onboarding email"],
+      "required_connectors": [],
+      "optional_connectors": ["klaviyo", "mailchimp", "sendgrid", "instantly"],
+      "intake_fields": ["sequence_type", "target_audience", "num_emails"],
+      "response_type": "creation",
+      "description": "Create automated email sequences for nurturing and engagement — Klaviyo (primary connector) → Mailchimp (fallback) → copy-only"
+    },
+    "seo-visibility": {
+      "goal_id": "seo-visibility",
+      "category": "create",
+      "agent": "maya",
+      "crew": "content-automation",
+      "keywords": ["seo", "search rankings", "organic visibility", "keyword rankings"],
+      "required_connectors": [],
+      "optional_connectors": ["googleanalyticsga4", "gsc", "semrush", "ahrefs"],
+      "intake_fields": ["target_keywords", "content_gaps", "ga4_property_id"],
+      "response_type": "optimization",
+      "description": "Improve organic visibility and search engine rankings — enriches keyword clusters with real GA4 organic traffic data when connected"
+    },
+    "increase-conversions": {
+      "goal_id": "increase-conversions",
+      "category": "convert",
+      "agent": "cro-agent",
+      "crew": "cro",
+      "keywords": ["increase conversions", "conversion rate", "improve conversions", "cro"],
+      "required_connectors": ["ga4"],
+      "optional_connectors": ["hotjar", "amplitude", "segment"],
+      "intake_fields": ["page_url", "current_conversion_rate"],
+      "response_type": "optimization",
+      "description": "Analyze and improve conversion rates on pages and funnels"
+    },
+    "test-variants": {
+      "goal_id": "test-variants",
+      "category": "convert",
+      "agent": "cro-agent",
+      "crew": "cro",
+      "keywords": ["a/b test", "test variants", "split test", "experiment"],
+      "required_connectors": [],
+      "optional_connectors": ["optimizely", "vwo", "google_optimize"],
+      "intake_fields": ["element_to_test", "hypothesis"],
+      "response_type": "optimization",
+      "description": "Create and manage A/B tests for landing pages and emails"
+    },
+    "landing-pages": {
+      "goal_id": "landing-pages",
+      "category": "convert",
+      "agent": "lp-designer",
+      "crew": "landing-pages",
+      "keywords": ["landing page", "create landing page", "sales page", "squeeze page"],
+      "required_connectors": [],
+      "optional_connectors": ["wordpress", "unbounce", "leadpages", "instapage"],
+      "intake_fields": ["page_goal", "target_audience", "campaign_type"],
+      "response_type": "creation",
+      "description": "Design and build high-converting landing pages — auto-creates draft WordPress page when connected"
+    },
+    "strengthen-offer": {
+      "goal_id": "strengthen-offer",
+      "category": "convert",
+      "agent": "tara",
+      "crew": "offer-design",
+      "keywords": ["strengthen offer", "improve offer", "pricing", "offer refinement"],
+      "required_connectors": [],
+      "optional_connectors": ["hubspot", "salesforce"],
+      "intake_fields": ["current_offer", "target_market"],
+      "response_type": "optimization",
+      "description": "Refine offers, pricing, and CTAs for better conversions — enriches with real HubSpot deal stage drop-off data when connected"
+    },
+    "sharpen-messaging": {
+      "goal_id": "sharpen-messaging",
+      "category": "convert",
+      "agent": "sam",
+      "crew": "messaging",
+      "keywords": ["messaging", "messaging framework", "brand voice", "positioning statement"],
+      "required_connectors": [],
+      "optional_connectors": [],
+      "intake_fields": ["current_messaging", "target_audience"],
+      "response_type": "creation",
+      "description": "Develop and refine marketing messaging and positioning"
+    },
+    "reduce-churn": {
+      "goal_id": "reduce-churn",
+      "category": "retain",
+      "agent": "churn-agent",
+      "crew": "churn-prevention",
+      "keywords": ["churn", "reduce churn", "at-risk customers", "customer retention"],
+      "required_connectors": ["hubspot"],
+      "optional_connectors": ["gainsight", "product_analytics"],
+      "intake_fields": ["customer_data_source"],
+      "response_type": "analysis",
+      "description": "Identify at-risk customers and create retention campaigns"
+    },
+    "lifecycle-engagement": {
+      "goal_id": "lifecycle-engagement",
+      "category": "retain",
+      "agent": "kiran",
+      "crew": "customer-view",
+      "keywords": ["lifecycle engagement", "customer engagement", "engagement automation"],
+      "required_connectors": ["hubspot"],
+      "optional_connectors": ["mixpanel", "amplitude"],
+      "intake_fields": ["engagement_triggers"],
+      "response_type": "execution",
+      "description": "Automate customer lifecycle engagement and retention"
+    },
+    "customer-behavior": {
+      "goal_id": "customer-behavior",
+      "category": "retain",
+      "agent": "dev",
+      "crew": "unified-customer-view",
+      "keywords": ["customer behavior", "customer segments", "customer analytics", "customer journey"],
+      "required_connectors": ["ga4"],
+      "optional_connectors": ["hubspot", "mixpanel", "salesforce"],
+      "intake_fields": ["analysis_focus"],
+      "response_type": "analysis",
+      "description": "Understand and analyze customer behavior patterns"
+    },
+    "market-research": {
+      "goal_id": "market-research",
+      "category": "plan",
+      "agent": "isha",
+      "crew": "competitor-intelligence",
+      "keywords": ["market research", "understand market", "market analysis", "market opportunities"],
+      "required_connectors": [],
+      "optional_connectors": ["firecrawl"],
+      "intake_fields": ["market_focus", "competitor_list", "category_leader_url"],
+      "response_type": "discovery",
+      "description": "Research market opportunities and competitive landscape — scrapes category leader pages via Firecrawl for live signals when connected"
+    },
+    "market-signals": {
+      "goal_id": "market-signals",
+      "category": "plan",
+      "agent": "priya",
+      "crew": "competitor-intelligence",
+      "keywords": ["market signals", "competitive intelligence", "track competitors", "what are competitors doing"],
+      "required_connectors": [],
+      "optional_connectors": ["firecrawl", "linkedin"],
+      "intake_fields": ["competitor_focus", "competitor_url"],
+      "response_type": "analysis",
+      "description": "Track competitive movements and market shifts — scrapes competitor homepage via Firecrawl for live signals when connected"
+    },
+    "positioning": {
+      "goal_id": "positioning",
+      "category": "plan",
+      "agent": "neel",
+      "crew": "strategy",
+      "keywords": ["positioning", "strategy", "brand positioning", "market positioning"],
+      "required_connectors": [],
+      "optional_connectors": [],
+      "intake_fields": ["current_positioning", "target_market"],
+      "response_type": "discovery",
+      "description": "Clarify and refine product/brand positioning"
+    },
+    "launch-planning": {
+      "goal_id": "launch-planning",
+      "category": "plan",
+      "agent": "zara",
+      "crew": "social-campaign",
+      "keywords": ["plan launch", "product launch", "launch strategy", "launch timeline"],
+      "required_connectors": [],
+      "optional_connectors": [],
+      "intake_fields": ["product_name", "launch_date", "target_channels"],
+      "response_type": "creation",
+      "agent_chain": ["neel", "zara", "riya"],
+      "orchestration_pattern": "sequential",
+      "description": "Plan comprehensive product/feature launch campaign"
+    },
+    "sales-enablement": {
+      "goal_id": "sales-enablement",
+      "category": "plan",
+      "agent": "se-agent",
+      "crew": "sales-enablement",
+      "keywords": ["sales enablement", "battlecard", "sales deck", "sales resources"],
+      "required_connectors": [],
+      "optional_connectors": ["hubspot", "salesforce"],
+      "intake_fields": ["product_info", "competitor_focus"],
+      "response_type": "creation",
+      "description": "Create sales battlecards, decks, and enablement materials — saves enablement pack as HubSpot engagement note when connected"
+    },
+    "revenue-ops": {
+      "goal_id": "revenue-ops",
+      "category": "plan",
+      "agent": "arjun",
+      "crew": "lead-intelligence",
+      "keywords": ["revenue ops", "revenue operations", "funnel optimization", "lead routing"],
+      "required_connectors": ["hubspot"],
+      "optional_connectors": ["salesforce"],
+      "intake_fields": ["current_process"],
+      "response_type": "optimization",
+      "description": "Optimize revenue operations and funnel workflows"
+    },
+    "measure-performance": {
+      "goal_id": "measure-performance",
+      "category": "analyze",
+      "agent": "dev",
+      "crew": "performance-scorecard",
+      "keywords": ["measure performance", "what's working", "marketing metrics", "kpis"],
+      "required_connectors": ["ga4"],
+      "optional_connectors": ["google_ads", "meta_ads"],
+      "intake_fields": ["timeframe", "metrics_focus"],
+      "response_type": "analysis",
+      "description": "Measure and track marketing performance metrics"
+    },
+    "understand-market": {
+      "goal_id": "understand-market",
+      "category": "analyze",
+      "agent": "priya",
+      "crew": "competitor-intelligence",
+      "keywords": ["understand market", "market intelligence", "market overview"],
+      "required_connectors": [],
+      "optional_connectors": ["firecrawl"],
+      "intake_fields": ["market_segment", "category_page_url"],
+      "response_type": "analysis",
+      "description": "Analyze and understand your competitive market — scrapes G2 category page for live buyer signals when Firecrawl connected"
+    },
+    "marketing-audit": {
+      "goal_id": "marketing-audit",
+      "category": "analyze",
+      "agent": "dev",
+      "crew": "performance-scorecard",
+      "keywords": ["marketing audit", "full audit", "stack review", "tech stack audit"],
+      "required_connectors": [],
+      "optional_connectors": ["ga4", "google_ads", "meta_ads", "hubspot"],
+      "intake_fields": [],
+      "response_type": "analysis",
+      "agent_chain": ["dev-scorecard", "dev-budget", "priya"],
+      "orchestration_pattern": "parallel",
+      "description": "Conduct comprehensive marketing audit: performance (GA4), spend (Ads), competitive (market signals)"
+    },
+    "channel-health": {
+      "goal_id": "channel-health",
+      "category": "analyze",
+      "agent": "dev",
+      "crew": "performance-scorecard",
+      "keywords": ["channel health", "channel performance", "are my channels healthy"],
+      "required_connectors": ["ga4"],
+      "optional_connectors": ["google_ads", "meta_ads", "linkedin_ads"],
+      "intake_fields": ["channels_to_analyze"],
+      "response_type": "analysis",
+      "description": "Check health and performance of marketing channels"
+    }
+  },
+  "agents": {
+    "veena": {
+      "name": "Veena",
+      "role": "Orchestrator Agent",
+      "specialty": "Intent routing, context assembly, company intelligence bootstrapping"
+    },
+    "isha": {
+      "name": "Isha",
+      "role": "Market Research Agent",
+      "specialty": "Market research, opportunity identification, TAM analysis"
+    },
+    "neel": {
+      "name": "Neel",
+      "role": "Strategy Agent",
+      "specialty": "Positioning, strategy, messaging frameworks"
+    },
+    "tara": {
+      "name": "Tara",
+      "role": "Offer Design Agent",
+      "specialty": "Offer engineering, pricing, CTA optimization"
+    },
+    "zara": {
+      "name": "Zara",
+      "role": "Distribution Agent",
+      "specialty": "Social campaigns, launch planning, multi-channel distribution"
+    },
+    "maya": {
+      "name": "Maya",
+      "role": "SEO/Content Agent",
+      "specialty": "SEO optimization, keyword research, content gaps"
+    },
+    "riya": {
+      "name": "Riya",
+      "role": "Content Creation Agent",
+      "specialty": "Blog posts, ad creatives, email copy, content generation"
+    },
+    "arjun": {
+      "name": "Arjun",
+      "role": "Funnel/Leads Agent",
+      "specialty": "Lead scoring, enrichment, funnel analysis, revenue ops"
+    },
+    "dev": {
+      "name": "Dev",
+      "role": "Analytics Agent",
+      "specialty": "Performance analysis, budgeting, ROAS optimization, metrics"
+    },
+    "priya": {
+      "name": "Priya",
+      "role": "Competitive Intelligence Agent",
+      "specialty": "Market signals, competitor monitoring, trend analysis"
+    },
+    "kiran": {
+      "name": "Kiran",
+      "role": "Lifecycle/Engagement Agent",
+      "specialty": "Customer lifecycle, engagement automation, retention"
+    },
+    "sam": {
+      "name": "Sam",
+      "role": "Messaging Agent",
+      "specialty": "Email copy, outreach sequences, messaging frameworks"
+    },
+    "cro-agent": {
+      "name": "CRO Agent",
+      "role": "Conversion Rate Optimization Agent",
+      "specialty": "Landing page optimization, A/B testing, conversion analysis"
+    },
+    "lp-designer": {
+      "name": "LP Designer",
+      "role": "Landing Page Designer Agent",
+      "specialty": "Landing page creation, page structure, form optimization"
+    },
+    "churn-agent": {
+      "name": "Churn Agent",
+      "role": "Churn Prevention Agent",
+      "specialty": "Churn prediction, at-risk customer identification, retention campaigns"
+    },
+    "se-agent": {
+      "name": "Sales Enablement Agent",
+      "role": "Sales Enablement Agent",
+      "specialty": "Battlecards, sales decks, competitive positioning for sales"
+    },
+    "paid-ads-agent": {
+      "name": "Paid Ads Agent",
+      "role": "Paid Advertising Agent",
+      "specialty": "Ad campaign management, budget allocation, bid optimization"
+    }
+  },
+  "crews": {
+    "lead-intelligence": {
+      "name": "Lead Intelligence Crew",
+      "agent": "arjun",
+      "goals": ["find-leads", "enrich-leads", "define-audiences", "referral-program", "revenue-ops"]
+    },
+    "email-automation": {
+      "name": "Email Automation Crew",
+      "agent": "sam",
+      "goals": ["build-sequences", "email-sequences"]
+    },
+    "content-automation": {
+      "name": "Content Automation Crew",
+      "agent": "riya",
+      "goals": ["produce-content", "generate-creatives", "create-magnets", "seo-visibility"]
+    },
+    "social-campaign": {
+      "name": "Social Campaign Crew",
+      "agent": "zara",
+      "goals": ["run-social", "social-calendar", "launch-planning"]
+    },
+    "budget-optimization": {
+      "name": "Budget Optimization Crew",
+      "agent": "dev",
+      "goals": ["optimize-roas"]
+    },
+    "performance-scorecard": {
+      "name": "Performance Scorecard Crew",
+      "agent": "dev",
+      "goals": ["measure-performance", "marketing-audit", "channel-health"]
+    },
+    "unified-customer-view": {
+      "name": "Unified Customer View Crew",
+      "agent": "dev",
+      "goals": ["customer-behavior"]
+    },
+    "competitor-intelligence": {
+      "name": "Competitor Intelligence Crew",
+      "agent": "priya",
+      "goals": ["market-signals", "understand-market", "market-research"]
+    },
+    "customer-view": {
+      "name": "Customer View Crew",
+      "agent": "kiran",
+      "goals": ["lifecycle-engagement"]
+    },
+    "cro": {
+      "name": "CRO Crew",
+      "agent": "cro-agent",
+      "goals": ["increase-conversions", "test-variants"]
+    },
+    "landing-pages": {
+      "name": "Landing Pages Crew",
+      "agent": "lp-designer",
+      "goals": ["landing-pages"]
+    },
+    "offer-design": {
+      "name": "Offer Design Crew",
+      "agent": "tara",
+      "goals": ["strengthen-offer"]
+    },
+    "messaging": {
+      "name": "Messaging Crew",
+      "agent": "sam",
+      "goals": ["sharpen-messaging"]
+    },
+    "churn-prevention": {
+      "name": "Churn Prevention Crew",
+      "agent": "churn-agent",
+      "goals": ["reduce-churn"]
+    },
+    "sales-enablement": {
+      "name": "Sales Enablement Crew",
+      "agent": "se-agent",
+      "goals": ["sales-enablement"]
+    },
+    "strategy": {
+      "name": "Strategy Crew",
+      "agent": "neel",
+      "goals": ["positioning"]
+    },
+    "paid-ads": {
+      "name": "Paid Ads Crew",
+      "agent": "paid-ads-agent",
+      "goals": ["run-paid-ads"]
+    }
+  },
+  "response_types": {
+    "analysis": {
+      "description": "Read-only dashboard/report with metrics, findings, and insights",
+      "fields": ["metrics", "findings", "insights", "connectors_used"],
+      "components": ["MetricsDashboard", "FindingsPanel", "InsightsPanel"]
+    },
+    "creation": {
+      "description": "Generated artifact (content, copy, design) with variations",
+      "fields": ["title", "content", "sections", "variations", "format"],
+      "components": ["ContentRenderer", "VariationTabs", "PublishButton"]
+    },
+    "optimization": {
+      "description": "Current state + recommendations + what-if scenarios",
+      "fields": ["current_state", "recommendations", "expected_impact", "scenarios"],
+      "components": ["ComparisonTable", "ScenarioTabs", "ImpactChart"]
+    },
+    "execution": {
+      "description": "Live campaign tracker with real-time metrics",
+      "fields": ["campaign_id", "status", "metrics", "controls"],
+      "components": ["LiveDashboard", "ControlPanel", "MetricsStream"]
+    },
+    "discovery": {
+      "description": "List of results (leads, audiences, insights) with filtering",
+      "fields": ["count", "results", "segmentation", "download"],
+      "components": ["ResultsList", "FilterPanel", "DownloadButton"]
+    }
+  }
+}

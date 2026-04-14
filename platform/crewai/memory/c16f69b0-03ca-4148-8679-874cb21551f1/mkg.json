@@ -1,0 +1,104 @@
+{
+  "company_id": "c16f69b0-03ca-4148-8679-874cb21551f1",
+  "updated_at": "2026-04-11T13:58:42.890Z",
+  "positioning": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "icp": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "competitors": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "offers": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "messaging": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "channels": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "funnel": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "metrics": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "baselines": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "content_pillars": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "campaigns": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "insights": {
+    "value": {
+      "weekly_brief": {
+        "date": "2026-04-11",
+        "sections": [
+          "SEO Rankings",
+          "Lead Signals",
+          "Content Opportunities",
+          "Campaign Performance"
+        ],
+        "quick_wins": [
+          "SEO keyword optimisation",
+          "Email follow‑up to playbook downloaders",
+          "Publish ROI guide",
+          "Swap to carousel ad"
+        ]
+      }
+    },
+    "confidence": 0.7,
+    "last_verified": "2026-04-11",
+    "source_agent": "sam",
+    "expires_at": "2026-05-11"
+  }
+}

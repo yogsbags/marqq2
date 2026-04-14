@@ -77,6 +77,7 @@ const HEARTBEAT_PATH = join(CREWAI_DIR, "heartbeat", "status.json");
 const AGENTS_DIR = process.env.TORQQ_AGENTS_DIR
   ? resolve(process.env.TORQQ_AGENTS_DIR)
   : join(CREWAI_DIR, "agents");
+const MARKETINGSKILLS_DIR = join(CREWAI_DIR, "skill-library", "marketingskills", "skills");
 const CTX_DIR = join(CREWAI_DIR, "client_context");
 const DEPLOYMENT_QUEUE_PATH = join(CREWAI_DIR, "deployments", "queue.json");
 const DEPLOYMENT_SCHEDULER_INTERVAL_MS = Math.max(
@@ -1486,7 +1487,7 @@ export function buildTestModeContract({
     timestamp: new Date().toISOString(),
     input: {
       mkg_version: null,
-      dependencies_read: ["SOUL.md", "MEMORY.md", "skills/*.md"],
+      dependencies_read: ["SOUL.md", "MEMORY.md", "HEARTBEAT.md", "skills/*.md"],
       assumptions_made: ["AGENT_RUN_TEST_MODE generated deterministic output"],
     },
     artifact: {
@@ -1512,13 +1513,26 @@ export function buildTestModeContract({
 
 export async function loadAgentPromptContext(agentName, companyId, options = {}) {
   const agentsDir = options.agentsDir || AGENTS_DIR;
-  const memoryPath = join(agentsDir, agentName, "memory", "MEMORY.md");
+  const memoryPath = getScopedAgentMemoryPath(agentName, companyId, agentsDir);
+  const fallbackMemoryPath = getAgentMemoryPath(agentName, agentsDir);
+  const heartbeatPath = getAgentHeartbeatPath(agentName, companyId, agentsDir);
   let memory = "";
+  let heartbeat = "";
 
   try {
-    memory = await readFile(memoryPath, "utf-8");
+    memory = normalizePromptMarkdown(await readFile(memoryPath, "utf-8"));
   } catch {
-    // Agent memory is optional.
+    try {
+      memory = normalizePromptMarkdown(await readFile(fallbackMemoryPath, "utf-8"));
+    } catch {
+      // Agent memory is optional.
+    }
+  }
+
+  try {
+    heartbeat = normalizePromptMarkdown(await readFile(heartbeatPath, "utf-8"));
+  } catch {
+    // Agent heartbeat markdown is optional.
   }
 
   let calibrationNote = null;
@@ -1532,7 +1546,68 @@ export async function loadAgentPromptContext(agentName, companyId, options = {})
     }
   }
 
-  return { memory, calibrationNote };
+  return { memory, heartbeat, calibrationNote };
+}
+
+async function loadAgentSkillsBlock(agentName, agentsDir = AGENTS_DIR) {
+  const sections = [];
+  let primarySkill = "";
+
+  try {
+    primarySkill = (await readFile(join(agentsDir, agentName, "SKILL.md"), "utf-8")).trim();
+    if (primarySkill) {
+      sections.push(`### Core Agent Skill\n${primarySkill}`);
+    }
+  } catch {
+    // Optional top-level skill file.
+  }
+
+  if (primarySkill) {
+    const referencedSkillNames = Array.from(
+      new Set(Array.from(primarySkill.matchAll(/`([a-z0-9-]+)`:/g), (match) => match[1])),
+    );
+
+    if (referencedSkillNames.length) {
+      const vendoredSkillContents = await Promise.all(
+        referencedSkillNames.map(async (skillName) => {
+          try {
+            const skillPath = join(MARKETINGSKILLS_DIR, skillName, "SKILL.md");
+            const content = (await readFile(skillPath, "utf-8")).trim();
+            return content ? `### ${skillName}\n${content}` : "";
+          } catch {
+            return "";
+          }
+        }),
+      );
+
+      vendoredSkillContents.filter(Boolean).forEach((content) => sections.push(content));
+    }
+  }
+
+  try {
+    const skillsDir = join(agentsDir, agentName, "skills");
+    const files = (await readdir(skillsDir))
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+    if (files.length) {
+      const contents = await Promise.all(
+        files.map((f) => readFile(join(skillsDir, f), "utf-8")),
+      );
+      contents.forEach((content, index) => {
+        sections.push(`### ${files[index].replace(".md", "")}\n${content}`);
+      });
+    }
+  } catch {
+    // Optional skills directory.
+  }
+
+  if (!sections.length) return "";
+
+  return (
+    "\n\n## Your Available Skills\n" +
+    "Use the closest applicable domain playbook below instead of improvising from scratch.\n\n" +
+    sections.join("\n\n---\n\n")
+  );
 }
 
 async function finalizeAgentRunResponse({
@@ -1545,7 +1620,7 @@ async function finalizeAgentRunResponse({
   startedAt,
   triggerContext = null,
 }) {
-  await markAgentHeartbeat(name, "completed", Date.now() - startedAt);
+  await markAgentHeartbeat(name, "completed", Date.now() - startedAt, null, companyId);
 
   let rawContract = extractContract(fullText);
 
@@ -1849,7 +1924,58 @@ async function writeHeartbeatState(heartbeat) {
   await writeFile(HEARTBEAT_PATH, JSON.stringify(heartbeat, null, 2), "utf-8");
 }
 
-async function markAgentHeartbeat(name, status, durationMs = null, error = null) {
+function getAgentMemoryPath(agentName, agentsDir = AGENTS_DIR) {
+  const topLevelPath = join(agentsDir, agentName, "MEMORY.md");
+  if (fs.existsSync(topLevelPath)) return topLevelPath;
+  return join(agentsDir, agentName, "memory", "MEMORY.md");
+}
+
+function sanitizeAgentScopeId(scopeId) {
+  return String(scopeId || "").trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function getAgentCompanyScopedDir(agentName, companyId, agentsDir = AGENTS_DIR) {
+  const safeCompanyId = sanitizeAgentScopeId(companyId);
+  return safeCompanyId ? join(agentsDir, agentName, "companies", safeCompanyId) : null;
+}
+
+function getScopedAgentMemoryPath(agentName, companyId, agentsDir = AGENTS_DIR) {
+  const scopedDir = getAgentCompanyScopedDir(agentName, companyId, agentsDir);
+  return scopedDir ? join(scopedDir, "MEMORY.md") : getAgentMemoryPath(agentName, agentsDir);
+}
+
+function getAgentHeartbeatPath(agentName, companyId = null, agentsDir = AGENTS_DIR) {
+  const scopedDir = getAgentCompanyScopedDir(agentName, companyId, agentsDir);
+  if (scopedDir) return join(scopedDir, "HEARTBEAT.md");
+  return join(agentsDir, agentName, "HEARTBEAT.md");
+}
+
+function normalizePromptMarkdown(content) {
+  const raw = String(content || "").trim();
+  if (!raw) return "";
+  const stripped = raw
+    .replace(/^#.*$/gm, "")
+    .replace(/^\s*[-*]\s*(status|last run|last checked|duration ms|duration|error|current task|notes|persistent notes|working preferences|recent learnings)\s*:\s*.*$/gim, "")
+    .trim();
+  return stripped.length >= 20 ? raw : "";
+}
+
+async function syncAgentHeartbeatMarkdown(agentName, agentState, companyId = null, agentsDir = AGENTS_DIR) {
+  const heartbeatPath = getAgentHeartbeatPath(agentName, companyId, agentsDir);
+  const displayName = `${agentName.charAt(0).toUpperCase()}${agentName.slice(1)}`;
+  const lines = [
+    `# ${displayName} Heartbeat`,
+    "",
+    `- Status: ${agentState?.status || "idle"}`,
+    `- Last run: ${agentState?.last_run || "not recorded"}`,
+    `- Duration ms: ${agentState?.duration_ms ?? "n/a"}`,
+  ];
+  if (agentState?.error) lines.push(`- Error: ${agentState.error}`);
+  await mkdir(dirname(heartbeatPath), { recursive: true });
+  await writeFile(heartbeatPath, `${lines.join("\n")}\n`, "utf-8");
+}
+
+async function markAgentHeartbeat(name, status, durationMs = null, error = null, companyId = null) {
   const heartbeat = await readHeartbeatState();
   const now = new Date().toISOString();
   heartbeat.updated_at = now;
@@ -1864,6 +1990,11 @@ async function markAgentHeartbeat(name, status, durationMs = null, error = null)
     delete heartbeat.agents[name].error;
   }
   await writeHeartbeatState(heartbeat);
+  try {
+    await syncAgentHeartbeatMarkdown(name, heartbeat.agents[name], companyId);
+  } catch (syncError) {
+    console.warn(`[heartbeat] failed to sync HEARTBEAT.md for ${name}: ${syncError?.message || syncError}`);
+  }
 }
 
 function markStaleProcessingDeployments(entries) {
@@ -5001,12 +5132,17 @@ app.get("/api/agents/:name/memory", async (req, res) => {
     return res.status(404).json({ error: "Unknown agent" });
   }
 
-  const memoryPath = join(AGENTS_DIR, name, "memory", "MEMORY.md");
   try {
-    const content = await readFile(memoryPath, "utf-8");
+    const scopedMemoryPath = getScopedAgentMemoryPath(name, req.query.company_id, AGENTS_DIR);
+    let content = "";
+    try {
+      content = await readFile(scopedMemoryPath, "utf-8");
+    } catch {
+      content = await readFile(getAgentMemoryPath(name), "utf-8");
+    }
     res.json({ agent: name, memory: content });
   } catch {
-    res.json({ agent: name, memory: "_No memory yet._" });
+    res.json({ agent: name, memory: "" });
   }
 });
 
@@ -5057,20 +5193,9 @@ async function runAgentForArtifact(agentName, query, companyId, taskType) {
   try { systemPrompt = await readFile(soulPath, "utf-8"); } catch { /* default */ }
 
   // Load memory + calibration note
-  const { memory, calibrationNote } = await loadAgentPromptContext(agentName, companyId);
+  const { memory, heartbeat, calibrationNote } = await loadAgentPromptContext(agentName, companyId);
 
-  // Load skills
-  let skillsBlock = "";
-  try {
-    const skillsDir = join(AGENTS_DIR, agentName, "skills");
-    const files = (await readdir(skillsDir)).filter((f) => f.endsWith(".md")).sort();
-    if (files.length) {
-      const contents = await Promise.all(files.map((f) => readFile(join(skillsDir, f), "utf-8")));
-      skillsBlock =
-        "\n\n## Your Available Skills\nYou have the following specialist workflows available.\n\n" +
-        contents.map((c, i) => `### ${files[i].replace(".md", "")}\n${c}`).join("\n\n---\n\n");
-    }
-  } catch { /* no skills dir */ }
+  const skillsBlock = await loadAgentSkillsBlock(agentName, AGENTS_DIR);
 
   const runContextBlock = `\n\n## Run Context\ncompany_id: ${companyId ?? "unknown"}\nrun_id: ${runId}\ntask_type: ${taskType ?? "artifact_generation"}\n`;
 
@@ -5196,6 +5321,7 @@ Replace ALL placeholder values with your actual outputs.
     systemPrompt,
     mkgBlock,
     memory ? `\n\n## Your Recent Memory\n${memory}` : "",
+    heartbeat ? `\n\n## Your Current Heartbeat\n${heartbeat}` : "",
     calibrationNote?.text ? `\n\n## Latest Calibration Note\n${calibrationNote.text}` : "",
     skillsBlock,
     runContextBlock,
@@ -5205,7 +5331,7 @@ Replace ALL placeholder values with your actual outputs.
     contractInstruction,
   ].join("");
 
-  await markAgentHeartbeat(agentName, "running");
+    await markAgentHeartbeat(agentName, "running", null, null, companyId);
 
   const completion = await groq.chat.completions.create({
     model: LLM_MODEL,
@@ -5221,7 +5347,7 @@ Replace ALL placeholder values with your actual outputs.
   const fullText = completion.choices[0]?.message?.content?.trim() || "";
   const contract = extractContract(fullText);
 
-  await markAgentHeartbeat(agentName, "completed", Date.now() - startedAt);
+  await markAgentHeartbeat(agentName, "completed", Date.now() - startedAt, null, companyId);
 
   if (!contract) {
     throw new Error(`[runAgentForArtifact] ${agentName} did not return a ---CONTRACT--- block`);
@@ -5846,17 +5972,9 @@ app.post("/api/agents/chain/run", async (req, res) => {
       let systemPrompt = `You are ${agentName}, a marketing AI agent.`;
       try { systemPrompt = await readFile(soulPath, "utf-8"); } catch { /* default */ }
 
-      const { memory, calibrationNote } = await loadAgentPromptContext(agentName, companyId);
+      const { memory, heartbeat, calibrationNote } = await loadAgentPromptContext(agentName, companyId);
 
-      let skillsBlock = "";
-      try {
-        const skillsDir = join(AGENTS_DIR, agentName, "skills");
-        const files = (await readdir(skillsDir)).filter(f => f.endsWith(".md")).sort();
-        if (files.length) {
-          const contents = await Promise.all(files.map(f => readFile(join(skillsDir, f), "utf-8")));
-          skillsBlock = "\n\n## Your Available Skills\n" + contents.map((c, idx) => `### ${files[idx].replace(".md", "")}\n${c}`).join("\n\n---\n\n");
-        }
-      } catch { /* no skills */ }
+      const skillsBlock = await loadAgentSkillsBlock(agentName, AGENTS_DIR);
 
       let mkgBlock = "";
       if (companyId) {
@@ -5910,7 +6028,16 @@ After your COMPLETE response, append the following block EXACTLY at the very END
 }
 `;
 
-      const fullSystem = [systemPrompt, skillsBlock, memory ? `\n\n## Your Recent Memory\n${memory}` : "", calibrationNote ? `\n\n## Calibration Notes\n${calibrationNote}` : "", mkgBlock, `\n\n## Run Context\ncompany_id: ${companyId ?? "unknown"}\nrun_id: ${runId}\nchain_step: ${i + 1} of ${steps.length}`, contractInstruction].filter(Boolean).join("");
+      const fullSystem = [
+        systemPrompt,
+        skillsBlock,
+        memory ? `\n\n## Your Recent Memory\n${memory}` : "",
+        heartbeat ? `\n\n## Your Current Heartbeat\n${heartbeat}` : "",
+        calibrationNote?.text ? `\n\n## Calibration Notes\n${calibrationNote.text}` : "",
+        mkgBlock,
+        `\n\n## Run Context\ncompany_id: ${companyId ?? "unknown"}\nrun_id: ${runId}\nchain_step: ${i + 1} of ${steps.length}`,
+        contractInstruction,
+      ].filter(Boolean).join("");
 
       const messages = [{ role: "system", content: fullSystem }, { role: "user", content: query }];
 
@@ -6228,30 +6355,10 @@ app.post("/api/agents/:name/run", async (req, res) => {
     /* use default */
   }
 
-  // Load MEMORY.md
-  const memoryPath = join(AGENTS_DIR, name, "memory", "MEMORY.md");
-  const { memory, calibrationNote } = await loadAgentPromptContext(name, companyId);
+  // Load MEMORY.md / HEARTBEAT.md
+  const { memory, heartbeat, calibrationNote } = await loadAgentPromptContext(name, companyId);
 
-  // Load skills from agents/{name}/skills/*.md (sorted, 00- prefix loads first)
-  let skillsBlock = "";
-  try {
-    const skillsDir = join(AGENTS_DIR, name, "skills");
-    const files = (await readdir(skillsDir))
-      .filter((f) => f.endsWith(".md"))
-      .sort();
-    if (files.length) {
-      const contents = await Promise.all(
-        files.map((f) => readFile(join(skillsDir, f), "utf-8")),
-      );
-      skillsBlock =
-        "\n\n## Your Available Skills\nYou have the following specialist workflows available. When a user request matches a skill, follow that skill's process exactly.\n\n" +
-        contents
-          .map((c, i) => `### ${files[i].replace(".md", "")}\n${c}`)
-          .join("\n\n---\n\n");
-    }
-  } catch {
-    /* no skills dir */
-  }
+  const skillsBlock = await loadAgentSkillsBlock(name, AGENTS_DIR);
 
   // Load MKG + company profile for context injection
   let mkgBlock = "";
@@ -6439,6 +6546,7 @@ Replace ALL placeholder values with your actual outputs.
     workspaceContextBlock,
     mkgBlock,
     memory ? `\n\n## Your Recent Memory\n${memory}` : "",
+    heartbeat ? `\n\n## Your Current Heartbeat\n${heartbeat}` : "",
     calibrationNote?.text ? `\n\n## Latest Calibration Note\n${calibrationNote.text}` : "",
     skillsBlock,
     runContextBlock,
@@ -6456,7 +6564,7 @@ Replace ALL placeholder values with your actual outputs.
 
   const startedAt = Date.now();
   try {
-    await markAgentHeartbeat(name, "running");
+    await markAgentHeartbeat(name, "running", null, null, companyId);
 
     if (TEST_MODE) {
       const contract = buildTestModeContract({
@@ -6681,7 +6789,7 @@ Replace ALL placeholder values with your actual outputs.
     });
 
   } catch (err) {
-    await markAgentHeartbeat(name, "error", Date.now() - startedAt, String(err));
+    await markAgentHeartbeat(name, "error", Date.now() - startedAt, String(err), companyId);
     res.write(`data: ${JSON.stringify({ error: toUserFacingError(err) })}\n\n`);
     res.end();
   }

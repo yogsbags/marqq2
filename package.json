@@ -17,7 +17,13 @@
     "start": "node server.js",
     "screenshots:marketing": "playwright test -c app/playwright.config.ts marketing-screenshots",
     "screenshots:marketing:node": "node ./scripts/capture-marketing-screenshots.mjs",
-    "verify:rls-browser": "node --env-file=.env scripts/verify-browser-rls.mjs"
+    "verify:rls-browser": "node --env-file=.env scripts/verify-browser-rls.mjs",
+    "test:intent": "node tests/routing/intent-extractor.test.js",
+    "test:connectors": "node tests/connectors/connector-integration.test.js",
+    "test:agents": "node tests/agents/agent-execution.test.js",
+    "test:e2e": "node tests/e2e/chat-flow.test.js",
+    "test:perf": "node tests/performance/profiler.js",
+    "test:all": "npm run test:intent && npm run test:agents && npm run test:e2e && npm run test:connectors"
   },
   "dependencies": {
     "@deepgram/sdk": "^4.0.0",

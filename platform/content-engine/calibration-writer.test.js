@@ -31,7 +31,7 @@ test("appendCalibrationNote writes a readable note and getLatestCalibrationNote 
   assert.equal(latest?.variancePct, -44.74);
   assert.match(latest?.text || "", /Calibration note for acme on roas/i);
 
-  const memory = await readFile(join(agentsDir, "dev", "memory", "MEMORY.md"), "utf8");
+  const memory = await readFile(join(agentsDir, "dev", "companies", "acme", "MEMORY.md"), "utf8");
   assert.match(memory, /## Calibration Note/);
   assert.match(memory, /Guidance:/);
 });
@@ -64,6 +64,6 @@ test("appendCalibrationNote dedupes repeated company metric variance combination
   assert.equal(second.appended, false);
   assert.equal(second.deduped, true);
 
-  const memory = await readFile(join(agentsDir, "maya", "memory", "MEMORY.md"), "utf8");
+  const memory = await readFile(join(agentsDir, "maya", "companies", "acme", "MEMORY.md"), "utf8");
   assert.equal((memory.match(/CALIBRATION_NOTE/g) || []).length, 1);
 });

@@ -1,0 +1,97 @@
+{
+  "company_id": "103648c8-27e5-47c8-88e5-d769fad24c0f",
+  "updated_at": "2026-04-11T14:57:47.060Z",
+  "positioning": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "icp": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "competitors": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "offers": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "messaging": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "channels": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "funnel": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "metrics": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "baselines": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "content_pillars": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "campaigns": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": null,
+    "expires_at": null
+  },
+  "insights": {
+    "value": {
+      "weekly_brief_generated": true,
+      "brief_sections": [
+        "SEO Rankings",
+        "Lead Signals",
+        "Content Opportunities",
+        "Campaign Performance"
+      ],
+      "next_steps_requested": true
+    },
+    "confidence": 0.85,
+    "last_verified": "2026-04-11",
+    "source_agent": "sam",
+    "expires_at": "2026-05-11"
+  }
+}

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,12 @@ function buildAdjustmentDirection(metric, variancePct) {
 
 function getMemoryPath(agent, options = {}) {
   const agentsDir = options.agentsDir || DEFAULT_AGENTS_DIR;
+  const safeCompanyId = String(options.companyId || "").trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (safeCompanyId) {
+    return join(agentsDir, agent, "companies", safeCompanyId, "MEMORY.md");
+  }
+  const topLevelPath = join(agentsDir, agent, "MEMORY.md");
+  if (fs.existsSync(topLevelPath)) return topLevelPath;
   return join(agentsDir, agent, "memory", "MEMORY.md");
 }
 
@@ -79,7 +86,7 @@ function formatNoteBlock(note) {
 }
 
 export async function getLatestCalibrationNote(agent, companyId, options = {}) {
-  const memoryPath = getMemoryPath(agent, options);
+  const memoryPath = getMemoryPath(agent, { ...options, companyId });
 
   try {
     const markdown = await readFile(memoryPath, "utf8");
@@ -134,7 +141,7 @@ export async function appendCalibrationNote(input, options = {}) {
     };
   }
 
-  const memoryPath = getMemoryPath(input.agent, options);
+  const memoryPath = getMemoryPath(input.agent, { ...options, companyId: input.companyId });
   await mkdir(dirname(memoryPath), { recursive: true });
 
   let existingMarkdown = "";

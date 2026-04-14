@@ -616,6 +616,256 @@ function FileArtifactCard({ name, onView }: { name: string; onView?: () => void 
   );
 }
 
+// ── Artifact renderer (inline, no external import needed) ─────────────────
+
+/** Small metric card used by multiple artifact renderers */
+function MetricPill({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-white rounded p-2 border border-gray-100 text-center min-w-0">
+      <p className="text-[10px] text-gray-400 capitalize truncate">{label.replace(/_/g, ' ')}</p>
+      <p className="text-sm font-bold text-gray-800 truncate">{String(value)}</p>
+    </div>
+  );
+}
+
+function ArtifactBlock({ artifact }: { artifact: { type: string; [key: string]: unknown } }) {
+  const { type } = artifact;
+
+  if (type === 'analysis') {
+    const metrics = (artifact.metrics ?? {}) as Record<string, unknown>;
+    const findings = (artifact.findings ?? []) as string[];
+    const insights = (artifact.insights ?? []) as string[];
+    // Filter to scalar top-level metrics only (skip nested objects/arrays)
+    const scalarMetrics = Object.entries(metrics).filter(([, v]) =>
+      typeof v === 'string' || typeof v === 'number'
+    );
+    // Churn-agent at-risk list
+    const atRisk = (artifact.at_risk_customers ?? []) as Array<{ name?: string; risk_level?: string; churn_score?: number; days_inactive?: number }>;
+    return (
+      <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+        <p className="text-xs font-semibold text-blue-800">📊 Analysis Results</p>
+        {scalarMetrics.length > 0 && (
+          <div className="grid grid-cols-3 gap-1.5">
+            {scalarMetrics.slice(0, 6).map(([k, v]) => (
+              <MetricPill key={k} label={k} value={v as string | number} />
+            ))}
+          </div>
+        )}
+        {findings.slice(0, 3).map((f, i) => (
+          <p key={i} className="text-xs text-gray-700">• {f}</p>
+        ))}
+        {atRisk.length > 0 && (
+          <div className="mt-1 space-y-1">
+            <p className="text-xs font-medium text-red-700">⚠ At-risk contacts</p>
+            {atRisk.slice(0, 3).map((c, i) => (
+              <div key={i} className="flex items-center justify-between bg-white rounded px-2 py-1 border border-blue-100">
+                <span className="text-xs text-gray-800 truncate max-w-[140px]">{c.name ?? 'Unknown'}</span>
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                  c.risk_level === 'critical' ? 'bg-red-100 text-red-700'
+                  : c.risk_level === 'high' ? 'bg-orange-100 text-orange-700'
+                  : 'bg-yellow-100 text-yellow-700'
+                }`}>{c.risk_level} · {c.churn_score}/100</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {insights[0] && (
+          <p className="text-xs text-blue-700 font-medium">💡 {insights[0]}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (type === 'optimization_plan') {
+    const impact = artifact.expected_impact as { current_roas?: number; projected_roas?: number; projected_roas_lift_pct?: number; current_conv_rate?: number; projected_conv_rate?: number; projected_lift_pct?: number; confidence?: string } | undefined;
+    const currentState = artifact.current_state as Record<string, unknown> | undefined;
+    const rec = artifact.recommendation as { line_items?: Array<{ name?: string; roas_class?: string; adjustment?: number; rationale?: string; element?: string; ice_score?: number; test?: string }>; summary?: { budget_shifted?: number; projected_roas_lift_pct?: number; total_hypotheses?: number; top_test?: string } } | undefined;
+    const findings = (artifact.findings ?? []) as string[];
+
+    // Key metrics to surface
+    const kpis: Array<[string, string | number]> = [];
+    if (currentState) {
+      if (currentState.blended_roas !== undefined) kpis.push(['Current ROAS', `${currentState.blended_roas}x`]);
+      if (currentState.total_spend !== undefined) kpis.push(['Total Spend', `$${Number(currentState.total_spend).toLocaleString()}`]);
+      if (currentState.conversion_rate_pct !== undefined) kpis.push(['Conv. Rate', `${currentState.conversion_rate_pct}%`]);
+      if (currentState.bounce_rate_pct !== undefined) kpis.push(['Bounce Rate', `${currentState.bounce_rate_pct}%`]);
+    }
+    if (impact) {
+      if (impact.projected_roas !== undefined) kpis.push(['Projected ROAS', `${impact.projected_roas}x`]);
+      if (impact.projected_roas_lift_pct !== undefined) kpis.push(['ROAS Lift', `+${impact.projected_roas_lift_pct}%`]);
+      if (impact.projected_conv_rate !== undefined) kpis.push(['Proj. Conv.', `${impact.projected_conv_rate}%`]);
+    }
+
+    const lineItems = rec?.line_items ?? [];
+
+    return (
+      <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+        <p className="text-xs font-semibold text-amber-800">🎯 Optimization Plan</p>
+        {kpis.length > 0 && (
+          <div className="grid grid-cols-3 gap-1.5">
+            {kpis.slice(0, 6).map(([k, v]) => (
+              <MetricPill key={k} label={k} value={v} />
+            ))}
+          </div>
+        )}
+        {lineItems.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide">Recommendations</p>
+            {lineItems.slice(0, 3).map((item, i) => (
+              <div key={i} className="bg-white rounded px-2 py-1.5 border border-amber-100">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-xs font-medium text-gray-800 truncate">{item.name ?? item.element}</span>
+                  {item.roas_class && (
+                    <span className={`text-[10px] px-1.5 rounded-full shrink-0 ${
+                      item.roas_class === 'poor' ? 'bg-red-100 text-red-700'
+                      : item.roas_class === 'excellent' ? 'bg-green-100 text-green-700'
+                      : 'bg-gray-100 text-gray-600'
+                    }`}>{item.roas_class}</span>
+                  )}
+                  {item.ice_score && (
+                    <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 rounded-full shrink-0">ICE {item.ice_score}</span>
+                  )}
+                </div>
+                <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{item.rationale ?? item.test}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {findings[0] && <p className="text-xs text-amber-900">• {findings[0]}</p>}
+        {impact?.confidence && (
+          <p className="text-[10px] text-amber-600">Confidence: {impact.confidence}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (type === 'content') {
+    const title = artifact.title as string | undefined;
+    const format = artifact.format as string | undefined;
+    const findings = (artifact.findings ?? []) as string[];
+    const content = artifact.content as Record<string, unknown> | undefined;
+
+    // LP Designer: show section names
+    const pageStructure = content?.page_structure as Array<{ label?: string; purpose?: string }> | undefined;
+    // SE Agent: show section names
+    const contentSections = content ? Object.keys(content).filter(k => !['page_structure', 'trust_checklist', 'mobile_notes', 'ab_test_priority', 'implementation_notes', 'usage_guide'].includes(k)) : [];
+
+    return (
+      <div className="mt-3 bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
+        <p className="text-xs font-semibold text-purple-800">
+          {format === 'landing_page' ? '📄' : format === 'sales_enablement_pack' ? '🎯' : '✍️'} {title ?? 'Generated Content'}
+        </p>
+        {pageStructure && pageStructure.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold text-purple-600 uppercase">Page Sections</p>
+            <div className="flex flex-wrap gap-1">
+              {pageStructure.map((s, i) => (
+                <span key={i} className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">{s.label ?? `Section ${i + 1}`}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {contentSections.length > 0 && !pageStructure && (
+          <div className="flex flex-wrap gap-1">
+            {contentSections.map((s) => (
+              <span key={s} className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full capitalize">{s.replace(/_/g, ' ')}</span>
+            ))}
+          </div>
+        )}
+        {findings.slice(0, 2).map((f, i) => (
+          <p key={i} className="text-xs text-gray-700">• {f}</p>
+        ))}
+      </div>
+    );
+  }
+
+  if (type === 'discovery_results') {
+    const count = artifact.count as number | undefined;
+    const results = (artifact.results ?? []) as Array<{ name?: string; icp_fit?: number; [k: string]: unknown }>;
+    return (
+      <div className="mt-3 bg-pink-50 border border-pink-200 rounded-lg p-3 space-y-2">
+        <p className="text-xs font-semibold text-pink-800">🔍 {count ?? results.length} Results Found</p>
+        {results.slice(0, 4).map((r, i) => (
+          <div key={i} className="flex items-center justify-between bg-white rounded px-2 py-1 border border-pink-100">
+            <span className="text-xs text-gray-800 truncate">{r.name ?? `Result ${i + 1}`}</span>
+            {r.icp_fit !== undefined && (
+              <span className="text-[10px] bg-pink-100 text-pink-700 px-1.5 rounded-full shrink-0">{Math.round(Number(r.icp_fit) * 100)}% fit</span>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (type === 'execution_tracker') {
+    const status = artifact.status as string | undefined;
+    const metrics = (artifact.metrics ?? {}) as Record<string, unknown>;
+    const alerts = (artifact.alerts ?? []) as Array<{ severity?: string; campaign?: string; message?: string }>;
+    const steps = (artifact.steps ?? []) as Array<{ name?: string; status?: string; roas?: number; spend?: number }>;
+
+    const scalarMetrics = Object.entries(metrics).filter(([, v]) =>
+      typeof v === 'string' || typeof v === 'number'
+    );
+
+    const statusColor = status === 'healthy' ? 'green'
+      : status === 'action_required' ? 'red'
+      : status === 'warnings' ? 'amber'
+      : 'blue';
+
+    const colorMap: Record<string, string> = {
+      green: 'bg-green-50 border-green-200',
+      red: 'bg-red-50 border-red-200',
+      amber: 'bg-amber-50 border-amber-200',
+      blue: 'bg-blue-50 border-blue-200',
+    };
+    const headerColor: Record<string, string> = {
+      green: 'text-green-800',
+      red: 'text-red-800',
+      amber: 'text-amber-800',
+      blue: 'text-blue-800',
+    };
+
+    return (
+      <div className={`mt-3 border rounded-lg p-3 space-y-2 ${colorMap[statusColor]}`}>
+        <p className={`text-xs font-semibold ${headerColor[statusColor]}`}>
+          {status === 'healthy' ? '✅' : status === 'action_required' ? '🚨' : status === 'warnings' ? '⚠️' : '🚀'} {String(status ?? 'running').replace(/_/g, ' ').toUpperCase()}
+        </p>
+        {scalarMetrics.length > 0 && (
+          <div className="grid grid-cols-3 gap-1.5">
+            {scalarMetrics.slice(0, 6).map(([k, v]) => (
+              <MetricPill key={k} label={k} value={v as string | number} />
+            ))}
+          </div>
+        )}
+        {alerts.length > 0 && (
+          <div className="space-y-1">
+            {alerts.slice(0, 2).map((a, i) => (
+              <p key={i} className={`text-xs ${a.severity === 'critical' ? 'text-red-700' : 'text-amber-700'}`}>
+                {a.severity === 'critical' ? '🔴' : '🟡'} {a.campaign && `[${a.campaign}] `}{a.message}
+              </p>
+            ))}
+          </div>
+        )}
+        {steps.length > 0 && !alerts.length && (
+          <div className="space-y-1">
+            {steps.slice(0, 3).map((s, i) => (
+              <div key={i} className="flex items-center justify-between bg-white rounded px-2 py-1 border border-gray-100">
+                <span className="text-xs text-gray-700 truncate">{s.name}</span>
+                <div className="flex gap-2 shrink-0">
+                  {s.roas !== undefined && <span className="text-[10px] text-blue-600">ROAS {s.roas}x</span>}
+                  {s.spend !== undefined && <span className="text-[10px] text-gray-500">${s.spend}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function FormattedMessage({
   content,
   reasoning,
@@ -1752,6 +2002,12 @@ export function ChatHome({
       setMessages(prev => [...prev, slashPlaceholder]);
       setIsTyping(false);
 
+      // Capture structured fields from the final SSE event
+      let agentArtifact: Message['artifact'] | undefined;
+      let agentFollowUps: string[] | undefined;
+      let agentConnectorPrompt: Message['connector_prompt'] | undefined;
+      let agentIntentType: Message['intent_type'] | undefined;
+
       if (reader) {
         const sseBuf = { current: '' };
         outer: while (true) {
@@ -1775,6 +2031,29 @@ export function ChatHome({
                   : m,
               ));
             }
+            // Capture structured agent response fields
+            if (parsed.artifact && typeof parsed.artifact === 'object') {
+              agentArtifact = parsed.artifact as Message['artifact'];
+            }
+            if (Array.isArray(parsed.follow_ups)) {
+              agentFollowUps = parsed.follow_ups as string[];
+            }
+            if (parsed.connector_prompt && typeof parsed.connector_prompt === 'object') {
+              agentConnectorPrompt = parsed.connector_prompt as Message['connector_prompt'];
+            }
+            if (typeof parsed.intent_type === 'string') {
+              agentIntentType = parsed.intent_type as Message['intent_type'];
+            }
+            // Also check top-level result envelope (agenticLoop wraps in chat_message)
+            if (parsed.type === 'chat_message') {
+              if (parsed.artifact) agentArtifact = parsed.artifact as Message['artifact'];
+              if (Array.isArray(parsed.follow_ups)) agentFollowUps = parsed.follow_ups as string[];
+              if (parsed.connector_prompt) agentConnectorPrompt = parsed.connector_prompt as Message['connector_prompt'];
+              if (typeof parsed.intent_type === 'string') agentIntentType = parsed.intent_type as Message['intent_type'];
+              if (typeof parsed.content === 'string' && parsed.content && !accumulated) {
+                accumulated = parsed.content;
+              }
+            }
             if (parsed.error) throw new Error(String(parsed.error));
           });
           if (r === 'done') break outer;
@@ -1793,6 +2072,10 @@ export function ChatHome({
         agentRole: agentRole?.trim(),
         agentId: agentEntry.name,
         toolStatus: undefined,
+        ...(agentArtifact && { artifact: agentArtifact }),
+        ...(agentFollowUps?.length && { follow_ups: agentFollowUps }),
+        ...(agentConnectorPrompt && { connector_prompt: agentConnectorPrompt }),
+        ...(agentIntentType && { intent_type: agentIntentType }),
       };
       onMessagesChange(prev => prev.map(m => m.id === slashPlaceholderId ? aiMessage : m));
       toast.success(`${agentEntry.label} responded`);
@@ -1930,7 +2213,7 @@ export function ChatHome({
 
         // Persist the final content via onMessagesChange so it's saved (clear toolStatus)
         onMessagesChange(prev => prev.map(m =>
-          m.id === placeholderId ? { ...m, content: displayContent, toolStatus: undefined } : m,
+          m.id === placeholderId ? { ...m, content: displayContent, reasoning: streamedReasoning || undefined, toolStatus: undefined } : m,
         ));
       } catch {
         setIsTyping(false);
@@ -2702,6 +2985,43 @@ export function ChatHome({
                       isAI={message.sender === 'ai'}
                       onModuleSelect={onModuleSelect}
                     />
+                    {/* ── Routing: connector prompt ─────────────────────── */}
+                    {message.connector_prompt && (
+                      <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-3 items-start">
+                        <span className="text-lg">⚠️</span>
+                        <div className="flex-1">
+                          <p className="text-sm text-amber-900 font-medium mb-2">{message.connector_prompt.message}</p>
+                          <div className="flex gap-2">
+                            {(message.connector_prompt.missingLabels ?? message.connector_prompt.missing).map((label) => (
+                              <button
+                                key={label}
+                                onClick={() => onModuleSelect?.('integrations')}
+                                className="text-xs bg-amber-600 text-white px-3 py-1.5 rounded hover:bg-amber-700 transition"
+                              >
+                                Connect {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* ── Routing: artifact renderer ────────────────────── */}
+                    {message.artifact && <ArtifactBlock artifact={message.artifact} />}
+                    {/* ── Routing: follow-up suggestions ───────────────── */}
+                    {message.follow_ups && message.follow_ups.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        <p className="text-xs text-muted-foreground font-medium">Suggested next steps:</p>
+                        {message.follow_ups.map((fu, i) => (
+                          <button
+                            key={i}
+                            onClick={() => { setInputValue(fu); }}
+                            className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1.5 rounded transition"
+                          >
+                            → {fu}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <p
                       className={cn(
                         'text-xs mt-1 opacity-70',

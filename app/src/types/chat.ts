@@ -54,6 +54,14 @@ export interface Message {
   workflowState?: WorkflowState;
   // Collected param values — used in 'awaiting_confirmation' state
   workflowParams?: Record<string, string>;
+
+  // ── Intent routing fields (Veena orchestrator) ─────────────────────────
+  intent_type?: 'analysis' | 'creation' | 'optimization' | 'execution' | 'discovery' | 'clarification' | 'connector_missing';
+  goal_id?: string;
+  routing_info?: { goal_id: string; agent: string; crew: string; confidence: number };
+  connector_prompt?: { missing: string[]; message: string; missingLabels?: string[] };
+  artifact?: { type: string; [key: string]: unknown };
+  follow_ups?: string[];
 }
 
 export interface Conversation {

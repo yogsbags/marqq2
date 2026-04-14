@@ -1,5 +1,324 @@
 [
   {
+    "id": "dep-1775918172254-rtxdmp",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "57d13efd-e4de-42b9-b4e7-57461ecf2b38",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T14:36:12.254Z",
+    "scheduledFor": "2026-04-11T20:36:12.248Z",
+    "startedAt": "2026-04-12T12:39:38.562Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:39:53.631Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:39:53.631Z"
+  },
+  {
+    "id": "dep-1775915024655-fpj8bn",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "fc0c0eac-19c4-472b-a967-9b8079aed576",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T13:43:44.655Z",
+    "scheduledFor": "2026-04-11T19:43:44.627Z",
+    "startedAt": "2026-04-12T12:39:53.773Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:40:02.695Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:40:02.695Z"
+  },
+  {
+    "id": "dep-1775912010573-9lo1w4",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "59fe91b0-da2f-489d-b0b4-d024ee0a18e9",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T12:53:30.573Z",
+    "scheduledFor": "2026-04-11T18:53:30.339Z",
+    "startedAt": "2026-04-12T12:40:02.733Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:40:11.477Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:40:11.477Z"
+  },
+  {
+    "id": "dep-1775908044847-3ugii3",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "76f1cbae-dedc-401e-abdd-f908299d48ac",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T11:47:24.847Z",
+    "scheduledFor": "2026-04-11T17:47:24.826Z",
+    "startedAt": "2026-04-12T12:40:11.520Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:40:17.816Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:40:17.816Z"
+  },
+  {
+    "id": "dep-1775908004470-z7wgu3",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "6bbe4205-6e1e-4c3f-9139-623ced7ae764",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T11:46:44.470Z",
+    "scheduledFor": "2026-04-11T17:46:44.464Z",
+    "startedAt": "2026-04-12T12:40:17.844Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:40:27.329Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:40:27.329Z"
+  },
+  {
+    "id": "dep-1775907479773-fx1ccn",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "890b7bb7-19b5-46e0-8e32-e52ab6dab07b",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T11:37:59.773Z",
+    "scheduledFor": "2026-04-11T17:37:59.764Z",
+    "startedAt": "2026-04-12T12:40:27.364Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:40:37.048Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:40:37.048Z"
+  },
+  {
+    "id": "dep-1775902162358-0g00qg",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "4d9858fb-9def-4a61-85ee-12d0b6ab3221",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T10:09:22.358Z",
+    "scheduledFor": "2026-04-11T16:09:22.354Z",
+    "startedAt": "2026-04-12T12:40:37.084Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:40:45.440Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:40:45.440Z"
+  },
+  {
+    "id": "dep-1775901956094-iyszj7",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "270075d5-3cff-45ce-97eb-f9c9e8ce3dcb",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T10:05:56.094Z",
+    "scheduledFor": "2026-04-11T16:05:56.088Z",
+    "startedAt": "2026-04-12T12:40:45.469Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:40:55.189Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:40:55.189Z"
+  },
+  {
+    "id": "dep-1775901777790-36qycc",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "8248e128-9e1d-4af0-b6fc-bd6c2444a9d2",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T10:02:57.790Z",
+    "scheduledFor": "2026-04-11T16:02:57.783Z",
+    "startedAt": "2026-04-12T12:40:55.222Z",
+    "error": null,
+    "lastRunAt": "2026-04-12T12:41:02.178Z",
+    "runCount": 1,
+    "completedAt": "2026-04-12T12:41:02.178Z"
+  },
+  {
+    "id": "dep-1775897815586-43st8w",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "103648c8-27e5-47c8-88e5-d769fad24c0f",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T08:56:55.586Z",
+    "scheduledFor": "2026-04-11T14:56:55.575Z",
+    "startedAt": "2026-04-11T14:57:34.262Z",
+    "error": null,
+    "lastRunAt": "2026-04-11T14:57:48.834Z",
+    "runCount": 1,
+    "completedAt": "2026-04-11T14:57:48.834Z"
+  },
+  {
+    "id": "dep-1775897305234-lz3wgz",
+    "agentName": "sam",
+    "agentTarget": null,
+    "workspaceId": "442d0da8-8827-4e56-90d3-996c9dff984d",
+    "companyId": null,
+    "sectionId": "weekly_intelligence_brief",
+    "sectionTitle": "Weekly Intelligence Brief",
+    "summary": "First weekly brief covering SEO rankings, lead signals, content opportunities, and campaign performance.",
+    "bullets": [],
+    "tasks": [
+      {
+        "label": "Run weekly intelligence brief",
+        "horizon": "week"
+      }
+    ],
+    "scheduleMode": null,
+    "recurrenceMinutes": null,
+    "runPrompt": "",
+    "source": "onboarding",
+    "status": "completed",
+    "createdAt": "2026-04-11T08:48:25.234Z",
+    "scheduledFor": "2026-04-11T14:48:25.229Z",
+    "startedAt": "2026-04-11T14:48:33.415Z",
+    "error": null,
+    "lastRunAt": "2026-04-11T14:48:45.112Z",
+    "runCount": 1,
+    "completedAt": "2026-04-11T14:48:45.112Z"
+  },
+  {
     "id": "dep-1775894299244-cyjyoi",
     "agentName": "sam",
     "agentTarget": null,
@@ -19,9 +338,14 @@
     "recurrenceMinutes": null,
     "runPrompt": "",
     "source": "onboarding",
-    "status": "pending",
+    "status": "completed",
     "createdAt": "2026-04-11T07:58:19.244Z",
-    "scheduledFor": "2026-04-11T13:58:19.233Z"
+    "scheduledFor": "2026-04-11T13:58:19.233Z",
+    "startedAt": "2026-04-11T13:58:33.339Z",
+    "error": null,
+    "lastRunAt": "2026-04-11T13:58:42.992Z",
+    "runCount": 1,
+    "completedAt": "2026-04-11T13:58:42.992Z"
   },
   {
     "id": "dep-1775893624307-aqvm19",
@@ -43,9 +367,14 @@
     "recurrenceMinutes": null,
     "runPrompt": "",
     "source": "onboarding",
-    "status": "pending",
+    "status": "completed",
     "createdAt": "2026-04-11T07:47:04.307Z",
-    "scheduledFor": "2026-04-11T13:47:04.297Z"
+    "scheduledFor": "2026-04-11T13:47:04.297Z",
+    "startedAt": "2026-04-11T13:47:33.343Z",
+    "error": null,
+    "lastRunAt": "2026-04-11T13:47:43.213Z",
+    "runCount": 1,
+    "completedAt": "2026-04-11T13:47:43.213Z"
   },
   {
     "id": "dep-1775830241924-h6lho2",
