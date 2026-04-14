@@ -2011,6 +2011,11 @@ export function ChatHome({
     try {
       const res = await fetchAgentRun(agentEntry.name, query, buildAgentHeaders());
 
+      // Guard: HTML response means extension/proxy hijacked the request
+      if ((res.headers.get('content-type') || '').includes('text/html')) {
+        throw new Error(`${agentEntry.label} is not available right now.`);
+      }
+
       if (!res.ok) {
         let errMsg = `${agentEntry.label} is not available right now.`;
         try {
@@ -2168,6 +2173,24 @@ export function ChatHome({
         const res = await fetchAgentRun(agent.name, agent.query, buildAgentHeaders());
 
         console.log(`[Agent ${agent.name}] response status: ${res.status}, ok: ${res.ok}`);
+
+        // Guard: if response is HTML (extension/proxy hijacked the request) treat as offline
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('text/html')) {
+          console.error(`[Agent ${agent.name}] received HTML instead of SSE — request was likely intercepted`);
+          const errMsg: Message = {
+            id: (Date.now() + Math.random()).toString(),
+            content: 'Agent offline — skipping this step.',
+            sender: 'ai',
+            timestamp: new Date(),
+            agentName: agent.displayName,
+            agentRole: agent.role,
+            agentId: agent.name,
+          };
+          onMessagesChange(prev => [...prev, errMsg]);
+          continue;
+        }
+
         if (!res.ok) {
           setIsTyping(false);
           const errBody = await res.text().catch(() => '');
