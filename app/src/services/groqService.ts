@@ -205,15 +205,19 @@ export async function askVeena(
   const dec = new TextDecoder();
   let contentAccum = '';
   let reasoningAccum = '';
+  let sseBuffer = '';
 
   type ToolCallAccum = { name: string; args: string };
   const toolCalls: Record<number, ToolCallAccum> = {};
 
   outer: while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    const chunkText = dec.decode(value || new Uint8Array(), { stream: !done });
+    sseBuffer += chunkText;
+    const lines = sseBuffer.split('\n');
+    sseBuffer = done ? '' : (lines.pop() || '');
 
-    for (const line of dec.decode(value).split('\n')) {
+    for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed.startsWith('data:')) continue;
       const payload = trimmed.slice(5).trim();
@@ -246,6 +250,8 @@ export async function askVeena(
         // ignore malformed chunks
       }
     }
+
+    if (done) break;
   }
 
   const firstTool = toolCalls[0];
