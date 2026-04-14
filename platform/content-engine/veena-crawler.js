@@ -30,7 +30,7 @@ const EMPTY_TEMPLATE_FIELD = Object.freeze({
 
 // ── System prompts ─────────────────────────────────────────────────────────────
 
-// Pass 1: crawl own website only
+// Pass 1: crawl own website only — 11 fields (insights excluded, synthesized in Pass 3)
 const VEENA_MKG_SYSTEM_PROMPT = `IMPORTANT: Only visit URLs that are subdomains or paths of the provided website URL. Never visit external competitor websites or unrelated domains.
 
 You are Veena, the Company Intelligence agent. Crawl the provided company website and extract a Marketing Knowledge Graph bootstrap in strict JSON.
@@ -54,7 +54,7 @@ Each key must map to:
 
 Schema per field:
 - positioning: { "statement": string, "unique_value": string }
-- icp: { "company_size": string, "industry": string, "geography": string[], "role": string }
+- icp: { "company_size": string, "industry": string[], "geography": string[], "role": string[] }
 - competitors: [{ "name": string, "positioning": string }]
 - offers: [{ "name": string, "price_signal": string, "tier": string }]
 - messaging: { "headline": string, "tagline": string, "key_messages": string[] }
@@ -64,23 +64,31 @@ Schema per field:
 - baselines: null on first crawl
 - content_pillars: [{ "topic": string, "evidence": string }]
 - campaigns: null on first crawl
-- insights: { "summary": string, "gaps": string[] }
+- insights: always return { "value": null, "confidence": 0 } — synthesized separately
 
-Rules:
+Field rules:
+- offers.price_signal: use "not publicly disclosed" if no pricing is visible. Never null.
+- offers.tier: use "standard" if only one tier exists, or describe tiers found. Never null.
+- channels[].evidence: must be a verbatim quote, nav label, CTA text, or footer link that
+  proves the channel is used. Never null — if no explicit text, describe the page element.
+- content_pillars[].evidence: same rule — quote the H2, section heading, or blog category.
+- icp.industry, icp.role: always arrays, never strings.
+
+General rules:
 - Never return prose outside the JSON object.
 - Never omit a top-level key.
 - Use structured objects or arrays for values. Do not use raw prose blobs as values.
 - If a field is not findable on the website, return { "value": null, "confidence": 0 }.
-- For metrics, baselines, and campaigns on the first crawl, always return { "value": null, "confidence": 0 }.
+- For metrics, baselines, campaigns, and insights: always return { "value": null, "confidence": 0 }.
 - Use higher confidence only for explicit website evidence.`;
 
-// Pass 2: web search for competitors — no own-domain restriction
+// Pass 2: web search for competitors — no own-domain restriction, runs in parallel with Pass 1
 const COMPETITOR_SEARCH_SYSTEM_PROMPT = `You are Veena, searching the web for a company's direct competitors.
 Use web_search to run these queries:
 1. "[company] competitors"
 2. "[company] vs [alternative]"
 3. "best [company] alternatives"
-4. "[company] vs" (to find head-to-head comparisons)
+4. "top [company] alternatives site:g2.com OR site:capterra.com OR site:trustradius.com"
 
 Return ONLY valid JSON with exactly this structure:
 {
@@ -91,10 +99,33 @@ Return ONLY valid JSON with exactly this structure:
 }
 
 Rules:
-- Return 3-5 direct competitors with distinct, specific positioning angles (not generic descriptions).
-- confidence 0.7-0.9 for results confirmed by multiple search hits; 0.4-0.6 for inferred.
+- Return 3-5 direct competitors with distinct, specific positioning angles (not generic).
+- positioning must describe what makes each competitor different, not just what they do.
+- confidence: 0.7-0.9 for results confirmed by multiple sources; 0.4-0.6 for inferred.
 - Never invent competitors not found in search results.
 - Do NOT include the company itself as a competitor.`;
+
+// Pass 3: synthesize insights from the merged MKG — pure reasoning, no browsing needed
+const INSIGHTS_SYNTHESIS_SYSTEM_PROMPT = `You are Veena. Synthesize an "insights" field from the Marketing Knowledge Graph provided.
+
+Return ONLY valid JSON:
+{
+  "insights": {
+    "value": {
+      "summary": string,
+      "gaps": string[]
+    },
+    "confidence": number
+  }
+}
+
+Rules:
+- summary: 2-3 sentences covering market position, key differentiator, and one strategic risk or opportunity.
+- gaps: exactly 4-5 specific data points absent from the MKG that would be most valuable to add
+  (e.g. "pricing not publicly disclosed", "ICP limited to India — international expansion unclear",
+  "no campaign history available", "competitor pricing benchmarks missing").
+- confidence: always 0.75 (synthesized from observed data, not directly crawled).
+- Never return null for summary. Never return an empty gaps array.`;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -222,6 +253,12 @@ function deriveNameFromUrl(websiteUrl) {
   }
 }
 
+// Returns true if at least 3 non-null fields exist (worth synthesizing insights)
+function hasMeaningfulData(result) {
+  const meaningfulFields = ["positioning", "icp", "offers", "messaging", "channels", "funnel", "content_pillars"];
+  return meaningfulFields.filter(f => result[f]?.value !== null).length >= 3;
+}
+
 async function fetchHomepageSignals(websiteUrl) {
   if (!websiteUrl || typeof fetchImpl !== "function") return "";
 
@@ -321,7 +358,7 @@ async function firecrawlScrapePages(websiteUrl, apiKey) {
   return sections.join("\n\n---\n\n");
 }
 
-// ── Compound crawl calls ───────────────────────────────────────────────────────
+// ── LLM calls ─────────────────────────────────────────────────────────────────
 
 async function runCompoundCrawl(systemPrompt, userContent, timeoutMs = 120_000) {
   const groq = await getGroqClient();
@@ -352,33 +389,69 @@ async function runCompoundCrawl(systemPrompt, userContent, timeoutMs = 120_000) 
   }
 }
 
-// Pass 2: focused competitor web search.
-// Only fires when compound succeeded for Pass 1 but competitors.confidence < threshold.
-async function runCompetitorSearchPass(companyName, websiteUrl) {
+// Pass 1: compound website crawl → 11 fields (insights excluded)
+async function runPass1(userContent) {
+  const completion = await runCompoundCrawl(VEENA_MKG_SYSTEM_PROMPT, userContent);
+  const raw = completion?.choices?.[0]?.message?.content?.trim() || "";
+  const parsed = extractJsonObject(raw);
+  if (!parsed) throw new Error("compound_non_json");
+  return normalizeCrawlResult(parsed);
+}
+
+// Pass 2: competitor web search — runs in parallel with Pass 1
+async function runPass2Competitors(companyName, websiteUrl) {
   const userContent = `Company: ${companyName}
 Website: ${websiteUrl}
 
-Search the web to find the top direct competitors of ${companyName}. Use the search queries suggested in your instructions.`;
+Search the web to find the top direct competitors of ${companyName}. Use all four search queries from your instructions.`;
 
-  try {
-    const completion = await runCompoundCrawl(
-      COMPETITOR_SEARCH_SYSTEM_PROMPT,
-      userContent,
-      60_000, // shorter timeout for supplemental call
-    );
-    const raw = completion?.choices?.[0]?.message?.content?.trim() || "";
-    const parsed = extractJsonObject(raw);
-    if (parsed?.competitors) {
-      return normalizeCrawlValue(parsed.competitors);
-    }
-  } catch (err) {
-    console.warn("[veena] competitor search pass failed:", err?.message || err);
-  }
+  const completion = await runCompoundCrawl(
+    COMPETITOR_SEARCH_SYSTEM_PROMPT,
+    userContent,
+    60_000,
+  );
+  const raw = completion?.choices?.[0]?.message?.content?.trim() || "";
+  const parsed = extractJsonObject(raw);
+  if (parsed?.competitors) return normalizeCrawlValue(parsed.competitors);
   return null;
 }
 
-// Fallback: use Firecrawl (if key set) to get richer page content, then llama-70b
-async function runFallbackCrawl(systemPrompt, userContent, websiteUrl) {
+// Pass 3: insights synthesis from merged MKG — llama-70b, no browsing
+async function runPass3Insights(mergedResult, companyName) {
+  // Serialize only the populated fields to keep context tight
+  const snapshot = {};
+  for (const field of TOP_LEVEL_FIELDS) {
+    if (field === "insights") continue;
+    if (mergedResult[field]?.value !== null) snapshot[field] = mergedResult[field].value;
+  }
+
+  const userContent = `Company: ${companyName}
+
+Marketing Knowledge Graph:
+${JSON.stringify(snapshot, null, 2)}
+
+Synthesize the insights field.`;
+
+  const groq = await getGroqClient();
+  const completion = await groq.chat.completions.create({
+    model: "llama-3.3-70b-versatile",
+    messages: [
+      { role: "system", content: INSIGHTS_SYNTHESIS_SYSTEM_PROMPT },
+      { role: "user", content: userContent },
+    ],
+    temperature: 0.3,
+    max_tokens: 600,
+    response_format: { type: "json_object" },
+  });
+
+  const raw = completion?.choices?.[0]?.message?.content?.trim() || "";
+  const parsed = extractJsonObject(raw);
+  if (parsed?.insights) return normalizeCrawlValue(parsed.insights);
+  return null;
+}
+
+// Fallback: Firecrawl (if key set) + llama-70b when compound fails entirely
+async function runFallbackCrawl(userContent, websiteUrl) {
   const firecrawlApiKey = (process.env.FIRECRAWL_API_KEY || "").trim();
   let enrichedContent = userContent;
 
@@ -398,7 +471,7 @@ async function runFallbackCrawl(systemPrompt, userContent, websiteUrl) {
   return groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: VEENA_MKG_SYSTEM_PROMPT },
       { role: "user", content: enrichedContent },
     ],
     temperature: 0.2,
@@ -432,21 +505,17 @@ export function extractPageSignals(html) {
     .join(" | ");
 }
 
-// Threshold below which Pass 2 (competitor web search) fires
-const COMPETITOR_SEARCH_THRESHOLD = 0.5;
-
 /**
  * Crawl a company website and return a normalised 12-field MKG result.
  *
- * Strategy:
- *  Pass 1 — compound crawls the company's own website (positioning, messaging,
- *            offers, channels, funnel, content_pillars all land here well).
- *  Pass 2 — if competitors.confidence < 0.5, a second compound call does a
- *            targeted web_search for "[company] competitors / vs / alternatives".
- *  Fallback — if compound fails entirely, use Firecrawl (when FIRECRAWL_API_KEY
- *              is set) to scrape homepage + /about + /pricing as clean markdown,
- *              then feed to llama-70b. Without the key, falls back to page-signals
- *              + llama-70b (existing behaviour).
+ * Strategy (3 passes):
+ *  Pass 1 + Pass 2 run in parallel:
+ *    Pass 1 — compound crawls the company's own website (positioning, messaging,
+ *              offers, channels, funnel, content_pillars).
+ *    Pass 2 — compound web_search for "[company] competitors / vs / alternatives".
+ *             Result replaces Pass 1 competitors only if confidence improves.
+ *  If Pass 1 fails entirely → Firecrawl (when FIRECRAWL_API_KEY set) + llama-70b fallback.
+ *  Pass 3 (after merge) — llama-70b synthesizes insights from the populated MKG.
  *
  * @param {string} websiteUrl
  * @param {string} [companyName] - optional; derived from URL hostname if omitted
@@ -464,50 +533,66 @@ ${pageHints || "(none)"}
 Only visit URLs under ${normalizedUrl} domain.
 Extract MKG fields.`;
 
+  // ── Pass 1 + Pass 2 in parallel ───────────────────────────────────────────
+  const [pass1Settlement, pass2Settlement] = await Promise.allSettled([
+    runPass1(userContent),
+    resolvedName
+      ? runPass2Competitors(resolvedName, normalizedUrl)
+      : Promise.resolve(null),
+  ]);
+
   let result = null;
-  let pass1Succeeded = false;
 
-  // ── Pass 1: compound website crawl ──────────────────────────────────────────
-  try {
-    const completion = await runCompoundCrawl(VEENA_MKG_SYSTEM_PROMPT, userContent);
-    const raw = completion?.choices?.[0]?.message?.content?.trim() || "";
-    const parsed = extractJsonObject(raw);
-    if (parsed) {
-      result = normalizeCrawlResult(parsed);
-      pass1Succeeded = true;
-      console.log(`[veena] Pass 1 complete for ${normalizedUrl} — competitors confidence: ${result.competitors.confidence}`);
-    } else {
-      throw new Error("compound_non_json");
-    }
-  } catch (compoundError) {
-    console.warn("[veena] Pass 1 (compound) failed:", compoundError?.message || compoundError);
+  if (pass1Settlement.status === "fulfilled") {
+    result = pass1Settlement.value;
+    console.log(
+      `[veena] Pass 1 complete — competitors: ${result.competitors.confidence}, ` +
+      `positioning: ${result.positioning.confidence}`
+    );
+  } else {
+    console.warn("[veena] Pass 1 (compound) failed:", pass1Settlement.reason?.message);
   }
 
-  // ── Pass 2: competitor web search (only when Pass 1 succeeded but competitors weak) ──
-  if (pass1Succeeded && result.competitors.confidence < COMPETITOR_SEARCH_THRESHOLD && resolvedName) {
-    console.log(`[veena] Pass 2 — competitor search for "${resolvedName}"`);
-    const competitorResult = await runCompetitorSearchPass(resolvedName, normalizedUrl);
-    if (competitorResult && competitorResult.confidence > result.competitors.confidence) {
-      result.competitors = competitorResult;
-      console.log(`[veena] Pass 2 improved competitors confidence: ${competitorResult.confidence}`);
+  // ── Fallback if Pass 1 failed ──────────────────────────────────────────────
+  if (!result) {
+    console.log(`[veena] Falling back to ${(process.env.FIRECRAWL_API_KEY || "").trim() ? "Firecrawl +" : ""} llama-70b`);
+    try {
+      const completion = await runFallbackCrawl(userContent, normalizedUrl);
+      const raw = completion?.choices?.[0]?.message?.content?.trim() || "";
+      const parsed = extractJsonObject(raw);
+      if (parsed) result = normalizeCrawlResult(parsed);
+    } catch (err) {
+      console.warn("[veena] Fallback failed:", err?.message || err);
     }
   }
 
-  // Return if Pass 1 produced a usable result
-  if (result) return result;
+  if (!result) return createEmptyCrawlResult();
 
-  // ── Fallback: Firecrawl (if key set) + llama-70b ────────────────────────────
-  console.log(`[veena] Falling back to ${process.env.FIRECRAWL_API_KEY ? "Firecrawl +" : ""} llama-70b for ${normalizedUrl}`);
-  try {
-    const completion = await runFallbackCrawl(VEENA_MKG_SYSTEM_PROMPT, userContent, normalizedUrl);
-    const raw = completion?.choices?.[0]?.message?.content?.trim() || "";
-    const parsed = extractJsonObject(raw);
-    if (parsed) return normalizeCrawlResult(parsed);
-  } catch (fallbackError) {
-    console.warn("[veena] Fallback failed:", fallbackError?.message || fallbackError);
+  // ── Merge Pass 2 competitors ───────────────────────────────────────────────
+  if (pass2Settlement.status === "fulfilled" && pass2Settlement.value) {
+    const p2 = pass2Settlement.value;
+    if (p2.confidence > result.competitors.confidence) {
+      result.competitors = p2;
+      console.log(`[veena] Pass 2 improved competitors: ${p2.confidence}`);
+    }
+  } else if (pass2Settlement.status === "rejected") {
+    console.warn("[veena] Pass 2 (competitor search) failed:", pass2Settlement.reason?.message);
   }
 
-  return createEmptyCrawlResult();
+  // ── Pass 3: insights synthesis ─────────────────────────────────────────────
+  if (hasMeaningfulData(result) && resolvedName) {
+    try {
+      const insightsResult = await runPass3Insights(result, resolvedName);
+      if (insightsResult) {
+        result.insights = insightsResult;
+        console.log(`[veena] Pass 3 insights synthesized (confidence: ${insightsResult.confidence})`);
+      }
+    } catch (err) {
+      console.warn("[veena] Pass 3 (insights) failed:", err?.message || err);
+    }
+  }
+
+  return result;
 }
 
 export function buildContextPatchFromCrawl(crawlJson, agentName = "veena", runId) {
