@@ -2149,6 +2149,7 @@ export function ChatHome({
         const reader = res.body?.getReader();
         const dec = new TextDecoder();
         let accumulated = '';
+        let streamedReasoning = '';
 
         console.log(`[Agent ${agent.name}] reader available: ${!!reader}`);
 
@@ -2198,6 +2199,12 @@ export function ChatHome({
                   m.id === placeholderId
                     ? { ...m, content: displayContent, toolStatus: displayContent ? undefined : m.toolStatus }
                     : m,
+                ));
+              }
+              if (typeof parsed.thinking === 'string' && parsed.thinking) {
+                streamedReasoning += parsed.thinking;
+                setMessages(prev => prev.map(m =>
+                  m.id === placeholderId ? { ...m, reasoning: streamedReasoning } : m,
                 ));
               }
               if (parsed.error) throw new Error(String(parsed.error));
