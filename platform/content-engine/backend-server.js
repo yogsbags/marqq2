@@ -1847,6 +1847,12 @@ ${successfulToolContext}`;
     }
   }
 
+  // Generate contextual follow-up suggestions from artifact + MKG, emit before DONE
+  rawContract.follow_ups = await generateContextualFollowUps(rawContract, companyId);
+  if (rawContract.follow_ups.length) {
+    console.log(`[follow-ups] ${name}: ${rawContract.follow_ups.length} suggestions via SSE`);
+  }
+
   res.write(`data: ${JSON.stringify({ contract: rawContract })}\n\n`);
   res.write("data: [DONE]\n\n");
   res.end();
@@ -5400,7 +5406,103 @@ Replace ALL placeholder values with your actual outputs.
     }
   }
 
+  // Generate contextual follow-up suggestions from the artifact + MKG
+  contract.follow_ups = await generateContextualFollowUps(contract, companyId);
+  if (contract.follow_ups.length) {
+    console.log(`[follow-ups] ${agentName}: ${contract.follow_ups.length} suggestions generated`);
+  }
+
   return contract;
+}
+
+// ── Contextual Follow-up Generator ────────────────────────────────────────────
+//
+// Generates 3-4 MKG-aware follow-up suggestions after any artifact agent run.
+// Uses llama-3.3-70b-versatile (cheap + fast, no browsing needed).
+// Called non-blocking from runAgentForArtifact — failures silently return [].
+
+const FOLLOW_UP_SYSTEM_PROMPT = `You are a marketing strategy assistant.
+Given the output summary of a marketing AI agent and key facts about the company,
+produce exactly 3-4 short follow-up questions or actions the user should consider next.
+
+Rules:
+- Each item must be 5-12 words, written as a natural request the user could send
+  (e.g. "Build a LinkedIn campaign targeting SaaS founders" not "Consider LinkedIn")
+- Make them specific to the company facts provided — never generic
+- Mix action items and analytical questions
+- Include at most 1 item about scheduling automation if it makes sense for this output type
+- Return ONLY a valid JSON array of strings, no prose, no keys, no wrapping object
+  Example: ["Run a competitive pricing analysis against Stripe", "Draft 3 LinkedIn posts using the messaging framework", ...]`;
+
+const AGENT_FOLLOW_UP_HINTS = {
+  isha:  "Focus on market research actions, ICP validation, and competitive analysis.",
+  neel:  "Focus on strategy execution, positioning tests, and campaign planning.",
+  zara:  "Focus on channel activation, content scheduling, and distribution tactics.",
+  maya:  "Focus on content creation, creative assets, and campaign launches.",
+  arjun: "Focus on lead generation, outreach sequences, and pipeline building.",
+  sam:   "Focus on email sequences, CRM actions, and nurture workflows.",
+  kiran: "Focus on SEO, keyword strategy, and organic content.",
+  priya: "Focus on paid media, ad campaigns, and ROAS optimization.",
+  riya:  "Focus on content publishing, blog articles, and SEO articles.",
+  dev:   "Focus on technical integrations, analytics setup, and tracking.",
+};
+
+async function generateContextualFollowUps(contract, companyId) {
+  try {
+    const agentName  = contract.agent || "agent";
+    const summary    = contract.artifact?.summary || "";
+    const taskDesc   = contract.task || "";
+    const agentHint  = AGENT_FOLLOW_UP_HINTS[agentName] || "";
+
+    // Pull a lightweight MKG snapshot (positioning + icp names only)
+    let mkgSnippet = "";
+    if (companyId) {
+      try {
+        const mkg = await MKGService.read(companyId);
+        const parts = [];
+        if (mkg?.positioning?.value?.statement)
+          parts.push(`Positioning: ${mkg.positioning.value.statement}`);
+        if (mkg?.icp?.value?.industry?.length)
+          parts.push(`ICP industry: ${mkg.icp.value.industry.slice(0, 3).join(", ")}`);
+        if (mkg?.competitors?.value?.length)
+          parts.push(`Competitors: ${mkg.competitors.value.slice(0, 3).map(c => c.name).join(", ")}`);
+        if (mkg?.insights?.value?.summary)
+          parts.push(`Insight: ${mkg.insights.value.summary.split(".")[0]}`);
+        mkgSnippet = parts.join("\n");
+      } catch { /* non-blocking */ }
+    }
+
+    const userContent = [
+      `Agent: ${agentName}`,
+      `Task completed: ${taskDesc}`,
+      `Output summary: ${summary.slice(0, 600)}`,
+      mkgSnippet ? `Company context:\n${mkgSnippet}` : "",
+      agentHint ? `Output focus: ${agentHint}` : "",
+    ].filter(Boolean).join("\n\n");
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: FOLLOW_UP_SYSTEM_PROMPT },
+        { role: "user",   content: userContent },
+      ],
+      temperature: 0.4,
+      max_tokens: 200,
+      response_format: { type: "json_object" },
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim() || "";
+    // Model may return {"follow_ups":[...]} or a bare array wrapped in object
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed) ? parsed
+      : Array.isArray(parsed.follow_ups) ? parsed.follow_ups
+      : Array.isArray(Object.values(parsed)[0]) ? Object.values(parsed)[0]
+      : [];
+    return arr.filter(s => typeof s === "string" && s.trim()).slice(0, 4);
+  } catch (err) {
+    console.warn("[follow-ups] generateContextualFollowUps failed:", err?.message || err);
+    return [];
+  }
 }
 
 // ── Agent Contract Persistence Helpers ────────────────────────────────────────
@@ -7707,10 +7809,18 @@ async function runOnboardBriefingTick() {
 
     console.log(`[onboard-briefing] running ${agentName} briefing for company ${companyId}`);
     try {
-      await runAgentForArtifact(agentName, query, companyId, "onboard_briefing");
+      const contract = await runAgentForArtifact(agentName, query, companyId, "onboard_briefing");
       await client
         .from("agent_tasks")
-        .update({ status: "done", completed_at: new Date().toISOString() })
+        .update({
+          status: "done",
+          completed_at: new Date().toISOString(),
+          output: {
+            summary:    contract.artifact?.summary   || null,
+            follow_ups: contract.follow_ups           || [],
+            confidence: contract.artifact?.confidence ?? null,
+          },
+        })
         .eq("id", row.id);
       console.log(`[onboard-briefing] ${agentName} briefing complete for ${companyId}`);
     } catch (err) {
