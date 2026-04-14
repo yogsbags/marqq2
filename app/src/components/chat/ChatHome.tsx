@@ -2013,7 +2013,13 @@ export function ChatHome({
         outer: while (true) {
           const { done, value } = await reader.read();
           const r = consumeAgentSseBuffer(dec, sseBuf, value, done, (parsed) => {
-            if (parsed.contract || parsed.contractError || parsed.details) return;
+            if (parsed.contractError || parsed.details) return;
+            if (parsed.contract) {
+              // Pull follow_ups out of the backend-generated contract
+              const fups = parsed.contract?.follow_ups;
+              if (Array.isArray(fups) && fups.length) agentFollowUps = fups as string[];
+              return;
+            }
             if (parsed.tool_call) {
               const toolName = (parsed.tool_call as { function?: { name?: string }; name?: string })?.function?.name
                 || (parsed.tool_call as { name?: string })?.name || '';
@@ -2164,12 +2170,19 @@ export function ChatHome({
         setIsTyping(false);
         setActiveTypingAgent(null);
 
+        let seqFollowUps: string[] = [];
         if (reader) {
           const seqSseBuf = { current: '' };
           outer: while (true) {
             const { done, value } = await reader.read();
             const r = consumeAgentSseBuffer(dec, seqSseBuf, value, done, (parsed) => {
-              if (parsed.contract || parsed.contractError || parsed.details) return;
+              if (parsed.contractError || parsed.details) return;
+              if (parsed.contract) {
+                // Extract follow_ups from contract payload
+                const fups = parsed.contract?.follow_ups;
+                if (Array.isArray(fups) && fups.length) seqFollowUps = fups as string[];
+                return;
+              }
               if (parsed.tool_call) {
                 const tc = parsed.tool_call as { function?: { name?: string }; name?: string };
                 const toolName = tc?.function?.name || tc?.name || '';
@@ -2211,9 +2224,15 @@ export function ChatHome({
           return fallbacks[agent.name.toLowerCase()] || 'Analysis in progress. Try a more specific query.';
         })();
 
-        // Persist the final content via onMessagesChange so it's saved (clear toolStatus)
+        // Persist the final content + follow-up suggestions via onMessagesChange (clear toolStatus)
         onMessagesChange(prev => prev.map(m =>
-          m.id === placeholderId ? { ...m, content: displayContent, reasoning: streamedReasoning || undefined, toolStatus: undefined } : m,
+          m.id === placeholderId ? {
+            ...m,
+            content: displayContent,
+            reasoning: streamedReasoning || undefined,
+            toolStatus: undefined,
+            ...(seqFollowUps.length && { follow_ups: seqFollowUps }),
+          } : m,
         ));
       } catch {
         setIsTyping(false);
@@ -2376,13 +2395,20 @@ export function ChatHome({
       const reader = res.body?.getReader();
       const dec = new TextDecoder();
       let accumulated = '';
+      let planFollowUps: string[] = [];
 
       if (reader) {
         const planSseBuf = { current: '' };
         outer: while (true) {
           const { done, value } = await reader.read();
           const r = consumeAgentSseBuffer(dec, planSseBuf, value, done, (parsed) => {
-            if (parsed.contract || parsed.contractError || parsed.details) return;
+            if (parsed.contractError || parsed.details) return;
+            if (parsed.contract) {
+              // Pull follow_ups from the backend contract event
+              const fups = parsed.contract?.follow_ups;
+              if (Array.isArray(fups) && fups.length) planFollowUps = fups as string[];
+              return;
+            }
             if (typeof parsed.text === 'string' && parsed.text) accumulated += parsed.text;
             if (parsed.error) throw new Error(String(parsed.error));
           });
@@ -2401,6 +2427,7 @@ export function ChatHome({
         agentName: agentConfig.label,
         agentRole: agentConfig.role,
         agentId: agentConfig.name,
+        ...(planFollowUps.length && { follow_ups: planFollowUps }),
       };
       onMessagesChange((prev) => [...prev, aiMessage]);
       toast.success(`${agentConfig.label} is working on it.`);
