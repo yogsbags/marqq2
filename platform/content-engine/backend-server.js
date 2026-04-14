@@ -5562,7 +5562,7 @@ app.post("/api/agents/veena/onboard", async (req, res) => {
       }
 
       try {
-        crawlResult = await crawlCompanyForMKG(targetWebsiteUrl);
+        crawlResult = await crawlCompanyForMKG(targetWebsiteUrl, company_name);
         contextPatch = buildContextPatchFromCrawl(crawlResult, "veena", veenaRunId);
         await MKGService.patch(companyId, contextPatch);
         console.log(`[veena/onboard] Crawl complete for ${companyId} — MKG patched`);
