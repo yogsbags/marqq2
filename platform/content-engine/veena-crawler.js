@@ -246,8 +246,10 @@ async function fetchHomepageSignals(websiteUrl) {
 async function getGroqClient() {
   if (TEST_OVERRIDES.groqClient) return TEST_OVERRIDES.groqClient;
   if (!groqClientPromise) {
+    // Always force 'groq' provider — compound and llama-3.3-70b-versatile are
+    // Groq-only models; the global LLM_PROVIDER setting must not redirect here.
     groqClientPromise = import("./langfuse.js").then(({ tracedLLM }) => {
-      return tracedLLM({ traceName: 'veena-crawl', tags: ['veena', 'crawler'] });
+      return tracedLLM({ traceName: 'veena-crawl', tags: ['veena', 'crawler'], provider: 'groq' });
     });
   }
   return groqClientPromise;
