@@ -89,6 +89,11 @@ const AUTOMATION_SCHEDULER_INTERVAL_MS = Math.max(
   15_000,
   Number(process.env.AGENT_AUTOMATION_SCHEDULER_INTERVAL_MS || 60_000),
 );
+// Poll agent_tasks for pending onboard_briefings every 30 s; env override for testing
+const ONBOARD_BRIEFING_SCHEDULER_INTERVAL_MS = Math.max(
+  15_000,
+  Number(process.env.ONBOARD_BRIEFING_SCHEDULER_INTERVAL_MS || 30_000),
+);
 const DEFAULT_MONITOR_RECURRENCE_MINUTES = Math.max(
   15,
   Number(process.env.AGENT_MONITOR_RECURRENCE_MINUTES || 1440),
@@ -7323,6 +7328,7 @@ let hooksEngine = null;
 let deploymentScheduler = null;
 let deploymentProcessorRunning = false;
 let automationScheduler = null;
+let onboardBriefingScheduler = null;
 
 function getDeploymentNextRunAt(recurrenceMinutes = DEFAULT_MONITOR_RECURRENCE_MINUTES) {
   return new Date(Date.now() + Math.max(1, Number(recurrenceMinutes) || DEFAULT_MONITOR_RECURRENCE_MINUTES) * 60_000).toISOString();
@@ -7633,6 +7639,99 @@ export async function dispatchHookRun(
   return results;
 }
 
+// ── Onboard Briefing Scheduler ────────────────────────────────────────────────
+// Picks up agent_tasks rows written by veena/onboard (task_type = 'onboard_briefing',
+// status = 'scheduled', scheduled_for <= now) and executes each agent's briefing
+// via runAgentForArtifact.  Runs every ONBOARD_BRIEFING_SCHEDULER_INTERVAL_MS.
+
+const ONBOARD_BRIEFING_QUERIES = {
+  isha: "You have just been briefed on a new company. Review the Marketing Knowledge Graph and produce a market research briefing: market size signal, key demand trends, competition intensity, and 3 growth opportunities this company should be aware of.",
+  neel: "You have just been briefed on a new company. Review the Marketing Knowledge Graph and produce an initial strategy briefing: recommended positioning angle, the single most important target segment to pursue first, and the top 3 marketing priorities for the next 90 days.",
+  zara: "You have just been briefed on a new company. Review the Marketing Knowledge Graph and produce an initial distribution briefing: recommended channel mix ranked by expected ROI, suggested content cadence per channel, and one specific first campaign idea with a rationale.",
+};
+
+async function runOnboardBriefingTick() {
+  const client = supabaseAdminClient || supabaseForServerData();
+  if (!client) return;
+
+  let rows;
+  try {
+    const { data, error } = await client
+      .from("agent_tasks")
+      .select("id, agent_name, company_id, scheduled_for")
+      .eq("task_type", "onboard_briefing")
+      .eq("status", "scheduled")
+      .lte("scheduled_for", new Date().toISOString())
+      .order("scheduled_for", { ascending: true })
+      .limit(5);
+    if (error) {
+      console.warn("[onboard-briefing] query failed:", error.message);
+      return;
+    }
+    rows = data || [];
+  } catch (err) {
+    console.warn("[onboard-briefing] query error:", err.message);
+    return;
+  }
+
+  for (const row of rows) {
+    const agentName = row.agent_name;
+    const companyId = row.company_id;
+    const query = ONBOARD_BRIEFING_QUERIES[agentName];
+    if (!query) {
+      console.warn(`[onboard-briefing] no query template for agent "${agentName}" — skipping`);
+      continue;
+    }
+
+    // Mark running before starting so concurrent ticks skip it
+    try {
+      await client
+        .from("agent_tasks")
+        .update({ status: "running", started_at: new Date().toISOString() })
+        .eq("id", row.id);
+    } catch (err) {
+      console.warn("[onboard-briefing] failed to mark running:", err.message);
+      continue;
+    }
+
+    console.log(`[onboard-briefing] running ${agentName} briefing for company ${companyId}`);
+    try {
+      await runAgentForArtifact(agentName, query, companyId, "onboard_briefing");
+      await client
+        .from("agent_tasks")
+        .update({ status: "done", completed_at: new Date().toISOString() })
+        .eq("id", row.id);
+      console.log(`[onboard-briefing] ${agentName} briefing complete for ${companyId}`);
+    } catch (err) {
+      console.error(`[onboard-briefing] ${agentName} briefing failed for ${companyId}:`, err.message);
+      await client
+        .from("agent_tasks")
+        .update({ status: "failed", error_message: String(err.message || err) })
+        .eq("id", row.id)
+        .catch(() => {/* non-blocking */});
+    }
+  }
+}
+
+function startOnboardBriefingScheduler() {
+  if (onboardBriefingScheduler) return;
+  onboardBriefingScheduler = setInterval(() => {
+    runOnboardBriefingTick().catch((err) => {
+      console.error("[onboard-briefing] interval error:", err.message);
+    });
+  }, ONBOARD_BRIEFING_SCHEDULER_INTERVAL_MS);
+  // Run immediately on startup to catch tasks queued before the last restart
+  runOnboardBriefingTick().catch((err) => {
+    console.error("[onboard-briefing] initial tick failed:", err.message);
+  });
+}
+
+function stopOnboardBriefingScheduler() {
+  if (!onboardBriefingScheduler) return;
+  clearInterval(onboardBriefingScheduler);
+  onboardBriefingScheduler = null;
+}
+
 function startBackendRuntime() {
   if (server) return { server, nightlyScheduler, hooksEngine };
 
@@ -7641,6 +7740,7 @@ function startBackendRuntime() {
     startWorker();
     startDeploymentScheduler();
     startAutomationScheduler();
+    startOnboardBriefingScheduler();
     if (!nightlyScheduler) {
       nightlyScheduler = createNightlyScheduler({
         client: getPipelineWriteClient(),

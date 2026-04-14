@@ -77,6 +77,41 @@ export function useOnboarding(onComplete: () => void) {
     if (!companyId) return;
 
     queueCompanyIntelAutorun(derivedName, rawWebsiteUrl, companyId);
+
+    // Step 1 — kick off Veena's MKG crawl and wait for it to populate before
+    // running generate-all. This ensures all 15 artifact agents have real MKG
+    // context (positioning, ICP, competitors, etc.) rather than an empty graph.
+    try {
+      await fetchJson('/api/agents/veena/onboard', {
+        method: 'POST',
+        body: JSON.stringify({
+          company_id: companyId,
+          website_url: rawWebsiteUrl,
+          company_name: derivedName,
+        }),
+      });
+
+      // Poll until at least one MKG field has confidence > 0 (crawl completed)
+      // or until 90 s have elapsed, whichever comes first.
+      const MKG_POLL_INTERVAL_MS = 4_000;
+      const MKG_POLL_TIMEOUT_MS  = 90_000;
+      const deadline = Date.now() + MKG_POLL_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, MKG_POLL_INTERVAL_MS));
+        try {
+          const { mkg } = await fetchJson<{ mkg: Record<string, { confidence?: number }> }>(`/api/mkg/${companyId}`);
+          const populated = mkg && Object.values(mkg).some(f => (f?.confidence ?? 0) > 0);
+          if (populated) break;
+        } catch {
+          // non-blocking — keep polling
+        }
+      }
+    } catch {
+      // Veena crawl failure is non-blocking; generate-all will run with whatever
+      // context is available (company name + URL at minimum).
+    }
+
+    // Step 2 — now run generate-all with the populated MKG as context.
     await fetchJson(`/api/company-intel/companies/${companyId}/generate-all`, {
       method: 'POST',
       body: JSON.stringify({
