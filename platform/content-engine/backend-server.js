@@ -1342,24 +1342,24 @@ const AGENT_PLAN_GROQ_MODELS = [
   ...(isGroqProvider ? ["llama-3.3-70b-versatile"] : []),
 ];
 const AGENT_RUN_NO_TOOL_GROQ_MODELS = [
-  "openai/gpt-oss-120b",
+  "groq/compound",
   getLLMModel('agent-run'),
-  "openai/gpt-oss-120b",
+  "llama-3.3-70b-versatile",
 ].filter((model, index, models) => model && models.indexOf(model) === index);
 const AGENT_RUN_TOOL_GROQ_MODELS = [
-  "openai/gpt-oss-120b",
+  "groq/compound",
   getLLMModel('agent-run-tool'),
-  "openai/gpt-oss-120b",
+  "llama-3.3-70b-versatile",
 ].filter((model, index, models) => model && models.indexOf(model) === index);
 
 /**
  * Firecrawl REST + optional browser_search are merged in runAgenticLoop only when
  * inferProviderForModel(model) === "groq". If LLM_PROVIDER=claude, agent-run-tool
  * may still resolve to a Claude id — so when FIRECRAWL_API_KEY is set we force
- * Groq-native ids (gpt-oss first) for /api/agents/:name/run.
+ * Groq-native ids (compound first) for /api/agents/:name/run.
  */
 function resolveAgentRunFirecrawlGroqModels() {
-  const fallbacks = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"];
+  const fallbacks = ["groq/compound", "llama-3.3-70b-versatile"];
   const envModel = (process.env.GROQ_AGENT_RUN_TOOL_MODEL || "").trim();
   const primary =
     envModel && inferProviderForModel(envModel) === "groq"
