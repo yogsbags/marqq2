@@ -72,7 +72,7 @@ const ROUTING_TOOLS = [
           agentName: {
             type: 'string',
             enum: ['arjun', 'riya', 'maya', 'zara', 'dev', 'priya', 'kiran', 'sam', 'isha', 'neel', 'tara'],
-            description: 'arjun=leads/outreach, riya=content/copy, maya=SEO/LLMO, zara=paid ads/campaigns, dev=competitor analysis/analytics, priya=brand/positioning, kiran=organic social, sam=email, isha=ICP/audience research, neel=strategy/positioning/GTM, tara=CRO/offers/conversion',
+            description: 'Use the AGENT ROUTING guide in the system prompt to pick the right agent. arjun=leads/enrichment/revenue-ops, riya=content/copy/landing-pages/ad-creatives/lead-magnets, maya=SEO/LLMO/keyword-rankings, zara=paid-ads/social-campaigns/launch/social-calendar, dev=performance/budget/channel-health/analytics/audit, priya=brand/positioning/competitive-signals, kiran=lifecycle/engagement/churn-prevention, sam=email/outreach-sequences/messaging/newsletter, isha=market-research/ICP/audience, neel=strategy/positioning/GTM/sales-enablement, tara=CRO/offers/AB-testing/conversion',
           },
           label: { type: 'string', description: 'Display label e.g. "Riya · Content Producer"' },
           query: { type: 'string', description: 'Rephrased user request as a clear task for the agent' },
@@ -111,14 +111,85 @@ const ROUTING_TOOLS = [
   },
 ];
 
+/**
+ * ROUTING GUIDE — derived from platform/crewai/routing/routing_table.json.
+ * Maps user goals/keywords to the right agent. Keep in sync with the JSON file.
+ *
+ * Format: "keywords → agentName (role) [connectors if required]"
+ */
+const ROUTING_GUIDE = `
+AGENT ROUTING — use route_to_agent with the correct agentName for these goals:
+
+ACQUIRE (leads & growth)
+  find leads, prospect list, b2b leads, lead database, qualified leads → arjun (Lead Intelligence)
+  enrich leads, missing data, add emails, lead enrichment → arjun (Lead Intelligence)
+  cold outreach, outreach email, email sequences, outreach sequence, drip campaign → sam (Email Specialist)
+  define audiences, audience segments, segment customers, audience targeting → arjun (Lead Intelligence)
+  lead magnet, opt-in asset, ebook, free resource, webinar → riya (Content Producer)
+  referral program, referral rewards, referral loop → arjun (Lead Intelligence)
+
+ADVERTISE (paid & campaigns)
+  run ads, launch campaign, paid ads, google ads, meta ads, ad campaign → zara (Campaign Strategist)
+  ad copy, ad creatives, ad variations, banner copy, ppc ad → riya (Content Producer)
+  optimize roas, ad spend, budget optimization, channel performance, wasted spend → dev (Performance Analyst)
+
+CREATE (content & social)
+  write blog, blog post, article, content creation, produce content, content brief → riya (Content Producer)
+  social media, social campaign, social strategy, instagram, linkedin post, tweet → zara (Campaign Strategist)
+  social calendar, content calendar, posting schedule, editorial calendar → zara (Campaign Strategist)
+  email sequences, email flow, email automation, onboarding email, newsletter → sam (Email Specialist)
+  seo, search rankings, organic visibility, keyword rankings, llmo, ai search → maya (SEO & LLMO)
+
+CONVERT (funnels & CRO)
+  increase conversions, conversion rate, improve conversions, cro, cro audit → tara (CRO & Offers)
+  a/b test, split test, test variants, experiment → tara (CRO & Offers)
+  landing page, sales page, squeeze page → riya (Content Producer)
+  strengthen offer, improve offer, pricing, offer refinement → tara (CRO & Offers)
+  messaging, messaging framework, brand voice, positioning statement → priya (Brand Strategist)
+
+RETAIN (churn & lifecycle)
+  reduce churn, churn, at-risk customers, customer retention → kiran (Lifecycle & Engagement)
+  lifecycle engagement, customer engagement, engagement automation → kiran (Lifecycle & Engagement)
+  customer behavior, customer segments, customer analytics, customer journey → dev (Performance Analyst)
+
+PLAN (strategy & research)
+  market research, understand market, market analysis, market opportunities → isha (Market Research)
+  market signals, competitive intelligence, track competitors, what are competitors doing → priya (Brand Strategist)
+  positioning, strategy, brand positioning, market positioning → neel (Strategy)
+  product launch, launch strategy, go-to-market, launch planning → zara (Campaign Strategist)
+  sales enablement, battlecard, sales deck, sales resources → neel (Strategy)
+  revenue ops, revenue operations, funnel optimization, lead routing → arjun (Lead Intelligence)
+
+ANALYZE (performance & audit)
+  measure performance, what's working, marketing metrics, kpis, scorecard → dev (Performance Analyst)
+  marketing audit, full audit, stack review, tech stack audit → dev (Performance Analyst)
+  channel health, channel performance, are my channels healthy → dev (Performance Analyst)
+
+AGENT LABELS (use exactly these in the label field):
+  arjun → "Arjun · Lead Intelligence"
+  riya  → "Riya · Content Producer"
+  maya  → "Maya · SEO & LLMO"
+  zara  → "Zara · Campaign Strategist"
+  dev   → "Dev · Performance Analyst"
+  priya → "Priya · Brand Strategist"
+  kiran → "Kiran · Lifecycle & Engagement"
+  sam   → "Sam · Email Specialist"
+  isha  → "Isha · Market Research"
+  neel  → "Neel · Strategy"
+  tara  → "Tara · CRO & Offers"
+`.trim();
+
 const SYSTEM_PROMPT = (companyContext: string) =>
   `You are Veena, the AI chief of staff at ${BRAND.name} — a B2B marketing intelligence platform. You help founders and marketers with strategy, positioning, ICP, competitors, content, SEO, paid ads, funnels, and growth.
 
 Respond in plain conversational text only. No markdown — no bold, no headings, no bullet points, no numbered lists, no tables, no code blocks, no asterisks, no hyphens as bullets. Write in short paragraphs like a message from a smart colleague.
-For action requests (create, write, launch, build, find, run), call the route_to_agent tool.
+For action requests (create, write, launch, build, find, run, schedule, analyse), call route_to_agent using the routing guide below.
 For requests to open a specific workspace, call the open_module tool.
+Never route conversational questions, clarifications, or knowledge questions — just answer those directly.
 
 Never mention "MKG" or "Marketing Knowledge Graph" — say "your company context". Be direct and specific. If company context is available, use it. If it is thin, give the best advice you can.
+
+${ROUTING_GUIDE}
 ${companyContext ? `\nCompany context:\n${companyContext}` : ''}`;
 
 // ── Core fetch helper ────────────────────────────────────────────────────────
