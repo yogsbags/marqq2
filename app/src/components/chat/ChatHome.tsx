@@ -1065,6 +1065,10 @@ function buildUrlAnalysisSequence(url: string): SequenceAgent[] {
 }
 
 function buildBroadQuerySequence(query: string): SequenceAgent[] | null {
+  // Never hijack scheduling / automation intents — those go to the dedicated handler
+  if (/schedul|automat|set.?up.?a|create.?a.?(report|task|job|cron|alert)|remind me/i.test(query)) {
+    return null;
+  }
   if (!/audit|full.?analysis|analyse (my|our)|analyze (my|our)|review (my|our)|(marketing|growth) strategy|go.?to.?market|gtm plan/i.test(query)) {
     return null;
   }
@@ -2585,6 +2589,143 @@ export function ChatHome({
     onMessagesChange(prev => [...prev, msg]);
   };
 
+  // -- Scheduling intent handler
+  // Detects "schedule / automate X" follow-ups, checks required connectors, and
+  // either shows a connector CTA or creates a deployment + confirms to the user.
+
+  const SCHEDULE_RULES: Array<{
+    pattern: RegExp;
+    agentName: string;
+    taskType: string;
+    sectionId: string;
+    sectionTitle: string;
+    schedule: string;
+    requiredConnectors: string[];
+    connectorLabels: string[];
+  }> = [
+    {
+      pattern: /seo.*(audit|report)|audit.*seo|search.?console|gsc/i,
+      agentName: 'maya', taskType: 'seo_audit',
+      sectionId: 'monthly_seo_audit', sectionTitle: 'Monthly SEO Audit Report',
+      schedule: 'first Monday of month',
+      requiredConnectors: ['gsc'], connectorLabels: ['Google Search Console'],
+    },
+    {
+      pattern: /keyword|ranking|organic.*traffic/i,
+      agentName: 'maya', taskType: 'seo_audit',
+      sectionId: 'monthly_seo_audit', sectionTitle: 'Monthly SEO Audit Report',
+      schedule: 'first Monday of month',
+      requiredConnectors: ['gsc'], connectorLabels: ['Google Search Console'],
+    },
+    {
+      pattern: /analytics|traffic|ga4|google.?analytics/i,
+      agentName: 'maya', taskType: 'daily_market_scan',
+      sectionId: 'weekly_traffic_report', sectionTitle: 'Weekly Traffic Report',
+      schedule: 'every Monday at 9am',
+      requiredConnectors: ['ga4'], connectorLabels: ['Google Analytics 4'],
+    },
+    {
+      pattern: /lead|crm|prospect|pipeline/i,
+      agentName: 'arjun', taskType: 'lead_score',
+      sectionId: 'weekly_leads_report', sectionTitle: 'Weekly Leads Report',
+      schedule: 'every Monday at 9am',
+      requiredConnectors: ['hubspot'], connectorLabels: ['HubSpot'],
+    },
+    {
+      pattern: /campaign|ads|paid|google.?ads|meta.?ads/i,
+      agentName: 'zara', taskType: 'campaign_brief',
+      sectionId: 'weekly_campaign_report', sectionTitle: 'Weekly Campaign Report',
+      schedule: 'every Monday at 9am',
+      requiredConnectors: ['google_ads'], connectorLabels: ['Google Ads'],
+    },
+    {
+      pattern: /social|linkedin|instagram|youtube/i,
+      agentName: 'kiran', taskType: 'social_monitor',
+      sectionId: 'weekly_social_report', sectionTitle: 'Weekly Social Report',
+      schedule: 'every Monday at 9am',
+      requiredConnectors: ['linkedin'], connectorLabels: ['LinkedIn'],
+    },
+    {
+      pattern: /email|newsletter|klaviyo|mailchimp/i,
+      agentName: 'sam', taskType: 'report_delivery',
+      sectionId: 'weekly_email_report', sectionTitle: 'Weekly Email Performance',
+      schedule: 'every Monday at 9am',
+      requiredConnectors: [], connectorLabels: [],
+    },
+  ];
+
+  const tryHandleSchedulingIntent = async (query: string): Promise<boolean> => {
+    if (!/schedul|automat|set.?up.?a|every.?(month|week|day)|monthly|weekly|daily|cron/i.test(query)) {
+      return false;
+    }
+
+    const rule = SCHEDULE_RULES.find(r => r.pattern.test(query));
+    if (!rule) return false;
+
+    const workspaceId = activeWorkspace?.id;
+    if (!workspaceId) return false;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      content: query,
+      sender: 'user',
+      timestamp: new Date(),
+    };
+    onMessagesChange(prev => [...prev, userMessage]);
+    setInputValue('');
+    setIsTyping(true);
+
+    // Check if required connectors are connected
+    const missing = rule.requiredConnectors.filter(c => !activeConnectorIds.includes(c));
+    if (missing.length > 0) {
+      setIsTyping(false);
+      const ctaMsgId = `sched-cta-${Date.now()}`;
+      const ctaMsg: Message = {
+        id: ctaMsgId,
+        content: `__connector_cta__:${rule.sectionId}:${rule.sectionTitle}:${missing.join(',')}`,
+        sender: 'ai',
+        timestamp: new Date(),
+      };
+      onMessagesChange(prev => [...prev, ctaMsg]);
+      setPendingWorkflow({ moduleId: rule.sectionId, moduleLabel: rule.sectionTitle, formMessageId: ctaMsgId });
+      return true;
+    }
+
+    // All connectors present — schedule the deployment
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/agent-deployments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentName: rule.agentName,
+          sectionId: rule.sectionId,
+          sectionTitle: rule.sectionTitle,
+          summary: `${rule.sectionTitle} — runs ${rule.schedule}.`,
+          tasks: [{ label: rule.sectionTitle, horizon: 'month' }],
+          scheduledFor: new Date(Date.now() + 60_000).toISOString(),
+          schedule: rule.schedule,
+          source: 'chat_followup',
+        }),
+      });
+      window.dispatchEvent(new CustomEvent('marqq:deployment-created'));
+    } catch { /* non-blocking */ }
+
+    setIsTyping(false);
+    const confirmMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      content: `Done — **${rule.sectionTitle}** is scheduled to run ${rule.schedule}. You'll receive the report by email and it will appear in your Upcoming Tasks panel. You can pause or adjust the schedule from the Automations section anytime.`,
+      sender: 'ai',
+      timestamp: new Date(),
+      follow_ups: [
+        `View upcoming ${rule.sectionTitle.toLowerCase()} tasks`,
+        `Change the schedule for ${rule.sectionTitle.toLowerCase()}`,
+        `Add another automated report`,
+      ],
+    };
+    onMessagesChange(prev => [...prev, confirmMsg]);
+    return true;
+  };
+
   // -- Send message
 
   const handleSendMessage = async () => {
@@ -2609,6 +2750,9 @@ export function ChatHome({
       const success = await executeSlashCommand(inputValue.trim());
       if (success) return;
     }
+
+    // Scheduling / automation intent — handle before generic Veena routing
+    if (!selectedFile && await tryHandleSchedulingIntent(inputValue.trim())) return;
 
     let fileInfo = undefined;
     if (selectedFile) {
