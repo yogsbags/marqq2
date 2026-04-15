@@ -1014,6 +1014,27 @@ interface ChatHomeProps {
 
 // -- Component
 
+/**
+ * AGENT_REQUIRED_CONNECTORS — derived from routing_table.json required_connectors.
+ * Maps agentName → minimum connector IDs that must be active for the agent to run
+ * live data queries. If none are active the UI shows a ConnectorReadinessCard
+ * instead of silently running the agent against empty data.
+ * Keep in sync with routing_table.json required_connectors fields.
+ */
+const AGENT_REQUIRED_CONNECTORS: Record<string, string[]> = {
+  maya:  ['gsc'],          // SEO / LLMO — needs Google Search Console or Ahrefs
+  dev:   ['ga4'],          // Performance — needs GA4 or Google Ads
+  arjun: ['apollo'],       // Lead Intel — needs Apollo
+  kiran: ['hubspot'],      // Lifecycle — needs HubSpot
+  zara:  ['google_ads'],   // Campaigns — needs Google Ads or Meta Ads
+  sam:   [],               // Email — can run copy-only, no hard requirement
+  riya:  [],               // Content — runs without connectors
+  priya: [],               // Brand/Competitive — runs without connectors
+  isha:  [],               // Market Research — runs without connectors
+  neel:  [],               // Strategy — runs without connectors
+  tara:  ['ga4'],          // CRO — needs GA4 for conversion data
+};
+
 const TOOL_USE_LABELS = [
   'Analysing your context...',
   'Checking brand knowledge base...',
@@ -1724,111 +1745,12 @@ export function ChatHome({
     return () => ac.abort();
   }, [activeConversationId, activeWorkspace?.id, activeWorkspace?.website_url, scope]);
 
+  // sendQuickMessage — used by follow-up suggestion buttons and module quick-actions.
+  // Delegates entirely to handleSendMessage via textOverride so it gets the full
+  // intent-routing pipeline: scheduling → creation → goal-chain → Veena.
   const sendQuickMessage = (text: string) => {
-    setInputValue(text);
-    // Use a microtask so the input state is committed before send fires
-    setTimeout(() => {
-      setInputValue('');
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        content: text,
-        sender: 'user',
-        timestamp: new Date(),
-      };
-      onMessagesChange(prev => [...prev, userMessage]);
-      setIsTyping(true);
-      const history: ChatMessage[] = [
-        ...messages.map(m => ({
-          role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-          content: m.content,
-        })),
-        { role: 'user' as const, content: text },
-      ];
-      const placeholderId = (Date.now() + 1).toString();
-      onMessagesChange(prev => [...prev, { id: placeholderId, content: '', sender: 'ai' as const, timestamp: new Date() }]);
-      let streamedContent = '';
-      let streamedReasoning = '';
-      setReasoningStreamingId(placeholderId);
-      askVeena(
-        history,
-        mkgContext,
-        (token) => {
-          streamedContent += token;
-          if (streamedContent.length <= token.length) setIsTyping(false);
-          setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, content: streamedContent } : m));
-        },
-        (token) => {
-          streamedReasoning += token;
-          setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, reasoning: streamedReasoning } : m));
-        },
-      ).then(veena => {
-        setReasoningStreamingId(null);
-        if (veena.route === 'agent') {
-          setMessages(prev => prev.filter(m => m.id !== placeholderId));
-          setIsTyping(false);
-          // Check for goal-chain sequences from routing_table.json
-          const qGoalChain = buildGoalChainSequence(text);
-          if (qGoalChain) {
-            return runAgentSequence(qGoalChain.agents, qGoalChain.introText);
-          }
-          const ackMsg: Message = { id: (Date.now() + 2).toString(), content: `On it — routing this to ${veena.label}.`, sender: 'ai', timestamp: new Date() };
-          onMessagesChange(prev => [...prev, ackMsg]);
-          return runAgentSlashCommand({ name: veena.agentName, label: veena.label, defaultQuery: veena.query }, veena.query);
-        }
-        if (veena.route === 'module') {
-          setMessages(prev => prev.filter(m => m.id !== placeholderId));
-          setIsTyping(false);
-
-          // ── Connector readiness check ──────────────────────────────────────
-          const readiness = checkConnectorReadiness(veena.moduleId, activeConnectorIds);
-          if (!readiness.ready && readiness.missing.length > 0) {
-            const ctaMsgId = `wf-cta-${Date.now()}`;
-            const ctaMsg: Message = {
-              id: ctaMsgId,
-              content: `__connector_cta__:${veena.moduleId}:${veena.label}:${readiness.missing.join(',')}`,
-              sender: 'ai',
-              timestamp: new Date(),
-            };
-            onMessagesChange(prev => [...prev, ctaMsg]);
-            setPendingWorkflow({ moduleId: veena.moduleId, moduleLabel: veena.label, formMessageId: ctaMsgId });
-            return;
-          }
-
-          if (hasWorkflowForm(veena.moduleId)) {
-            const form = WORKFLOW_FORMS[veena.moduleId];
-            const formMsgId = `wf-form-${Date.now()}`;
-            const formMsg: Message = {
-              id: formMsgId,
-              content: '',
-              sender: 'ai',
-              timestamp: new Date(),
-              workflowForm: form,
-              workflowState: 'gathering_inputs',
-            };
-            onMessagesChange(prev => [...prev, formMsg]);
-            setPendingWorkflow({ moduleId: veena.moduleId, moduleLabel: veena.label, formMessageId: formMsgId });
-            return;
-          }
-
-          if (onModuleSelect) onModuleSelect(veena.moduleId);
-          const navKey = navResponseKey(veena.moduleId);
-          const msg: Message = { id: (Date.now() + 2).toString(), content: MODULE_NAV_RESPONSES[navKey] ?? `I've opened ${veena.label} for you.`, sender: 'ai', timestamp: new Date() };
-          onMessagesChange(prev => [...prev, msg]);
-          return;
-        }
-        // answer — persist final streamed content + reasoning
-        onMessagesChange(prev => prev.map(m =>
-          m.id === placeholderId
-            ? { ...m, content: streamedContent, reasoning: streamedReasoning || undefined }
-            : m
-        ));
-      }).catch(() => {
-        setReasoningStreamingId(null);
-        setMessages(prev => prev.filter(m => m.id !== placeholderId));
-        const msg: Message = { id: (Date.now() + 2).toString(), content: "Sorry, I'm having trouble connecting right now.", sender: 'ai', timestamp: new Date() };
-        onMessagesChange(prev => [...prev, msg]);
-      }).finally(() => setIsTyping(false));
-    }, 0);
+    // Defer one tick so any React state flush completes before we enter the async pipeline
+    setTimeout(() => handleSendMessage(text), 0);
   };
 
   // -- Fetch MKG when company context changes
@@ -2953,19 +2875,26 @@ export function ChatHome({
   };
 
   // -- Send message
+  // textOverride: when set (e.g. from a follow-up button click), use this text
+  // instead of the controlled input value. This lets sendQuickMessage reuse the
+  // full intent-routing pipeline without duplicating logic.
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() && !selectedFile) return;
+  const handleSendMessage = async (textOverride?: string) => {
+    const text = textOverride ?? inputValue;
+    if (!text.trim() && !selectedFile) return;
 
-    const mentionTask = selectedFile ? null : parseAgentMention(inputValue);
-    if (mentionTask) {
-      openAgentTaskFlow(mentionTask.agent, mentionTask.task);
-      return;
+    // @mention short-circuit — only for typed input, not quick-messages
+    if (!textOverride) {
+      const mentionTask = selectedFile ? null : parseAgentMention(text);
+      if (mentionTask) {
+        openAgentTaskFlow(mentionTask.agent, mentionTask.task);
+        return;
+      }
     }
 
-    if (inputValue.startsWith('/')) {
+    if (!textOverride && text.startsWith('/')) {
       // Check for digital employee slash commands first
-      const parts = inputValue.trim().split(/\s+/);
+      const parts = text.trim().split(/\s+/);
       const cmd = parts[0];
       const agentEntry = SLASH_AGENTS[cmd];
       if (agentEntry) {
@@ -2973,15 +2902,40 @@ export function ChatHome({
         return;
       }
 
-      const success = await executeSlashCommand(inputValue.trim());
+      const success = await executeSlashCommand(text.trim());
       if (success) return;
     }
 
     // Scheduling / automation intent — handle before generic Veena routing
-    if (!selectedFile && await tryHandleSchedulingIntent(inputValue.trim())) return;
+    if (!selectedFile && await tryHandleSchedulingIntent(text.trim())) {
+      if (!textOverride) { setInputValue(''); }
+      return;
+    }
 
     // Artifact creation intent — route to specialist before generic Veena routing
-    if (!selectedFile && await tryHandleCreationIntent(inputValue.trim())) return;
+    if (!selectedFile && await tryHandleCreationIntent(text.trim())) {
+      if (!textOverride) { setInputValue(''); }
+      return;
+    }
+
+    // Goal-chain pre-Veena short-circuit — known multi-agent chains from
+    // routing_table.json can skip the Veena LLM call entirely since we already
+    // know which agents to run (saves ~1s latency for launch/audit queries).
+    if (!selectedFile) {
+      const preChain = buildGoalChainSequence(text.trim());
+      if (preChain) {
+        const userMsg: Message = {
+          id: Date.now().toString(),
+          content: text.trim(),
+          sender: 'user',
+          timestamp: new Date(),
+        };
+        onMessagesChange(prev => [...prev, userMsg]);
+        if (!textOverride) setInputValue('');
+        await runAgentSequence(preChain.agents, preChain.introText);
+        return;
+      }
+    }
 
     let fileInfo = undefined;
     if (selectedFile) {
@@ -2995,18 +2949,20 @@ export function ChatHome({
 
     const userMessage: Message = {
       id: Date.now().toString(),
-      content: inputValue || (selectedFile ? `Uploaded file: ${selectedFile.name}` : ''),
+      content: text || (selectedFile ? `Uploaded file: ${selectedFile.name}` : ''),
       sender: 'user',
       timestamp: new Date(),
       file: fileInfo,
     };
 
     onMessagesChange(prev => [...prev, userMessage]);
-    const currentInput = inputValue;
+    const currentInput = text;
     const currentFile = selectedFile;
-    setInputValue('');
-    setSelectedFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!textOverride) {
+      setInputValue('');
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
 
     // ── URL fast-path: skip Veena routing and immediately orchestrate full team
     if (!currentFile) {
@@ -3091,7 +3047,24 @@ export function ChatHome({
           return;
         }
 
-        // Single-agent path — Veena already picked the right specialist
+        // Single-agent path — Veena already picked the right specialist.
+        // Check if required connectors are active (from routing_table.json required_connectors).
+        // If not, show the ConnectorReadinessCard instead of running the agent against empty data.
+        const agentRequired = AGENT_REQUIRED_CONNECTORS[veena.agentName] ?? [];
+        const agentMissing = agentRequired.filter(c => !activeConnectorIds.includes(c));
+        if (agentMissing.length > 0) {
+          const ctaMsgId = `agent-cta-${Date.now()}`;
+          onMessagesChange(prev => [...prev, {
+            id: ctaMsgId,
+            content: `__connector_cta__:${veena.agentName}:${veena.label}:${agentMissing.join(',')}`,
+            sender: 'ai',
+            timestamp: new Date(),
+          }]);
+          // Store the pending query so we can resume after connecting
+          setPendingWorkflow({ moduleId: veena.agentName, moduleLabel: veena.label, formMessageId: ctaMsgId });
+          return;
+        }
+
         addMessage(`On it — routing this to ${veena.label}.`);
         await runAgentSlashCommand(
           { name: veena.agentName, label: veena.label, defaultQuery: veena.query },
