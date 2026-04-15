@@ -44,7 +44,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (error) {
           console.error('Error getting session:', error);
-          setState(prev => ({ ...prev, isLoading: false }));
+          // Stale refresh token — sign out cleanly so the user lands on the login page
+          if (error.message?.toLowerCase().includes('refresh token')) {
+            await supabase.auth.signOut().catch(() => {});
+          }
+          setState({ user: null, isAuthenticated: false, isLoading: false });
           return;
         }
 
@@ -94,6 +98,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             user,
             isAuthenticated: true,
           }));
+        } else if (event === 'TOKEN_REFRESH_FAILED' || (!session && event === 'INITIAL_SESSION')) {
+          // Stale / invalid refresh token — clear session and force re-login
+          persistActiveUserId(null);
+          await supabase.auth.signOut().catch(() => {});
+          setState({ user: null, isAuthenticated: false, isLoading: false });
         }
       }
     );

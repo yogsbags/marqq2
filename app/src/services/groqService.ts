@@ -20,7 +20,15 @@ import { BRAND } from '@/lib/brand';
 
 // ── Provider resolution ──────────────────────────────────────────────────────
 
-const LLM_PROVIDER  = (import.meta.env.VITE_LLM_PROVIDER  || 'claude').toLowerCase();
+// Groq key — presence auto-selects groq provider unless overridden
+const GROQ_API_KEY  = import.meta.env.VITE_GROQ_API_KEY || '';
+const GROQ_API_URL  = 'https://api.groq.com/openai/v1/chat/completions';
+
+// Auto-detect: if VITE_GROQ_API_KEY is set and no explicit provider, default to groq
+const LLM_PROVIDER  = (
+  import.meta.env.VITE_LLM_PROVIDER ||
+  (GROQ_API_KEY ? 'groq' : 'claude')
+).toLowerCase();
 const LLM_MODEL     = import.meta.env.VITE_LLM_MODEL || '';
 
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
@@ -29,11 +37,7 @@ const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   groq:    'openai/gpt-oss-120b',
 };
 
-const RESOLVED_MODEL = LLM_MODEL || PROVIDER_DEFAULT_MODELS[LLM_PROVIDER] || 'claude-sonnet-4-5';
-
-// Legacy Groq key — only used when LLM_PROVIDER=groq
-const GROQ_API_KEY  = import.meta.env.VITE_GROQ_API_KEY || '';
-const GROQ_API_URL  = 'https://api.groq.com/openai/v1/chat/completions';
+const RESOLVED_MODEL = LLM_MODEL || PROVIDER_DEFAULT_MODELS[LLM_PROVIDER] || 'openai/gpt-oss-120b';
 
 // Backend proxy endpoint — used for Claude / OpenAI so keys stay server-side
 const BACKEND_CHAT_URL = '/api/chat/completions';
