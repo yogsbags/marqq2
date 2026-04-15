@@ -797,6 +797,51 @@ function ArtifactBlock({ artifact }: { artifact: { type: string; [key: string]: 
     );
   }
 
+  if (type === 'document') {
+    const title = artifact.title as string | undefined;
+    const body = artifact.body as string | undefined;
+    const format = artifact.format as string | undefined;
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+      if (!body) return;
+      navigator.clipboard.writeText(body).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }).catch(() => {});
+    };
+
+    const formatEmoji = format === 'blog_post' ? '📝'
+      : format === 'email_sequence' ? '📧'
+      : format === 'social_post' ? '📱'
+      : format === 'ad_copy' ? '📣'
+      : format === 'sales_pitch' ? '🤝'
+      : format === 'seo_brief' ? '🔍'
+      : '✍️';
+
+    return (
+      <div className="mt-3 bg-teal-50 border border-teal-200 rounded-lg p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-teal-800">{formatEmoji} {title ?? 'Generated Document'}</p>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 text-[10px] font-medium text-teal-600 hover:text-teal-800 transition-colors px-2 py-0.5 rounded border border-teal-200 bg-white hover:bg-teal-50"
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
+        {body && (
+          <div className="bg-white rounded border border-teal-100 p-2.5 max-h-60 overflow-y-auto">
+            <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{body}</p>
+          </div>
+        )}
+        {format && (
+          <p className="text-[10px] text-teal-600 capitalize">{format.replace(/_/g, ' ')}</p>
+        )}
+      </div>
+    );
+  }
+
   if (type === 'execution_tracker') {
     const status = artifact.status as string | undefined;
     const metrics = (artifact.metrics ?? {}) as Record<string, unknown>;
@@ -1067,6 +1112,10 @@ function buildUrlAnalysisSequence(url: string): SequenceAgent[] {
 function buildBroadQuerySequence(query: string): SequenceAgent[] | null {
   // Never hijack scheduling / automation intents — those go to the dedicated handler
   if (/schedul|automat|set.?up.?a|create.?a.?(report|task|job|cron|alert)|remind me/i.test(query)) {
+    return null;
+  }
+  // Never hijack artifact creation intents — those go to tryHandleCreationIntent
+  if (/\b(write|draft|generate|build|make|produce)\b/i.test(query)) {
     return null;
   }
   if (!/audit|full.?analysis|analyse (my|our)|analyze (my|our)|review (my|our)|(marketing|growth) strategy|go.?to.?market|gtm plan/i.test(query)) {
@@ -2726,6 +2775,101 @@ export function ChatHome({
     return true;
   };
 
+  // -- Artifact creation intent handler
+  // Detects "write/draft/create/generate X" intents and routes to the right specialist agent
+  // without triggering the 5-agent analysis sequence.
+
+  const CREATION_RULES: Array<{
+    pattern: RegExp;
+    agentName: string;
+    agentLabel: string;
+    format: string;
+    queryPrefix: string;
+  }> = [
+    {
+      pattern: /blog.?post|article|seo.?content|pillar.?content|content.?brief/i,
+      agentName: 'riya', agentLabel: 'Riya · Content Producer',
+      format: 'blog_post',
+      queryPrefix: 'Write a detailed, SEO-optimised blog post about',
+    },
+    {
+      pattern: /email.?sequence|drip.?campaign|nurture.?sequence|onboarding.?email/i,
+      agentName: 'sam', agentLabel: 'Sam · Email Specialist',
+      format: 'email_sequence',
+      queryPrefix: 'Write a complete email sequence for',
+    },
+    {
+      pattern: /cold.?email|outreach.?email|sales.?email|pitch.?email/i,
+      agentName: 'arjun', agentLabel: 'Arjun · Lead Intelligence',
+      format: 'sales_pitch',
+      queryPrefix: 'Write a high-converting cold outreach email for',
+    },
+    {
+      pattern: /social.?post|linkedin.?post|instagram.?(caption|post)|tweet|x.?post/i,
+      agentName: 'kiran', agentLabel: 'Kiran · Social Strategist',
+      format: 'social_post',
+      queryPrefix: 'Write compelling social media posts for',
+    },
+    {
+      pattern: /ad.?copy|google.?ad|meta.?ad|facebook.?ad|ppc.?ad|banner.?copy/i,
+      agentName: 'zara', agentLabel: 'Zara · Campaign Strategist',
+      format: 'ad_copy',
+      queryPrefix: 'Write high-converting ad copy for',
+    },
+    {
+      pattern: /seo.?brief|keyword.?strategy|content.?calendar|topic.?cluster/i,
+      agentName: 'maya', agentLabel: 'Maya · SEO & LLMO',
+      format: 'seo_brief',
+      queryPrefix: 'Create a detailed SEO brief for',
+    },
+    {
+      pattern: /sales.?pitch|pitch.?deck|elevator.?pitch|positioning.?statement|tagline|brand.?message|value.?prop/i,
+      agentName: 'priya', agentLabel: 'Priya · Brand Strategist',
+      format: 'sales_pitch',
+      queryPrefix: 'Write compelling brand messaging and positioning for',
+    },
+    {
+      pattern: /newsletter|weekly.?digest|digest.?email/i,
+      agentName: 'sam', agentLabel: 'Sam · Email Specialist',
+      format: 'email_sequence',
+      queryPrefix: 'Write a newsletter edition for',
+    },
+  ];
+
+  const tryHandleCreationIntent = async (query: string): Promise<boolean> => {
+    // Must have a clear creation verb
+    if (!/\b(write|draft|create|generate|build|make|produce)\b/i.test(query)) return false;
+    // Don't intercept scheduling-style creation ("create a report every week")
+    if (/schedul|automat|every.?(month|week|day)|monthly|weekly|daily/i.test(query)) return false;
+
+    const rule = CREATION_RULES.find(r => r.pattern.test(query));
+    if (!rule) return false;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      content: query,
+      sender: 'user',
+      timestamp: new Date(),
+    };
+    onMessagesChange(prev => [...prev, userMessage]);
+    setInputValue('');
+    setIsTyping(true);
+
+    // Strip the creation verb from the query to get the topic
+    const topic = query.replace(/\b(write|draft|create|generate|build|make|produce)\s+(me\s+)?(a\s+|an\s+)?/i, '').trim();
+    const agentQuery = `${rule.queryPrefix}: ${topic}. Return the full written output as your response. Do not just give a plan or outline — write the actual content.`;
+
+    // Brief ack
+    await new Promise(r => setTimeout(r, 200));
+    setIsTyping(false);
+
+    await runAgentSlashCommand(
+      { name: rule.agentName, label: rule.agentLabel, defaultQuery: agentQuery },
+      agentQuery,
+    );
+    return true;
+  };
+
   // -- Send message
 
   const handleSendMessage = async () => {
@@ -2753,6 +2897,9 @@ export function ChatHome({
 
     // Scheduling / automation intent — handle before generic Veena routing
     if (!selectedFile && await tryHandleSchedulingIntent(inputValue.trim())) return;
+
+    // Artifact creation intent — route to specialist before generic Veena routing
+    if (!selectedFile && await tryHandleCreationIntent(inputValue.trim())) return;
 
     let fileInfo = undefined;
     if (selectedFile) {
