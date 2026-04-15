@@ -1109,45 +1109,122 @@ function buildUrlAnalysisSequence(url: string): SequenceAgent[] {
   ];
 }
 
-function buildBroadQuerySequence(query: string): SequenceAgent[] | null {
-  // Never hijack scheduling / automation intents — those go to the dedicated handler
-  if (/schedul|automat|set.?up.?a|create.?a.?(report|task|job|cron|alert)|remind me/i.test(query)) {
-    return null;
-  }
-  // Never hijack artifact creation intents — those go to tryHandleCreationIntent
-  if (/\b(write|draft|generate|build|make|produce)\b/i.test(query)) {
-    return null;
-  }
-  if (!/audit|full.?analysis|analyse (my|our)|analyze (my|our)|review (my|our)|(marketing|growth) strategy|go.?to.?market|gtm plan/i.test(query)) {
-    return null;
-  }
+/**
+ * buildGoalChainSequence — returns a targeted agent sequence from routing_table.json
+ * agent_chain entries. Returns null if the query doesn't match any known chain.
+ *
+ * Chains defined in routing_table.json:
+ *   launch-planning  → ["neel","zara","riya"]   orchestration: sequential
+ *   marketing-audit  → ["dev","priya","maya"]    orchestration: parallel (run sequential in chat)
+ *
+ * Generic full-analysis fallback (any broad audit/strategy query) runs 5 agents.
+ * Keep the pattern list here in sync with routing_table.json keywords.
+ */
+function buildGoalChainSequence(query: string): { introText: string; agents: SequenceAgent[] } | null {
+  // Never hijack scheduling / automation intents
+  if (/schedul|automat|set.?up.?a|create.?a.?(report|task|job|cron|alert)|remind me/i.test(query)) return null;
+  // Never hijack artifact creation intents
+  if (/\b(write|draft|generate|build|make|produce)\b/i.test(query)) return null;
+
   const concise = '\n\nProvide 2-3 clear bulleted paragraphs with specific, actionable recommendations. No headers or filler.';
-  return [
-    {
-      name: 'maya',
-      displayName: 'Maya',
-      role: 'SEO & LLMO Monitor',
-      query: `${query} — give your SEO and LLMO perspective: keyword opportunities, ranking position, and AI answer engine visibility.${concise}`,
-    },
-    {
-      name: 'arjun',
-      displayName: 'Arjun',
-      role: 'Lead Intelligence',
-      query: `${query} — from a lead intelligence angle: ICP definition, top segments, and outreach priorities.${concise}`,
-    },
-    {
-      name: 'dev',
-      displayName: 'Dev',
-      role: 'Performance Analyst',
-      query: `${query} — identify the key performance metrics, funnel gaps, and top 3 growth levers.${concise}`,
-    },
-    {
-      name: 'riya',
-      displayName: 'Riya',
-      role: 'Content Producer',
-      query: `${query} — what content strategy and specific content pieces do you recommend for the next 30 days?${concise}`,
-    },
-  ];
+
+  // ── Chain 1: launch-planning (neel → zara → riya) ──────────────────────────
+  // routing_table.json: agent_chain: ["neel","zara","riya"], sequential
+  if (/product.?launch|launch.?(strategy|plan|campaign|roadmap|planning)|plan.?(a\s+)?launch|gtm.?plan|go.?to.?market.?(plan|strategy)/i.test(query)) {
+    return {
+      introText: 'Planning your launch — strategy, campaigns, and content briefing in sequence.',
+      agents: [
+        {
+          name: 'neel',
+          displayName: 'Neel',
+          role: 'Strategy',
+          query: `${query} — what is the core positioning narrative, key differentiation, and primary target segment for this launch? Be specific and opinionated.${concise}`,
+        },
+        {
+          name: 'zara',
+          displayName: 'Zara',
+          role: 'Campaign Strategist',
+          query: `${query} — what channels, launch timeline, and campaign angles should we prioritise for the first 60-90 days? Include the top 3 tactical moves.${concise}`,
+        },
+        {
+          name: 'riya',
+          displayName: 'Riya',
+          role: 'Content Producer',
+          query: `${query} — what are the 3 most critical launch content assets to create first (e.g. landing page, email, social)? Name them and describe what makes each effective.${concise}`,
+        },
+      ],
+    };
+  }
+
+  // ── Chain 2: marketing-audit (dev + priya + maya) ──────────────────────────
+  // routing_table.json: agent_chain: ["dev-scorecard","dev-budget","priya"], parallel
+  // Mapped to dev (performance) + priya (competitive) + maya (SEO) in chat
+  if (/marketing.?audit|full.?audit|stack.?review|audit.?my.?(marketing|channels|stack|spend)|tech.?stack.?audit/i.test(query)) {
+    return {
+      introText: 'Running your marketing audit — performance, competitive, and SEO angles.',
+      agents: [
+        {
+          name: 'dev',
+          displayName: 'Dev',
+          role: 'Performance Analyst',
+          query: `${query} — performance audit: what are the top 3 metric issues, funnel gaps, and the single highest-leverage growth action?${concise}`,
+        },
+        {
+          name: 'priya',
+          displayName: 'Priya',
+          role: 'Brand Strategist',
+          query: `${query} — competitive audit: where is the brand weakest vs competitors, and what is the most urgent positioning or messaging fix?${concise}`,
+        },
+        {
+          name: 'maya',
+          displayName: 'Maya',
+          role: 'SEO & LLMO',
+          query: `${query} — SEO and AI visibility audit: what are the top 3 organic ranking gaps and the single most urgent fix to drive traffic?${concise}`,
+        },
+      ],
+    };
+  }
+
+  // ── Generic full-analysis fallback (5-agent) ───────────────────────────────
+  // Catches: "analyse my marketing", "review our strategy", "full analysis", etc.
+  if (!/full.?analysis|analyse (my|our)|analyze (my|our)|review (my|our)|(marketing|growth) strategy/i.test(query)) {
+    return null;
+  }
+  return {
+    introText: 'On it — orchestrating a full read across your team. Each specialist briefing now.',
+    agents: [
+      {
+        name: 'maya',
+        displayName: 'Maya',
+        role: 'SEO & LLMO',
+        query: `${query} — SEO and LLMO perspective: keyword opportunities, ranking gaps, and AI answer engine visibility.${concise}`,
+      },
+      {
+        name: 'arjun',
+        displayName: 'Arjun',
+        role: 'Lead Intelligence',
+        query: `${query} — lead intelligence angle: ICP definition, top segments, and outreach priorities.${concise}`,
+      },
+      {
+        name: 'dev',
+        displayName: 'Dev',
+        role: 'Performance Analyst',
+        query: `${query} — performance angle: key metrics issues, funnel gaps, and top 3 growth levers.${concise}`,
+      },
+      {
+        name: 'riya',
+        displayName: 'Riya',
+        role: 'Content Producer',
+        query: `${query} — content strategy: what specific pieces to publish in the next 30 days for maximum impact?${concise}`,
+      },
+      {
+        name: 'zara',
+        displayName: 'Zara',
+        role: 'Campaign Strategist',
+        query: `${query} — campaign angle: which channels and campaign types to prioritise for the next 90 days?${concise}`,
+      },
+    ],
+  };
 }
 
 // ── Onboarding context helpers ────────────────────────────────────────────────
@@ -1688,9 +1765,14 @@ export function ChatHome({
         setReasoningStreamingId(null);
         if (veena.route === 'agent') {
           setMessages(prev => prev.filter(m => m.id !== placeholderId));
+          setIsTyping(false);
+          // Check for goal-chain sequences from routing_table.json
+          const qGoalChain = buildGoalChainSequence(text);
+          if (qGoalChain) {
+            return runAgentSequence(qGoalChain.agents, qGoalChain.introText);
+          }
           const ackMsg: Message = { id: (Date.now() + 2).toString(), content: `On it — routing this to ${veena.label}.`, sender: 'ai', timestamp: new Date() };
           onMessagesChange(prev => [...prev, ackMsg]);
-          setIsTyping(false);
           return runAgentSlashCommand({ name: veena.agentName, label: veena.label, defaultQuery: veena.query }, veena.query);
         }
         if (veena.route === 'module') {
@@ -2990,7 +3072,7 @@ export function ChatHome({
         setMessages(prev => prev.filter(m => m.id !== placeholderId));
         setIsTyping(false);
 
-        // Check if we should orchestrate a full sequence
+        // URL fast-path: full 5-agent team scan
         const urlInMessage = currentInput.match(URL_RE)?.[0];
         if (urlInMessage) {
           await runAgentSequence(
@@ -2999,16 +3081,17 @@ export function ChatHome({
           );
           return;
         }
-        const broadSequence = buildBroadQuerySequence(currentInput);
-        if (broadSequence) {
-          await runAgentSequence(
-            broadSequence,
-            `On it — I'm orchestrating a full read on this across your team. Stand by for each brief.`,
-          );
+
+        // Goal-chain routing: check routing_table.json agent_chain entries first.
+        // Matches specific goals (launch-planning, marketing-audit, full-analysis)
+        // and runs the right targeted agent sequence, not a generic 5-agent blast.
+        const goalChain = buildGoalChainSequence(currentInput);
+        if (goalChain) {
+          await runAgentSequence(goalChain.agents, goalChain.introText);
           return;
         }
 
-        // Single-agent path
+        // Single-agent path — Veena already picked the right specialist
         addMessage(`On it — routing this to ${veena.label}.`);
         await runAgentSlashCommand(
           { name: veena.agentName, label: veena.label, defaultQuery: veena.query },
