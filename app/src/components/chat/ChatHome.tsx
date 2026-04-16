@@ -2144,7 +2144,7 @@ export function ChatHome({
               agentArtifact = parsed.artifact as Message['artifact'];
             }
             if (Array.isArray(parsed.follow_ups)) {
-              agentFollowUps = parsed.follow_ups as string[];
+              agentFollowUps = parsed.follow_ups.map(fu => typeof fu === 'string' ? fu : (fu && typeof fu === 'object' && 'text' in fu ? String(fu.text) : String(fu))).filter(Boolean);
             }
             if (parsed.connector_prompt && typeof parsed.connector_prompt === 'object') {
               agentConnectorPrompt = parsed.connector_prompt as Message['connector_prompt'];
@@ -2155,7 +2155,7 @@ export function ChatHome({
             // Also check top-level result envelope (agenticLoop wraps in chat_message)
             if (parsed.type === 'chat_message') {
               if (parsed.artifact) agentArtifact = parsed.artifact as Message['artifact'];
-              if (Array.isArray(parsed.follow_ups)) agentFollowUps = parsed.follow_ups as string[];
+              if (Array.isArray(parsed.follow_ups)) agentFollowUps = parsed.follow_ups.map(fu => typeof fu === 'string' ? fu : (fu && typeof fu === 'object' && 'text' in fu ? String(fu.text) : String(fu))).filter(Boolean);
               if (parsed.connector_prompt) agentConnectorPrompt = parsed.connector_prompt as Message['connector_prompt'];
               if (typeof parsed.intent_type === 'string') agentIntentType = parsed.intent_type as Message['intent_type'];
               if (typeof parsed.content === 'string' && parsed.content && !accumulated) {
@@ -2300,7 +2300,7 @@ export function ChatHome({
               if (parsed.contract) {
                 // Extract follow_ups from contract payload
                 const fups = parsed.contract?.follow_ups;
-                if (Array.isArray(fups) && fups.length) seqFollowUps = fups as string[];
+                if (Array.isArray(fups) && fups.length) seqFollowUps = fups.map(fu => typeof fu === 'string' ? fu : (fu && typeof fu === 'object' && 'text' in fu ? String(fu.text) : String(fu))).filter(Boolean);
                 return;
               }
               if (parsed.tool_call) {
@@ -2534,7 +2534,7 @@ export function ChatHome({
             if (parsed.contract) {
               // Pull follow_ups from the backend contract event
               const fups = parsed.contract?.follow_ups;
-              if (Array.isArray(fups) && fups.length) planFollowUps = fups as string[];
+              if (Array.isArray(fups) && fups.length) planFollowUps = fups.map(fu => typeof fu === 'string' ? fu : (fu && typeof fu === 'object' && 'text' in fu ? String(fu.text) : String(fu))).filter(Boolean);
               return;
             }
             if (typeof parsed.text === 'string' && parsed.text) accumulated += parsed.text;
@@ -2879,9 +2879,17 @@ export function ChatHome({
   // instead of the controlled input value. This lets sendQuickMessage reuse the
   // full intent-routing pipeline without duplicating logic.
 
-  const handleSendMessage = async (textOverride?: string) => {
-    const text = textOverride ?? inputValue;
-    if (!text.trim() && !selectedFile) return;
+  const handleSendMessage = async (textOverride?: string | React.MouseEvent) => {
+    const text = typeof textOverride === 'string' ? textOverride : inputValue;
+    if (!text || typeof text !== 'string') {
+      if (selectedFile) {
+        // Fall through to handle file-only message
+      } else {
+        return;
+      }
+    }
+
+    if (typeof text === 'string' && !text.trim() && !selectedFile) return;
 
     // @mention short-circuit — only for typed input, not quick-messages
     if (!textOverride) {
@@ -3134,8 +3142,9 @@ export function ChatHome({
           .then(r => r.ok ? r.json() : null)
           .then(data => {
             if (Array.isArray(data?.follow_ups) && data.follow_ups.length) {
+              const safeFups = data.follow_ups.map((fu: any) => typeof fu === 'string' ? fu : (fu && typeof fu === 'object' && 'text' in fu ? String(fu.text) : String(fu))).filter(Boolean);
               onMessagesChange(prev => prev.map(m =>
-                m.id === placeholderId ? { ...m, follow_ups: data.follow_ups } : m,
+                m.id === placeholderId ? { ...m, follow_ups: safeFups } : m,
               ));
             }
           })
@@ -3375,7 +3384,10 @@ export function ChatHome({
                     <SubagentMessageCard
                       message={message}
                       onModuleSelect={onModuleSelect}
-                      onFollowUpClick={(text) => setInputValue(text)}
+                      onFollowUpClick={(text) => {
+                        if (typeof text === 'string') setInputValue(text);
+                        else if (text && typeof text === 'object' && 'text' in text) setInputValue(String(text.text));
+                      }}
                     />
                   </div>
                 );
@@ -3677,7 +3689,7 @@ export function ChatHome({
               disabled={isTyping}
             />
             <Button
-              onClick={handleSendMessage}
+              onClick={() => handleSendMessage()}
               disabled={(!inputValue.trim() && !selectedFile) || isTyping}
               className="rounded-xl bg-orange-500 hover:bg-orange-600"
             >

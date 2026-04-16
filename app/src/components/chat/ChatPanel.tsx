@@ -794,7 +794,7 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
               disabled={isTyping}
             />
             <Button
-              onClick={handleSendMessage}
+              onClick={() => handleSendMessage()}
               disabled={(!inputValue.trim() && !selectedFile) || isTyping}
               className="bg-orange-500 hover:bg-orange-600"
             >
