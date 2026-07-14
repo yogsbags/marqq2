@@ -212,6 +212,11 @@ export function GtmModuleWizard({
         setProgress(created.progress);
       }
 
+      // Idempotent: if Compound already started at onboarding URL step, server
+      // dedupes the crawl and merges full onboarding ctx into the in-flight prep.
+      if (sessionStorage.getItem('marqq_gtm_prep_started') === '1' && !wantNew) {
+        setPrepMessage(`Finishing site research for ${companyName}…`);
+      }
       await startGtmPrep({
         workspaceId,
         userId: user.id,
@@ -453,6 +458,7 @@ export function GtmModuleWizard({
       sessionStorage.removeItem('marqq_gtm_wizard_pending');
       onDeployAgent({
         target: result.agentTarget as AgentTarget,
+        companyId: module?.company_id || null,
         context: result.deployContext,
       });
     } catch (err) {

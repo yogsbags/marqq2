@@ -17,6 +17,7 @@ const ConnectorChecker = require('../routing/connector-checker');
 const routingTable = require('../routing/routing_table.json');
 const SequentialOrchestrator = require('../orchestration/sequential-orchestrator');
 const ParallelOrchestrator = require('../orchestration/parallel-orchestrator');
+const { normalizeFollowUps } = require('./normalizeFollowUps');
 
 class AgenticLoop {
   constructor(config = {}) {
@@ -466,7 +467,7 @@ class AgenticLoop {
           crew,
           confidence: routing.confidence,
         },
-        follow_ups: result.follow_ups || [],
+        follow_ups: normalizeFollowUps(result.follow_ups, { agentName: agentId, taskTitle: goal_id }),
         connectors_used: result.connectors_used || [],
         ...(result.connector_missing && { connector_prompt: {
           missing: Array.isArray(result.connector_missing) ? result.connector_missing : [result.connector_missing],
@@ -481,6 +482,7 @@ class AgenticLoop {
         content: `The agent encountered an error: ${error.message}. Please try again or ask for help.`,
         intent_type: 'error',
         routing_info: { goal_id, agent: agentId, crew },
+        follow_ups: normalizeFollowUps([], { agentName: agentId, taskTitle: goal_id }),
       };
     }
   }
@@ -537,7 +539,10 @@ class AgenticLoop {
           confidence: result.confidence,
           agents: agent_chain,
         },
-        follow_ups: result.follow_ups || [],
+        follow_ups: normalizeFollowUps(result.follow_ups, {
+          agentName: `orchestrator:${orchestration_pattern}`,
+          taskTitle: goal_id,
+        }),
         connectors_used: result.connectors_used || [],
         orchestration: {
           pattern: orchestration_pattern,
@@ -554,6 +559,7 @@ class AgenticLoop {
         content: `The orchestrated workflow encountered an error: ${error.message}. Please try again.`,
         intent_type: 'error',
         routing_info: { goal_id, agent: 'orchestrator', crew: goalConfig.crew },
+        follow_ups: normalizeFollowUps([], { agentName: 'orchestrator', taskTitle: goal_id }),
       };
     }
   }
@@ -579,7 +585,7 @@ class AgenticLoop {
         crew,
         confidence: 0.95 // After execution
       },
-      follow_ups: agentResponse.follow_ups || [],
+      follow_ups: normalizeFollowUps(agentResponse.follow_ups, { agentName: agent, taskTitle: goal_id }),
       connectors_used: agentResponse.connectors_used || []
     };
   }

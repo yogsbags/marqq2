@@ -165,6 +165,8 @@ export interface GtmExecuteOption {
 
 export interface GtmDeployRequest {
   target: AgentTarget;
+  /** Prefer company created during GTM quiet prep / crawl */
+  companyId?: string | null;
   context?: {
     sectionId?: string;
     sectionTitle?: string;

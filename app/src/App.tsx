@@ -27,6 +27,8 @@ import { markUserOnboardedLocal, userNeedsOnboarding } from '@/lib/onboardingGat
 import type { Conversation } from '@/types/chat';
 import { loadConversationsLocal } from '@/lib/conversationPersistence';
 import { pinChannel } from '@/lib/pinnedChannels';
+import { channelMetaForModule, isCiTaskChannel, pageIdFromCiChannel } from '@/lib/gtmTaskRegistry';
+import { CompanyIntelligenceFlow } from '@/components/modules/CompanyIntelligenceFlow';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 
@@ -61,6 +63,11 @@ function updateDocumentTitle(selectedModule: string | null) {
   } else if (selectedModule === 'help') {
     document.title = `Help & Support - ${BRAND.titleSuffix}`;
   } else if (selectedModule) {
+    const ciMeta = channelMetaForModule(selectedModule);
+    if (ciMeta) {
+      document.title = `#${ciMeta.name} - ${BRAND.titleSuffix}`;
+      return;
+    }
     const module = dashboardData.modules.find(m => m.id === selectedModule);
     document.title = module ? `${module.name} - ${BRAND.titleSuffix}` : `${BRAND.titleSuffix} - ${BRAND.platformTagline}`;
   } else {
@@ -253,6 +260,22 @@ function Dashboard() {
         onConversationsChange={handleConversationsChange}
       />
     );
+
+    // GTM / #main task channels — one CI workstream per channel (e.g. #icps)
+    if (isCiTaskChannel(selectedModule)) {
+      const focusPage = pageIdFromCiChannel(selectedModule);
+      if (focusPage) {
+        return (
+          <div className="h-full overflow-auto px-6 py-4">
+            <CompanyIntelligenceFlow
+              focusPage={focusPage}
+              taskChannelMode
+              onModuleSelect={handleModuleSelect}
+            />
+          </div>
+        );
+      }
+    }
 
     if (currentModule) {
       return (

@@ -2,8 +2,8 @@ import { GtmModuleWizard } from '@/components/home/GtmModuleWizard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import type { AgentTarget, GtmDeployRequest } from '@/types/gtm';
-import { storeGtmContext } from '@/lib/gtmContext';
+import type { GtmDeployRequest } from '@/types/gtm';
+import { deployGtmTask } from '@/lib/deployGtmTask';
 import { BRAND } from '@/lib/brand';
 import { ArrowRight, BarChart3, FileText, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -35,46 +35,7 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
   };
 
   const deployAgent = (req: GtmDeployRequest) => {
-    const target = req.target;
-
-    if (req.context) {
-      storeGtmContext(target, {
-        sectionId: req.context.sectionId || '',
-        sectionTitle: req.context.sectionTitle || '',
-        summary: req.context.summary || '',
-        bullets: req.context.bullets || [],
-      });
-    }
-
-    const navigate = (moduleId: string, options?: { hash?: string }) => {
-      if (options?.hash) {
-        window.location.hash = options.hash.startsWith('#') ? options.hash : `#${options.hash}`;
-      } else if (window.location.hash) {
-        window.history.replaceState(null, '', window.location.pathname);
-      }
-      onModuleSelect(moduleId);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    const map: Record<AgentTarget, { moduleId: string; hash?: string }> = {
-      company_intel_icp: { moduleId: 'company-intelligence', hash: 'ci=icps' },
-      company_intel_competitors: { moduleId: 'company-intelligence', hash: 'ci=competitor_intelligence' },
-      company_intel_marketing_strategy: { moduleId: 'company-intelligence', hash: 'ci=positioning_messaging' },
-      company_intel_sales_enablement: { moduleId: 'company-intelligence', hash: 'ci=sales_enablement' },
-      company_intel_pricing: { moduleId: 'company-intelligence', hash: 'ci=pricing_intelligence' },
-      company_intel_content_strategy: { moduleId: 'company-intelligence', hash: 'ci=content_strategy' },
-      company_intel_channel_strategy: { moduleId: 'company-intelligence', hash: 'ci=channel_strategy' },
-      company_intel_social_calendar: { moduleId: 'company-intelligence', hash: 'ci=social_calendar' },
-      company_intel_lead_magnets: { moduleId: 'company-intelligence', hash: 'ci=lead_magnets' },
-      lead_intelligence: { moduleId: 'lead-intelligence' },
-      budget_optimization: { moduleId: 'budget-optimization' },
-      performance_scorecard: { moduleId: 'performance-scorecard' },
-      user_engagement: { moduleId: 'user-engagement' },
-    };
-
-    const destination = map[target];
-    if (!destination) return;
-    navigate(destination.moduleId, { hash: destination.hash });
+    deployGtmTask(req, onModuleSelect);
   };
 
   return (
@@ -122,13 +83,13 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
             </CardContent>
           </Card>
 
-          <Card className="border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-lime-50">
+          <Card className="border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-teal-50">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <BarChart3 className="h-4 w-4 text-emerald-700" />
-                Improve Campaign ROI
+                <BarChart3 className="h-4 w-4 text-emerald-600" />
+                Improve ROI
               </CardTitle>
-              <CardDescription>Identify high-impact opportunities and prioritize budget-efficient actions.</CardDescription>
+              <CardDescription>Find opportunities, pricing levers, and sales enablement moves.</CardDescription>
             </CardHeader>
             <CardContent>
               <Button className="w-full" onClick={() => startGuidedGoal('roi')}>
@@ -138,13 +99,13 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
             </CardContent>
           </Card>
 
-          <Card className="border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-orange-50">
+          <Card className="border-violet-200/80 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <FileText className="h-4 w-4 text-amber-700" />
-                Launch Monthly Content
+                <FileText className="h-4 w-4 text-violet-600" />
+                Content Pipeline
               </CardTitle>
-              <CardDescription>Generate content strategy, channels, and calendar with one guided setup.</CardDescription>
+              <CardDescription>Ship channel + content strategy with a 30-day calendar starter.</CardDescription>
             </CardHeader>
             <CardContent>
               <Button className="w-full" onClick={() => startGuidedGoal('content')}>

@@ -1,10 +1,20 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { STEPS } from '../components/onboarding/constants';
 import { FormData, Phase } from '../components/onboarding/types';
 import { markUserOnboardedLocal } from '@/lib/onboardingGate';
+import { startGtmPrep } from '@/services/gtmModuleService';
 import { supabase } from '@/lib/supabase';
+
+function normalizeWebsiteUrl(url: string) {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return url.trim().replace(/\/$/, '');
+  }
+}
 
 export function useOnboarding(onComplete: () => void) {
   const { user } = useAuth();
@@ -17,6 +27,7 @@ export function useOnboarding(onComplete: () => void) {
 
   const [activatedAgents, setActivatedAgents] = useState<Set<string>>(new Set());
   const [activatingAgent, setActivatingAgent] = useState<string | null>(null);
+  const prepStartedForUrlRef = useRef<string | null>(null);
 
   const currentStep = STEPS[stepIdx];
   const canAdvance = currentStep?.fields.every(f => f.optional || !!formData[f.key]?.trim()) !== false;
@@ -24,6 +35,53 @@ export function useOnboarding(onComplete: () => void) {
   const updateField = useCallback((key: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [key]: value }));
   }, []);
+
+  /**
+   * Kick Compound web research as soon as company + URL are confirmed (leave step 01).
+   * Silent / no agent theatre — GTM wizard later polls prep status.
+   * Pass `mergeOnly` on activate so industry/ICP update the in-flight prep (server dedupes crawl).
+   */
+  const startBackgroundWebResearch = useCallback(async (data: FormData, opts?: { mergeOnly?: boolean }) => {
+    const websiteUrl = data.websiteUrl.trim();
+    const companyName = data.company?.trim();
+    if (!websiteUrl || !user?.id || !activeWorkspace?.id) return;
+
+    const normalized = normalizeWebsiteUrl(websiteUrl);
+    if (!opts?.mergeOnly && prepStartedForUrlRef.current === normalized) return;
+    if (!opts?.mergeOnly) prepStartedForUrlRef.current = normalized;
+
+    try {
+      sessionStorage.setItem('marqq_gtm_prep_started', '1');
+      sessionStorage.setItem('marqq_gtm_prep_url', normalized);
+    } catch {
+      /* ignore */
+    }
+
+    // Persist URL early so workspace + prep share the same target
+    if (!opts?.mergeOnly) {
+      updateWebsiteUrl(websiteUrl).catch(() => {/* non-blocking */});
+      if (companyName && companyName !== activeWorkspace.name) {
+        renameWorkspace(companyName).catch(() => {/* non-blocking */});
+      }
+    }
+
+    startGtmPrep({
+      workspaceId: activeWorkspace.id,
+      userId: user.id,
+      websiteUrl,
+      companyName: companyName || activeWorkspace.name || 'Company',
+      onboarding: {
+        company: companyName || '',
+        websiteUrl,
+        industry: data.industry?.trim() || '',
+        icp: data.icp?.trim() || '',
+        competitors: data.competitors?.trim() || '',
+        connectedIntegrations: data.connectedIntegrations?.trim() || '',
+      },
+    }).catch(() => {
+      if (!opts?.mergeOnly) prepStartedForUrlRef.current = null;
+    });
+  }, [user?.id, activeWorkspace?.id, activeWorkspace?.name, updateWebsiteUrl, renameWorkspace]);
 
   const handleActivate = async () => {
     setPhase('activate');
@@ -58,6 +116,10 @@ export function useOnboarding(onComplete: () => void) {
       }
     }
 
+    // Ensure prep is running; if already started at step 01, backend merges
+    // richer industry/ICP into the in-flight Compound crawl (no second crawl).
+    void startBackgroundWebResearch(formData, { mergeOnly: true });
+
     if (activeWorkspace?.id) {
       localStorage.setItem(`marqq_onboarding_ctx_${activeWorkspace.id}`, JSON.stringify({
         company: formData.company?.trim() || '',
@@ -82,6 +144,10 @@ export function useOnboarding(onComplete: () => void) {
   };
 
   const handleNext = () => {
+    // After company + URL step: start Compound crawl in the background immediately
+    if (stepIdx === 0) {
+      void startBackgroundWebResearch(formData);
+    }
     if (stepIdx < STEPS.length - 1) {
       setStepIdx(s => s + 1);
     } else {

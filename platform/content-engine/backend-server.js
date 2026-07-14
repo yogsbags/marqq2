@@ -62,10 +62,15 @@ import { listCompanyKpis } from "./kpi-aggregator.js";
 import { detectCompanyAnomalies } from "./anomaly-detector.js";
 import { canAccessModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
-import { REGISTRY, executeAutomationTriggers } from "./automations/registry.js";
+import { REGISTRY, executeAutomationTriggers, computeNextRun } from "./automations/registry.js";
 import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector } from "./mcp-router.js";
 import { getLLMModel, LLM_PROVIDER, LLM_MODEL, inferProviderForModel, isClaudeProvider, isGroqProvider } from "./llm-client.js";
 import { registerGtmWizardRoutes } from "./gtm-wizard-routes.js";
+import {
+  isRecurringDeployment,
+  parseHumanSchedule,
+  resolveDeploymentNextRun,
+} from "./lib/humanSchedule.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -7520,6 +7525,13 @@ function getDeploymentNextRunAt(recurrenceMinutes = DEFAULT_MONITOR_RECURRENCE_M
   return new Date(Date.now() + Math.max(1, Number(recurrenceMinutes) || DEFAULT_MONITOR_RECURRENCE_MINUTES) * 60_000).toISOString();
 }
 
+function getNextRunForDeploymentEntry(entry, after = new Date()) {
+  if (entry?.schedule || entry?.cron) {
+    return resolveDeploymentNextRun(entry, after, computeNextRun);
+  }
+  return getDeploymentNextRunAt(entry?.recurrenceMinutes);
+}
+
 function buildDeploymentRunQuery(entry) {
   if (typeof entry?.runPrompt === "string" && entry.runPrompt.trim()) {
     return entry.runPrompt.trim();
@@ -7590,9 +7602,9 @@ async function processDeploymentQueueTick() {
         entry.runCount = Number(entry.runCount || 0) + 1;
         entry.error = null;
 
-        if (entry.scheduleMode === "monitor" && entry.status !== "stopped") {
+        if (isRecurringDeployment(entry) && entry.status !== "stopped") {
           entry.status = "active";
-          entry.scheduledFor = getDeploymentNextRunAt(entry.recurrenceMinutes);
+          entry.scheduledFor = getNextRunForDeploymentEntry(entry, new Date());
         } else {
           entry.status = "completed";
           entry.completedAt = new Date().toISOString();
@@ -7602,18 +7614,19 @@ async function processDeploymentQueueTick() {
         await syncCompanyActionStatusFromDeployment(entry, "completed");
         const notifyUserId = await resolveDeploymentNotificationUserId(entry);
         if (notifyUserId) {
+          const recurring = isRecurringDeployment(entry);
           await createAgentNotification({
             user_id: notifyUserId,
             agent_name: entry.agentName,
             agent_role: AGENT_PROFILES[entry.agentName]?.title || "Workflow Agent",
             task_type: entry.scheduleMode === "monitor" ? "scheduled_monitor_run" : "scheduled_deployment_run",
             title:
-              entry.scheduleMode === "monitor"
-                ? `${entry.agentName} monitor update: ${entry.agentTarget || entry.sectionTitle || "Scheduled automation"}`
+              recurring
+                ? `${entry.agentName} scheduled update: ${entry.agentTarget || entry.sectionTitle || "Scheduled automation"}`
                 : `${entry.agentName} scheduled run completed`,
             summary:
-              entry.scheduleMode === "monitor"
-                ? `${entry.agentName} completed a scheduled monitor run for ${entry.agentTarget || entry.sectionTitle || "the selected target"}.`
+              recurring
+                ? `${entry.agentName} completed a scheduled run for ${entry.agentTarget || entry.sectionTitle || "the selected target"}. Next: ${entry.scheduledFor || "pending"}.`
                 : `${entry.agentName} completed the scheduled workflow for ${entry.sectionTitle || "the selected section"}.`,
             full_output: {
               deploymentId: entry.id,
@@ -7622,6 +7635,7 @@ async function processDeploymentQueueTick() {
               agentTarget: entry.agentTarget || null,
               nextRunAt: entry.scheduledFor || null,
               scheduleMode: entry.scheduleMode || null,
+              schedule: entry.schedule || null,
             },
             action_items: [
               {
@@ -7646,9 +7660,9 @@ async function processDeploymentQueueTick() {
         entry.lastRunAt = new Date().toISOString();
         entry.error = String(error?.message || error || "Scheduled deployment failed");
 
-        if (entry.scheduleMode === "monitor" && entry.status !== "stopped") {
+        if (isRecurringDeployment(entry) && entry.status !== "stopped") {
           entry.status = "active";
-          entry.scheduledFor = getDeploymentNextRunAt(entry.recurrenceMinutes);
+          entry.scheduledFor = getNextRunForDeploymentEntry(entry, new Date());
         } else {
           entry.status = "failed";
           entry.failedAt = new Date().toISOString();
@@ -10660,6 +10674,9 @@ app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
     recurrenceMinutes,
     runPrompt = "",
     scheduledFor,
+    schedule = "",
+    cron = "",
+    timeZone = "",
     source = "onboarding",
     agentTarget,
     companyId,
@@ -10674,7 +10691,32 @@ app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
 
   try {
     const queue = await readDeploymentQueue();
-    const isMonitor = String(scheduleMode || "") === "monitor";
+    const modeRaw = String(scheduleMode || "").toLowerCase();
+    const tz = typeof timeZone === "string" && timeZone.trim() ? timeZone.trim() : "UTC";
+    const scheduleLabel = typeof schedule === "string" ? schedule.trim() : "";
+    const parsedSchedule = scheduleLabel
+      ? parseHumanSchedule(scheduleLabel, { after: new Date(), timeZone: tz })
+      : null;
+    const isMonitor = modeRaw === "monitor";
+    const isRecurring =
+      isMonitor ||
+      modeRaw === "recurring" ||
+      Boolean(parsedSchedule?.recurring);
+    const resolvedCron =
+      (typeof cron === "string" && cron.trim()) || parsedSchedule?.cron || "";
+    const resolvedRecurrence = isRecurring
+      ? Math.max(
+          15,
+          Number(recurrenceMinutes) ||
+            Number(parsedSchedule?.recurrenceMinutes) ||
+            (isMonitor ? DEFAULT_MONITOR_RECURRENCE_MINUTES : 10080)
+        )
+      : null;
+    const resolvedScheduledFor =
+      (typeof scheduledFor === "string" && scheduledFor.trim()) ||
+      parsedSchedule?.nextRunISO ||
+      (isRecurring ? getDeploymentNextRunAt(resolvedRecurrence) : "next_cron_run");
+
     const entry = {
       id: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       agentName,
@@ -10686,13 +10728,16 @@ app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
       summary,
       bullets: Array.isArray(bullets) ? bullets : [],
       tasks: Array.isArray(tasks) ? tasks : [],
-      scheduleMode: isMonitor ? "monitor" : null,
-      recurrenceMinutes: isMonitor ? Math.max(15, Number(recurrenceMinutes) || 10080) : null,
+      scheduleMode: isMonitor ? "monitor" : isRecurring ? "recurring" : null,
+      schedule: scheduleLabel || null,
+      cron: resolvedCron || null,
+      timeZone: tz,
+      recurrenceMinutes: resolvedRecurrence,
       runPrompt,
       source,
-      status: isMonitor ? "active" : "pending",
+      status: isRecurring ? "active" : "pending",
       createdAt: new Date().toISOString(),
-      scheduledFor: scheduledFor || (isMonitor ? new Date().toISOString() : "next_cron_run"),
+      scheduledFor: resolvedScheduledFor,
     };
     queue.unshift(entry);
     await writeDeploymentQueue(queue.slice(0, 200));

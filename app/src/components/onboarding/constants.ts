@@ -19,7 +19,7 @@ export const STEPS: OnboardingStep[] = [
   {
     num: '01', label: 'Your Company',
     question: 'Tell us about\nyour company.',
-    sub: 'Company name and website are required. Veena uses them immediately to crawl your site and build the first company context.',
+    sub: 'Company name and website are required. As soon as you continue, Compound starts researching your site in the background so the GTM wizard is ready.',
     fields: [
       { key: 'company',    label: 'Company Name',   placeholder: 'e.g. PL Capital',    type: 'input' },
       { key: 'websiteUrl', label: 'Website URL',     placeholder: 'e.g. plcapital.in', type: 'input' },

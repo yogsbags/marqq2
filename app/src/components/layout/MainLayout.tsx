@@ -3,6 +3,7 @@ import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { ChannelHeader } from './ChannelHeader';
 import { RightPanel } from './RightPanel';
 import { cn } from '@/lib/utils';
+import { channelMetaForModule, isCiTaskChannel } from '@/lib/gtmTaskRegistry';
 import { useState } from 'react';
 import type { Conversation } from '@/types/chat';
 
@@ -51,9 +52,13 @@ export function MainLayout({
     || selectedModule === 'performance-scorecard' || selectedModule === 'channel-health'
     || selectedModule === 'calendar' || selectedModule === 'workspace-files'
     || selectedModule === 'scheduled-jobs' || selectedModule === 'chat-sessions'
-    || selectedModule === 'profile';
+    || selectedModule === 'profile'
+    || isCiTaskChannel(selectedModule);
 
-  const channelInfo = CHANNEL_NAMES[selectedModule ?? 'home'] ?? { name: selectedModule ?? 'main', description: '' };
+  const channelInfo =
+    channelMetaForModule(selectedModule ?? '') ||
+    CHANNEL_NAMES[selectedModule ?? 'home'] ||
+    { name: selectedModule ?? 'main', description: '' };
 
   return (
     <div className="flex h-[100dvh] bg-background overflow-hidden">

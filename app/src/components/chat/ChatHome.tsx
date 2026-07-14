@@ -43,7 +43,10 @@ import { usePlan } from '@/hooks/usePlan';
 import { Zap } from 'lucide-react';
 import { GtmModuleWizard } from '@/components/home/GtmModuleWizard';
 import type { GtmDeployRequest } from '@/types/gtm';
-import { storeGtmContext } from '@/lib/gtmContext';
+import { deployGtmTask } from '@/lib/deployGtmTask';
+import { AgentFollowUpOptions } from '@/components/chat/AgentFollowUpOptions';
+import { normalizeFollowUps } from '@/lib/normalizeFollowUps';
+import { parseHumanSchedule, resolveBrowserTimeZone } from '@/lib/humanSchedule';
 import {
   loadConversationsLocal,
   saveConversations,
@@ -1344,24 +1347,13 @@ function SubagentMessageCard({ message, onModuleSelect, onFollowUpClick }: {
           onView={onModuleSelect ? () => onModuleSelect('workspace-files') : undefined}
         />
       ))}
-      {/* Follow-up suggestion buttons */}
+      {/* Follow-up suggestion buttons — always exactly 4 options */}
       {message.follow_ups && message.follow_ups.length > 0 && onFollowUpClick && (
-        <div className="mt-3 space-y-1.5 border-t border-current/10 pt-2.5">
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Next steps</p>
-          {message.follow_ups.map((fu, i) => (
-            <button
-              key={i}
-              onClick={() => onFollowUpClick(fu)}
-              className={cn(
-                'block w-full text-left text-xs px-2 py-1.5 rounded transition',
-                colors.label,
-                'hover:bg-black/5 dark:hover:bg-white/5'
-              )}
-            >
-              → {fu}
-            </button>
-          ))}
-        </div>
+        <AgentFollowUpOptions
+          options={normalizeFollowUps(message.follow_ups, { agentName: message.agentId })}
+          onSelect={onFollowUpClick}
+          title="Choose your next move"
+        />
       )}
     </div>
   );
@@ -2191,7 +2183,7 @@ export function ChatHome({
         agentId: agentEntry.name,
         toolStatus: undefined,
         ...(agentArtifact && { artifact: agentArtifact }),
-        ...(agentFollowUps?.length && { follow_ups: agentFollowUps }),
+        follow_ups: normalizeFollowUps(agentFollowUps, { agentName: agentEntry.name }),
         ...(agentConnectorPrompt && { connector_prompt: agentConnectorPrompt }),
         ...(agentIntentType && { intent_type: agentIntentType }),
       };
@@ -2367,15 +2359,14 @@ export function ChatHome({
             content: displayContent,
             reasoning: streamedReasoning || undefined,
             toolStatus: undefined,
-            ...(seqFollowUps.length && { follow_ups: seqFollowUps }),
+            follow_ups: normalizeFollowUps(seqFollowUps, { agentName: agent.name }),
           } : m,
         ));
       } catch (error) {
         setIsTyping(false);
         const errMsg: Message = {
           id: (Date.now() + Math.random()).toString(),
-          content: error instanceof Error && error.name === 'AbortError'
-            ? 'This step timed out, so I skipped to keep the team moving.'
+          content: error instanceof Error && error.name === 'AbortError'            ? 'This step timed out, so I skipped to keep the team moving.'
             : 'Could not reach this agent right now.',
           sender: 'ai',
           timestamp: new Date(),
@@ -2582,7 +2573,7 @@ export function ChatHome({
         agentName: agentConfig.label,
         agentRole: agentConfig.role,
         agentId: agentConfig.name,
-        ...(planFollowUps.length && { follow_ups: planFollowUps }),
+        follow_ups: normalizeFollowUps(planFollowUps, { agentName: agentConfig.name }),
       };
       onMessagesChange((prev) => [...prev, aiMessage]);
       toast.success(`${agentConfig.label} is working on it.`);
@@ -2595,6 +2586,7 @@ export function ChatHome({
         agentName: agentConfig.label,
         agentRole: agentConfig.role,
         agentId: agentConfig.name,
+        follow_ups: normalizeFollowUps([], { agentName: agentConfig.name }),
       };
       onMessagesChange((prev) => [...prev, errorMessage]);
       toast.error(String(error));
@@ -2771,8 +2763,19 @@ export function ChatHome({
       return true;
     }
 
-    // All connectors present — schedule the deployment
+    // All connectors present — schedule the recurring deployment on the real cadence
     try {
+      const timeZone = resolveBrowserTimeZone()
+      const parsed = parseHumanSchedule(rule.schedule, { timeZone })
+      const nextRunISO = parsed?.nextRunISO || new Date(Date.now() + 60_000).toISOString()
+      const nextLabel = new Date(nextRunISO).toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+
       await fetch(`/api/workspaces/${workspaceId}/agent-deployments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2782,28 +2785,43 @@ export function ChatHome({
           sectionTitle: rule.sectionTitle,
           summary: `${rule.sectionTitle} — runs ${rule.schedule}.`,
           tasks: [{ label: rule.sectionTitle, horizon: 'month' }],
-          scheduledFor: new Date(Date.now() + 60_000).toISOString(),
+          scheduleMode: parsed?.recurring ? 'recurring' : undefined,
           schedule: rule.schedule,
+          cron: parsed?.cron || undefined,
+          timeZone,
+          recurrenceMinutes: parsed?.recurrenceMinutes || undefined,
+          scheduledFor: nextRunISO,
           source: 'chat_followup',
         }),
-      });
-      window.dispatchEvent(new CustomEvent('marqq:deployment-created'));
-    } catch { /* non-blocking */ }
+      })
+      window.dispatchEvent(new CustomEvent('marqq:deployment-created'))
 
-    setIsTyping(false);
-    const confirmMsg: Message = {
-      id: (Date.now() + 1).toString(),
-      content: `Done — **${rule.sectionTitle}** is scheduled to run ${rule.schedule}. You'll receive the report by email and it will appear in your Upcoming Tasks panel. You can pause or adjust the schedule from the Automations section anytime.`,
-      sender: 'ai',
-      timestamp: new Date(),
-      follow_ups: [
-        `View upcoming ${rule.sectionTitle.toLowerCase()} tasks`,
-        `Change the schedule for ${rule.sectionTitle.toLowerCase()}`,
-        `Add another automated report`,
-      ],
-    };
-    onMessagesChange(prev => [...prev, confirmMsg]);
-    return true;
+      setIsTyping(false)
+      const confirmMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        content: `Done — **${rule.sectionTitle}** is on a recurring schedule (${rule.schedule}). Next run: **${nextLabel}** (${timeZone}). You'll get a notification when it finishes, and it will show in Upcoming Tasks. Pause or change it anytime from Automations.`,
+        sender: 'ai',
+        timestamp: new Date(),
+        follow_ups: normalizeFollowUps([
+          `View upcoming ${rule.sectionTitle.toLowerCase()} tasks`,
+          `Change the schedule for ${rule.sectionTitle.toLowerCase()}`,
+          `Add another automated report`,
+          `Show my active automations`,
+        ]),
+      }
+      onMessagesChange(prev => [...prev, confirmMsg])
+      return true
+    } catch {
+      setIsTyping(false)
+      const errMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        content: `I couldn't create the schedule for **${rule.sectionTitle}**. Try again in a moment, or open Automations to set it manually.`,
+        sender: 'ai',
+        timestamp: new Date(),
+      }
+      onMessagesChange(prev => [...prev, errMsg])
+      return true
+    }
   };
 
   // -- Artifact creation intent handler
@@ -3169,13 +3187,25 @@ export function ChatHome({
           .then(r => r.ok ? r.json() : null)
           .then(data => {
             if (Array.isArray(data?.follow_ups) && data.follow_ups.length) {
-              const safeFups = data.follow_ups.map((fu: any) => typeof fu === 'string' ? fu : (fu && typeof fu === 'object' && 'text' in fu ? String(fu.text) : String(fu))).filter(Boolean);
+              const safeFups = normalizeFollowUps(data.follow_ups);
               onMessagesChange(prev => prev.map(m =>
                 m.id === placeholderId ? { ...m, follow_ups: safeFups } : m,
               ));
+            } else {
+              onMessagesChange(prev => prev.map(m =>
+                m.id === placeholderId && !(m.follow_ups && m.follow_ups.length)
+                  ? { ...m, follow_ups: normalizeFollowUps([]) }
+                  : m,
+              ));
             }
           })
-          .catch(() => { /* non-blocking — ignore */ });
+          .catch(() => {
+            onMessagesChange(prev => prev.map(m =>
+              m.id === placeholderId && !(m.follow_ups && m.follow_ups.length)
+                ? { ...m, follow_ups: normalizeFollowUps([]) }
+                : m,
+            ));
+          });
       }
     } catch (error) {
       console.error('Chat error:', error);
@@ -3298,30 +3328,13 @@ export function ChatHome({
           <div className="border-b border-border/70 px-4 py-4">
             <GtmModuleWizard
               onDeployAgent={(req: GtmDeployRequest) => {
-                if (req.context) {
-                  storeGtmContext(req.target, {
-                    sectionId: req.context.sectionId || '',
-                    sectionTitle: req.context.sectionTitle || '',
-                    summary: req.context.summary || '',
-                    bullets: req.context.bullets || [],
-                  });
-                }
                 try {
                   sessionStorage.removeItem('marqq_gtm_wizard_pending');
                 } catch {
                   /* ignore */
                 }
                 setShowGtmWizard(false);
-                const map: Record<string, string> = {
-                  company_intel_icp: 'company-intelligence',
-                  company_intel_competitors: 'company-intelligence',
-                  company_intel_channel_strategy: 'company-intelligence',
-                  company_intel_content_strategy: 'company-intelligence',
-                  company_intel_lead_magnets: 'company-intelligence',
-                  lead_intelligence: 'lead-intelligence',
-                };
-                const moduleId = map[req.target];
-                if (moduleId && onModuleSelect) onModuleSelect(moduleId);
+                deployGtmTask(req, onModuleSelect);
               }}
             />
           </div>
@@ -3551,18 +3564,10 @@ export function ChatHome({
                     {message.artifact && <ArtifactBlock artifact={message.artifact} />}
                     {/* ── Routing: follow-up suggestions ───────────────── */}
                     {message.follow_ups && message.follow_ups.length > 0 && (
-                      <div className="mt-3 space-y-1.5">
-                        <p className="text-xs text-muted-foreground font-medium">Suggested next steps:</p>
-                        {message.follow_ups.map((fu, i) => (
-                          <button
-                            key={i}
-                            onClick={() => { setInputValue(fu); }}
-                            className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1.5 rounded transition"
-                          >
-                            → {fu}
-                          </button>
-                        ))}
-                      </div>
+                      <AgentFollowUpOptions
+                        options={normalizeFollowUps(message.follow_ups, { agentName: message.agentId })}
+                        onSelect={(fu) => { setInputValue(fu); }}
+                      />
                     )}
                     <p
                       className={cn(

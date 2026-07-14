@@ -23,6 +23,28 @@ export const NON_CHANNEL_IDS = new Set([
 
 /** Derive a short human-readable channel title from a module ID */
 export function moduleIdToChannelTitle(moduleId: string): string {
+  if (moduleId.startsWith('ci-')) {
+    const page = moduleId.slice(3);
+    const CI_TITLES: Record<string, string> = {
+      icps: 'icps',
+      competitor_intelligence: 'competitors',
+      positioning_messaging: 'positioning',
+      sales_enablement: 'sales-enable',
+      pricing_intelligence: 'pricing',
+      content_strategy: 'content',
+      channel_strategy: 'channels',
+      social_calendar: 'social-cal',
+      lead_magnets: 'lead-magnets',
+      marketing_strategy: 'mkt-strategy',
+      opportunities: 'opportunities',
+      website_audit: 'site-audit',
+      client_profiling: 'clients',
+      partner_profiling: 'partners',
+      lookalike_audiences: 'lookalikes',
+      overview: 'company',
+    };
+    return CI_TITLES[page] || page.replace(/_/g, '-').slice(0, 16);
+  }
   // Special cases
   const OVERRIDES: Record<string, string> = {
     'seo-llmo':              'seo-llmo',

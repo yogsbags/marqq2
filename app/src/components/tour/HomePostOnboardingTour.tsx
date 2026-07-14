@@ -13,7 +13,7 @@ const HOME_STEPS: SpotlightTourStep[] = [
     placement: 'center',
   },
   {
-    target: 'gtm-module-wizard',
+    target: 'gtm-section-progress',
     title: 'GTM Wizard',
     description:
       'Answer each question with one of four options, then lock the section. Progress stays visible so you always know what is left.',

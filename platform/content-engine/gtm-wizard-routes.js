@@ -8,6 +8,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+/** In-flight quiet prep per workspace — starts on onboarding URL, merges later answers. */
+const quietPrepByWorkspace = new Map();
+
 export const GTM_INTERVIEW_SECTIONS = [
   {
     id: "module",
@@ -714,7 +717,95 @@ export function registerGtmWizardRoutes(app, deps) {
         }
       }
 
+      const urlKey = (normalizedUrl || "").replace(/\/$/, "");
+      const existingPrep = quietPrepByWorkspace.get(workspaceId);
+      const sameUrlRecent =
+        existingPrep &&
+        existingPrep.urlKey === urlKey &&
+        Date.now() - existingPrep.startedAt < 12 * 60 * 1000;
+
+      if (sameUrlRecent) {
+        existingPrep.onboarding = {
+          ...existingPrep.onboarding,
+          ...(onboarding || {}),
+          company: companyName || onboarding.company || existingPrep.onboarding.company || "",
+          websiteUrl: normalizedUrl || onboarding.websiteUrl || existingPrep.onboarding.websiteUrl || "",
+        };
+        existingPrep.companyName = companyName || existingPrep.companyName;
+        if (moduleId) existingPrep.moduleId = moduleId;
+        if (resolvedCompanyId) existingPrep.companyId = resolvedCompanyId;
+
+        if (!existingPrep.done) {
+          return res.status(202).json({
+            prep_id: existingPrep.prepId,
+            companyId: existingPrep.companyId,
+            moduleId: existingPrep.moduleId || null,
+            deduped: true,
+            message: "Prep already in progress. Poll GET /api/gtm/prep/status?workspaceId=…",
+          });
+        }
+
+        // Crawl already finished — merge richer onboarding into saved module (no second Compound run)
+        try {
+          const { data: modules } = await c
+            .from("gtm_modules")
+            .select("id, source_context")
+            .eq("workspace_id", workspaceId)
+            .neq("status", "archived")
+            .order("updated_at", { ascending: false })
+            .limit(5);
+          const target =
+            (moduleId && (modules || []).find((m) => m.id === moduleId)) ||
+            (modules || []).find((m) => m.source_context?.prep_id === existingPrep.prepId) ||
+            (modules || [])[0];
+          if (target) {
+            const prev = target.source_context || {};
+            await c
+              .from("gtm_modules")
+              .update({
+                source_context: {
+                  ...prev,
+                  onboarding: {
+                    ...(prev.onboarding || {}),
+                    ...existingPrep.onboarding,
+                  },
+                },
+              })
+              .eq("id", target.id);
+          }
+        } catch (err) {
+          console.warn("[gtm/prep] post-crawl onboarding merge failed:", err.message);
+        }
+
+        return res.status(202).json({
+          prep_id: existingPrep.prepId,
+          companyId: existingPrep.companyId,
+          moduleId: existingPrep.moduleId || moduleId || null,
+          deduped: true,
+          already_ready: true,
+          message: "Prep already complete; onboarding context updated.",
+        });
+      }
+
       const prepId = randomUUID();
+      quietPrepByWorkspace.set(workspaceId, {
+        prepId,
+        urlKey,
+        startedAt: Date.now(),
+        done: false,
+        companyId: resolvedCompanyId,
+        moduleId: moduleId || null,
+        companyName: companyName || onboarding.company || "Company",
+        onboarding: {
+          company: companyName || onboarding.company || "",
+          websiteUrl: normalizedUrl || onboarding.websiteUrl || "",
+          industry: onboarding.industry || "",
+          icp: onboarding.icp || "",
+          competitors: onboarding.competitors || "",
+          connectedIntegrations: onboarding.connectedIntegrations || "",
+        },
+      });
+
       res.status(202).json({
         prep_id: prepId,
         companyId: resolvedCompanyId,
@@ -727,6 +818,7 @@ export function registerGtmWizardRoutes(app, deps) {
         let crawlDigest = {};
         let crawlError = null;
         let inferences = [];
+        const state = quietPrepByWorkspace.get(workspaceId) || {};
 
         try {
           if (resolvedCompanyId && typeof initializeMKGTemplate === "function") {
@@ -736,7 +828,7 @@ export function registerGtmWizardRoutes(app, deps) {
           if (normalizedUrl && typeof crawlCompanyForMKG === "function") {
             const crawlResult = await crawlCompanyForMKG(
               normalizedUrl,
-              companyName || onboarding.company
+              state.companyName || companyName || onboarding.company
             );
             if (resolvedCompanyId && typeof buildContextPatchFromCrawl === "function") {
               const patch = buildContextPatchFromCrawl(
@@ -762,30 +854,37 @@ export function registerGtmWizardRoutes(app, deps) {
           console.error("[gtm/prep] quiet crawl failed:", crawlError);
         }
 
+        // Re-read state so industry/ICP filled later in onboarding are included
+        const latest = quietPrepByWorkspace.get(workspaceId) || state;
+        const mergedOnboarding = {
+          company: latest.companyName || companyName || onboarding.company || "",
+          websiteUrl: normalizedUrl || onboarding.websiteUrl || "",
+          industry: "",
+          icp: "",
+          competitors: "",
+          connectedIntegrations: "",
+          ...(latest.onboarding || {}),
+        };
+
         const sourceContext = {
           prep_id: prepId,
           prepared_at: new Date().toISOString(),
-          onboarding: {
-            company: companyName || onboarding.company || "",
-            websiteUrl: normalizedUrl || onboarding.websiteUrl || "",
-            industry: onboarding.industry || "",
-            icp: onboarding.icp || "",
-            competitors: onboarding.competitors || "",
-            connectedIntegrations: onboarding.connectedIntegrations || "",
-          },
-          companyId: resolvedCompanyId,
+          onboarding: mergedOnboarding,
+          companyId: latest.companyId || resolvedCompanyId,
           crawlDigest,
           crawlError,
           inferences: { from_crawl: inferences, confidence: crawlError ? 0.2 : 0.7 },
         };
+        const persistModuleId = latest.moduleId || moduleId;
 
         try {
-          if (moduleId) {
+          const companyIdToSave = latest.companyId || resolvedCompanyId;
+          if (persistModuleId) {
             await c
               .from("gtm_modules")
               .update({
                 source_context: sourceContext,
-                company_id: resolvedCompanyId,
+                company_id: companyIdToSave,
                 status: "in_progress",
                 active: true,
                 profile: {
@@ -793,7 +892,7 @@ export function registerGtmWizardRoutes(app, deps) {
                   inferences: sourceContext.inferences,
                 },
               })
-              .eq("id", moduleId);
+              .eq("id", persistModuleId);
           } else {
             const { data: modules } = await c
               .from("gtm_modules")
@@ -812,7 +911,7 @@ export function registerGtmWizardRoutes(app, deps) {
                 .from("gtm_modules")
                 .update({
                   source_context: sourceContext,
-                  company_id: resolvedCompanyId,
+                  company_id: companyIdToSave,
                   status: "in_progress",
                 })
                 .eq("id", draft.id);
@@ -820,8 +919,8 @@ export function registerGtmWizardRoutes(app, deps) {
               await c.from("gtm_modules").insert({
                 workspace_id: workspaceId,
                 user_id: userId,
-                company_id: resolvedCompanyId,
-                name: companyName || onboarding.company || "Untitled module",
+                company_id: companyIdToSave,
+                name: mergedOnboarding.company || "Untitled module",
                 module_type: "product",
                 status: "in_progress",
                 source_context: sourceContext,
@@ -836,6 +935,16 @@ export function registerGtmWizardRoutes(app, deps) {
           }
         } catch (err) {
           console.error("[gtm/prep] failed to persist source_context:", err.message);
+        } finally {
+          const fin = quietPrepByWorkspace.get(workspaceId);
+          if (fin && fin.prepId === prepId) {
+            fin.done = true;
+            // Keep briefly so a late merge can still patch; then drop
+            setTimeout(() => {
+              const cur = quietPrepByWorkspace.get(workspaceId);
+              if (cur && cur.prepId === prepId) quietPrepByWorkspace.delete(workspaceId);
+            }, 60_000);
+          }
         }
       });
     } catch (err) {

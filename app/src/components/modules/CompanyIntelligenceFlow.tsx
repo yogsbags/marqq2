@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ArtifactRecord, Company } from './company-intelligence/api'
 import { fetchJson } from './company-intelligence/api'
 import { COMPANY_INTEL_PAGES, getCompanyIntelPageTitle, type CompanyIntelPageId } from './company-intelligence/pages'
@@ -11,6 +11,19 @@ import { LeadMagnetsPage } from './company-intelligence/pages/LeadMagnetsPage'
 import { OverviewPage } from './company-intelligence/pages/OverviewPage'
 import { clearActiveCompanyContext, persistActiveCompanyContext } from '@/lib/agentContext'
 import { notifyCompanyIntelListUpdated } from '@/lib/companyIntelEvents'
+import {
+  agentForCiPage,
+  ciChannelIdForPage,
+  evaluateTaskConnectors,
+  getCiTaskByPage,
+  GTM_TASK_AUTORUN_KEY,
+  type GtmTaskAutorunPayload,
+} from '@/lib/gtmTaskRegistry'
+import { TaskAgentCommandDeck, type TaskAgentRunState } from '@/components/agents/TaskAgentCommandDeck'
+import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
+import { AgentFollowUpOptions } from '@/components/chat/AgentFollowUpOptions'
+import { taskChannelFollowUps } from '@/lib/normalizeFollowUps'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 
 type GuidedGoal = 'leads' | 'roi' | 'content'
 
@@ -18,6 +31,10 @@ interface CompanyIntelligenceFlowProps {
   guidedGoal?: GuidedGoal | null
   advancedMode?: boolean
   onModuleSelect?: (moduleId: string) => void
+  /** Lock UI to one CI page (used by #icps / task channels) */
+  focusPage?: CompanyIntelPageId
+  /** Task-channel presentation: hide mega tab strip, show run status */
+  taskChannelMode?: boolean
 }
 
 function hasQueuedCompanyIntelAutorun() {
@@ -25,6 +42,16 @@ function hasQueuedCompanyIntelAutorun() {
     return Boolean(sessionStorage.getItem('marqq_company_intel_autorun'))
   } catch {
     return false
+  }
+}
+
+function readGtmTaskAutorun(): GtmTaskAutorunPayload | null {
+  try {
+    const raw = sessionStorage.getItem(GTM_TASK_AUTORUN_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as GtmTaskAutorunPayload
+  } catch {
+    return null
   }
 }
 
@@ -63,23 +90,42 @@ function setHashCi(pageId: CompanyIntelPageId) {
   window.location.hash = next
 }
 
-export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true, onModuleSelect }: CompanyIntelligenceFlowProps) {
+export function CompanyIntelligenceFlow({
+  guidedGoal = null,
+  advancedMode = true,
+  onModuleSelect,
+  focusPage,
+  taskChannelMode = false,
+}: CompanyIntelligenceFlowProps) {
+  const { activeWorkspace } = useWorkspace()
   const [companies, setCompanies] = useState<Company[]>([])
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('')
   const [companyDetails, setCompanyDetails] = useState<{ company: Company; artifacts: Record<string, ArtifactRecord> } | null>(
     null
   )
 
-  const [activePage, setActivePage] = useState<CompanyIntelPageId>('overview')
+  const [activePage, setActivePage] = useState<CompanyIntelPageId>(focusPage || 'overview')
 
 
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [companiesLoaded, setCompaniesLoaded] = useState(false)
   const autoRunFiredRef = useRef(false)
+  const gtmTaskFiredRef = useRef(false)
   const [backgroundGenStatus, setBackgroundGenStatus] = useState<{ status: string; completed: number; total: number } | null>(null)
   const [chatActionPlan, setChatActionPlan] = useState<GuidedActionPlan | null>(null)
   const [queuedAutorunPending, setQueuedAutorunPending] = useState(() => hasQueuedCompanyIntelAutorun())
+  const [taskGenPending, setTaskGenPending] = useState(() => Boolean(readGtmTaskAutorun()?.autoGenerate))
+  const [taskRunMeta, setTaskRunMeta] = useState<GtmTaskAutorunPayload | null>(() => readGtmTaskAutorun())
+  const [activeConnectorIds, setActiveConnectorIds] = useState<string[]>([])
+  const [connectorsLoaded, setConnectorsLoaded] = useState(false)
+  const [connectorGate, setConnectorGate] = useState<{
+    hard: boolean
+    missing: string[]
+    pending: GtmTaskAutorunPayload
+  } | null>(null)
+  const [followUpOptions, setFollowUpOptions] = useState<string[]>([])
+  const pendingGenerateRef = useRef<GtmTaskAutorunPayload | null>(null)
 
   const currentCompany = useMemo(() => companyDetails?.company || null, [companyDetails])
   const currentArtifacts = useMemo(() => companyDetails?.artifacts || {}, [companyDetails])
@@ -94,11 +140,17 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
     return currentArtifacts?.[activeArtifactType] || null
   }, [activeArtifactType, currentArtifacts])
 
+  useEffect(() => {
+    if (!taskChannelMode || !activeArtifact || followUpOptions.length) return
+    setFollowUpOptions(taskChannelFollowUps(getCompanyIntelPageTitle(activePage), agentForCiPage(activePage)))
+  }, [taskChannelMode, activeArtifact, activePage, followUpOptions.length])
+
   const recommendedPages = useMemo(() => {
     if (!guidedGoal) return COMPANY_INTEL_PAGES.filter((p) => !!p.artifactType)
     const allowed = new Set(GUIDED_PAGE_MAP[guidedGoal])
     return COMPANY_INTEL_PAGES.filter((p) => p.id !== 'overview' && allowed.has(p.id))
   }, [guidedGoal])
+
   const visiblePages = useMemo(() => {
     if (!guidedGoal || advancedMode) return COMPANY_INTEL_PAGES
     const allowed = new Set<CompanyIntelPageId>(['overview', 'social_intel', 'ads_intel', ...GUIDED_PAGE_MAP[guidedGoal]])
@@ -121,6 +173,12 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
   }, [currentCompany, selectedCompanyId])
 
   useEffect(() => {
+    if (focusPage) {
+      setActivePage(focusPage)
+      setHashCi(focusPage)
+      return
+    }
+
     const fromHash = parseHashParam('ci')
     if (fromHash && COMPANY_INTEL_PAGES.some((p) => p.id === (fromHash as any))) {
       setActivePage(fromHash as CompanyIntelPageId)
@@ -138,7 +196,7 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [guidedGoal])
+  }, [guidedGoal, focusPage])
 
   useEffect(() => {
     if (!guidedGoal || advancedMode) return
@@ -364,6 +422,144 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companiesLoaded])
 
+  // Load Composio connection state for task-channel gates
+  useEffect(() => {
+    const workspaceId = activeWorkspace?.id
+    if (!workspaceId) {
+      setConnectorsLoaded(true)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return
+        const ids = (json?.connectors || [])
+          .filter((c: { connected?: boolean; id?: string }) => c.connected && c.id)
+          .map((c: { id: string }) => c.id)
+        setActiveConnectorIds(ids)
+      })
+      .catch(() => {
+        if (!cancelled) setActiveConnectorIds([])
+      })
+      .finally(() => {
+        if (!cancelled) setConnectorsLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeWorkspace?.id])
+
+  const runTaskGenerate = useCallback(async (payload: GtmTaskAutorunPayload) => {
+    setTaskGenPending(true)
+    setConnectorGate(null)
+    setFollowUpOptions([])
+    try {
+      let companyId = payload.companyId || selectedCompanyId || companies[0]?.id || ''
+      if (payload.companyId) {
+        setSelectedCompanyId(payload.companyId)
+      } else if (!selectedCompanyId && companies[0]?.id) {
+        setSelectedCompanyId(companies[0].id)
+        companyId = companies[0].id
+      }
+      if (!companyId) {
+        setError('No company found yet. Complete onboarding website crawl, then retry this task.')
+        setTaskGenPending(false)
+        return
+      }
+
+      const existingDetails = await fetchJson<{ company: Company; artifacts: Record<string, ArtifactRecord> }>(
+        `/api/company-intel/companies/${companyId}`
+      )
+      setCompanyDetails(existingDetails)
+      setSelectedCompanyId(companyId)
+
+      const notes = [
+        payload.summary,
+        ...(payload.bullets || []),
+        'Use the locked GTM module profile for this company.',
+      ]
+        .filter(Boolean)
+        .join('\n')
+
+      setLoading(`generate:${payload.artifactType}`)
+      await fetchJson<{ artifact: ArtifactRecord }>(`/api/company-intel/companies/${companyId}/generate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          type: payload.artifactType,
+          inputs: {
+            goal: payload.summary || 'Increase qualified leads',
+            geo: 'India',
+            timeframe: '90 days',
+            channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
+            notes,
+            gtmAgentTarget: payload.agentTarget,
+            agentName: payload.agentName,
+          },
+        }),
+      })
+
+      const refreshed = await fetchJson<{ company: Company; artifacts: Record<string, ArtifactRecord> }>(
+        `/api/company-intel/companies/${companyId}`
+      )
+      setCompanyDetails(refreshed)
+      setFollowUpOptions(
+        taskChannelFollowUps(getCompanyIntelPageTitle(payload.pageId), payload.agentName)
+      )
+    } catch (e: any) {
+      setError(e?.message || 'Failed to generate task output')
+    } finally {
+      setTaskGenPending(false)
+      setLoading(null)
+      pendingGenerateRef.current = null
+    }
+  }, [companies, selectedCompanyId])
+
+  // GTM execute → task channel: connector gate then generate
+  useEffect(() => {
+    if (!companiesLoaded || !connectorsLoaded || gtmTaskFiredRef.current) return
+    const payload = readGtmTaskAutorun()
+    if (!payload?.autoGenerate || !payload.artifactType) return
+    if (focusPage && payload.pageId !== focusPage) return
+
+    gtmTaskFiredRef.current = true
+    try {
+      sessionStorage.removeItem(GTM_TASK_AUTORUN_KEY)
+    } catch {
+      /* ignore */
+    }
+
+    setTaskRunMeta(payload)
+    setActivePage(payload.pageId)
+    setHashCi(payload.pageId)
+
+    const taskDef = getCiTaskByPage(payload.pageId)
+    const gate = evaluateTaskConnectors(
+      {
+        requiredConnectors: taskDef?.requiredConnectors,
+        optionalConnectors: taskDef?.optionalConnectors,
+      },
+      activeConnectorIds
+    )
+
+    if (gate.hardBlocked) {
+      pendingGenerateRef.current = payload
+      setTaskGenPending(false)
+      setConnectorGate({ hard: true, missing: gate.showIds, pending: payload })
+      return
+    }
+
+    if (gate.softNudge) {
+      pendingGenerateRef.current = payload
+      setTaskGenPending(false)
+      setConnectorGate({ hard: false, missing: gate.showIds, pending: payload })
+      return
+    }
+
+    void runTaskGenerate(payload)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companiesLoaded, connectorsLoaded, focusPage, activeConnectorIds, runTaskGenerate])
+
   async function ingestCompany(overrideName?: string, overrideUrl?: string) {
     const companyNameVal = overrideName ?? ''
     const websiteUrlVal = overrideUrl ?? ''
@@ -424,6 +620,11 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
         `/api/company-intel/companies/${selectedCompanyId}`
       )
       setCompanyDetails(refreshed)
+      if (taskChannelMode) {
+        setFollowUpOptions(
+          taskChannelFollowUps(getCompanyIntelPageTitle(activePage), agentForCiPage(activePage))
+        )
+      }
     } catch (e: any) {
       console.error('Generation error:', e)
       setError(e?.message || 'Generation failed')
@@ -457,6 +658,11 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
   }
 
   function navigate(pageId: CompanyIntelPageId) {
+    // Tabs become channels: e.g. Ideal Customer Profiles → #icps
+    if (pageId !== 'overview' && onModuleSelect) {
+      onModuleSelect(ciChannelIdForPage(pageId))
+      return
+    }
     setActivePage(pageId)
     setHashCi(pageId)
   }
@@ -465,8 +671,27 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
   const showStartingScanState =
     activePage !== 'overview' &&
     !!selectedCompanyId &&
-    backgroundGenStatus?.status === 'running' &&
-    !activeArtifact
+    ((backgroundGenStatus?.status === 'running' && !activeArtifact) ||
+      (taskGenPending && !activeArtifact) ||
+      loading === `generate:${activeArtifactType}`)
+
+  const deckAgentName = taskRunMeta?.agentName || agentForCiPage(activePage) || 'neel'
+  const deckChannelTitle =
+    activePage === 'icps'
+      ? 'icps'
+      : activePage.replace(/_/g, '-').slice(0, 16)
+  const deckRunState: TaskAgentRunState = connectorGate
+    ? 'idle'
+    : error
+      ? 'error'
+      : showStartingScanState || taskGenPending
+        ? 'running'
+        : activeArtifact
+          ? 'ready'
+          : 'idle'
+  const deckSummary =
+    taskRunMeta?.summary ||
+    (taskRunMeta?.bullets?.length ? taskRunMeta.bullets.slice(0, 2).join(' · ') : null)
 
   return (
     <div className="space-y-4">
@@ -496,39 +721,108 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
       ) : null}
 
       <div className="space-y-4">
-        <div className="rounded-[30px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.05] px-5 py-5 shadow-sm">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-orange-500">
-            Company Intelligence
-          </div>
-          <div className="mt-2">
-            <div className="max-w-3xl space-y-1">
-              <h1 className="font-brand-syne text-2xl font-semibold tracking-tight text-foreground md:text-[2.05rem]">
-                {title}
-              </h1>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Review a company once, then move through the specific intelligence views only when you need them.
-              </p>
+        {taskChannelMode ? (
+          <TaskAgentCommandDeck
+            agentName={deckAgentName}
+            taskTitle={title}
+            channelTitle={deckChannelTitle}
+            companyName={currentCompany?.companyName || companies.find((c) => c.id === selectedCompanyId)?.companyName}
+            runState={deckRunState}
+            summary={deckSummary}
+            onOpenHub={onModuleSelect ? () => onModuleSelect('company-intelligence') : undefined}
+          />
+        ) : (
+          <div className="rounded-[30px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.05] px-5 py-5 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-orange-500">
+              Company Intelligence
+            </div>
+            <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+              <div className="max-w-3xl space-y-1">
+                <h1 className="font-brand-syne text-2xl font-semibold tracking-tight text-foreground md:text-[2.05rem]">
+                  {title}
+                </h1>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Review a company once, then move through the specific intelligence views only when you need them.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        <div className="flex flex-wrap gap-2">
-          {visiblePages.map((page) => {
-            const isActive = page.id === activePage
-            return (
-              <Button
-                key={page.id}
-                type="button"
-                variant={isActive ? 'default' : 'outline'}
-                size="sm"
-                className={isActive ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'rounded-full'}
-                onClick={() => navigate(page.id)}
-              >
-                {page.title}
-              </Button>
-            )
-          })}
-        </div>
+        {taskChannelMode && connectorGate ? (
+          <ConnectorGateCard
+            missingConnectorIds={connectorGate.missing}
+            taskLabel={title}
+            workspaceId={activeWorkspace?.id}
+            hardGate={connectorGate.hard}
+            onConnected={(connectorId) => {
+              const nextIds = [...activeConnectorIds.filter((id) => id !== connectorId), connectorId]
+              setActiveConnectorIds(nextIds)
+              const pending = connectorGate.pending
+              const taskDef = getCiTaskByPage(pending.pageId)
+              const gate = evaluateTaskConnectors(
+                {
+                  requiredConnectors: taskDef?.requiredConnectors,
+                  optionalConnectors: taskDef?.optionalConnectors,
+                },
+                nextIds
+              )
+              if (connectorGate.hard) {
+                if (!gate.hardBlocked) void runTaskGenerate(pending)
+                else setConnectorGate({ hard: true, missing: gate.showIds, pending })
+              } else {
+                void runTaskGenerate(pending)
+              }
+            }}
+            onSkip={() => {
+              if (connectorGate.hard) {
+                setConnectorGate(null)
+                pendingGenerateRef.current = null
+                return
+              }
+              const pending = connectorGate.pending
+              void runTaskGenerate(pending)
+            }}
+          />
+        ) : null}
+
+        {!taskChannelMode ? (
+          <div className="flex flex-wrap gap-2">
+            {visiblePages.map((page) => {
+              const isActive = page.id === activePage
+              return (
+                <Button
+                  key={page.id}
+                  type="button"
+                  variant={isActive ? 'default' : 'outline'}
+                  size="sm"
+                  className={isActive ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'rounded-full'}
+                  onClick={() => navigate(page.id)}
+                >
+                  {page.title}
+                </Button>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {COMPANY_INTEL_PAGES.filter((p) => p.id !== 'overview' && p.artifactType).slice(0, 8).map((page) => {
+              const isActive = page.id === activePage
+              return (
+                <Button
+                  key={page.id}
+                  type="button"
+                  variant={isActive ? 'default' : 'ghost'}
+                  size="sm"
+                  className={isActive ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'rounded-full text-muted-foreground'}
+                  onClick={() => navigate(page.id)}
+                >
+                  #{page.id === 'icps' ? 'icps' : page.id.replace(/_/g, '-').slice(0, 14)}
+                </Button>
+              )
+            })}
+          </div>
+        )}
 
         {activePage === 'overview' ? (
           <OverviewPage
@@ -558,11 +852,45 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
               {showStartingScanState ? (
                 <Card className="border-orange-200/70 bg-gradient-to-br from-orange-50 to-amber-50 dark:border-orange-900/40 dark:from-orange-950/20 dark:to-amber-950/10">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-lg text-orange-700 dark:text-orange-300">Starting Company Scan</CardTitle>
+                    <CardTitle className="text-lg text-orange-700 dark:text-orange-300">
+                      {taskChannelMode
+                        ? `Running ${taskRunMeta?.agentName || 'agent'}…`
+                        : 'Starting Company Scan'}
+                    </CardTitle>
                   </CardHeader>
                   <CardContent className="text-sm text-muted-foreground">
-                    We&apos;re generating this company-intelligence module now. This screen will populate automatically as soon
-                    as the scan completes.
+                    {taskChannelMode
+                      ? 'Generating this channel from your locked GTM profile. Output appears here when ready.'
+                      : "We're generating this company-intelligence module now. This screen will populate automatically as soon as the scan completes."}
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              {!showStartingScanState && !connectorGate && !activeArtifact && activeArtifactType && selectedCompanyId ? (
+                <Card className="border-border/70">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">No output yet</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Run the agent for this channel to generate {getCompanyIntelPageTitle(activePage)}.
+                    </p>
+                    <Button
+                      type="button"
+                      className="bg-orange-500 hover:bg-orange-600 text-white"
+                      disabled={Boolean(loading)}
+                      onClick={() =>
+                        void generate(activeArtifactType, {
+                          goal: 'Increase qualified leads',
+                          geo: 'India',
+                          timeframe: '90 days',
+                          channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
+                          notes: 'Generate from company profile and GTM context.',
+                        })
+                      }
+                    >
+                      {loading === `generate:${activeArtifactType}` ? 'Generating…' : 'Generate now'}
+                    </Button>
                   </CardContent>
                 </Card>
               ) : null}
@@ -590,6 +918,50 @@ export function CompanyIntelligenceFlow({ guidedGoal = null, advancedMode = true
                   companyId={currentCompany?.id}
                   companyName={currentCompany?.companyName}
                   websiteUrl={currentCompany?.websiteUrl}
+                />
+              ) : null}
+
+              {taskChannelMode && activeArtifact && followUpOptions.length > 0 ? (
+                <AgentFollowUpOptions
+                  options={followUpOptions}
+                  onSelect={(option) => {
+                    if (/competitor/i.test(option) && onModuleSelect) {
+                      onModuleSelect(ciChannelIdForPage('competitor_intelligence'))
+                      return
+                    }
+                    if (/channel plan|90-day/i.test(option) && onModuleSelect) {
+                      onModuleSelect(ciChannelIdForPage('channel_strategy'))
+                      return
+                    }
+                    if (/connect/i.test(option)) {
+                      const taskDef = getCiTaskByPage(activePage)
+                      const soft = (taskDef?.optionalConnectors || []).concat(taskDef?.requiredConnectors || [])
+                      if (soft.length) {
+                        setConnectorGate({
+                          hard: false,
+                          missing: soft,
+                          pending: taskRunMeta || {
+                            channelId: ciChannelIdForPage(activePage),
+                            pageId: activePage,
+                            artifactType: activeArtifactType || activePage,
+                            agentTarget: 'company_intel_icp',
+                            agentName: agentForCiPage(activePage),
+                            autoGenerate: true,
+                          },
+                        })
+                      }
+                      return
+                    }
+                    // Default: regenerate / deepen via generate again
+                    if (activeArtifactType) {
+                      void generate(activeArtifactType, {
+                        goal: option,
+                        notes: option,
+                        geo: 'India',
+                        timeframe: '90 days',
+                      })
+                    }
+                  }}
                 />
               ) : null}
           </div>
