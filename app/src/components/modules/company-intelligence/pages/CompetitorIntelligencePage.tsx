@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Pause, Play, Square, RefreshCw } from 'lucide-react'
+import { Pause, Play, Plus, Square, RefreshCw, Trash2 } from 'lucide-react'
 
 import { AgentAvatar } from '@/components/agents/AgentAvatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 import type { ArtifactRecord } from '../api'
 import { fetchJson } from '../api'
@@ -27,6 +29,11 @@ type DeploymentInfo = {
   error?: string | null
 }
 
+type PlannedTask = { label: string; horizon: 'day' | 'week' | 'month' }
+type EditableTask = PlannedTask & { id: string }
+
+const HORIZONS: PlannedTask['horizon'][] = ['day', 'week', 'month']
+
 function asObj(data: unknown): any {
   return data && typeof data === 'object' ? (data as any) : {}
 }
@@ -39,6 +46,23 @@ function monitorKey(competitor: any, index: number) {
   const name = String(competitor?.name || `Competitor ${index + 1}`).trim()
   const site = String(competitor?.website || '').trim()
   return `${name}::${site || 'no-site'}`
+}
+
+function newTaskId() {
+  return `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeHorizon(value: unknown): PlannedTask['horizon'] {
+  return HORIZONS.includes(value as PlannedTask['horizon']) ? (value as PlannedTask['horizon']) : 'week'
+}
+
+function toEditableTasks(tasks: PlannedTask[] | undefined): EditableTask[] {
+  if (!Array.isArray(tasks) || !tasks.length) return []
+  return tasks.slice(0, 12).map((task) => ({
+    id: newTaskId(),
+    label: String(task.label || '').trim(),
+    horizon: normalizeHorizon(task.horizon),
+  }))
 }
 
 function formatRelative(iso: string | null | undefined): string | null {
@@ -83,7 +107,8 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
   // Deploy-confirm dialog
   const [deployCompetitor, setDeployCompetitor] = useState<any | null>(null)
   const [deployCompetitorIndex, setDeployCompetitorIndex] = useState<number | null>(null)
-  const [deployPlan, setDeployPlan] = useState<{ tasks?: Array<{ label: string; horizon: 'day' | 'week' | 'month' }>; executionPrompt?: string } | null>(null)
+  const [deployPlan, setDeployPlan] = useState<{ executionPrompt?: string } | null>(null)
+  const [editableTasks, setEditableTasks] = useState<EditableTask[]>([])
   const [isPreparingDeploy, setIsPreparingDeploy] = useState(false)
 
   const loadDeployments = useCallback(async () => {
@@ -146,10 +171,11 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
     setDeployCompetitor(competitor)
     setDeployCompetitorIndex(index)
     setDeployPlan(null)
+    setEditableTasks([])
     setIsPreparingDeploy(true)
 
     try {
-      const plan = await fetchJson<{ tasks?: Array<{ label: string; horizon: 'day' | 'week' | 'month' }>; executionPrompt?: string }>(
+      const plan = await fetchJson<{ tasks?: PlannedTask[]; executionPrompt?: string }>(
         '/api/agents/priya/plan',
         {
           method: 'POST',
@@ -159,11 +185,18 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
           }),
         }
       )
-      setDeployPlan(plan)
+      setDeployPlan({ executionPrompt: plan.executionPrompt })
+      const next = toEditableTasks(plan.tasks)
+      setEditableTasks(
+        next.length
+          ? next
+          : [{ id: newTaskId(), label: `Monitor ${String(competitor?.name || 'competitor')}`, horizon: 'week' }],
+      )
     } catch {
       toast.error('Failed to prepare competitor monitoring deployment.')
       setDeployCompetitor(null)
       setDeployCompetitorIndex(null)
+      setEditableTasks([])
     } finally {
       setIsPreparingDeploy(false)
     }
@@ -172,6 +205,16 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
   async function startMonitoring(competitor: any, index: number) {
     const name = String(competitor?.name || `Competitor ${index + 1}`).trim()
     const key = monitorKey(competitor, index)
+
+    const cleanedTasks = editableTasks
+      .map((task) => ({ label: task.label.trim(), horizon: normalizeHorizon(task.horizon) }))
+      .filter((task) => task.label.length > 0)
+
+    if (!cleanedTasks.length) {
+      toast.error('Add at least one task before deploying.')
+      return
+    }
+
     setDeployingKey(key)
 
     try {
@@ -180,18 +223,21 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
         throw new Error('Select a workspace before deploying competitor monitoring.')
       }
 
-      const plan = deployPlan || await fetchJson<{ tasks?: Array<{ label: string; horizon: 'day' | 'week' | 'month' }>; executionPrompt?: string }>(
-        '/api/agents/priya/plan',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            task: buildMonitorRequest(competitor, index),
-            marketingContext: { companyId, companyName, websiteUrl, competitorIntelligence: data },
-          }),
-        }
-      )
+      let runPrompt = String(deployPlan?.executionPrompt || '').trim()
+      if (!runPrompt) {
+        const plan = await fetchJson<{ tasks?: PlannedTask[]; executionPrompt?: string }>(
+          '/api/agents/priya/plan',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              task: buildMonitorRequest(competitor, index),
+              marketingContext: { companyId, companyName, websiteUrl, competitorIntelligence: data },
+            }),
+          }
+        )
+        runPrompt = String(plan.executionPrompt || '').trim() || buildMonitorRequest(competitor, index)
+      }
 
-      // Same workspace queue as CompanyIntelActionButton / Upcoming Tasks panel
       await fetchJson(`/api/workspaces/${workspaceId}/agent-deployments`, {
         method: 'POST',
         body: JSON.stringify({
@@ -202,10 +248,10 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
           sectionTitle: `Competitor Monitor · ${name}`,
           summary: `Recurring competitor monitoring for ${name}.`,
           bullets: ['Track positioning changes', 'Monitor messaging and offer updates', 'Catch campaign moves'],
-          tasks: (Array.isArray(plan.tasks) ? plan.tasks : []).map((t) => ({ label: t.label, horizon: t.horizon })),
+          tasks: cleanedTasks,
           scheduleMode: 'monitor',
           recurrenceMinutes: 1440,
-          runPrompt: String(plan.executionPrompt || '').trim() || buildMonitorRequest(competitor, index),
+          runPrompt,
           scheduledFor: new Date().toISOString(),
           source: 'company-intelligence',
         }),
@@ -217,6 +263,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
       setDeployCompetitor(null)
       setDeployCompetitorIndex(null)
       setDeployPlan(null)
+      setEditableTasks([])
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `Failed to start monitoring for ${name}.`)
     } finally {
@@ -498,6 +545,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
             setDeployCompetitor(null)
             setDeployCompetitorIndex(null)
             setDeployPlan(null)
+            setEditableTasks([])
             setIsPreparingDeploy(false)
           }
         }}
@@ -506,7 +554,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
           <DialogHeader>
             <DialogTitle>Deploy Priya for Competitor Monitoring</DialogTitle>
             <DialogDescription>
-              Schedules recurring Priya monitoring and adds items to Upcoming Tasks. It does not post or scrape channels live outside of Priya’s scheduled agent runs.
+              Schedules recurring Priya monitoring and adds items to Upcoming Tasks. Edit tasks below before deploying. It does not post or scrape channels live outside of Priya’s scheduled agent runs.
             </DialogDescription>
           </DialogHeader>
 
@@ -542,21 +590,79 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
               </Card>
 
               <Card>
-                <CardHeader className="pb-2">
+                <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
                   <CardTitle className="text-base text-orange-600 dark:text-orange-400">Tasks to be added</CardTitle>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1"
+                    disabled={isPreparingDeploy || !!deployingKey}
+                    onClick={() =>
+                      setEditableTasks((prev) => [...prev, { id: newTaskId(), label: '', horizon: 'week' }])
+                    }
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add task
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   {isPreparingDeploy ? (
                     <div className="text-muted-foreground">Preparing monitoring plan…</div>
-                  ) : Array.isArray(deployPlan?.tasks) && deployPlan.tasks.length ? (
-                    deployPlan.tasks.slice(0, 6).map((task, i) => (
-                      <div key={i} className="flex items-start justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
-                        <div className="text-foreground">{task.label}</div>
-                        <div className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">{task.horizon}</div>
+                  ) : editableTasks.length ? (
+                    editableTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-md border border-border/60 px-2 py-2"
+                      >
+                        <Input
+                          value={task.label}
+                          onChange={(e) =>
+                            setEditableTasks((prev) =>
+                              prev.map((row) => (row.id === task.id ? { ...row, label: e.target.value } : row)),
+                            )
+                          }
+                          placeholder="Task description"
+                          className="flex-1 h-9"
+                          disabled={!!deployingKey}
+                        />
+                        <Select
+                          value={task.horizon}
+                          onValueChange={(value) =>
+                            setEditableTasks((prev) =>
+                              prev.map((row) =>
+                                row.id === task.id ? { ...row, horizon: normalizeHorizon(value) } : row,
+                              ),
+                            )
+                          }
+                          disabled={!!deployingKey}
+                        >
+                          <SelectTrigger className="w-full sm:w-[110px] h-9">
+                            <SelectValue placeholder="Horizon" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {HORIZONS.map((horizon) => (
+                              <SelectItem key={horizon} value={horizon}>
+                                {horizon}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                          disabled={!!deployingKey || editableTasks.length <= 1}
+                          onClick={() => setEditableTasks((prev) => prev.filter((row) => row.id !== task.id))}
+                          aria-label="Remove task"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     ))
                   ) : (
-                    <div className="text-muted-foreground">No task breakdown yet — Priya will generate tasks on first run.</div>
+                    <div className="text-muted-foreground">No tasks yet — add at least one before deploying.</div>
                   )}
                 </CardContent>
               </Card>
@@ -568,6 +674,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
               setDeployCompetitor(null)
               setDeployCompetitorIndex(null)
               setDeployPlan(null)
+              setEditableTasks([])
               setIsPreparingDeploy(false)
             }}>
               Cancel

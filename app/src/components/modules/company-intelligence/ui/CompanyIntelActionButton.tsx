@@ -1,10 +1,13 @@
 import { useState } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { AgentAvatar } from '@/components/agents/AgentAvatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 import { fetchJson } from '../api'
 
@@ -12,6 +15,8 @@ type PlannedTask = {
   label: string
   horizon: 'day' | 'week' | 'month'
 }
+
+type EditableTask = PlannedTask & { id: string }
 
 type Props = {
   label: string
@@ -48,6 +53,8 @@ type Props = {
   className?: string
 }
 
+const HORIZONS: PlannedTask['horizon'][] = ['day', 'week', 'month']
+
 function titleCase(value: string) {
   return value.slice(0, 1).toUpperCase() + value.slice(1)
 }
@@ -69,6 +76,23 @@ function getActiveWorkspaceId() {
   } catch {
     return null
   }
+}
+
+function newTaskId() {
+  return `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeHorizon(value: unknown): PlannedTask['horizon'] {
+  return HORIZONS.includes(value as PlannedTask['horizon']) ? (value as PlannedTask['horizon']) : 'week'
+}
+
+function toEditableTasks(tasks: PlannedTask[] | undefined): EditableTask[] {
+  if (!Array.isArray(tasks) || !tasks.length) return []
+  return tasks.slice(0, 12).map((task) => ({
+    id: newTaskId(),
+    label: String(task.label || '').trim(),
+    horizon: normalizeHorizon(task.horizon),
+  }))
 }
 
 export type OpenAgentTaskDetail = {
@@ -119,11 +143,17 @@ export function CompanyIntelActionButton({
   const [open, setOpen] = useState(false)
   const [isPreparing, setIsPreparing] = useState(false)
   const [isDeploying, setIsDeploying] = useState(false)
-  const [plan, setPlan] = useState<{ tasks?: PlannedTask[]; executionPrompt?: string } | null>(null)
+  const [executionPrompt, setExecutionPrompt] = useState('')
+  const [editableTasks, setEditableTasks] = useState<EditableTask[]>([])
+
+  function resetDialogState() {
+    setExecutionPrompt('')
+    setEditableTasks([])
+  }
 
   async function openDeploy() {
     setOpen(true)
-    setPlan(null)
+    resetDialogState()
     setIsPreparing(true)
 
     try {
@@ -139,7 +169,13 @@ export function CompanyIntelActionButton({
           },
         }),
       })
-      setPlan(result)
+      setExecutionPrompt(String(result.executionPrompt || '').trim())
+      const nextTasks = toEditableTasks(result.tasks)
+      setEditableTasks(
+        nextTasks.length
+          ? nextTasks
+          : [{ id: newTaskId(), label: taskPrefix || label, horizon: 'week' }],
+      )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `Failed to prepare ${titleCase(agentName)} deployment.`)
       setOpen(false)
@@ -148,7 +184,24 @@ export function CompanyIntelActionButton({
     }
   }
 
-  async function persistWorkspaceDeployment(activePlan: { tasks?: PlannedTask[]; executionPrompt?: string }) {
+  function updateTask(id: string, patch: Partial<PlannedTask>) {
+    setEditableTasks((prev) =>
+      prev.map((task) => (task.id === id ? { ...task, ...patch } : task)),
+    )
+  }
+
+  function removeTask(id: string) {
+    setEditableTasks((prev) => prev.filter((task) => task.id !== id))
+  }
+
+  function addTask() {
+    setEditableTasks((prev) => [
+      ...prev,
+      { id: newTaskId(), label: '', horizon: 'week' },
+    ])
+  }
+
+  async function persistWorkspaceDeployment(activePlan: { tasks: PlannedTask[]; executionPrompt?: string }) {
     const workspaceId = getActiveWorkspaceId()
     if (!workspaceId) {
       throw new Error('Select a workspace before deploying tasks.')
@@ -162,7 +215,7 @@ export function CompanyIntelActionButton({
       label ||
       taskPrefix
     const runPrompt = String(activePlan.executionPrompt || '').trim() || taskRequest
-    const plannedTasks = (Array.isArray(activePlan.tasks) ? activePlan.tasks : []).map((task) => ({
+    const plannedTasks = activePlan.tasks.map((task) => ({
       label: task.label,
       horizon: task.horizon,
     }))
@@ -196,12 +249,24 @@ export function CompanyIntelActionButton({
   }
 
   async function deploy() {
+    const cleanedTasks = editableTasks
+      .map((task) => ({
+        label: task.label.trim(),
+        horizon: normalizeHorizon(task.horizon),
+      }))
+      .filter((task) => task.label.length > 0)
+
+    if (!cleanedTasks.length) {
+      toast.error('Add at least one task before deploying.')
+      return
+    }
+
     setIsDeploying(true)
 
     try {
-      const activePlan =
-        plan ||
-        (await fetchJson<{ tasks?: PlannedTask[]; executionPrompt?: string }>(`/api/agents/${agentName}/plan`, {
+      let prompt = executionPrompt
+      if (!prompt) {
+        const result = await fetchJson<{ tasks?: PlannedTask[]; executionPrompt?: string }>(`/api/agents/${agentName}/plan`, {
           method: 'POST',
           body: JSON.stringify({
             task: taskRequest,
@@ -212,12 +277,18 @@ export function CompanyIntelActionButton({
               ...(marketingContext || {}),
             },
           }),
-        }))
+        })
+        prompt = String(result.executionPrompt || '').trim()
+        setExecutionPrompt(prompt)
+      }
+
+      const activePlan = {
+        tasks: cleanedTasks,
+        executionPrompt: prompt || taskRequest,
+      }
 
       const runPrompt = await persistWorkspaceDeployment(activePlan)
 
-      // Always feed Upcoming Tasks via workspace deployments.
-      // Prefer a dedicated module channel (#outreach, etc.) over dumping into #main.
       if (deploymentMode === 'run_now') {
         const targetModule = typeof navigateModuleId === 'string' ? navigateModuleId.trim() : ''
         const shouldChatHandoff = chatHandoff ?? !targetModule
@@ -273,7 +344,7 @@ export function CompanyIntelActionButton({
 
       toast.success(successMessage)
       setOpen(false)
-      setPlan(activePlan)
+      resetDialogState()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `Failed to deploy ${titleCase(agentName)}.`)
     } finally {
@@ -300,7 +371,13 @@ export function CompanyIntelActionButton({
         {label}
       </Button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) resetDialogState()
+        }}
+      >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
@@ -314,32 +391,75 @@ export function CompanyIntelActionButton({
                 <div className="text-sm font-semibold text-foreground">{titleCase(agentName)} · Task Deployment</div>
                 <div className="text-sm text-muted-foreground">
                   {navigateModuleId
-                    ? `This adds Upcoming Tasks, then opens #${navigateModuleId.replace(/-/g, ' ')} with this company-intel context. It does not send LinkedIn, email, or ads by itself.`
-                    : `This adds Upcoming Tasks for the workspace, then opens ${titleCase(agentName)} in chat to run the first step with this company-intel context. It does not send LinkedIn, email, or ads by itself.`}
+                    ? `Edit the tasks below, then add them to Upcoming Tasks and open #${navigateModuleId.replace(/-/g, ' ')}. It does not send LinkedIn, email, or ads by itself.`
+                    : `Edit the tasks below, then add them to Upcoming Tasks and open ${titleCase(agentName)}. It does not send LinkedIn, email, or ads by itself.`}
                 </div>
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
               <CardTitle className="text-base text-orange-600 dark:text-orange-400">Tasks to be added</CardTitle>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1"
+                disabled={isPreparing || isDeploying}
+                onClick={addTask}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add task
+              </Button>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               {isPreparing ? (
                 <div className="text-muted-foreground">Preparing plan...</div>
-              ) : Array.isArray(plan?.tasks) && plan.tasks.length ? (
-                plan.tasks.slice(0, 8).map((task, index) => (
+              ) : editableTasks.length ? (
+                editableTasks.map((task) => (
                   <div
-                    key={`${task.label}-${index}`}
-                    className="flex items-start justify-between gap-3 rounded-md border border-border/60 px-3 py-2"
+                    key={task.id}
+                    className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-md border border-border/60 px-2 py-2"
                   >
-                    <div className="text-foreground">{task.label}</div>
-                    <div className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">{task.horizon}</div>
+                    <Input
+                      value={task.label}
+                      onChange={(e) => updateTask(task.id, { label: e.target.value })}
+                      placeholder="Task description"
+                      className="flex-1 h-9"
+                      disabled={isDeploying}
+                    />
+                    <Select
+                      value={task.horizon}
+                      onValueChange={(value) => updateTask(task.id, { horizon: normalizeHorizon(value) })}
+                      disabled={isDeploying}
+                    >
+                      <SelectTrigger className="w-full sm:w-[110px] h-9">
+                        <SelectValue placeholder="Horizon" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HORIZONS.map((horizon) => (
+                          <SelectItem key={horizon} value={horizon}>
+                            {horizon}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                      disabled={isDeploying || editableTasks.length <= 1}
+                      onClick={() => removeTask(task.id)}
+                      aria-label="Remove task"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 ))
               ) : (
-                <div className="text-muted-foreground">No task breakdown was generated yet, but the agent can still run.</div>
+                <div className="text-muted-foreground">No tasks yet — add at least one before deploying.</div>
               )}
             </CardContent>
           </Card>
