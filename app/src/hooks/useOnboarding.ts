@@ -136,10 +136,11 @@ export function useOnboarding(onComplete: () => void) {
       /* ignore */
     }
 
-    // Brief visual handoff only — agents stay idle until the user picks a GTM task.
+    // Visual handoff — paced so each agent lights up clearly.
+    // Still no network awaits (activation stays snappy even if workspace PATCH lags).
     for (const agent of AGENTS) {
       setActivatingAgent(agent.id);
-      await new Promise(r => setTimeout(r, 80));
+      await new Promise(r => setTimeout(r, 340));
       setActivatedAgents(prev => new Set([...prev, agent.id]));
     }
     setActivatingAgent(null);
@@ -151,7 +152,7 @@ export function useOnboarding(onComplete: () => void) {
     }
     void supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});
 
-    await new Promise(r => setTimeout(r, 700));
+    await new Promise(r => setTimeout(r, 1800));
     onComplete();
   };
 
