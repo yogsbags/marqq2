@@ -157,6 +157,60 @@ function isThinIcpsArtifact(data) {
   return withDetail.length === 0;
 }
 
+/**
+ * After normalizeArtifact, detect empty/UI-unusable payloads so we can fall back to
+ * Groq's schema-locked generateArtifactWithGroq path (same ICP bug class).
+ */
+function isThinArtifact(type, data) {
+  if (!data || typeof data !== "object") return true;
+  const hasText = (v) => typeof v === "string" && v.trim().length > 0;
+  const arr = (v) => (Array.isArray(v) ? v : []);
+
+  switch (type) {
+    case "icps":
+      return isThinIcpsArtifact(data);
+    case "marketing_strategy":
+      return (
+        !hasText(data.objective) &&
+        !hasText(data.positioning) &&
+        arr(data["90DayPlan"]).length === 0 &&
+        arr(data.funnelPlan).length === 0
+      );
+    case "positioning_messaging":
+      return (
+        !hasText(data.valueProposition) &&
+        arr(data.messagingPillars).length === 0 &&
+        !hasText(data.elevatorPitches?.short)
+      );
+    case "opportunities":
+      return arr(data.quickWins).length === 0 && arr(data.opportunities).length === 0;
+    case "competitor_intelligence":
+      return arr(data.topCompetitors).length === 0;
+    case "lead_magnets":
+      return !arr(data.leadMagnets).some((m) => hasText(m?.promise) || hasText(m?.format) || arr(m?.outline).length);
+    case "social_calendar":
+      return arr(data.items).length === 0;
+    case "client_profiling":
+      return arr(data.segments).length === 0;
+    case "partner_profiling":
+      return arr(data.partnerTypes).length === 0;
+    case "lookalike_audiences":
+      return arr(data.lookalikes).length === 0 && arr(data.seedAudiences).length === 0;
+    case "pricing_intelligence":
+      return !hasText(data.pricingModelSummary) && arr(data.competitorBenchmarks).length === 0;
+    case "website_audit":
+      return !hasText(data.summary) && !hasText(data.firstImpression?.overallImpression);
+    case "content_strategy":
+      return arr(data.contentPillars).length === 0 && arr(data.topicClusters).length === 0;
+    case "sales_enablement":
+      return arr(data.battlecards).length === 0 && arr(data.objectionHandlers).length === 0;
+    case "channel_strategy":
+      return arr(data.channelMix).length === 0 && arr(data.channels).length === 0 && arr(data.prioritizedChannels).length === 0;
+    default:
+      return false;
+  }
+}
+
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
 const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 const COMPANY_PROFILE_PRIMARY_PROVIDER = (
@@ -1055,7 +1109,8 @@ function buildAgentRunGuardrails(name, taskType) {
       "Lead with the positioning, ICP, channel split, and 90-day plan.",
       "Always use real competitor names from Company.competitors in the company knowledge base. Never substitute with generic labels like 'Company A', 'Competitor B', or 'Player X'. Use the actual company name and its specific weakness from the MKG.",
       "Always use exact ICP segment names and firmographics from Company.icp when describing target segments.",
-      "Unless task_type is icp_definition, your artifact.data must use your native schema: positioning_angle, target_segment, channel_priorities, 90_day_plan, rejected_alternatives, risks. Never return strategy_overview/phases.",
+      "For company-intel artifact task types (icp_definition, marketing_strategy, positioning_messaging), IGNORE the native Neel strategy schema and return ONLY the JSON shape requested in the user query. Never empty core fields.",
+      "Only for freeform strategy chat (not those artifact task types) may you use: positioning_angle, target_segment, channel_priorities, 90_day_plan, rejected_alternatives, risks.",
     ],
     tara: [
       "Lead with the deliverable itself, not the rationale table.",
@@ -1104,6 +1159,48 @@ function buildAgentRunGuardrails(name, taskType) {
       "Return 2-4 ICPs and 3-6 cohorts. Every ICP must include non-empty hook, channels[], qualifiers[], and disqualifiers[].",
       "Do NOT return positioning_angle, target_segment, channel_priorities, 90_day_plan, rejected_alternatives, or risks as the primary artifact shape for this task.",
       "Channels must be concrete (e.g. 'LinkedIn outbound', 'partner referrals'), not vague labels like 'digital'.",
+    ],
+    marketing_strategy: [
+      "CRITICAL: Return the marketing_strategy UI schema, not Neel's native strategy keys.",
+      '{ "scores": { "strategicClarity": number, "funnelStrength": number, "executionReadiness": number }, "objective": string, "positioning": string, "targetSegments": string[], "messagingPillars": string[], "kpis": string[], "funnelPlan": [{ "stage": string, "goal": string, "channels": string[], "offers": string[] }], "90DayPlan": [{ "week": number, "focus": string, "keyActivities": string[] }], "risksAndMitigations": [{ "risk": string, "mitigation": string }] }',
+      "Fill objective, positioning, funnelPlan (Awareness/Consideration/Conversion), and a 6-week 90DayPlan. Do not leave core fields empty.",
+    ],
+    positioning_messaging: [
+      "CRITICAL: Return positioning_messaging UI schema.",
+      '{ "scores": { "propositionClarity": number, "differentiationStrength": number, "messageConsistency": number }, "valueProposition": string, "differentiators": string[], "messagingPillars": [{ "pillar": string, "description": string, "audienceRelevance": string }], "brandVoice": { "tone": string[], "dosList": string[], "dontsList": string[] }, "elevatorPitches": { "short": string, "medium": string, "long": string } }',
+      "valueProposition and messagingPillars must be non-empty.",
+    ],
+    competitor_intelligence: [
+      "CRITICAL: Map research into competitor_intelligence UI schema. Use topCompetitors (not competitor_set).",
+      '{ "scores": { "competitorCoverage": number, "differentiationStrength": number, "whitespaceOpportunity": number }, "topCompetitors": [{ "name": string, "website": string, "whyRelevant": string, "positioningSnapshot": string, "strengths": string[], "weaknesses": string[] }], "comparison": { "yourDifferentiators": string[], "messagingGaps": string[], "opportunities": string[] } }',
+      "Return 3-5 topCompetitors with non-empty positioningSnapshot, strengths, and weaknesses.",
+    ],
+    opportunities_analysis: [
+      "CRITICAL: Return opportunities UI schema (not research-only packages).",
+      '{ "scores": { "growthPotential": number, "quickWinReadiness": number, "executionClarity": number }, "summary": string, "quickWins": [{ "title": string, "priority": string, "description": string, "expectedImpact": string, "timeToValue": string }], "opportunities": [{ "title": string, "category": string, "priority": string, "effort": string, "expectedImpact": string, "nextSteps": string[] }], "risksAndMitigations": [{ "risk": string, "mitigation": string }], "90DayPlan": [{ "week": number, "focus": string, "keyActivities": string[] }] }',
+      "Include at least 3 quickWins and 3 opportunities with concrete nextSteps.",
+    ],
+    lead_magnets: [
+      "CRITICAL: Return leadMagnets as an ARRAY (not a singular lead_magnet object).",
+      '{ "scores": { "offerStrength": number, "conversionReadiness": number, "nurtureReadiness": number }, "leadMagnets": [{ "name": string, "format": string, "promise": string, "outline": string[], "landingPageCopy": { "headline": string, "subheadline": string, "bullets": string[], "cta": string }, "followUpSequence": [{ "day": number, "subject": string, "goal": string }] }], "notes": string[] }',
+      "Return 3-5 lead magnets with promise, outline, landing page copy, and follow-up sequence.",
+    ],
+    social_calendar: [
+      "CRITICAL: Return social_calendar UI schema with items[] (not only calendar[]).",
+      '{ "scores": { "channelCoverage": number, "cadenceReadiness": number, "campaignCohesion": number }, "timezone": string, "startDate": string, "weeks": number, "channels": string[], "cadence": { "postsPerWeek": number }, "themes": string[], "items": [{ "date": string, "channel": string, "format": string, "pillar": string, "hook": string, "captionBrief": string, "cta": string, "assetNotes": string, "complianceNote": string }] }',
+      "Return at least 12 items across 4 weeks.",
+    ],
+    client_profiling: [
+      "CRITICAL: Return client_profiling segments schema (not a social calendar).",
+      '{ "scores": { "segmentCoverage": number, "painClarity": number, "activationReadiness": number }, "segments": [{ "name": string, "profile": string, "jobsToBeDone": string[], "painPoints": string[], "objections": string[], "triggers": string[], "channels": string[] }], "insights": string[] }',
+    ],
+    partner_profiling: [
+      "CRITICAL: Return partnerTypes schema (not a social calendar).",
+      '{ "scores": { "partnerCoverage": number, "valueExchangeClarity": number, "activationReadiness": number }, "partnerTypes": [{ "name": string, "valueExchange": string, "selectionCriteria": string[], "activationPlaybook": string[] }], "insights": string[] }',
+    ],
+    lookalike_audiences: [
+      "CRITICAL: Return lookalike_audiences UI schema.",
+      '{ "scores": { "seedQuality": number, "targetingDepth": number, "launchReadiness": number }, "seedAudiences": string[], "lookalikes": [{ "platform": string, "targeting": string[], "exclusions": string[], "creativeHooks": string[], "measurementPlan": string[] }], "notes": string[] }',
     ],
     generate_image: [
       "Use native image generation first for the first draft or concept asset.",
@@ -5388,7 +5485,7 @@ Replace ALL placeholder values with your actual outputs.
     await markAgentHeartbeat(agentName, "running", null, null, companyId);
 
   const completion = await groq.chat.completions.create({
-    model: LLM_MODEL,
+    model: getLLMModel("company-intel") || getLLMModel("agent-run") || LLM_MODEL,
     messages: [
       { role: "system", content: fullSystem },
       { role: "user", content: query },
@@ -8913,9 +9010,9 @@ app.post("/api/company-intel/companies/:id/generate", async (req, res) => {
           agentMapping.taskType,
         );
         let artifactData = normalizeArtifact(type, contract.artifact?.data || {});
-        // Neel/agent runs sometimes return names-only ICPs — fall through to Groq for a full schema fill
-        if (type === "icps" && isThinIcpsArtifact(artifactData)) {
-          throw new Error("Agent ICP payload missing hooks/channels/qualifiers — falling back to Groq schema generation");
+        // Names-only / SOUL-native shapes → fall through to Groq schema generation
+        if (isThinArtifact(type, artifactData)) {
+          throw new Error(`Agent ${type} payload thin after normalize — falling back to Groq schema generation`);
         }
         entry.artifacts[type] = { type, updatedAt: now, data: artifactData };
         entry.company.updatedAt = now;
@@ -9008,8 +9105,8 @@ async function generateCompanyIntelArtifact(entry, type, inputs) {
         agentMapping.taskType,
       );
       let artifactData = normalizeArtifact(type, contract.artifact?.data || {});
-      if (type === "icps" && isThinIcpsArtifact(artifactData)) {
-        throw new Error("Agent ICP payload missing hooks/channels/qualifiers — falling back to Groq schema generation");
+      if (isThinArtifact(type, artifactData)) {
+        throw new Error(`Agent ${type} payload thin after normalize — falling back to Groq schema generation`);
       }
       entry.artifacts[type] = { type, updatedAt: now, data: artifactData };
       entry.company.updatedAt = now;

@@ -723,7 +723,9 @@ function normalizeSocialCalendar(raw) {
     ? asArray(data.items)
     : asArray(data.calendarItems).length
       ? asArray(data.calendarItems)
-      : asArray(data.social_calendar).flatMap((week) => asArray(asObject(week).posts));
+      : asArray(data.calendar).length
+        ? asArray(data.calendar)
+        : asArray(data.social_calendar).flatMap((week) => asArray(asObject(week).posts));
 
   const items = sourceItems.map((item, index) => {
     const row = asObject(item);
@@ -732,8 +734,8 @@ function normalizeSocialCalendar(raw) {
       channel: cleanText(row.channel || row.platform, 'LinkedIn'),
       format: cleanText(row.format || row.contentType, 'Post'),
       pillar: cleanText(row.pillar || row.theme, `Theme ${index + 1}`),
-      hook: cleanText(row.hook || row.topic || row.title, 'Share a company-specific insight'),
-      captionBrief: cleanText(row.captionBrief || row.caption || row.description, 'Summarize the insight with a concrete takeaway and a clear next step.'),
+      hook: cleanText(row.hook || row.topic || row.title || row.draft?.slice?.(0, 80), 'Share a company-specific insight'),
+      captionBrief: cleanText(row.captionBrief || row.caption || row.description || row.draft || row.post, 'Summarize the insight with a concrete takeaway and a clear next step.'),
       cta: cleanText(row.cta || row.callToAction, 'Learn more on the website'),
       assetNotes: stripUrls(row.assetNotes || row.asset_brief || row.assetBrief) || 'Pair with a clean static, chart, or short expert-led video asset.',
       complianceNote: cleanText(row.complianceNote || row.disclaimer || row.compliance, 'Validate factual and regulatory statements before publishing.')
@@ -821,7 +823,9 @@ function normalizeCompetitorIntelligence(raw) {
     ? asArray(data.topCompetitors)
     : asArray(data.competitors).length
       ? asArray(data.competitors)
-      : asArray(data.alternatives);
+      : asArray(data.competitor_set).length
+        ? asArray(data.competitor_set)
+        : asArray(data.alternatives);
 
   return {
     scores,
@@ -830,10 +834,13 @@ function normalizeCompetitorIntelligence(raw) {
       return {
         name: cleanText(row.name || row.competitor || row.brand, 'Unknown competitor'),
         website: cleanText(row.website || row.url || row.domain),
-        whyRelevant: cleanText(row.whyRelevant || row.relevance, 'Competes for similar customers or attention.'),
-        positioningSnapshot: cleanText(row.positioningSnapshot || row.positioning, 'Positioning summary unavailable.'),
+        whyRelevant: cleanText(row.whyRelevant || row.relevance || row.gap, 'Competes for similar customers or attention.'),
+        positioningSnapshot: cleanText(
+          row.positioningSnapshot || row.positioning || row.position || row.narrative,
+          'Positioning summary unavailable.'
+        ),
         strengths: uniqueStrings(asArray(row.strengths).concat(asArray(row.pros)), 6),
-        weaknesses: uniqueStrings(asArray(row.weaknesses).concat(asArray(row.cons)), 6)
+        weaknesses: uniqueStrings(asArray(row.weaknesses).concat(asArray(row.cons)).concat(asArray(row.gap)), 6)
       };
     }).filter((entry) => entry.name && entry.positioningSnapshot),
     comparison: {
@@ -862,14 +869,17 @@ function normalizePositioningMessaging(raw) {
   });
   return {
     scores,
-    valueProposition: cleanText(data.valueProposition),
-    differentiators: uniqueStrings(asArray(data.differentiators), 8),
-    messagingPillars: asArray(data.messagingPillars).map((entry) => {
+    valueProposition: cleanText(data.valueProposition || data.positioning_angle || data.positioningAngle || data.positioning),
+    differentiators: uniqueStrings(asArray(data.differentiators).concat(asArray(data.rejected_alternatives)), 8),
+    messagingPillars: asArray(data.messagingPillars || data.messaging_pillars).map((entry) => {
+      if (typeof entry === 'string') {
+        return { pillar: entry, description: entry, audienceRelevance: '' };
+      }
       const row = asObject(entry);
       return {
-        pillar: cleanText(row.pillar),
-        description: cleanText(row.description),
-        audienceRelevance: cleanText(row.audienceRelevance)
+        pillar: cleanText(row.pillar || row.name || row.title),
+        description: cleanText(row.description || row.summary || row.detail),
+        audienceRelevance: cleanText(row.audienceRelevance || row.audience || row.target_segment)
       };
     }).filter((entry) => entry.pillar && entry.description),
     brandVoice: {
@@ -878,7 +888,7 @@ function normalizePositioningMessaging(raw) {
       dontsList: uniqueStrings(asArray(asObject(data.brandVoice).dontsList), 8)
     },
     elevatorPitches: {
-      short: cleanText(asObject(data.elevatorPitches).short),
+      short: cleanText(asObject(data.elevatorPitches).short || data.positioning_angle || data.valueProposition),
       medium: cleanText(asObject(data.elevatorPitches).medium),
       long: cleanText(asObject(data.elevatorPitches).long)
     }
@@ -1064,41 +1074,48 @@ function normalizeOpportunities(raw) {
     quickWinReadiness: { fields: ['quickWinSpecificity', 'timeToValueClarity', 'nearTermPracticality'], weights: [0.35, 0.35, 0.3] },
     executionClarity: { fields: ['planSpecificity', 'riskCoverage', 'nextStepActionability'], weights: [0.4, 0.25, 0.35] }
   });
+  const researchGaps = asArray(data.research_gaps || data.researchGaps);
+  const opportunitySource = asArray(data.opportunities).length
+    ? asArray(data.opportunities)
+    : researchGaps;
   return {
     scores,
-    summary: cleanText(data.summary),
-    quickWins: asArray(data.quickWins).map((w) => {
+    summary: cleanText(data.summary || data.market_context || data.marketContext),
+    quickWins: asArray(data.quickWins || data.quick_wins).map((w) => {
       const row = asObject(w);
       return {
-        title: cleanText(row.title, 'Quick win'),
+        title: cleanText(row.title || row.name, 'Quick win'),
         priority: cleanText(row.priority, 'medium'),
-        description: cleanText(row.description),
-        expectedImpact: cleanText(row.expectedImpact),
-        timeToValue: cleanText(row.timeToValue)
+        description: cleanText(row.description || row.detail || row.summary),
+        expectedImpact: cleanText(row.expectedImpact || row.impact),
+        timeToValue: cleanText(row.timeToValue || row.timing)
       };
     }).filter((w) => w.title),
-    opportunities: asArray(data.opportunities).map((o) => {
+    opportunities: opportunitySource.map((o) => {
+      if (typeof o === 'string') {
+        return { title: o, category: '', priority: 'medium', effort: '', expectedImpact: '', nextSteps: [] };
+      }
       const row = asObject(o);
       return {
-        title: cleanText(row.title, 'Opportunity'),
-        category: cleanText(row.category),
+        title: cleanText(row.title || row.name || row.gap, 'Opportunity'),
+        category: cleanText(row.category || row.type),
         priority: cleanText(row.priority, 'medium'),
         effort: cleanText(row.effort),
-        expectedImpact: cleanText(row.expectedImpact),
-        nextSteps: uniqueStrings(asArray(row.nextSteps).concat(row.nextStep ? [row.nextStep] : []), 6)
+        expectedImpact: cleanText(row.expectedImpact || row.impact || row.why),
+        nextSteps: uniqueStrings(asArray(row.nextSteps).concat(row.nextStep ? [row.nextStep] : []).concat(asArray(row.actions)), 6)
       };
     }).filter((o) => o.title),
-    risksAndMitigations: asArray(data.risksAndMitigations).map((r) => {
+    risksAndMitigations: asArray(data.risksAndMitigations || data.risks).map((r) => {
       if (typeof r === 'string') return { risk: r, mitigation: '' };
       const row = asObject(r);
-      return { risk: cleanText(row.risk), mitigation: cleanText(row.mitigation) };
+      return { risk: cleanText(row.risk || row.name), mitigation: cleanText(row.mitigation || row.fix) };
     }).filter((r) => r.risk),
-    '90DayPlan': asArray(data['90DayPlan'] || data.ninetyDayPlan).map((w, idx) => {
+    '90DayPlan': asArray(data['90DayPlan'] || data.ninetyDayPlan || data['90_day_plan']).map((w, idx) => {
       const row = asObject(w);
       return {
         week: Number.isFinite(Number(row.week)) ? Number(row.week) : idx + 1,
-        focus: cleanText(row.focus),
-        keyActivities: uniqueStrings(asArray(row.keyActivities), 8)
+        focus: cleanText(row.focus || row.theme || row.title),
+        keyActivities: uniqueStrings(asArray(row.keyActivities || row.actions || row.activities), 8)
       };
     }).filter((w) => w.focus)
   };
@@ -1403,34 +1420,56 @@ function normalizeMarketingStrategy(raw) {
     funnelStrength: { fields: ['funnelCoverage', 'offerChannelFit', 'kpiQuality'], weights: [0.35, 0.35, 0.3] },
     executionReadiness: { fields: ['planSpecificity', 'riskPreparedness', 'operationalSequencing'], weights: [0.4, 0.25, 0.35] }
   });
+  const channelPriorities = flattenToStrings(data.channel_priorities || data.channelPriorities, 8);
+  const nativePlan = asArray(data['90DayPlan'] || data.ninetyDayPlan || data['90_day_plan'] || data.ninety_day_plan);
   return {
     scores,
-    objective: cleanText(data.objective),
-    positioning: cleanText(data.positioning),
-    targetSegments: uniqueStrings(asArray(data.targetSegments), 10),
-    messagingPillars: uniqueStrings(asArray(data.messagingPillars), 8),
+    objective: cleanText(data.objective || data.goal || data.primary_goal),
+    positioning: cleanText(data.positioning || data.positioning_angle || data.positioningAngle),
+    targetSegments: uniqueStrings(
+      asArray(data.targetSegments)
+        .concat(asArray(data.target_segments))
+        .concat(data.target_segment ? [data.target_segment] : [])
+        .concat(data.targetSegment ? [data.targetSegment] : []),
+      10
+    ),
+    messagingPillars: uniqueStrings(
+      asArray(data.messagingPillars).concat(asArray(data.messaging_pillars)).map((p) =>
+        typeof p === 'string' ? p : cleanText(asObject(p).pillar || asObject(p).name)
+      ),
+      8
+    ),
     kpis: uniqueStrings(asArray(data.kpis), 10),
-    funnelPlan: asArray(data.funnelPlan).map((s, idx) => {
-      const row = asObject(s);
-      return {
-        stage: cleanText(row.stage, `Stage ${idx + 1}`),
-        goal: cleanText(row.goal),
-        channels: uniqueStrings(asArray(row.channels).concat(typeof row.channels === 'string' ? [row.channels] : []), 6),
-        offers: uniqueStrings(asArray(row.offers).concat(typeof row.offers === 'string' ? [row.offers] : []), 6)
-      };
-    }).filter((s) => s.stage),
-    '90DayPlan': asArray(data['90DayPlan'] || data.ninetyDayPlan).map((w, idx) => {
+    funnelPlan: (() => {
+      const existing = asArray(data.funnelPlan).map((s, idx) => {
+        const row = asObject(s);
+        return {
+          stage: cleanText(row.stage, `Stage ${idx + 1}`),
+          goal: cleanText(row.goal),
+          channels: uniqueStrings(asArray(row.channels).concat(typeof row.channels === 'string' ? [row.channels] : []), 6),
+          offers: uniqueStrings(asArray(row.offers).concat(typeof row.offers === 'string' ? [row.offers] : []), 6)
+        };
+      }).filter((s) => s.stage);
+      if (existing.length) return existing;
+      if (!channelPriorities.length) return [];
+      return [
+        { stage: 'Awareness', goal: 'Generate qualified demand', channels: channelPriorities.slice(0, 3), offers: [] },
+        { stage: 'Consideration', goal: 'Educate and nurture buyers', channels: channelPriorities.slice(0, 3), offers: [] },
+        { stage: 'Conversion', goal: 'Convert intent into pipeline', channels: channelPriorities.slice(0, 3), offers: [] }
+      ];
+    })(),
+    '90DayPlan': nativePlan.map((w, idx) => {
       const row = asObject(w);
       return {
         week: Number.isFinite(Number(row.week)) ? Number(row.week) : idx + 1,
-        focus: cleanText(row.focus),
-        keyActivities: uniqueStrings(asArray(row.keyActivities), 8)
+        focus: cleanText(row.focus || row.theme || row.title),
+        keyActivities: uniqueStrings(asArray(row.keyActivities || row.actions || row.activities), 8)
       };
     }).filter((w) => w.focus),
-    risksAndMitigations: asArray(data.risksAndMitigations).map((r) => {
+    risksAndMitigations: asArray(data.risksAndMitigations || data.risks).map((r) => {
       if (typeof r === 'string') return { risk: r, mitigation: '' };
       const row = asObject(r);
-      return { risk: cleanText(row.risk), mitigation: cleanText(row.mitigation) };
+      return { risk: cleanText(row.risk || row.name), mitigation: cleanText(row.mitigation || row.fix) };
     }).filter((r) => r.risk)
   };
 }
@@ -1519,30 +1558,41 @@ function normalizeLeadMagnets(raw) {
     conversionReadiness: { fields: ['landingPageClarity', 'ctaStrength', 'outlineQuality'], weights: [0.35, 0.35, 0.3] },
     nurtureReadiness: { fields: ['sequenceQuality', 'followUpSpecificity', 'funnelProgression'], weights: [0.35, 0.35, 0.3] }
   });
+  // Tara SOUL often returns a singular lead_magnet + email_sequence — wrap into the UI array shape
+  let magnetSource = asArray(data.leadMagnets ?? data.lead_magnets);
+  if (!magnetSource.length && (data.lead_magnet || data.leadMagnet)) {
+    magnetSource = [data.lead_magnet || data.leadMagnet];
+  }
   return {
     scores,
-    leadMagnets: asArray(data.leadMagnets ?? data.lead_magnets).map((m, idx) => {
+    leadMagnets: magnetSource.map((m, idx) => {
       const row = asObject(m);
-      const lp = asObject(row.landingPageCopy);
-      // cleanText('', fallback) returns '' (empty string is still a string) — keep items with a default name
+      const lp = asObject(row.landingPageCopy || row.landing_page || row.landingPage);
+      const sequenceSource = asArray(
+        row.followUpSequence ||
+        row.follow_up_sequence ||
+        row.email_sequence ||
+        data.email_sequence ||
+        data.emailSequence
+      );
       const nameFromModel = typeof row.name === 'string' ? row.name.trim() : '';
       return {
-        name: nameFromModel || `Lead Magnet ${idx + 1}`,
-        format: cleanText(row.format),
-        promise: cleanText(row.promise),
-        outline: uniqueStrings(asArray(row.outline), 10),
+        name: nameFromModel || cleanText(row.title, `Lead Magnet ${idx + 1}`),
+        format: cleanText(row.format || row.type),
+        promise: cleanText(row.promise || row.offer || row.hook),
+        outline: uniqueStrings(asArray(row.outline || row.sections || row.bullets), 10),
         landingPageCopy: {
-          headline: cleanText(lp.headline),
-          subheadline: cleanText(lp.subheadline),
-          bullets: uniqueStrings(asArray(lp.bullets), 8),
-          cta: cleanText(lp.cta)
+          headline: cleanText(lp.headline || row.headline),
+          subheadline: cleanText(lp.subheadline || row.subheadline),
+          bullets: uniqueStrings(asArray(lp.bullets || row.bullets), 8),
+          cta: cleanText(lp.cta || row.cta)
         },
-        followUpSequence: asArray(row.followUpSequence).map((f, fIdx) => {
+        followUpSequence: sequenceSource.map((f, fIdx) => {
           const fe = asObject(f);
           return {
             day: Number.isFinite(Number(fe.day)) ? Number(fe.day) : fIdx + 1,
-            subject: cleanText(fe.subject),
-            goal: cleanText(fe.goal)
+            subject: cleanText(fe.subject || fe.title),
+            goal: cleanText(fe.goal || fe.purpose || fe.body?.slice?.(0, 80))
           };
         }).filter((f) => f.subject)
       };
