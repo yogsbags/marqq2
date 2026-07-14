@@ -9,7 +9,9 @@ export type ArtifactScoreCard = {
 export function clampDisplayScore(value: unknown, fallback = 0) {
   const num = Number(value)
   if (!Number.isFinite(num)) return fallback
-  return Math.max(0, Math.min(100, Math.round(num)))
+  // 0–1 fractions from models → 0–100 for display
+  const scaled = num > 0 && num <= 1 ? num * 100 : num
+  return Math.max(0, Math.min(100, Math.round(scaled)))
 }
 
 export function ArtifactScoreCards({ items }: { items: ArtifactScoreCard[] }) {

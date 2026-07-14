@@ -149,10 +149,15 @@ function fallbackStartDate() {
   return now.toISOString().slice(0, 10);
 }
 
+/**
+ * Coerce model score inputs to a 0–100 integer.
+ * Many agents return 0–1 fractions (0.82); Math.round alone turns those into 1/100.
+ */
 function clampScore(value, fallback = 0) {
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
-  return Math.max(0, Math.min(100, Math.round(num)));
+  const scaled = num > 0 && num <= 1 ? num * 100 : num;
+  return Math.max(0, Math.min(100, Math.round(scaled)));
 }
 
 function summarizeArtifactsForPrompt(type, artifacts) {
@@ -1273,11 +1278,23 @@ function normalizeIcps(raw) {
     activationReadiness: { fields: ['hookClarity', 'priorityUsefulness', 'disqualifierQuality'], weights: [0.35, 0.3, 0.35] }
   });
 
-  // If model omitted scores, derive them from filled fields so the UI is not stuck at 66/0/0 heuristics alone
-  const hasModelScores = Number.isFinite(Number(asObject(data.scores).segmentFit))
-    || Number.isFinite(Number(asObject(data.scores).targetingClarity))
-    || Number.isFinite(Number(asObject(data.scores).activationReadiness));
-  if (!hasModelScores) {
+  // If model omitted scores, OR returned near-zero placeholders while content is rich,
+  // derive scores from filled fields (avoids 1/100 from 0–1 model fractions that already
+  // got mishandled upstream, and empty score objects).
+  const rawTop = asObject(data.scores);
+  const hasModelScores = Number.isFinite(Number(rawTop.segmentFit))
+    || Number.isFinite(Number(rawTop.targetingClarity))
+    || Number.isFinite(Number(rawTop.activationReadiness));
+  const maxScore = Math.max(
+    Number(scores.segmentFit) || 0,
+    Number(scores.targetingClarity) || 0,
+    Number(scores.activationReadiness) || 0
+  );
+  const richContent =
+    icps.length >= 2 &&
+    icps.filter((icp) => icp.hook && icp.qualifiers.length > 0 && icp.channels.length > 0).length >= 1;
+
+  if (!hasModelScores || (richContent && maxScore <= 5)) {
     const withQualifiers = icps.filter((icp) => icp.qualifiers.length > 0).length;
     const withHooks = icps.filter((icp) => Boolean(icp.hook)).length;
     const withChannels = icps.filter((icp) => icp.channels.length > 0).length;
