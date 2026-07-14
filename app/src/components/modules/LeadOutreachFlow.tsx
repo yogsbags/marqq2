@@ -13,6 +13,7 @@ type LeadOutreachFlowProps = {
   initialChannel?: string
   initialTarget?: string
   initialGoal?: string
+  initialDelivery?: string
 }
 
 function formatLabel(value?: string) {
@@ -27,18 +28,38 @@ function formatLabel(value?: string) {
     meeting: 'Book meetings',
     reply: 'Earn replies',
     qualification: 'Qualify interest',
+    draft: 'Save as draft',
+    live: 'Push live',
   }
   return labelMap[value] || value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase())
 }
 
-function buildArjunQuery(channel: string, target: string, goal: string, initialQuestion?: string) {
+function normalizeDelivery(value?: string): 'draft' | 'live' {
+  return value === 'live' ? 'live' : 'draft'
+}
+
+function buildArjunQuery(
+  channel: string,
+  target: string,
+  goal: string,
+  delivery: 'draft' | 'live',
+  initialQuestion?: string,
+) {
+  const deliveryLine =
+    delivery === 'live'
+      ? 'Delivery mode: PUSH LIVE. After building the sequence, use connected Instantly/Gmail send tools to activate or send when tools allow. Confirm what went live vs what stayed draft.'
+      : 'Delivery mode: SAVE AS DRAFT IN TOOLS. Create Instantly campaigns/leads and Gmail drafts via connected tools. Do not live-send unless the user later switches to push live.'
+
   return [
     initialQuestion || `Build a ${formatLabel(channel)?.toLowerCase() || 'multitouch'} outreach sequence.`,
     `Outreach motion: ${formatLabel(channel) || 'Multitouch'}.`,
     `Primary target: ${formatLabel(target) || 'Decision makers'}.`,
     `Primary goal: ${formatLabel(goal) || 'Book meetings'}.`,
+    deliveryLine,
+    'Use connected outbound tools in order when available: Apollo/Hunter to find or enrich contacts → HubSpot/CRM to check existing accounts → Instantly or Gmail to write the sequence into the tool.',
+    'Execute research and connector write steps sequentially with tools before writing the final sequence arc.',
     'Return the outreach sequence arc, the personalization logic, the first touch, the follow-up sequence, and how the messaging should change across the motion.',
-    'Keep the output practical for real outbound execution, not generic cold-email advice.',
+    'Keep the output practical for real outbound execution, not generic cold-email advice. Cite tool results when you used connectors.',
   ].join('\n\n')
 }
 
@@ -47,10 +68,12 @@ export function LeadOutreachFlow({
   initialChannel,
   initialTarget,
   initialGoal,
+  initialDelivery,
 }: LeadOutreachFlowProps = {}) {
   const channel = initialChannel || 'multi'
   const target = initialTarget || 'decision'
   const goal = initialGoal || 'meeting'
+  const delivery = normalizeDelivery(initialDelivery)
 
   const agents = useMemo<Array<AgentConfig>>(
     () => [
@@ -58,12 +81,13 @@ export function LeadOutreachFlow({
         name: 'arjun',
         label: 'Build Outreach Sequence',
         taskType: 'lead_outreach',
-        defaultQuery: buildArjunQuery(channel, target, goal, initialQuestion),
+        deliveryMode: delivery,
+        defaultQuery: buildArjunQuery(channel, target, goal, delivery, initialQuestion),
         placeholder: 'Describe the ICP, the account context, and the response or meeting outcome this sequence should drive.',
-        tags: ['outreach', 'sequence', 'pipeline'],
+        tags: ['outreach', 'sequence', 'pipeline', `delivery:${delivery}`],
       },
     ],
-    [channel, goal, initialQuestion, target]
+    [channel, delivery, goal, initialQuestion, target]
   )
 
   const preAgentContent = (
@@ -74,7 +98,7 @@ export function LeadOutreachFlow({
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-200">
               Outreach Desk
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
                 <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
                   <LinkBreak2Icon className="h-4 w-4" />
@@ -95,6 +119,13 @@ export function LeadOutreachFlow({
                 </div>
                 <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Goal</div>
                 <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(goal)}</div>
+              </div>
+              <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
+                  <LinkedInLogoIcon className="h-4 w-4" />
+                </div>
+                <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Delivery</div>
+                <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(delivery)}</div>
               </div>
             </div>
           </CardContent>
@@ -156,6 +187,12 @@ export function LeadOutreachFlow({
             <div>• A sharper outreach arc instead of disconnected cold messages.</div>
             <div>• Clear personalization logic the team can repeat without sounding robotic.</div>
             <div>• First-touch and follow-up messages aligned to one pipeline goal.</div>
+            <div>
+              •{' '}
+              {delivery === 'live'
+                ? 'Live push into Instantly/Gmail when send tools are connected.'
+                : 'Drafts saved into Instantly/Gmail (live send locked until Push live).'}
+            </div>
           </CardContent>
         </Card>
 

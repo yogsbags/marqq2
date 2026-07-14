@@ -608,6 +608,15 @@ export const WORKFLOW_FORMS: Record<string, WorkflowFormData> = {
           { value: 'qualification', label: 'Qualify interest' },
         ],
       },
+      {
+        id: 'delivery',
+        label: 'Delivery in connected tools',
+        type: 'select',
+        options: [
+          { value: 'draft', label: 'Save as draft (Gmail / Instantly)' },
+          { value: 'live',  label: 'Push live (send / activate)' },
+        ],
+      },
     ],
   },
 
@@ -939,6 +948,7 @@ export const WORKFLOW_PARAM_KEYS: Record<string, Record<string, string>> = {
     channel:  'outreachChannel',
     target:   'outreachTarget',
     goal:     'outreachGoal',
+    delivery: 'outreachDelivery',
   },
   'ad-creative': {
     question: 'question',

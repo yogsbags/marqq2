@@ -111,6 +111,7 @@ type GoalPreset = {
   outreachChannel?: string | null;
   outreachTarget?: string | null;
   outreachGoal?: string | null;
+  outreachDelivery?: string | null;
   magnetType?: string | null;
   magnetAudience?: string | null;
   magnetGoal?: string | null;
@@ -216,6 +217,7 @@ function parseGoalPresetFromHash(): GoalPreset {
     outreachChannel: params.get('outreach_channel'),
     outreachTarget: params.get('outreach_target'),
     outreachGoal: params.get('outreach_goal'),
+    outreachDelivery: params.get('outreach_delivery'),
     magnetType: params.get('magnet_type'),
     magnetAudience: params.get('magnet_audience'),
     magnetGoal: params.get('magnet_goal'),
@@ -565,6 +567,7 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
         initialChannel={goalPreset.outreachChannel ?? undefined}
         initialTarget={goalPreset.outreachTarget ?? undefined}
         initialGoal={goalPreset.outreachGoal ?? undefined}
+        initialDelivery={goalPreset.outreachDelivery ?? undefined}
       />
     );
   }

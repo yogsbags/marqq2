@@ -37,8 +37,9 @@ function buildIshaQuery(scope: string, buyer: string, goal: string, initialQuest
     `Audience scope: ${formatLabel(scope) || 'Core ICPs'}.`,
     `Buyer layer: ${formatLabel(buyer) || 'Decision makers'}.`,
     `Primary use: ${formatLabel(goal) || 'Outbound and lead gen'}.`,
-    'Return the strongest audience profiles, the firmographic or buyer distinctions between them, the pains and triggers, and the messaging implications that matter most.',
-    'Keep the output specific enough to guide targeting and messaging, not generic persona filler.',
+    'Use connected analytics/CRM tools in order when available (GA4, Mixpanel, Amplitude, HubSpot) to ground segment size, channels, and qualification signals before inventing profiles.',
+    'Execute research steps with tools sequentially, then return the strongest audience profiles, firmographic distinctions, pains/triggers, and messaging implications.',
+    'Keep the output specific enough to guide targeting and messaging, not generic persona filler. Cite tool results when you used connectors.',
   ].join('\n\n')
 }
 

@@ -79,7 +79,7 @@ export function ConnectorGateCard({
       </div>
       <p className={cn('text-sm mb-3', hardGate ? 'text-zinc-300' : 'text-foreground')}>
         {hardGate
-          ? `${taskLabel} needs live account data before the agent can run. Connect at least one:`
+          ? `${taskLabel} needs at least one connected account before draft or send. Connect one:`
           : `${taskLabel} can use crawl + GTM context now. Connect an account for live enrichment:`}
       </p>
       <div className="space-y-2">

@@ -172,7 +172,7 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                     <div className="mt-3">
                       <CompanyIntelActionButton
                         label="Launch Outreach"
-                        agentName="zara"
+                        agentName="arjun"
                         companyId={companyId}
                         companyName={companyName}
                         websiteUrl={websiteUrl}
@@ -207,6 +207,7 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                           channel: 'multi',
                           target: 'decision',
                           goal: 'meeting',
+                          delivery: 'draft',
                         }}
                         chatHandoff={false}
                         successMessage={`Outreach campaign queued for ${String(c.name || `Cohort ${idx + 1}`)} — opening #outreach.`}

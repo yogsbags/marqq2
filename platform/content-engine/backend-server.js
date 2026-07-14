@@ -1090,12 +1090,14 @@ function buildAgentRunGuardrails(name, taskType) {
       "If verified performance data is missing, respond with 'Missing outcome verification dataset' and list the required inputs.",
       "Do not score prediction accuracy without real observed metrics.",
       "When including tasks_created entries, every entry MUST have all required fields populated: task_type (e.g. 'lead_qualification', 'outreach_email', 'campaign_analysis'), agent_name (e.g. 'sam', 'dev', 'kiran'), description, and priority. Never leave task_type or agent_name blank or null.",
+      "When Composio tools are available, call them in sequence for the job (search/enrich → CRM check → Instantly/Gmail draft). Prefer tool results over invented contact lists. Do not claim live sends unless a send tool succeeded.",
     ],
     isha: [
       "Prefer crisp bullet points over long narrative explanation.",
       "Tie each market signal back to the company context in one sentence.",
       "CRITICAL: Your competitor_set MUST use the exact competitor names from Company.competitors in the MKG (e.g. 'Successive Technologies', 'Appinventiv', 'ValueCoders', 'Tata Elxsi', 'Persistent Systems'). Do NOT substitute with large global vendors (IBM, Google Cloud, Microsoft Azure) unless they are explicitly listed in Company.competitors. The company competes with the MKG-listed players, not generic enterprise AI providers.",
       "CRITICAL: Use the exact ICP segment names from Company.icp — not renamed, broadened, or generalized versions.",
+      "When Composio tools are available (GA4, Mixpanel, Amplitude, HubSpot), use them before inventing audience sizes or channel mix; cite tool-backed signals in the profiles.",
     ],
     kiran: [
       "Do not include long reasoning walkthroughs.",
@@ -1152,6 +1154,15 @@ function buildAgentRunGuardrails(name, taskType) {
       "For B2B companies, define ICPs using firmographics such as company size, team maturity, function ownership, workflow complexity, or digital maturity.",
       "Do not use consumer wealth tiers, net-worth bands, family-office language, HNI/UHNI framing, or investor personas unless the selected company explicitly operates in wealth or investment services.",
       "If the company profile points to software, AI, SaaS, services, or B2B solutions, keep the ICPs anchored to business buyers and operational use cases.",
+      "Ground profiles in connected analytics/CRM tools before guessing segment volumes.",
+    ],
+    lead_outreach: [
+      "Execute outreach prep with tools in order: prospect/enrich → CRM context → Instantly campaign / Gmail draft save.",
+      "Default delivery is draft-in-tool: create Instantly campaigns/leads and Gmail drafts. Only live-send when delivery_mode is live / user explicitly asks to push live.",
+    ],
+    scheduled_deployment: [
+      "Walk Upcoming Tasks in numbered order. Call the tool that matches each step when connected; otherwise note the gap and continue with drafts from context.",
+      "Prefer saving drafts in connected tools over claiming live sends unless delivery is explicitly live.",
     ],
     icp_definition: [
       "CRITICAL: Override Neel's native strategy schema for this task. artifact.data MUST use the ICP page schema exactly:",
@@ -1241,32 +1252,45 @@ const ALWAYS_BLOCKED_TOOLS = new Set([
   "GOOGLESHEETS_UPDATE_DOCUMENT_MARKDOWN",
 ]);
 
-// Tools only safe to call when task explicitly involves outbound messaging
-const SEND_TOOLS = new Set([
+// Tools that push live messages / start outbound sending (not "save as draft")
+const LIVE_SEND_TOOLS = new Set([
   "GMAIL_SEND_EMAIL", "GMAIL_SEND_DRAFT",
   "OUTLOOK_SEND_EMAIL", "OUTLOOK_SEND_DRAFT",
   "SLACK_SENDS_A_MESSAGE", "SLACK_SEND_MESSAGE",
   "WHATSAPP_SEND_MESSAGE",
-  "HUBSPOT_CREATE_ENGAGEMENT", // creates a note/activity, effectively sends
+  "HUBSPOT_CREATE_ENGAGEMENT",
   "INSTANTLY_SEND_EMAIL",
   "LEMLIST_SEND_EMAIL",
 ]);
 
-// Task types that are permitted to call send/write tools
+// Back-compat alias used elsewhere
+const SEND_TOOLS = LIVE_SEND_TOOLS;
+
+// Task types permitted to call write/send connector tools (drafts + optional live send)
 const WRITE_PERMITTED_TASK_TYPES = new Set([
   "marketing_report",
   "report_delivery",
   "outreach_email",
   "lead_qualification",
   "email_sequence",
+  "lead_outreach",
   "campaign_analysis",
   "distribution_health_check",
   "chain_trigger",
+  "scheduled_deployment",
 ]);
 
-function filterComposioToolsForTaskType(taskType, tools) {
+/**
+ * Filter Composio tools by task write permission and delivery mode.
+ * - write-permitted + draft (default): allow connector writes/drafts; strip live send
+ * - write-permitted + live: allow live send tools
+ * - other task types: strip live send tools
+ */
+function filterComposioToolsForTaskType(taskType, tools, deliveryMode = "draft") {
   const list = Array.isArray(tools) ? tools : [];
-  const canSend = WRITE_PERMITTED_TASK_TYPES.has(taskType);
+  const canWrite = WRITE_PERMITTED_TASK_TYPES.has(taskType);
+  const mode = String(deliveryMode || "draft").toLowerCase() === "live" ? "live" : "draft";
+  const allowLiveSend = canWrite && mode === "live";
 
   return list.filter((tool) => {
     const toolName =
@@ -1275,7 +1299,7 @@ function filterComposioToolsForTaskType(taskType, tools) {
       tool?.slug ||
       "";
     if (ALWAYS_BLOCKED_TOOLS.has(toolName)) return false;
-    if (SEND_TOOLS.has(toolName) && !canSend) return false;
+    if (LIVE_SEND_TOOLS.has(toolName) && !allowLiveSend) return false;
     return true;
   });
 }
@@ -6427,6 +6451,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
     run_id: clientRunId,
     task_type,
     module_id,
+    delivery_mode,
     triggered_by,
     trigger_id,
     hook_id,
@@ -6787,6 +6812,18 @@ app.post("/api/agents/:name/run", async (req, res) => {
   }
 
   const guardrailsBlock = buildAgentRunGuardrails(name, task_type);
+  const deliveryModeResolved =
+    typeof delivery_mode === "string" && delivery_mode.trim().toLowerCase() === "live"
+      ? "live"
+      : "draft";
+  const deliveryModeBlock =
+    WRITE_PERMITTED_TASK_TYPES.has(task_type)
+      ? `\n\n## Delivery Mode\ndelivery_mode: ${deliveryModeResolved}\n${
+          deliveryModeResolved === "live"
+            ? "Push live via connected send tools when appropriate. Confirm in prose that live send tools were used."
+            : "Save as draft in connected tools (Gmail drafts, Instantly sequences/campaigns). Do NOT call live send tools."
+        }\n`
+      : "";
 
   // Industry intel — auto-inject stored brief if available
   let industryIntelBlock = '';
@@ -6875,6 +6912,7 @@ Replace ALL placeholder values with your actual outputs.
     combinedSkillsBlock,
     runContextBlock,
     guardrailsBlock,
+    deliveryModeBlock,
     recentAutomationData,
     industryIntelBlock,
     contractInstruction,  // always last
@@ -6986,9 +7024,11 @@ Replace ALL placeholder values with your actual outputs.
     const connectorAppMap = Object.fromEntries(
       allowedConnectorIds.map((connectorId, index) => [connectorId, allowedApps[index]])
     );
-    if (composioApiKey && !completed && !skipComposioForTaskType && companyId && allowedApps.length > 0) {
+    // Connections are registered against the workspace entity (x-workspace-id), not MKG company_id.
+    const connectorLookupId = composioEntityId;
+    if (composioApiKey && !completed && !skipComposioForTaskType && connectorLookupId && allowedApps.length > 0) {
       try {
-        const connectorStates = await getConnectors(companyId);
+        const connectorStates = await getConnectors(connectorLookupId);
         const connectedAllowedIds = new Set(
           connectorStates
             .filter((connector) => connector.connected && allowedConnectorIds.includes(connector.id))
@@ -7004,10 +7044,14 @@ Replace ALL placeholder values with your actual outputs.
             toolkits: connectedAllowedApps,
             limit: 40,
           });
-          composioTools = filterComposioToolsForTaskType(task_type, composioTools);
+          composioTools = filterComposioToolsForTaskType(
+            task_type,
+            composioTools,
+            deliveryModeResolved,
+          );
           console.log(`[agent:${name}] Composio tools enabled for apps: ${connectedAllowedApps.join(", ")}`);
         } else {
-          console.log(`[agent:${name}] No connected allowed Composio apps for workspace ${companyId}; running without tools`);
+          console.log(`[agent:${name}] No connected allowed Composio apps for entity ${connectorLookupId}; running without tools`);
         }
       } catch (toolFetchErr) {
         // Non-fatal: proceed without tools
@@ -7680,15 +7724,39 @@ function getNextRunForDeploymentEntry(entry, after = new Date()) {
 }
 
 function buildDeploymentRunQuery(entry) {
+  const tasks = Array.isArray(entry?.tasks)
+    ? entry.tasks
+        .map((task, index) => {
+          const label = typeof task?.label === "string" ? task.label.trim() : "";
+          if (!label) return null;
+          const horizon = typeof task?.horizon === "string" ? task.horizon.trim() : "";
+          return `${index + 1}. ${horizon ? `[${horizon}] ` : ""}${label}`;
+        })
+        .filter(Boolean)
+    : [];
+
+  const sequenceBlock = tasks.length
+    ? [
+        "## Upcoming Tasks — execute IN ORDER",
+        "Use connected Composio tools that match each step (Apollo search/enrich, HubSpot records, Instantly campaign/lead drafts, Gmail draft — not live send unless send tools are available and the step explicitly requires send).",
+        "Finish each step before starting the next. Prefer live connector data over invented list sizes or contacts.",
+        "Do not claim LinkedIn/email was sent unless a tool result confirms it.",
+        ...tasks,
+      ].join("\n")
+    : null;
+
   if (typeof entry?.runPrompt === "string" && entry.runPrompt.trim()) {
-    return entry.runPrompt.trim();
+    return [entry.runPrompt.trim(), sequenceBlock].filter(Boolean).join("\n\n");
   }
 
-  const bullets = Array.isArray(entry?.bullets) ? entry.bullets.map((value) => String(value).trim()).filter(Boolean) : [];
+  const bullets = Array.isArray(entry?.bullets)
+    ? entry.bullets.map((value) => String(value).trim()).filter(Boolean)
+    : [];
   return [
     `Execute the scheduled deployment for ${entry?.sectionTitle || "this section"}.`,
     typeof entry?.summary === "string" && entry.summary.trim() ? `Summary: ${entry.summary.trim()}` : null,
     bullets.length ? `Bullets: ${bullets.join(" | ")}` : null,
+    sequenceBlock,
   ]
     .filter(Boolean)
     .join("\n");
@@ -7726,9 +7794,18 @@ async function processDeploymentQueueTick() {
             ...(entry.workspaceId ? { "x-workspace-id": entry.workspaceId } : {}),
           },
           body: JSON.stringify({
-            company_id: entry.companyId || null,
+            company_id: entry.companyId || entry.workspaceId || null,
             query: buildDeploymentRunQuery(entry),
-            task_type: entry.scheduleMode === "monitor" ? "competitor_monitor" : "scheduled_deployment",
+            task_type:
+              entry.scheduleMode === "monitor"
+                ? "competitor_monitor"
+                : (typeof entry.taskType === "string" && entry.taskType.trim()) ||
+                  "scheduled_deployment",
+            module_id:
+              (typeof entry.moduleId === "string" && entry.moduleId.trim()) || null,
+            delivery_mode:
+              (typeof entry.deliveryMode === "string" && entry.deliveryMode.trim()) ||
+              "draft",
             deployment_id: entry.id,
             triggered_by: "scheduled_deployment",
           }),
@@ -10834,6 +10911,9 @@ app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
     source = "onboarding",
     agentTarget,
     companyId,
+    taskType,
+    moduleId,
+    deliveryMode,
   } = req.body ?? {};
 
   if (!agentName || !VALID_AGENTS.has(agentName)) {
@@ -10870,6 +10950,18 @@ app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
       (typeof scheduledFor === "string" && scheduledFor.trim()) ||
       parsedSchedule?.nextRunISO ||
       (isRecurring ? getDeploymentNextRunAt(resolvedRecurrence) : "next_cron_run");
+    const resolvedTaskType =
+      typeof taskType === "string" && taskType.trim()
+        ? taskType.trim()
+        : isMonitor
+          ? "competitor_monitor"
+          : null;
+    const resolvedModuleId =
+      typeof moduleId === "string" && moduleId.trim() ? moduleId.trim() : null;
+    const resolvedDeliveryMode =
+      typeof deliveryMode === "string" && deliveryMode.trim().toLowerCase() === "live"
+        ? "live"
+        : "draft";
 
     const entry = {
       id: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -10877,6 +10969,9 @@ app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
       agentTarget: agentTarget || null,
       workspaceId: id,
       companyId: typeof companyId === "string" && companyId.trim() ? companyId.trim() : null,
+      moduleId: resolvedModuleId,
+      taskType: resolvedTaskType,
+      deliveryMode: resolvedDeliveryMode,
       sectionId,
       sectionTitle,
       summary,

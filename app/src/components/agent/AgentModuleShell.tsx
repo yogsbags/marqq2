@@ -39,6 +39,8 @@ export interface AgentConfig {
   badge?: string      // optional badge color class
   placeholder?: string  // textarea hint text shown before user types
   tags?: string[]       // extra Langfuse trace tags for this agent run
+  /** draft = save in connector tools; live = allow send/activate tools */
+  deliveryMode?: 'draft' | 'live'
 }
 
 interface AgentModuleShellProps {
@@ -136,7 +138,7 @@ function SingleAgentCard({
   useEffect(() => {
     if (!shouldAutoRun || autoRunTriggeredRef.current) return
     autoRunTriggeredRef.current = true
-    void agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId)
+    void agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoRun])
 
@@ -203,7 +205,7 @@ function SingleAgentCard({
           <Button
             size="sm"
             disabled={Boolean(disabledReason) || agentRun.streaming || !query.trim()}
-            onClick={() => agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId)}
+            onClick={() => agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode)}
             className="h-auto min-h-9 max-w-full whitespace-normal text-left leading-5 gap-1"
             title={disabledReason || undefined}
           >

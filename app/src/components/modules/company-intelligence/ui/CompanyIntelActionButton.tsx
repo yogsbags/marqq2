@@ -1,14 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { AgentAvatar } from '@/components/agents/AgentAvatar'
+import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { hasWorkflowForm, WORKFLOW_FORMS } from '@/lib/workflowRequirements'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { addIntegrationConnectedListener } from '@/lib/composio'
+import {
+  checkConnectorReadiness,
+  hasWorkflowForm,
+  WORKFLOW_CONNECTOR_REQUIREMENTS,
+  WORKFLOW_FORMS,
+} from '@/lib/workflowRequirements'
 import { cn } from '@/lib/utils'
 
 import { fetchJson } from '../api'
@@ -57,6 +65,19 @@ type Props = {
 }
 
 const HORIZONS: PlannedTask['horizon'][] = ['day', 'week', 'month']
+
+/** Module channel → agent task_type used for Composio tool filtering on runs. */
+const MODULE_TASK_TYPES: Record<string, string> = {
+  'lead-outreach': 'lead_outreach',
+  'audience-profiles': 'audience_profiles',
+  'email-sequence': 'email_sequence',
+  'lead-intelligence': 'lead_score',
+}
+
+function resolveDeploymentTaskType(moduleId?: string) {
+  const id = typeof moduleId === 'string' ? moduleId.trim() : ''
+  return id && MODULE_TASK_TYPES[id] ? MODULE_TASK_TYPES[id] : null
+}
 
 function titleCase(value: string) {
   return value.slice(0, 1).toUpperCase() + value.slice(1)
@@ -160,11 +181,17 @@ export function CompanyIntelActionButton({
   variant = 'outline',
   className,
 }: Props) {
+  const { activeWorkspace } = useWorkspace()
+  const workspaceId = activeWorkspace?.id
+
   const workflowForm = useMemo(() => {
     const moduleId = typeof navigateModuleId === 'string' ? navigateModuleId.trim() : ''
     if (!moduleId || !hasWorkflowForm(moduleId)) return null
     return WORKFLOW_FORMS[moduleId]
   }, [navigateModuleId])
+
+  const targetModuleId = typeof navigateModuleId === 'string' ? navigateModuleId.trim() : ''
+  const requiredConnectors = WORKFLOW_CONNECTOR_REQUIREMENTS[targetModuleId] ?? []
 
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<DialogStep>('configure')
@@ -173,6 +200,43 @@ export function CompanyIntelActionButton({
   const [executionPrompt, setExecutionPrompt] = useState('')
   const [editableTasks, setEditableTasks] = useState<EditableTask[]>([])
   const [formValues, setFormValues] = useState<Record<string, string>>({})
+  const [activeConnectorIds, setActiveConnectorIds] = useState<string[]>([])
+  const [connectorsLoading, setConnectorsLoading] = useState(false)
+
+  const connectorReadiness = useMemo(
+    () => checkConnectorReadiness(targetModuleId, activeConnectorIds),
+    [targetModuleId, activeConnectorIds],
+  )
+
+  async function refreshConnectors() {
+    if (!workspaceId || requiredConnectors.length === 0) {
+      setActiveConnectorIds([])
+      return
+    }
+    setConnectorsLoading(true)
+    try {
+      const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`)
+      const json = res.ok ? await res.json().catch(() => ({})) : {}
+      const ids: string[] = (json?.connectors ?? [])
+        .filter((c: { status?: string }) => c.status === 'active')
+        .map((c: { id: string }) => c.id)
+      setActiveConnectorIds(ids)
+    } catch {
+      setActiveConnectorIds([])
+    } finally {
+      setConnectorsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!open || !workspaceId || requiredConnectors.length === 0) return
+    void refreshConnectors()
+    return addIntegrationConnectedListener((detail) => {
+      if (detail.companyId !== workspaceId) return
+      setActiveConnectorIds((prev) => (prev.includes(detail.connectorId) ? prev : [...prev, detail.connectorId]))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, workspaceId, targetModuleId])
 
   function resetDialogState() {
     setStep(workflowForm ? 'configure' : 'tasks')
@@ -194,6 +258,9 @@ export function CompanyIntelActionButton({
     if (workflowForm?.fields.some((field) => field.id === 'question') && !next.question) {
       const fromParams = moduleWorkflowParams?.question
       if (typeof fromParams === 'string' && fromParams.trim()) next.question = fromParams.trim()
+    }
+    if (workflowForm?.fields.some((field) => field.id === 'delivery') && !next.delivery) {
+      next.delivery = 'draft'
     }
     setFormValues(next)
   }
@@ -244,6 +311,7 @@ export function CompanyIntelActionButton({
       setStep('configure')
       setEditableTasks([])
       setExecutionPrompt('')
+      void refreshConnectors()
       return
     }
     setStep('tasks')
@@ -297,6 +365,9 @@ export function CompanyIntelActionButton({
         agentName,
         agentTarget: agentTarget || null,
         companyId: companyId || null,
+        moduleId: typeof navigateModuleId === 'string' ? navigateModuleId.trim() || null : null,
+        taskType: resolveDeploymentTaskType(navigateModuleId),
+        deliveryMode: formValues.delivery === 'live' ? 'live' : 'draft',
         sectionId: resolvedSectionId,
         sectionTitle: resolvedSectionTitle,
         summary: summary || '',
@@ -380,6 +451,10 @@ export function CompanyIntelActionButton({
           )
           try {
             sessionStorage.setItem('marqq_cta_skip_welcome', '1')
+            sessionStorage.setItem(
+              'marqq_agent_module_autorun',
+              JSON.stringify({ moduleId: targetModule, agentName }),
+            )
           } catch {
             /* ignore */
           }
@@ -469,52 +544,78 @@ export function CompanyIntelActionButton({
           </Card>
 
           {step === 'configure' && workflowForm ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base text-orange-600 dark:text-orange-400">{workflowForm.moduleName}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">{workflowForm.prompt}</p>
-                {workflowForm.fields.map((field) => (
-                  <div key={field.id} className="space-y-1.5">
-                    <div className="text-xs font-medium text-muted-foreground">{field.label}</div>
-                    {field.type === 'text' ? (
-                      <Input
-                        value={formValues[field.id] ?? ''}
-                        onChange={(e) => setFormValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
-                        placeholder={field.placeholder}
-                      />
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {(field.options || []).map((opt) => {
-                          const selected = formValues[field.id] === opt.value
-                          return (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() =>
-                                setFormValues((prev) => ({
-                                  ...prev,
-                                  [field.id]: selected ? '' : opt.value,
-                                }))
-                              }
-                              className={cn(
-                                'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                                selected
-                                  ? 'border-orange-400 bg-orange-100 text-orange-700 dark:border-orange-600 dark:bg-orange-900/30 dark:text-orange-300'
-                                  : 'border-border/60 bg-background/70 text-muted-foreground hover:border-orange-300 hover:text-foreground',
-                              )}
-                            >
-                              {opt.label}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+            <div className="space-y-4">
+              {requiredConnectors.length > 0 && !connectorsLoading && !connectorReadiness.ready ? (
+                <ConnectorGateCard
+                  missingConnectorIds={connectorReadiness.missing}
+                  taskLabel={workflowForm.moduleName}
+                  workspaceId={workspaceId}
+                  hardGate
+                  onConnected={(connectorId) => {
+                    setActiveConnectorIds((prev) =>
+                      prev.includes(connectorId) ? prev : [...prev, connectorId],
+                    )
+                    toast.success('Connector linked — continue when ready.')
+                  }}
+                />
+              ) : null}
+              {requiredConnectors.length > 0 && connectorReadiness.ready ? (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+                  Connected for {workflowForm.moduleName}: {connectorReadiness.connected.join(', ')}. Drafts
+                  use this live account context; send still needs approval later.
+                </div>
+              ) : null}
+              {connectorsLoading ? (
+                <div className="text-xs text-muted-foreground">Checking connected accounts…</div>
+              ) : null}
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base text-orange-600 dark:text-orange-400">{workflowForm.moduleName}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">{workflowForm.prompt}</p>
+                  {workflowForm.fields.map((field) => (
+                    <div key={field.id} className="space-y-1.5">
+                      <div className="text-xs font-medium text-muted-foreground">{field.label}</div>
+                      {field.type === 'text' ? (
+                        <Input
+                          value={formValues[field.id] ?? ''}
+                          onChange={(e) => setFormValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                          placeholder={field.placeholder}
+                        />
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {(field.options || []).map((opt) => {
+                            const selected = formValues[field.id] === opt.value
+                            return (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() =>
+                                  setFormValues((prev) => ({
+                                    ...prev,
+                                    [field.id]: selected ? '' : opt.value,
+                                  }))
+                                }
+                                className={cn(
+                                  'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                                  selected
+                                    ? 'border-orange-400 bg-orange-100 text-orange-700 dark:border-orange-600 dark:bg-orange-900/30 dark:text-orange-300'
+                                    : 'border-border/60 bg-background/70 text-muted-foreground hover:border-orange-300 hover:text-foreground',
+                                )}
+                              >
+                                {opt.label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
           ) : (
             <Card>
               <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
@@ -602,24 +703,20 @@ export function CompanyIntelActionButton({
               Cancel
             </Button>
             {step === 'configure' ? (
-              <>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={isPreparing}
-                  onClick={() => void prepareTaskPlan(formValues)}
-                >
-                  Skip to tasks
-                </Button>
-                <Button
-                  type="button"
-                  className="bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600"
-                  disabled={isPreparing}
-                  onClick={() => void prepareTaskPlan(formValues)}
-                >
-                  Continue to tasks
-                </Button>
-              </>
+              <Button
+                type="button"
+                className="bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600"
+                disabled={
+                  isPreparing ||
+                  connectorsLoading ||
+                  (requiredConnectors.length > 0 && !connectorReadiness.ready)
+                }
+                onClick={() => void prepareTaskPlan(formValues)}
+              >
+                {requiredConnectors.length > 0 && !connectorReadiness.ready
+                  ? 'Connect an account to continue'
+                  : 'Continue to tasks'}
+              </Button>
             ) : (
               <Button
                 type="button"

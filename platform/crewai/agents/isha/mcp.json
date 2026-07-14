@@ -1,6 +1,6 @@
 {
-  "connectors": ["semrush", "ahrefs", "reddit", "ga4", "google_sheets"],
+  "connectors": ["semrush", "ahrefs", "reddit", "ga4", "mixpanel", "amplitude", "hubspot", "google_sheets"],
   "permissions": "read",
-  "description": "Isha researches market structure, segment demand, and competitor context before strategy decisions.",
+  "description": "Isha researches market structure, segment demand, audience analytics, and competitor context before strategy decisions.",
   "recipes": {}
 }

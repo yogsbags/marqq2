@@ -316,7 +316,7 @@ function buildItemAction(
     const slug = normalizeKey(name).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || `cohort-${index + 1}`
     return {
       label: 'Launch Outreach',
-      agentName: 'zara',
+      agentName: 'arjun',
       taskPrefix: `Cohort • ${name}`,
       sectionId: `cohort-outreach-${slug}`,
       sectionTitle: `Launch Outreach · ${name}`,
@@ -348,6 +348,7 @@ function buildItemAction(
         channel: 'multi',
         target: 'decision',
         goal: 'meeting',
+        delivery: 'draft',
       },
       chatHandoff: false,
       successMessage: `Outreach campaign queued for ${name} — opening #outreach.`,
