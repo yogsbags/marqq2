@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { ArtifactRecord } from '../api'
+import { clampDisplayScore } from '../ui/ArtifactScoreCards'
 
 type Props = {
   artifact: ArtifactRecord | null
@@ -7,10 +8,6 @@ type Props = {
 
 function asObj(data: unknown): any {
   return data && typeof data === 'object' ? (data as any) : null
-}
-
-function clampScore(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value)))
 }
 
 export function PartnerProfilingPage({ artifact }: Props) {
@@ -31,8 +28,8 @@ export function PartnerProfilingPage({ artifact }: Props) {
   const insights: string[] = Array.isArray(data.insights) ? data.insights : []
   const aiScores = asObj(data.scores)
   const partnerCoverageScore = Number.isFinite(Number(aiScores?.partnerCoverage))
-    ? clampScore(Number(aiScores.partnerCoverage))
-    : clampScore(
+    ? clampDisplayScore(Number(aiScores.partnerCoverage))
+    : clampDisplayScore(
     Math.min(partnerTypes.length * 20, 60) +
       Math.min(
         partnerTypes.filter((partner) => String(partner?.valueExchange || '').trim()).length * 12,
@@ -41,8 +38,8 @@ export function PartnerProfilingPage({ artifact }: Props) {
       Math.min(insights.length * 4, 16)
   )
   const valueExchangeClarityScore = Number.isFinite(Number(aiScores?.valueExchangeClarity))
-    ? clampScore(Number(aiScores.valueExchangeClarity))
-    : clampScore(
+    ? clampDisplayScore(Number(aiScores.valueExchangeClarity))
+    : clampDisplayScore(
     Math.min(
       partnerTypes.filter((partner) => String(partner?.valueExchange || '').trim()).length * 20,
       60
@@ -61,8 +58,8 @@ export function PartnerProfilingPage({ artifact }: Props) {
       )
   )
   const activationReadinessScore = Number.isFinite(Number(aiScores?.activationReadiness))
-    ? clampScore(Number(aiScores.activationReadiness))
-    : clampScore(
+    ? clampDisplayScore(Number(aiScores.activationReadiness))
+    : clampDisplayScore(
     Math.min(
       partnerTypes.filter(
         (partner) => Array.isArray(partner?.activationPlaybook) && partner.activationPlaybook.length > 0

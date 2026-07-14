@@ -31,10 +31,6 @@ function asObj(data: unknown): any {
   return data && typeof data === 'object' ? (data as any) : {}
 }
 
-function clampScore(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value)))
-}
-
 function normalizeKey(value: string) {
   return value.toLowerCase().replace(/\s+/g, '-')
 }
@@ -259,7 +255,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
             <div className="text-2xl font-bold">
               {Number.isFinite(Number(aiScores?.competitorCoverage))
                 ? clampDisplayScore(aiScores.competitorCoverage)
-                : clampScore(
+                : clampDisplayScore(
                     (Math.min(top.length, 5) / 5) * 70 +
                     (top.filter((c) => String(c?.website || '').trim()).length / Math.max(top.length, 1)) * 30
                   )}
@@ -272,7 +268,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
             <div className="text-2xl font-bold">
               {Number.isFinite(Number(aiScores?.differentiationStrength))
                 ? clampDisplayScore(aiScores.differentiationStrength)
-                : clampScore(
+                : clampDisplayScore(
                     Math.min((Array.isArray(comparison.yourDifferentiators) ? comparison.yourDifferentiators.length : 0) * 18, 72) +
                     Math.min((Array.isArray(comparison.messagingGaps) ? comparison.messagingGaps.length : 0) * 7, 28)
                   )}
@@ -285,7 +281,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
             <div className="text-2xl font-bold">
               {Number.isFinite(Number(aiScores?.whitespaceOpportunity))
                 ? clampDisplayScore(aiScores.whitespaceOpportunity)
-                : clampScore(
+                : clampDisplayScore(
                     Math.min((Array.isArray(comparison.opportunities) ? comparison.opportunities.length : 0) * 20, 80) +
                     Math.min((Array.isArray(comparison.messagingGaps) ? comparison.messagingGaps.length : 0) * 10, 20)
                   )}

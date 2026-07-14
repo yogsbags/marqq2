@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { ArtifactRecord } from '../api'
+import { clampDisplayScore } from '../ui/ArtifactScoreCards'
 
 type Props = {
   artifact: ArtifactRecord | null
@@ -7,10 +8,6 @@ type Props = {
 
 function asObj(data: unknown): any {
   return data && typeof data === 'object' ? (data as any) : null
-}
-
-function clampScore(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value)))
 }
 
 export function ClientProfilingPage({ artifact }: Props) {
@@ -31,8 +28,8 @@ export function ClientProfilingPage({ artifact }: Props) {
   const insights: string[] = Array.isArray(data.insights) ? data.insights : []
   const aiScores = asObj(data.scores)
   const segmentCoverageScore = Number.isFinite(Number(aiScores?.segmentCoverage))
-    ? clampScore(Number(aiScores.segmentCoverage))
-    : clampScore(
+    ? clampDisplayScore(Number(aiScores.segmentCoverage))
+    : clampDisplayScore(
     Math.min(segments.length * 20, 60) +
       Math.min(segments.filter((segment) => String(segment?.profile || '').trim()).length * 10, 20) +
       Math.min(
@@ -41,8 +38,8 @@ export function ClientProfilingPage({ artifact }: Props) {
       )
   )
   const painClarityScore = Number.isFinite(Number(aiScores?.painClarity))
-    ? clampScore(Number(aiScores.painClarity))
-    : clampScore(
+    ? clampDisplayScore(Number(aiScores.painClarity))
+    : clampDisplayScore(
     Math.min(
       segments.filter((segment) => Array.isArray(segment?.painPoints) && segment.painPoints.length > 0).length * 14,
       42
@@ -54,8 +51,8 @@ export function ClientProfilingPage({ artifact }: Props) {
       Math.min(insights.length * 4, 22)
   )
   const activationReadinessScore = Number.isFinite(Number(aiScores?.activationReadiness))
-    ? clampScore(Number(aiScores.activationReadiness))
-    : clampScore(
+    ? clampDisplayScore(Number(aiScores.activationReadiness))
+    : clampDisplayScore(
     Math.min(
       segments.filter((segment) => Array.isArray(segment?.jobsToBeDone) && segment.jobsToBeDone.length > 0).length * 12,
       36

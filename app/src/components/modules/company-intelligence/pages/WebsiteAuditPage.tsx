@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { ArtifactRecord } from '../api'
 import { Badge } from '@/components/ui/badge'
 import { CompanyIntelActionButton } from '../ui/CompanyIntelActionButton'
+import { clampDisplayScore } from '../ui/ArtifactScoreCards'
 
 type Props = {
   artifact: ArtifactRecord | null
@@ -56,9 +57,9 @@ export function WebsiteAuditPage({ artifact, companyId, companyName, websiteUrl 
   const experiments: any[] = Array.isArray(data.experiments) ? data.experiments : []
   const plan: any[] = Array.isArray(data.priorityPlan) ? data.priorityPlan : []
 
-  const clarityScore = Number(first.clarityScore ?? NaN)
-  const trustScore = Number(first.trustScore ?? NaN)
-  const hierarchyScore = Number(first.visualHierarchyScore ?? NaN)
+  const clarityScore = clampDisplayScore(first.clarityScore, Number.NaN)
+  const trustScore = clampDisplayScore(first.trustScore, Number.NaN)
+  const hierarchyScore = clampDisplayScore(first.visualHierarchyScore, Number.NaN)
 
   function routePriorityAgent(task: string, ownerHint: string) {
     const text = `${task} ${ownerHint}`.toLowerCase()
@@ -73,17 +74,17 @@ export function WebsiteAuditPage({ artifact, companyId, companyName, websiteUrl 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="p-4">
           <div className="text-xs text-orange-600 dark:text-orange-400">Clarity</div>
-          <div className="text-2xl font-bold">{Number.isFinite(clarityScore) ? Math.round(clarityScore) : '—'}/100</div>
+          <div className="text-2xl font-bold">{Number.isFinite(clarityScore) ? clarityScore : '—'}/100</div>
           <div className="text-xs text-muted-foreground mt-1">Can users understand “what you do” fast?</div>
         </Card>
         <Card className="p-4">
           <div className="text-xs text-orange-600 dark:text-orange-400">Trust</div>
-          <div className="text-2xl font-bold">{Number.isFinite(trustScore) ? Math.round(trustScore) : '—'}/100</div>
+          <div className="text-2xl font-bold">{Number.isFinite(trustScore) ? trustScore : '—'}/100</div>
           <div className="text-xs text-muted-foreground mt-1">Signals: compliance, proof, credibility.</div>
         </Card>
         <Card className="p-4">
           <div className="text-xs text-orange-600 dark:text-orange-400">Visual Hierarchy</div>
-          <div className="text-2xl font-bold">{Number.isFinite(hierarchyScore) ? Math.round(hierarchyScore) : '—'}/100</div>
+          <div className="text-2xl font-bold">{Number.isFinite(hierarchyScore) ? hierarchyScore : '—'}/100</div>
           <div className="text-xs text-muted-foreground mt-1">Is attention guided to the CTA?</div>
         </Card>
       </div>
