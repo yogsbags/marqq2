@@ -1,12 +1,15 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, AuthState } from '@/types/auth';
 import { supabase } from '@/lib/supabase';
-import type { Session, AuthError } from '@supabase/supabase-js';
+import type { AuthError } from '@supabase/supabase-js';
 import { persistActiveUserId } from '@/lib/agentContext';
 import {
-  clearUserOnboardedLocal,
+  accountNeedsOnboardingFlag,
   clearJustSignedUpPending,
+  isJustSignedUpPending,
   markJustSignedUpPending,
+  markNeedsOnboarding,
+  onboardedStorageKey,
 } from '@/lib/onboardingGate';
 
 interface AuthContextType extends AuthState {
@@ -35,6 +38,17 @@ function mapSupabaseUser(supabaseUser: any): User | null {
   };
 }
 
+function shouldForceOnboarding(user: User): boolean {
+  if (accountNeedsOnboardingFlag(user.id)) return true;
+  try {
+    // Already finished on this device — don't re-open the flow while metadata catches up
+    if (localStorage.getItem(onboardedStorageKey(user.id)) === '1') return false;
+  } catch {
+    /* ignore */
+  }
+  return user.onboarded !== true;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -61,11 +75,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           const user = mapSupabaseUser(session.user);
           persistActiveUserId(session.user.id);
-          setState({
-            user,
-            isAuthenticated: true,
-            isLoading: false,
-          });
+          if (user && shouldForceOnboarding(user)) {
+            markNeedsOnboarding(user.id);
+            setState({
+              user: { ...user, onboarded: false },
+              isAuthenticated: true,
+              isLoading: false,
+            });
+          } else {
+            setState({
+              user,
+              isAuthenticated: true,
+              isLoading: false,
+            });
+          }
         } else {
           persistActiveUserId(null);
           setState(prev => ({ ...prev, isLoading: false }));
@@ -84,20 +107,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (event === 'SIGNED_IN' && session?.user) {
           const user = mapSupabaseUser(session.user);
           persistActiveUserId(session.user.id);
-          // Incomplete accounts must always hit onboarding — set the session
-          // flag here so we win the race when SIGNED_IN fires before signup()
-          // finishes setting marqq_just_signed_up.
-          if (!user?.onboarded) {
-            markJustSignedUpPending();
-            clearUserOnboardedLocal(user?.id);
-          } else {
-            clearJustSignedUpPending();
+          if (!user) {
+            setState({ user: null, isAuthenticated: true, isLoading: false });
+            return;
           }
-          setState({
-            user,
-            isAuthenticated: true,
-            isLoading: false,
-          });
+
+          let localDone = false;
+          try {
+            localDone = localStorage.getItem(onboardedStorageKey(user.id)) === '1';
+          } catch {
+            /* ignore */
+          }
+
+          // Fresh signup pending always sticky-marks; otherwise respect local completion.
+          const force =
+            isJustSignedUpPending() ||
+            accountNeedsOnboardingFlag(user.id) ||
+            (!localDone && user.onboarded !== true);
+
+          if (force) {
+            markNeedsOnboarding(user.id);
+            if (user.onboarded) {
+              void supabase.auth.updateUser({ data: { onboarded: false } }).catch(() => {});
+            }
+            setState({
+              user: { ...user, onboarded: false },
+              isAuthenticated: true,
+              isLoading: false,
+            });
+          } else {
+            setState({
+              user,
+              isAuthenticated: true,
+              isLoading: false,
+            });
+          }
         } else if (event === 'SIGNED_OUT') {
           persistActiveUserId(null);
           setState({
@@ -106,13 +150,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             isLoading: false,
           });
         } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          const user = mapSupabaseUser(session.user);
+          const mapped = mapSupabaseUser(session.user);
           persistActiveUserId(session.user.id);
-          setState(prev => ({
-            ...prev,
-            user,
-            isAuthenticated: true,
-          }));
+          // Sticky incomplete flag beats refreshed metadata
+          if (mapped && accountNeedsOnboardingFlag(mapped.id)) {
+            setState(prev => ({
+              ...prev,
+              user: { ...mapped, onboarded: false },
+              isAuthenticated: true,
+            }));
+          } else {
+            setState(prev => ({
+              ...prev,
+              user: mapped,
+              isAuthenticated: true,
+            }));
+          }
         } else if (event === 'TOKEN_REFRESH_FAILED' || (!session && event === 'INITIAL_SESSION')) {
           // Stale / invalid refresh token — clear session and force re-login
           persistActiveUserId(null);
@@ -142,18 +195,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         const user = mapSupabaseUser(data.user);
-        // Incomplete accounts must enter onboarding even if an older session left device flags around
-        if (!user.onboarded) {
-          markJustSignedUpPending();
-          clearUserOnboardedLocal(user.id);
+        if (!user) throw new Error('No user data returned');
+
+        if (shouldForceOnboarding(user) || accountNeedsOnboardingFlag(user.id)) {
+          markNeedsOnboarding(user.id);
+          setState({
+            user: { ...user, onboarded: false },
+            isAuthenticated: true,
+            isLoading: false,
+          });
         } else {
           clearJustSignedUpPending();
+          setState({
+            user,
+            isAuthenticated: true,
+            isLoading: false,
+          });
         }
-        setState({
-          user,
-          isAuthenticated: true,
-          isLoading: false,
-        });
       } else {
         throw new Error('No user data returned');
       }
@@ -167,7 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = async (email: string, password: string, name: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
 
-    // Set BEFORE signUp so onAuthStateChange(SIGNED_IN) cannot race past the gate
+    // Set BEFORE signUp so onAuthStateChange(SIGNED_IN) sees pending and sticky-marks
     markJustSignedUpPending();
 
     try {
@@ -190,15 +248,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.session?.user) {
         const user = mapSupabaseUser(data.session.user);
-        markJustSignedUpPending();
-        clearUserOnboardedLocal(user?.id);
-        // Force metadata flag in case the project ignores options.data defaults
-        if (user?.onboarded) {
-          void supabase.auth.updateUser({ data: { onboarded: false } }).catch(() => {});
-          user.onboarded = false;
-        }
+        if (!user) throw new Error('No user data returned');
+
+        markNeedsOnboarding(user.id);
+        // Ensure Supabase metadata matches — past races left onboarded:true on new accounts
+        void supabase.auth.updateUser({ data: { onboarded: false } }).catch(() => {});
+
         setState({
-          user: user ? { ...user, onboarded: false } : user,
+          user: { ...user, onboarded: false },
           isAuthenticated: true,
           isLoading: false,
         });
@@ -206,20 +263,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data.user) {
-        // Email confirmation required — mark so the first login still gets onboarding
-        markJustSignedUpPending();
-        clearUserOnboardedLocal(data.user.id);
+        // Email confirmation required — sticky flag so first login still onboards
+        markNeedsOnboarding(data.user.id);
         setState({
           user: null,
           isAuthenticated: false,
           isLoading: false,
         });
         return { needsEmailConfirmation: true };
-      } else {
-        clearJustSignedUpPending();
-        throw new Error('No user data returned');
       }
+
+      clearJustSignedUpPending();
+      throw new Error('No user data returned');
     } catch (error) {
+      // Keep sticky needs markers if SIGNED_IN already wrote them for a created user.
+      // Only clear the ephemeral session pending bit when signup failed cleanly.
       clearJustSignedUpPending();
       setState(prev => ({ ...prev, isLoading: false }));
       const authError = error as AuthError;

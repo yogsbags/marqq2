@@ -3,11 +3,17 @@ export function onboardedStorageKey(userId: string) {
   return `marqq_onboarded:${userId}`;
 }
 
+/** Sticky "must onboard" flag — survives auth races and bad Supabase metadata. */
+export function needsOnboardingStorageKey(userId: string) {
+  return `marqq_needs_onboarding:${userId}`;
+}
+
 export function markUserOnboardedLocal(userId: string) {
   try {
     localStorage.setItem(onboardedStorageKey(userId), '1');
     // Keep legacy key in sync for older tour code paths
     localStorage.setItem('marqq_onboarded', '1');
+    localStorage.removeItem(needsOnboardingStorageKey(userId));
   } catch {
     /* ignore */
   }
@@ -19,6 +25,38 @@ export function clearUserOnboardedLocal(userId?: string | null) {
     if (userId) localStorage.removeItem(onboardedStorageKey(userId));
   } catch {
     /* ignore */
+  }
+}
+
+/**
+ * Mark this account as incomplete for GTM onboarding.
+ * Cleared ONLY when the user finishes/skips the onboarding flow — never by SIGNED_IN.
+ */
+export function markNeedsOnboarding(userId: string) {
+  try {
+    localStorage.setItem(needsOnboardingStorageKey(userId), '1');
+    localStorage.removeItem(onboardedStorageKey(userId));
+    localStorage.removeItem('marqq_onboarded');
+  } catch {
+    /* ignore */
+  }
+  markJustSignedUpPending();
+}
+
+export function clearNeedsOnboarding(userId?: string | null) {
+  try {
+    if (userId) localStorage.removeItem(needsOnboardingStorageKey(userId));
+  } catch {
+    /* ignore */
+  }
+  clearJustSignedUpPending();
+}
+
+export function accountNeedsOnboardingFlag(userId: string): boolean {
+  try {
+    return localStorage.getItem(needsOnboardingStorageKey(userId)) === '1';
+  } catch {
+    return false;
   }
 }
 
@@ -52,14 +90,15 @@ export function isJustSignedUpPending(): boolean {
 /**
  * Decide whether the authenticated user must complete the workspace GTM onboarding.
  *
- * Rules (strict — prefer showing onboarding over skipping):
- * 1. Fresh signup / incomplete-login session flag → always onboard
- * 2. Supabase user_metadata.onboarded === true → done (unless just-signed-up)
+ * Prefer showing onboarding over skipping:
+ * 1. Per-user `marqq_needs_onboarding:<id>` (set at signup) → always onboard
+ * 2. Session pending flag → always onboard
  * 3. Per-user local completion cache → done
- * 4. Otherwise → needs onboarding
+ * 4. Supabase user_metadata.onboarded === true → done (returning / cross-device)
+ * 5. Otherwise → needs onboarding
  *
- * Never skip solely because a shared device flag `marqq_onboarded` is set —
- * that caused new accounts in shared browsers (and races) to bypass the flow.
+ * Never skip solely because of the shared `marqq_onboarded` key.
+ * Auth SIGNED_IN must never clear the needs-onboarding marker.
  */
 export function userNeedsOnboarding(user: {
   id: string;
@@ -67,18 +106,21 @@ export function userNeedsOnboarding(user: {
 } | null): boolean {
   if (!user?.id) return false;
 
+  // Sticky incomplete marker beats metadata races (past bugs wrote onboarded:true early)
+  if (accountNeedsOnboardingFlag(user.id)) return true;
+
   if (isJustSignedUpPending()) return true;
 
-  // Explicitly completed in Supabase
-  if (user.onboarded === true) return false;
-
-  // Per-user device cache only (never the global legacy key alone)
+  // Explicitly completed on this device
   try {
     if (localStorage.getItem(onboardedStorageKey(user.id)) === '1') return false;
   } catch {
     /* ignore */
   }
 
-  // Not complete in metadata → must onboard (covers false, undefined, missing)
+  // Returning user completed elsewhere
+  if (user.onboarded === true) return false;
+
+  // No completion markers → must onboard
   return true;
 }

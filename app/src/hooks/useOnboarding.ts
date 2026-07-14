@@ -3,7 +3,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCallback, useRef, useState } from 'react';
 import { AGENTS, STEPS } from '../components/onboarding/constants';
 import { FormData, Phase } from '../components/onboarding/types';
-import { markUserOnboardedLocal, clearJustSignedUpPending } from '@/lib/onboardingGate';
+import { markUserOnboardedLocal, clearNeedsOnboarding } from '@/lib/onboardingGate';
 import { startGtmPrep } from '@/services/gtmModuleService';
 import { supabase } from '@/lib/supabase';
 
@@ -145,12 +145,10 @@ export function useOnboarding(onComplete: () => void) {
     setActivatingAgent(null);
 
     setPhase('done');
-    try {
-      clearJustSignedUpPending();
-    } catch {
-      /* ignore */
+    if (user?.id) {
+      clearNeedsOnboarding(user.id);
+      markUserOnboardedLocal(user.id);
     }
-    if (user?.id) markUserOnboardedLocal(user.id);
     void supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});
 
     await new Promise(r => setTimeout(r, 700));
