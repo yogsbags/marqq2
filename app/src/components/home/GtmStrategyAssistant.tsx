@@ -84,6 +84,7 @@ export interface DeployRequest {
   };
 }
 
+/** @deprecated Use GtmModuleWizard on Home instead */
 interface GtmStrategyAssistantProps {
   onDeployAgent: (req: DeployRequest) => void;
   onOpenWorkflow?: (context?: { nextStep?: string }) => void;

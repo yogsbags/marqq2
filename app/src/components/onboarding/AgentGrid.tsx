@@ -22,7 +22,7 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
 
       {/* Section label */}
       <div className="font-mono text-[10px] tracking-[0.16em] uppercase text-white/25 mb-[18px]">
-        {phase === 'activate' ? 'Activating Team...' : phase === 'done' ? 'Team Operational' : 'Your AI Team'}
+        {phase === 'activate' ? 'Standing by…' : phase === 'done' ? 'Ready for GTM' : 'Your AI Team'}
       </div>
 
       {/* Agent cards — 2 column grid */}
@@ -105,10 +105,10 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
       {phase === 'done' && (
         <div className="font-mono mt-6 py-3.5 px-4 bg-[#4ADE80]/10 border border-[#4ADE80]/20 rounded-lg animate-in fade-in slide-in-from-bottom-4 duration-700">
           <div className="text-[#4ADE80] text-[11px] tracking-[0.06em] mb-1 flex items-center">
-            <Check className="h-3 w-3 mr-1" /> TEAM OPERATIONAL
+            <Check className="h-3 w-3 mr-1" /> GTM WIZARD NEXT
           </div>
           <div className="text-white/35 text-[10px]">
-            Intelligence briefs ready
+            Agents wait until you lock sections and pick a task
           </div>
         </div>
       )}

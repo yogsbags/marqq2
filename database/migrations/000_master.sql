@@ -16,6 +16,7 @@
 --   9.  hooks-system.sql            — agent_signals
 --  10.  library-artifacts.sql       — library_artifacts
 --  11.  gtm-strategies.sql          — gtm_strategies
+--  11b. gtm-modules.sql             — gtm_modules (+ gtm_strategies.module_id)
 --  12.  positioning-sales-pricing.sql — positioning_messaging, sales_enablement, pricing_intelligence
 --  13.  companies-core.sql          — companies, company_artifacts (base CREATE)
 --  14.  companies-workspace-scope.sql — ALTER companies/company_artifacts (workspace FK + RLS)

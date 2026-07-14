@@ -2,61 +2,54 @@ import { SpotlightTour, type SpotlightTourStep } from '@/components/tour/Spotlig
 
 /**
  * Shown on the Home screen right after workspace onboarding.
- * Targets use data-tour on HomeView + header + sidebar.
+ * Points at the GTM wizard progress — not auto-running agents.
  */
 const HOME_STEPS: SpotlightTourStep[] = [
   {
     target: null,
     title: 'Your Home workspace',
     description:
-      'You are on Home — the fastest way to ship outcomes. Pick a goal below and Marqq routes you through setup, then into the right modules and agents with your context.',
+      'You are on Home. Next you will complete a guided GTM wizard in the chat area — section by section — before any agent runs work for you.',
     placement: 'center',
   },
   {
-    target: 'home-start-here',
-    title: 'Start with an outcome',
+    target: 'gtm-module-wizard',
+    title: 'GTM Wizard',
     description:
-      'These priority goals cover the most common GTM jobs. Tap a card, answer a short intake, and we open the workflow with Veena and the right specialist agents.',
+      'Answer each question with one of four options, then lock the section. Progress stays visible so you always know what is left.',
     placement: 'bottom',
   },
   {
-    target: 'home-goal-grid',
-    title: 'Goal cards = guided workflows',
+    target: 'gtm-section-progress',
+    title: 'Section progress',
     description:
-      'Each card explains who it is for. You will get connector hints where useful (ads, CRM, social). Browse the full catalog anytime from the link above the grid.',
-    placement: 'top',
+      'Offer → Audience → Problem → Positioning → Goals must be locked in order. Unlock only reopens the last locked section.',
+    placement: 'bottom',
   },
   {
     target: 'header-ask-ai',
     title: 'Ask AI anytime',
     description:
-      'Use Ask AI for free-form tasks, slash commands (/leads, /content, /seo), and follow-ups. Your chat history stays in the drawer on the right.',
+      'Use Ask AI for free-form tasks after your module profile is locked. Slash commands and chat history stay in the drawer.',
     placement: 'bottom',
   },
   {
     target: 'nav-home',
     title: 'Home in one click',
-    description: 'Use Home in the sidebar whenever you want to switch goals or start a new outcome without losing your place.',
+    description: 'Return here to continue an in-progress GTM module or add another product, service, app, or business line.',
     placement: 'right',
   },
   {
     target: 'nav-company-intel',
     title: 'Company Intelligence',
     description:
-      'When you are ready to go deep: open it here, then use the horizontal tabs for Overview, ICPs, competitors, positioning, and the rest — built from your site and refreshed over time.',
-    placement: 'right',
-  },
-  {
-    target: 'nav-dashboard',
-    title: 'Your AI team',
-    description:
-      'Twelve agents run research, copy, analytics, and more. Open AI Team to assign tasks, see status, and pull market signals.',
+      'After you pick an execute task, workflows open here with your locked module profile as context.',
     placement: 'right',
   },
   {
     target: 'nav-settings',
     title: 'Settings & Workspace',
-    description: 'Invite teammates, connect integrations, and manage billing. Your workspace was auto-provisioned when you signed up.',
+    description: 'Invite teammates, connect integrations, and manage billing from Settings.',
     placement: 'right',
   },
 ]

@@ -3,6 +3,7 @@ export type GtmQuestionType = 'single_select' | 'multi_select' | 'free_text';
 export interface GtmQuestionOption {
   value: string;
   label: string;
+  recommended?: boolean;
 }
 
 export interface GtmInterviewQuestion {
@@ -12,6 +13,8 @@ export interface GtmInterviewQuestion {
   type: GtmQuestionType;
   options?: GtmQuestionOption[];
   allowCustomAnswer?: boolean;
+  selectedValue?: string | null;
+  selectedLabel?: string | null;
 }
 
 export interface GtmInterviewPlan {
@@ -62,7 +65,110 @@ export interface GtmStrategyBlock extends GtmStrategySection {
 export interface SavedGtmStrategy {
   id: string;
   createdAt: string;
-  answers: Record<string, string>;  // questionId → chosen label
+  answers: Record<string, string>; // questionId → chosen label
   strategy: GtmStrategyResponse;
   blocks: GtmStrategyBlock[];
+}
+
+/** GTM Module Wizard (post-onboarding chat) */
+export type GtmModuleType = 'product' | 'service' | 'app' | 'business_line';
+export type GtmModuleStatus = 'draft' | 'in_progress' | 'ready' | 'archived';
+
+export type GtmInterviewSectionId =
+  | 'module'
+  | 'offer'
+  | 'audience'
+  | 'problem'
+  | 'positioning'
+  | 'goals';
+
+export interface GtmSectionAnswer {
+  value: string;
+  label: string;
+}
+
+export interface GtmSectionStateEntry {
+  locked: boolean;
+  locked_at?: string | null;
+  answers?: Record<string, GtmSectionAnswer>;
+}
+
+export interface GtmModuleProfile {
+  module?: { type?: GtmModuleType; name?: string };
+  offer?: Record<string, string>;
+  audience?: Record<string, string>;
+  problem?: Record<string, string>;
+  positioning?: Record<string, string>;
+  goals?: Record<string, string>;
+  locked_sections?: string[];
+  inferences?: {
+    from_crawl?: string[];
+    confidence?: number;
+  };
+  last_executed_task?: {
+    taskId: string;
+    agentTarget: AgentTarget;
+    at: string;
+  };
+  [key: string]: unknown;
+}
+
+export interface GtmModule {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  company_id?: string | null;
+  name: string;
+  module_type: GtmModuleType;
+  status: GtmModuleStatus;
+  source_context: Record<string, unknown>;
+  profile: GtmModuleProfile;
+  section_state: Record<string, GtmSectionStateEntry>;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GtmProgressSection {
+  id: string;
+  title: string;
+  description: string;
+  locked: boolean;
+  lockedAt?: string | null;
+  answerCount: number;
+  totalQuestions: number;
+}
+
+export interface GtmWizardProgress {
+  sections: GtmProgressSection[];
+  currentSectionId: string | null;
+  allLocked: boolean;
+  status: GtmModuleStatus;
+}
+
+export interface GtmSectionQuestionsResponse {
+  sectionId: string;
+  title: string;
+  description: string;
+  questions: GtmInterviewQuestion[];
+  progress: GtmWizardProgress;
+}
+
+export interface GtmExecuteOption {
+  id: string;
+  title: string;
+  description: string;
+  agentTarget: AgentTarget;
+  recommended?: boolean;
+  contextSummary?: string;
+}
+
+export interface GtmDeployRequest {
+  target: AgentTarget;
+  context?: {
+    sectionId?: string;
+    sectionTitle?: string;
+    summary?: string;
+    bullets?: string[];
+  };
 }

@@ -1,17 +1,27 @@
-import { GtmStrategyAssistant, type DeployRequest } from '@/components/home/GtmStrategyAssistant';
+import { GtmModuleWizard } from '@/components/home/GtmModuleWizard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import type { AgentTarget } from '@/types/gtm';
+import type { AgentTarget, GtmDeployRequest } from '@/types/gtm';
 import { storeGtmContext } from '@/lib/gtmContext';
 import { BRAND } from '@/lib/brand';
 import { ArrowRight, BarChart3, FileText, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface HomePanelProps {
   onModuleSelect: (moduleId: string | null) => void;
 }
 
 export function HomePanel({ onModuleSelect }: HomePanelProps) {
+  const [forceNewModule, setForceNewModule] = useState(false);
+
+  useEffect(() => {
+    if (sessionStorage.getItem('marqq_gtm_force_new_module') === '1') {
+      sessionStorage.removeItem('marqq_gtm_force_new_module');
+      setForceNewModule(true);
+    }
+  }, []);
+
   const startGuidedGoal = (goal: 'leads' | 'roi' | 'content') => {
     const destinationByGoal = {
       leads: 'icps',
@@ -24,10 +34,9 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const deployAgent = (req: DeployRequest) => {
+  const deployAgent = (req: GtmDeployRequest) => {
     const target = req.target;
 
-    // Store GTM context if provided
     if (req.context) {
       storeGtmContext(target, {
         sectionId: req.context.sectionId || '',
@@ -68,14 +77,6 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
     navigate(destination.moduleId, { hash: destination.hash });
   };
 
-  const openWorkflow = ({ nextStep }: { nextStep?: string } = {}) => {
-    onModuleSelect('company-intelligence');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    if (nextStep) {
-      window.location.hash = '#ci=overview';
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -84,16 +85,24 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
         </p>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Marketing Copilot Home</h2>
         <p className="text-sm text-muted-foreground">
-          Pick your business goal and follow a guided flow designed for non-technical marketing teams.
+          Complete your GTM wizard below. Agents only run when you lock sections and choose a task.
         </p>
       </div>
+
+      <GtmModuleWizard
+        onDeployAgent={deployAgent}
+        forceNewModule={forceNewModule}
+        onForceNewConsumed={() => setForceNewModule(false)}
+      />
 
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="bg-orange-100 text-orange-800 hover:bg-orange-100">
-            Start Here
+            Shortcuts
           </Badge>
-          <p className="text-sm text-muted-foreground">Goal-based setup with defaults and plain-language steps.</p>
+          <p className="text-sm text-muted-foreground">
+            Optional jumps after your module profile is ready.
+          </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -107,7 +116,7 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
             </CardHeader>
             <CardContent>
               <Button className="w-full" onClick={() => startGuidedGoal('leads')}>
-                Start Lead Flow
+                Open Lead Flow
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </CardContent>
@@ -123,7 +132,7 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
             </CardHeader>
             <CardContent>
               <Button className="w-full" onClick={() => startGuidedGoal('roi')}>
-                Start ROI Flow
+                Open ROI Flow
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </CardContent>
@@ -139,15 +148,13 @@ export function HomePanel({ onModuleSelect }: HomePanelProps) {
             </CardHeader>
             <CardContent>
               <Button className="w-full" onClick={() => startGuidedGoal('content')}>
-                Start Content Flow
+                Open Content Flow
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </CardContent>
           </Card>
         </div>
       </div>
-
-      <GtmStrategyAssistant onDeployAgent={deployAgent} onOpenWorkflow={openWorkflow} />
     </div>
   );
 }

@@ -65,6 +65,7 @@ import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers } from "./automations/registry.js";
 import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector } from "./mcp-router.js";
 import { getLLMModel, LLM_PROVIDER, LLM_MODEL, inferProviderForModel, isClaudeProvider, isGroqProvider } from "./llm-client.js";
+import { registerGtmWizardRoutes } from "./gtm-wizard-routes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -11129,6 +11130,19 @@ app.post("/api/agents/integration-connected", express.json(), async (req, res) =
     hasSuggestions: Boolean(CONNECTOR_AUTOMATIONS[connectorId]?.length),
     suggestionCount: CONNECTOR_AUTOMATIONS[connectorId]?.length ?? 0,
   });
+});
+
+// ── GTM Module Wizard (chat onboarding) ───────────────────────────────────────
+registerGtmWizardRoutes(app, {
+  groq,
+  supabaseAdminClient,
+  supabase,
+  MKGService,
+  crawlCompanyForMKG,
+  buildContextPatchFromCrawl,
+  initializeMKGTemplate,
+  writeContextToSupabase,
+  CTX_DIR,
 });
 
 // Keep API misses machine-readable so frontend error handling does not receive

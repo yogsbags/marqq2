@@ -1,43 +1,9 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCallback, useState } from 'react';
-import { fetchJson } from '../components/modules/company-intelligence/api';
-import { AGENTS, STEPS } from '../components/onboarding/constants';
+import { STEPS } from '../components/onboarding/constants';
 import { FormData, Phase } from '../components/onboarding/types';
 import { supabase } from '@/lib/supabase';
-
-function normalizeWebsiteUrl(url: string) {
-  try {
-    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return url.trim().replace(/\/$/, '');
-  }
-}
-
-function deriveCompanyName(baseName: string | undefined, websiteUrl: string) {
-  let derivedName = baseName || 'Company';
-  try {
-    const hostname = new URL(websiteUrl.startsWith('http') ? websiteUrl : `https://${websiteUrl}`).hostname
-      .replace(/^www\./, '').split('.')[0];
-    if (hostname) derivedName = hostname.charAt(0).toUpperCase() + hostname.slice(1);
-  } catch {
-    // keep fallback
-  }
-  return derivedName;
-}
-
-function queueCompanyIntelAutorun(companyName: string, websiteUrl: string, companyId?: string) {
-  try {
-    sessionStorage.setItem('marqq_company_intel_autorun', JSON.stringify({
-      companyName,
-      websiteUrl,
-      companyId,
-    }));
-  } catch {
-    // non-blocking
-  }
-}
 
 export function useOnboarding(onComplete: () => void) {
   const { user } = useAuth();
@@ -58,78 +24,11 @@ export function useOnboarding(onComplete: () => void) {
     setFormData(prev => ({ ...prev, [key]: value }));
   }, []);
 
-  const startCompanyIntelInBackground = useCallback(async (rawWebsiteUrl: string) => {
-    const normalizedUrl = normalizeWebsiteUrl(rawWebsiteUrl);
-    const derivedName = deriveCompanyName(formData.company || activeWorkspace?.name, rawWebsiteUrl);
-    const existing = await fetchJson<{ companies: Array<{ id: string; websiteUrl: string | null }> }>('/api/company-intel/companies');
-    let companyId = existing.companies.find((company) => (
-      company.websiteUrl && normalizeWebsiteUrl(company.websiteUrl) === normalizedUrl
-    ))?.id;
-
-    if (!companyId) {
-      const created = await fetchJson<{ company: { id: string } }>('/api/company-intel/companies', {
-        method: 'POST',
-        body: JSON.stringify({ companyName: derivedName, websiteUrl: rawWebsiteUrl })
-      });
-      companyId = created.company.id;
-    }
-
-    if (!companyId) return;
-
-    queueCompanyIntelAutorun(derivedName, rawWebsiteUrl, companyId);
-
-    // Step 1 — kick off Veena's MKG crawl and wait for it to populate before
-    // running generate-all. This ensures all 15 artifact agents have real MKG
-    // context (positioning, ICP, competitors, etc.) rather than an empty graph.
-    try {
-      await fetchJson('/api/agents/veena/onboard', {
-        method: 'POST',
-        body: JSON.stringify({
-          company_id: companyId,
-          website_url: rawWebsiteUrl,
-          company_name: derivedName,
-        }),
-      });
-
-      // Poll until at least one MKG field has confidence > 0 (crawl completed)
-      // or until 90 s have elapsed, whichever comes first.
-      const MKG_POLL_INTERVAL_MS = 4_000;
-      const MKG_POLL_TIMEOUT_MS  = 90_000;
-      const deadline = Date.now() + MKG_POLL_TIMEOUT_MS;
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, MKG_POLL_INTERVAL_MS));
-        try {
-          const { mkg } = await fetchJson<{ mkg: Record<string, { confidence?: number }> }>(`/api/mkg/${companyId}`);
-          const populated = mkg && Object.values(mkg).some(f => (f?.confidence ?? 0) > 0);
-          if (populated) break;
-        } catch {
-          // non-blocking — keep polling
-        }
-      }
-    } catch {
-      // Veena crawl failure is non-blocking; generate-all will run with whatever
-      // context is available (company name + URL at minimum).
-    }
-
-    // Step 2 — now run generate-all with the populated MKG as context.
-    await fetchJson(`/api/company-intel/companies/${companyId}/generate-all`, {
-      method: 'POST',
-      body: JSON.stringify({
-        inputs: {
-          goal: 'Build company context from onboarding',
-          geo: 'India',
-          timeframe: '90 days',
-          channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
-          notes: 'Keep it compliance-safe (no guaranteed returns).'
-        }
-      })
-    });
-  }, [activeWorkspace?.name, formData.company]);
-
   const handleActivate = async () => {
     setPhase('activate');
 
-    // Persist context to Supabase (workspace-scoped) + filesystem fallback
+    // Persist onboarding context only — no Veena cascade / generate-all.
+    // Quiet site prep + GTM wizard run from Home chat.
     fetch('/api/agents/context', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -140,18 +39,13 @@ export function useOnboarding(onComplete: () => void) {
       }),
     }).catch(() => {/* non-blocking */ });
 
-    // Cascade agent activation
-    for (const agent of AGENTS) {
-      setActivatingAgent(agent.id);
-      await new Promise(r => setTimeout(r, 480));
-      setActivatedAgents(prev => new Set([...prev, agent.id]));
-    }
+    // Brief visual handoff without implying agents are already running work.
     setActivatingAgent(null);
+    setActivatedAgents(new Set());
 
     const websiteUrl = formData.websiteUrl.trim();
     const companyName = formData.company?.trim();
 
-    // Rename workspace to company name whenever one is provided
     if (companyName && activeWorkspace?.id && companyName !== activeWorkspace.name) {
       renameWorkspace(companyName).catch(() => {/* non-blocking */});
     }
@@ -162,17 +56,12 @@ export function useOnboarding(onComplete: () => void) {
       } catch {
         // non-blocking
       }
-      startCompanyIntelInBackground(websiteUrl).catch(() => {
-        // non-blocking background kickoff
-      });
     }
 
-    await new Promise(r => setTimeout(r, 900));
-
-    // Save onboarding context so the first-run welcome sequence can personalise agent queries
     if (activeWorkspace?.id) {
       localStorage.setItem(`marqq_onboarding_ctx_${activeWorkspace.id}`, JSON.stringify({
         company: formData.company?.trim() || '',
+        websiteUrl: formData.websiteUrl?.trim() || '',
         industry: formData.industry?.trim() || '',
         icp: formData.icp?.trim() || '',
         goals: formData.goals?.trim() || '',
@@ -180,13 +69,15 @@ export function useOnboarding(onComplete: () => void) {
       }));
     }
 
+    sessionStorage.setItem('marqq_gtm_wizard_pending', '1');
+    sessionStorage.setItem('marqq_post_onboard_home_tour', '1');
+
     setPhase('done');
     sessionStorage.removeItem('marqq_just_signed_up');
     localStorage.setItem('marqq_onboarded', '1');
-    // Persist to Supabase so the flag survives new deployments and other devices
     supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});
 
-    await new Promise(r => setTimeout(r, 1800));
+    await new Promise(r => setTimeout(r, 600));
     onComplete();
   };
 

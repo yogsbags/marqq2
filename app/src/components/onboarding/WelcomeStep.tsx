@@ -21,9 +21,9 @@ export function WelcomeStep({ onStart, steps }: WelcomeStepProps) {
         </h1>
 
         <p className="text-[15px] text-white/40 leading-[1.75] mb-11 max-w-[400px]">
-          Before Zara, Maya, Riya, Arjun, Dev, and Priya start working,
-          they need a quick brief. Answer 3 quick questions and they'll be
-          operational tonight.
+          Before your AI team starts working, they need a quick company brief.
+          Answer 3 questions, then complete the GTM wizard on Home — agents only
+          run when you choose a task.
         </p>
 
         <div className="flex flex-col gap-3 items-start">
