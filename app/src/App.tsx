@@ -23,7 +23,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { WorkspaceProvider, useWorkspace } from '@/contexts/WorkspaceContext';
 import { dashboardData } from '@/data/dashboardData';
 import { BRAND } from '@/lib/brand';
-import { supabase } from '@/lib/supabase';
+import { markUserOnboardedLocal, userNeedsOnboarding } from '@/lib/onboardingGate';
 import type { Conversation } from '@/types/chat';
 import { loadConversationsLocal } from '@/lib/conversationPersistence';
 import { pinChannel } from '@/lib/pinnedChannels';
@@ -189,7 +189,12 @@ function Dashboard() {
     const isHome = !selectedModule || selectedModule === 'home';
     if (!isHome || homeTourOpen) return;
     if (typeof localStorage === 'undefined') return;
-    if (localStorage.getItem('marqq_onboarded') !== '1') return;
+    const hasOnboardedMarker =
+      localStorage.getItem('marqq_onboarded') === '1' ||
+      Object.keys(localStorage).some(
+        (k) => k.startsWith('marqq_onboarded:') && localStorage.getItem(k) === '1'
+      );
+    if (!hasOnboardedMarker) return;
     if (localStorage.getItem('marqq_home_tour_done') === '1') return;
     if (typeof sessionStorage === 'undefined') return;
     if (sessionStorage.getItem('marqq_post_onboard_home_tour') !== '1') return;
@@ -294,20 +299,15 @@ function Dashboard() {
 }
 
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
-  const [isOnboarded, setIsOnboarded] = useState(() => localStorage.getItem('marqq_onboarded') === '1');
+  const { isAuthenticated, isLoading, user } = useAuth();
+  // Set when this session finishes the flow (so we leave onboarding without waiting for metadata refresh)
+  const [finishedOnboarding, setFinishedOnboarding] = useState(false);
 
-  // On login with empty localStorage: skip onboarding for existing users.
-  // Only fresh signups (sessionStorage flag set by AuthContext.signup) should see onboarding.
-  useEffect(() => {
-    if (!isAuthenticated || isOnboarded) return;
-    const isFreshSignup = sessionStorage.getItem('marqq_just_signed_up') === '1';
-    if (isFreshSignup) return; // let the onboarding flow handle it
-    // Existing user logging in — mark as onboarded without showing the flow
-    localStorage.setItem('marqq_onboarded', '1');
-    supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {});
-    setIsOnboarded(true);
-  }, [isAuthenticated, isOnboarded]);
+  const needsOnboarding =
+    !finishedOnboarding &&
+    isAuthenticated &&
+    !!user &&
+    userNeedsOnboarding(user);
 
   // Invite token from URL (?invite=<token>) or session (stored before login)
   const [inviteToken, setInviteToken] = useState<string | null>(() => {
@@ -335,7 +335,7 @@ function AppContent() {
 
   // Queue home spotlight when onboarded but the tour is not finished (incl. legacy users).
   useEffect(() => {
-    if (!isAuthenticated || !isOnboarded || isLoading) return;
+    if (!isAuthenticated || needsOnboarding || isLoading || !user?.id) return;
     if (localStorage.getItem('marqq_home_tour_done') === '1') return;
     if (sessionStorage.getItem('marqq_post_onboard_home_tour')) return;
     try {
@@ -343,14 +343,14 @@ function AppContent() {
     } catch {
       /* ignore */
     }
-  }, [isAuthenticated, isOnboarded, isLoading]);
+  }, [isAuthenticated, needsOnboarding, isLoading, user?.id]);
 
   // Show invite acceptance screen when a token is present (regardless of auth state)
   if (inviteToken && !isLoading) {
     return <InviteAccept token={inviteToken} onDone={clearInvite} />
   }
 
-  if (isLoading) {
+  if (isLoading || (isAuthenticated && !user)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -361,11 +361,12 @@ function AppContent() {
     );
   }
 
-  if (isAuthenticated && !isOnboarded) {
+  if (needsOnboarding && user) {
     return (
       <OnboardingFlow
         onComplete={() => {
-          setIsOnboarded(true);
+          markUserOnboardedLocal(user.id);
+          setFinishedOnboarding(true);
           try {
             sessionStorage.setItem('marqq_post_onboard_home_tour', '1');
           } catch {

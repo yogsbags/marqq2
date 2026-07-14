@@ -4,6 +4,8 @@ export interface User {
   name: string;
   avatar?: string;
   role: 'admin' | 'user' | 'manager';
+  /** From Supabase user_metadata.onboarded — source of truth for GTM onboarding gate */
+  onboarded?: boolean;
 }
 
 export interface AuthState {

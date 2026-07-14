@@ -3,6 +3,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCallback, useState } from 'react';
 import { STEPS } from '../components/onboarding/constants';
 import { FormData, Phase } from '../components/onboarding/types';
+import { markUserOnboardedLocal } from '@/lib/onboardingGate';
 import { supabase } from '@/lib/supabase';
 
 export function useOnboarding(onComplete: () => void) {
@@ -39,7 +40,6 @@ export function useOnboarding(onComplete: () => void) {
       }),
     }).catch(() => {/* non-blocking */ });
 
-    // Brief visual handoff without implying agents are already running work.
     setActivatingAgent(null);
     setActivatedAgents(new Set());
 
@@ -74,8 +74,8 @@ export function useOnboarding(onComplete: () => void) {
 
     setPhase('done');
     sessionStorage.removeItem('marqq_just_signed_up');
-    localStorage.setItem('marqq_onboarded', '1');
-    supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});
+    if (user?.id) markUserOnboardedLocal(user.id);
+    await supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});
 
     await new Promise(r => setTimeout(r, 600));
     onComplete();

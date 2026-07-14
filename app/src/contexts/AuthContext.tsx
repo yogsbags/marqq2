@@ -26,6 +26,7 @@ function mapSupabaseUser(supabaseUser: any): User | null {
     avatar: supabaseUser.user_metadata?.avatar_url ||
             `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseUser.email}`,
     role: (supabaseUser.user_metadata?.role as 'admin' | 'user' | 'manager') || 'user',
+    onboarded: supabaseUser.user_metadata?.onboarded === true,
   };
 }
 
@@ -127,6 +128,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         const user = mapSupabaseUser(data.user);
+        // Incomplete accounts must enter onboarding even if an older session left device flags around
+        if (!user.onboarded) {
+          try {
+            sessionStorage.setItem('marqq_just_signed_up', '1');
+            localStorage.removeItem('marqq_onboarded');
+            if (user.id) localStorage.removeItem(`marqq_onboarded:${user.id}`);
+          } catch {
+            /* ignore */
+          }
+        }
         setState({
           user,
           isAuthenticated: true,
@@ -154,6 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             full_name: name,
             name: name,
             role: 'user',
+            onboarded: false,
           },
         },
       });
@@ -165,6 +177,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data.session?.user) {
         const user = mapSupabaseUser(data.session.user);
         sessionStorage.setItem('marqq_just_signed_up', '1');
+        // New account must not inherit a previous user's device "onboarded" flag
+        try {
+          localStorage.removeItem('marqq_onboarded');
+          if (user?.id) localStorage.removeItem(`marqq_onboarded:${user.id}`);
+        } catch {
+          /* ignore */
+        }
         setState({
           user,
           isAuthenticated: true,
@@ -174,6 +193,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data.user) {
+        // Email confirmation required — mark so the first login still gets onboarding
+        sessionStorage.setItem('marqq_just_signed_up', '1');
+        try {
+          localStorage.removeItem('marqq_onboarded');
+        } catch {
+          /* ignore */
+        }
         setState({
           user: null,
           isAuthenticated: false,

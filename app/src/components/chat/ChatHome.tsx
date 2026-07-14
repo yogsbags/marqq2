@@ -41,6 +41,9 @@ import {
 import { buildAgentHeaders, buildAgentPlanPayload, buildAgentRunPayload, getActiveAgentContext } from '@/lib/agentContext';
 import { usePlan } from '@/hooks/usePlan';
 import { Zap } from 'lucide-react';
+import { GtmModuleWizard } from '@/components/home/GtmModuleWizard';
+import type { GtmDeployRequest } from '@/types/gtm';
+import { storeGtmContext } from '@/lib/gtmContext';
 import {
   loadConversationsLocal,
   saveConversations,
@@ -1620,6 +1623,13 @@ export function ChatHome({
   const currentConvIdRef = useRef<string | null>(null);
   const hasRunWelcomeRef = useRef(false);
   const hasHydratedConversationRef = useRef(false);
+  const [showGtmWizard, setShowGtmWizard] = useState(() => {
+    try {
+      return sessionStorage.getItem('marqq_gtm_wizard_pending') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [showCSVAnalysis, setShowCSVAnalysis] = useState(false);
   const [csvFile, setCSVFile] = useState<File | null>(null);
   const [taskAgent, setTaskAgent] = useState<EmployeeName | null>(null);
@@ -2386,6 +2396,7 @@ export function ChatHome({
 
   // ── Helena-style auto-first-message ──────────────────────────────────────────
   // Fires once per workspace when a websiteUrl is present (i.e. just after onboarding).
+  // Skipped while the GTM wizard is pending — agents must not auto-run and confuse the user.
   // Uses localStorage to ensure it only runs once per workspace.
   // CRITICAL: Waits for conversation hydration (useEffect above) before checking.
   useEffect(() => {
@@ -2393,6 +2404,17 @@ export function ChatHome({
     if (!url || !activeWorkspace?.id) return;
     if (activeConversationId) return; // don't override an already-open conversation
     if (currentConvIdRef.current) return;
+
+    try {
+      if (
+        showGtmWizard ||
+        sessionStorage.getItem('marqq_gtm_wizard_pending') === '1'
+      ) {
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
 
     // WAIT for conversation hydration to complete before deciding to run onboarding
     // This ensures that if a conversation was restored from localStorage, we don't re-run
@@ -2414,6 +2436,11 @@ export function ChatHome({
     const timer = setTimeout(() => {
       if (hasRunWelcomeRef.current) return;
       if (localStorage.getItem(key)) return;
+      try {
+        if (sessionStorage.getItem('marqq_gtm_wizard_pending') === '1') return;
+      } catch {
+        /* ignore */
+      }
       hasRunWelcomeRef.current = true;
       localStorage.setItem(key, '1');
 
@@ -2457,7 +2484,7 @@ export function ChatHome({
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace?.id, activeWorkspace?.website_url, scope]);
+  }, [activeWorkspace?.id, activeWorkspace?.website_url, scope, showGtmWizard]);
 
   const createAgentTaskPlan = async () => {
     if (!taskAgent) return;
@@ -3248,7 +3275,9 @@ export function ChatHome({
               <div className="space-y-1">
                 <h2 className="font-brand-syne text-[1.35rem] tracking-tight text-foreground">{BRAND.agentName}</h2>
                 <p className="max-w-[32rem] text-xs leading-5 text-muted-foreground">
-                  Tell me what you're working on and I'll take it from there.
+                  {showGtmWizard && scope === 'main'
+                    ? 'Complete the GTM wizard below — agents stay idle until you lock your profile and pick a task.'
+                    : "Tell me what you're working on and I'll take it from there."}
                 </p>
               </div>
             </div>
@@ -3264,6 +3293,39 @@ export function ChatHome({
           )}
           </div>
         </div>
+
+        {showGtmWizard && scope === 'main' && (
+          <div className="border-b border-border/70 px-4 py-4">
+            <GtmModuleWizard
+              onDeployAgent={(req: GtmDeployRequest) => {
+                if (req.context) {
+                  storeGtmContext(req.target, {
+                    sectionId: req.context.sectionId || '',
+                    sectionTitle: req.context.sectionTitle || '',
+                    summary: req.context.summary || '',
+                    bullets: req.context.bullets || [],
+                  });
+                }
+                try {
+                  sessionStorage.removeItem('marqq_gtm_wizard_pending');
+                } catch {
+                  /* ignore */
+                }
+                setShowGtmWizard(false);
+                const map: Record<string, string> = {
+                  company_intel_icp: 'company-intelligence',
+                  company_intel_competitors: 'company-intelligence',
+                  company_intel_channel_strategy: 'company-intelligence',
+                  company_intel_content_strategy: 'company-intelligence',
+                  company_intel_lead_magnets: 'company-intelligence',
+                  lead_intelligence: 'lead-intelligence',
+                };
+                const moduleId = map[req.target];
+                if (moduleId && onModuleSelect) onModuleSelect(moduleId);
+              }}
+            />
+          </div>
+        )}
 
         {/* Messages */}
         <ScrollArea className="flex-1 px-4 py-4">
