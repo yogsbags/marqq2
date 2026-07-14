@@ -71,6 +71,7 @@ import {
   parseHumanSchedule,
   resolveDeploymentNextRun,
 } from "./lib/humanSchedule.js";
+import { loadMarketingSkillsForTask } from "./lib/artifactMarketingSkills.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -5224,6 +5225,10 @@ async function runAgentForArtifact(agentName, query, companyId, taskType) {
   const { memory, heartbeat, calibrationNote } = await loadAgentPromptContext(agentName, companyId);
 
   const skillsBlock = await loadAgentSkillsBlock(agentName, AGENTS_DIR);
+  const taskSkillsBlock = taskType
+    ? await loadMarketingSkillsForTask(String(taskType))
+    : "";
+  const combinedSkillsBlock = [skillsBlock, taskSkillsBlock].filter(Boolean).join("\n\n");
 
   const runContextBlock = `\n\n## Run Context\ncompany_id: ${companyId ?? "unknown"}\nrun_id: ${runId}\ntask_type: ${taskType ?? "artifact_generation"}\n`;
 
@@ -5351,7 +5356,7 @@ Replace ALL placeholder values with your actual outputs.
     memory ? `\n\n## Your Recent Memory\n${memory}` : "",
     heartbeat ? `\n\n## Your Current Heartbeat\n${heartbeat}` : "",
     calibrationNote?.text ? `\n\n## Latest Calibration Note\n${calibrationNote.text}` : "",
-    skillsBlock,
+    combinedSkillsBlock,
     runContextBlock,
     guardrailsBlock,
     recentAutomationData,
@@ -6099,6 +6104,14 @@ app.post("/api/agents/chain/run", async (req, res) => {
       const { memory, heartbeat, calibrationNote } = await loadAgentPromptContext(agentName, companyId);
 
       const skillsBlock = await loadAgentSkillsBlock(agentName, AGENTS_DIR);
+      const stepTaskType =
+        (typeof step.task_type === "string" && step.task_type.trim()) ||
+        (typeof step.taskType === "string" && step.taskType.trim()) ||
+        "";
+      const taskSkillsBlock = stepTaskType
+        ? await loadMarketingSkillsForTask(stepTaskType)
+        : "";
+      const combinedSkillsBlock = [skillsBlock, taskSkillsBlock].filter(Boolean).join("\n\n");
 
       let mkgBlock = "";
       if (companyId) {
@@ -6154,7 +6167,7 @@ After your COMPLETE response, append the following block EXACTLY at the very END
 
       const fullSystem = [
         systemPrompt,
-        skillsBlock,
+        combinedSkillsBlock,
         memory ? `\n\n## Your Recent Memory\n${memory}` : "",
         heartbeat ? `\n\n## Your Current Heartbeat\n${heartbeat}` : "",
         calibrationNote?.text ? `\n\n## Calibration Notes\n${calibrationNote.text}` : "",
@@ -6536,6 +6549,16 @@ app.post("/api/agents/:name/run", async (req, res) => {
   const { memory, heartbeat, calibrationNote } = await loadAgentPromptContext(name, companyId);
 
   const skillsBlock = await loadAgentSkillsBlock(name, AGENTS_DIR);
+  // Prefer task/module-specific playbooks when the run is tied to a known task type
+  const taskSkillKey =
+    (typeof task_type === "string" && task_type.trim()) ||
+    (typeof trigger_metadata?.sectionId === "string" && trigger_metadata.sectionId.trim()) ||
+    (typeof trigger_metadata?.artifactType === "string" && trigger_metadata.artifactType.trim()) ||
+    "";
+  const taskSkillsBlock = taskSkillKey
+    ? await loadMarketingSkillsForTask(taskSkillKey)
+    : "";
+  const combinedSkillsBlock = [skillsBlock, taskSkillsBlock].filter(Boolean).join("\n\n");
 
   // Load MKG + company profile for context injection
   let mkgBlock = "";
@@ -6725,7 +6748,7 @@ Replace ALL placeholder values with your actual outputs.
     memory ? `\n\n## Your Recent Memory\n${memory}` : "",
     heartbeat ? `\n\n## Your Current Heartbeat\n${heartbeat}` : "",
     calibrationNote?.text ? `\n\n## Latest Calibration Note\n${calibrationNote.text}` : "",
-    skillsBlock,
+    combinedSkillsBlock,
     runContextBlock,
     guardrailsBlock,
     recentAutomationData,

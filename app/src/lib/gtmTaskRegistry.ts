@@ -5,6 +5,7 @@
 
 import type { AgentTarget } from '@/types/gtm';
 import type { CompanyIntelPageId } from '@/components/modules/company-intelligence/pages';
+import { skillsForAgentTarget, skillsForCiPage } from '@/lib/marketingSkillMap';
 
 export const CI_TASK_CHANNEL_PREFIX = 'ci-';
 
@@ -24,12 +25,14 @@ export type GtmTaskDestination = {
   artifactType?: string;
   /** Primary agent for this task */
   agentName?: string;
+  /** Primary marketing skill ids (Corey Haines skill-library) — always set for every task */
+  marketingSkills: string[];
   /**
-   * Hard gate: at least one must be connected before auto-generate.
-   * Empty = no hard gate (crawl/GTM context enough).
+   * Hard gate only when non-empty: user must connect ≥1 before generate.
+   * Empty = task runs from crawl + GTM context (e.g. ICPs).
    */
-  requiredConnectors?: string[];
-  /** Soft enrichers — nudge but allow skip */
+  requiredConnectors: string[];
+  /** Soft enrichers — nudge but never block */
   optionalConnectors?: string[];
 };
 
@@ -59,9 +62,10 @@ const CI_TASKS: Record<
     hash: 'ci=icps',
     pageId: 'icps',
     artifactType: 'icps',
-    agentName: 'neel',
-    requiredConnectors: [],
-    optionalConnectors: ['hubspot', 'ga4', 'apollo'],
+    agentName: skillsForAgentTarget('company_intel_icp').agentName || 'neel',
+    marketingSkills: skillsForAgentTarget('company_intel_icp').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_icp').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_icp').optionalConnectors || [],
   },
   company_intel_competitors: {
     channelTitle: 'competitors',
@@ -69,9 +73,10 @@ const CI_TASKS: Record<
     hash: 'ci=competitor_intelligence',
     pageId: 'competitor_intelligence',
     artifactType: 'competitor_intelligence',
-    agentName: 'isha',
-    requiredConnectors: [],
-    optionalConnectors: ['semrush', 'ahrefs', 'gsc'],
+    agentName: skillsForAgentTarget('company_intel_competitors').agentName || 'isha',
+    marketingSkills: skillsForAgentTarget('company_intel_competitors').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_competitors').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_competitors').optionalConnectors || [],
   },
   company_intel_marketing_strategy: {
     channelTitle: 'positioning',
@@ -79,9 +84,10 @@ const CI_TASKS: Record<
     hash: 'ci=positioning_messaging',
     pageId: 'positioning_messaging',
     artifactType: 'positioning_messaging',
-    agentName: 'neel',
-    requiredConnectors: [],
-    optionalConnectors: ['gsc', 'ga4'],
+    agentName: skillsForAgentTarget('company_intel_marketing_strategy').agentName || 'neel',
+    marketingSkills: skillsForAgentTarget('company_intel_marketing_strategy').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_marketing_strategy').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_marketing_strategy').optionalConnectors || [],
   },
   company_intel_sales_enablement: {
     channelTitle: 'sales-enable',
@@ -89,9 +95,10 @@ const CI_TASKS: Record<
     hash: 'ci=sales_enablement',
     pageId: 'sales_enablement',
     artifactType: 'sales_enablement',
-    agentName: 'sam',
-    requiredConnectors: ['hubspot', 'salesforce'],
-    optionalConnectors: ['apollo'],
+    agentName: skillsForAgentTarget('company_intel_sales_enablement').agentName || 'sam',
+    marketingSkills: skillsForAgentTarget('company_intel_sales_enablement').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_sales_enablement').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_sales_enablement').optionalConnectors || [],
   },
   company_intel_pricing: {
     channelTitle: 'pricing',
@@ -99,9 +106,10 @@ const CI_TASKS: Record<
     hash: 'ci=pricing_intelligence',
     pageId: 'pricing_intelligence',
     artifactType: 'pricing_intelligence',
-    agentName: 'tara',
-    requiredConnectors: [],
-    optionalConnectors: ['ga4', 'shopify'],
+    agentName: skillsForAgentTarget('company_intel_pricing').agentName || 'tara',
+    marketingSkills: skillsForAgentTarget('company_intel_pricing').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_pricing').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_pricing').optionalConnectors || [],
   },
   company_intel_content_strategy: {
     channelTitle: 'content',
@@ -109,9 +117,10 @@ const CI_TASKS: Record<
     hash: 'ci=content_strategy',
     pageId: 'content_strategy',
     artifactType: 'content_strategy',
-    agentName: 'sam',
-    requiredConnectors: [],
-    optionalConnectors: ['gsc', 'ga4'],
+    agentName: skillsForAgentTarget('company_intel_content_strategy').agentName || 'sam',
+    marketingSkills: skillsForAgentTarget('company_intel_content_strategy').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_content_strategy').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_content_strategy').optionalConnectors || [],
   },
   company_intel_channel_strategy: {
     channelTitle: 'channels',
@@ -119,9 +128,10 @@ const CI_TASKS: Record<
     hash: 'ci=channel_strategy',
     pageId: 'channel_strategy',
     artifactType: 'channel_strategy',
-    agentName: 'dev',
-    requiredConnectors: ['ga4', 'google_ads', 'meta_ads', 'linkedin_ads'],
-    optionalConnectors: ['gsc'],
+    agentName: skillsForAgentTarget('company_intel_channel_strategy').agentName || 'dev',
+    marketingSkills: skillsForAgentTarget('company_intel_channel_strategy').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_channel_strategy').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_channel_strategy').optionalConnectors || [],
   },
   company_intel_social_calendar: {
     channelTitle: 'social-cal',
@@ -129,9 +139,10 @@ const CI_TASKS: Record<
     hash: 'ci=social_calendar',
     pageId: 'social_calendar',
     artifactType: 'social_calendar',
-    agentName: 'riya',
-    requiredConnectors: ['linkedin', 'facebook', 'instagram'],
-    optionalConnectors: ['google_calendar'],
+    agentName: skillsForAgentTarget('company_intel_social_calendar').agentName || 'riya',
+    marketingSkills: skillsForAgentTarget('company_intel_social_calendar').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_social_calendar').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_social_calendar').optionalConnectors || [],
   },
   company_intel_lead_magnets: {
     channelTitle: 'lead-magnets',
@@ -139,9 +150,10 @@ const CI_TASKS: Record<
     hash: 'ci=lead_magnets',
     pageId: 'lead_magnets',
     artifactType: 'lead_magnets',
-    agentName: 'tara',
-    requiredConnectors: ['ga4', 'hubspot'],
-    optionalConnectors: [],
+    agentName: skillsForAgentTarget('company_intel_lead_magnets').agentName || 'tara',
+    marketingSkills: skillsForAgentTarget('company_intel_lead_magnets').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_lead_magnets').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_lead_magnets').optionalConnectors || [],
   },
 };
 
@@ -151,31 +163,40 @@ const STANDALONE: Partial<Record<AgentTarget, GtmTaskDestination>> = {
     channelTitle: 'lead-intel',
     channelDescription: 'Lead intelligence · Arjun',
     moduleId: 'lead-intelligence',
-    agentName: 'arjun',
-    requiredConnectors: ['apollo', 'hubspot', 'salesforce'],
+    agentName: skillsForAgentTarget('lead_intelligence').agentName || 'arjun',
+    marketingSkills: skillsForAgentTarget('lead_intelligence').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('lead_intelligence').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('lead_intelligence').optionalConnectors || [],
   },
   budget_optimization: {
     channelId: 'budget-optimization',
     channelTitle: 'budget',
     channelDescription: 'Budget optimization · Dev',
     moduleId: 'budget-optimization',
-    agentName: 'dev',
-    requiredConnectors: ['google_ads', 'meta_ads', 'ga4', 'linkedin_ads'],
+    agentName: skillsForAgentTarget('budget_optimization').agentName || 'dev',
+    marketingSkills: skillsForAgentTarget('budget_optimization').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('budget_optimization').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('budget_optimization').optionalConnectors || [],
   },
   performance_scorecard: {
     channelId: 'performance-scorecard',
     channelTitle: 'performance',
     channelDescription: 'Performance scorecard',
     moduleId: 'performance-scorecard',
-    agentName: 'dev',
-    requiredConnectors: ['ga4', 'gsc', 'google_ads', 'meta_ads'],
+    agentName: skillsForAgentTarget('performance_scorecard').agentName || 'dev',
+    marketingSkills: skillsForAgentTarget('performance_scorecard').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('performance_scorecard').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('performance_scorecard').optionalConnectors || [],
   },
   user_engagement: {
     channelId: 'user-engagement',
     channelTitle: 'engagement',
     channelDescription: 'User engagement',
     moduleId: 'user-engagement',
-    requiredConnectors: ['ga4', 'mixpanel', 'amplitude'],
+    agentName: skillsForAgentTarget('user_engagement').agentName || 'kiran',
+    marketingSkills: skillsForAgentTarget('user_engagement').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('user_engagement').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('user_engagement').optionalConnectors || [],
   },
 };
 
@@ -206,7 +227,29 @@ export function getGtmTaskDestination(target: AgentTarget): GtmTaskDestination |
 }
 
 export function getCiTaskByPage(pageId: CompanyIntelPageId): CiTaskDef | null {
-  return Object.values(CI_TASKS).find((t) => t.pageId === pageId) || null;
+  const fromExecute = Object.values(CI_TASKS).find((t) => t.pageId === pageId);
+  if (fromExecute) return fromExecute;
+
+  // Pages that aren't GTM "Execute" targets still need skills + agent for the task deck
+  const pack = skillsForCiPage(pageId);
+  const artifactType =
+    pageId === 'overview' || pageId === 'social_intel' || pageId === 'ads_intel'
+      ? undefined
+      : pageId;
+  if (!artifactType && pageId !== 'overview' && pageId !== 'social_intel' && pageId !== 'ads_intel') {
+    return null;
+  }
+  return {
+    channelTitle: pageId.replace(/_/g, '-').slice(0, 18),
+    channelDescription: `${pageId.replace(/_/g, ' ')} · ${pack.agentName || 'agent'}`,
+    hash: `ci=${pageId}`,
+    pageId,
+    artifactType: artifactType || pageId,
+    agentName: pack.agentName,
+    marketingSkills: pack.marketingSkills,
+    requiredConnectors: pack.requiredConnectors || [],
+    optionalConnectors: pack.optionalConnectors || [],
+  };
 }
 
 /** Prefer channel title for any known CI task page. */
@@ -223,12 +266,12 @@ export function channelMetaForModule(moduleId: string): { name: string; descript
 
 export function agentForCiPage(pageId: CompanyIntelPageId): string | undefined {
   const match = Object.values(CI_TASKS).find((t) => t.pageId === pageId);
-  return match?.agentName;
+  return match?.agentName || skillsForCiPage(pageId).agentName;
 }
 
 /**
- * Hard gate when required list is non-empty and none are connected (at least one of required).
- * Soft nudge when only optional are missing.
+ * Hard gate when required list is non-empty and none are connected (need ≥1).
+ * Soft nudge when required is satisfied but optionals are still missing.
  */
 export function evaluateTaskConnectors(
   dest: Pick<GtmTaskDestination, 'requiredConnectors' | 'optionalConnectors'>,
@@ -246,7 +289,8 @@ export function evaluateTaskConnectors(
   const missingRequired = required.filter((id) => !active.has(id));
   const missingOptional = optional.filter((id) => !active.has(id));
   const hardBlocked = required.length > 0 && missingRequired.length === required.length;
-  const softNudge = !hardBlocked && missingOptional.length > 0 && optional.some((id) => !active.has(id));
+  const softNudge =
+    !hardBlocked && optional.length > 0 && missingOptional.length > 0;
   const showIds = hardBlocked
     ? missingRequired
     : softNudge

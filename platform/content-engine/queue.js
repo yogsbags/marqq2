@@ -10,6 +10,7 @@ import {
 } from './supabase.js';
 import { tracedLLM } from './langfuse.js';
 import { getLLMModel, LLM_PROVIDER, isGroqProvider } from './llm-client.js';
+import { enrichSystemPromptWithMarketingSkills } from './lib/artifactMarketingSkills.js';
 
 const groq = tracedLLM({ traceName: 'company-intel', tags: ['company-intel', 'queue'] });
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
@@ -2093,6 +2094,7 @@ export async function generateArtifactWithGroq(type, companyName, inputs, option
   let lastError = null;
   const generationInputs = buildGenerationInputs(type, inputs, options);
   const spec = buildArtifactSpec(type, companyName, generationInputs);
+  spec.systemPrompt = await enrichSystemPromptWithMarketingSkills(spec.systemPrompt, type);
   const geminiUserContent = `Inputs: ${JSON.stringify(generationInputs)}`;
   const geminiSchema = buildGeminiArtifactSchema(type);
   const traceContext = {

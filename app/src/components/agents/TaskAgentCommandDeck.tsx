@@ -15,6 +15,7 @@ type Props = {
   taskTitle: string
   channelTitle?: string
   companyName?: string | null
+  marketingSkills?: string[]
   runState: TaskAgentRunState
   summary?: string | null
   onOpenHub?: () => void
@@ -33,6 +34,7 @@ export function TaskAgentCommandDeck({
   taskTitle,
   channelTitle,
   companyName,
+  marketingSkills,
   runState,
   summary,
   onOpenHub,
@@ -154,12 +156,12 @@ export function TaskAgentCommandDeck({
             <p className="max-w-xl text-sm leading-relaxed text-zinc-400">{profile.personality}</p>
 
             <div className="flex flex-wrap gap-2">
-              {profile.executes.slice(0, 3).map((item) => (
+              {(marketingSkills?.length ? marketingSkills : profile.executes.slice(0, 3)).map((item) => (
                 <span
                   key={item}
                   className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] leading-snug text-zinc-300"
                 >
-                  {item}
+                  {marketingSkills?.length ? `skill · ${item}` : item}
                 </span>
               ))}
             </div>

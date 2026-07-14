@@ -9,6 +9,20 @@ import { SocialIntelPage } from './company-intelligence/pages/SocialIntelPage'
 import { AdsIntelPage } from './company-intelligence/pages/AdsIntelPage'
 import { LeadMagnetsPage } from './company-intelligence/pages/LeadMagnetsPage'
 import { OverviewPage } from './company-intelligence/pages/OverviewPage'
+import { IcpsPage } from './company-intelligence/pages/IcpsPage'
+import { CompetitorIntelligencePage } from './company-intelligence/pages/CompetitorIntelligencePage'
+import { PositioningMessagingPage } from './company-intelligence/pages/PositioningMessagingPage'
+import { SalesEnablementPage } from './company-intelligence/pages/SalesEnablementPage'
+import { PricingIntelligencePage } from './company-intelligence/pages/PricingIntelligencePage'
+import { ContentStrategyPage } from './company-intelligence/pages/ContentStrategyPage'
+import { ChannelStrategyPage } from './company-intelligence/pages/ChannelStrategyPage'
+import { SocialCalendarPage } from './company-intelligence/pages/SocialCalendarPage'
+import { LookalikeAudiencesPage } from './company-intelligence/pages/LookalikeAudiencesPage'
+import { ClientProfilingPage } from './company-intelligence/pages/ClientProfilingPage'
+import { PartnerProfilingPage } from './company-intelligence/pages/PartnerProfilingPage'
+import { WebsiteAuditPage } from './company-intelligence/pages/WebsiteAuditPage'
+import { OpportunitiesPage } from './company-intelligence/pages/OpportunitiesPage'
+import { MarketingStrategyPage } from './company-intelligence/pages/MarketingStrategyPage'
 import { clearActiveCompanyContext, persistActiveCompanyContext } from '@/lib/agentContext'
 import { notifyCompanyIntelListUpdated } from '@/lib/companyIntelEvents'
 import {
@@ -19,6 +33,7 @@ import {
   GTM_TASK_AUTORUN_KEY,
   type GtmTaskAutorunPayload,
 } from '@/lib/gtmTaskRegistry'
+import { skillsForCiPage } from '@/lib/marketingSkillMap'
 import { TaskAgentCommandDeck, type TaskAgentRunState } from '@/components/agents/TaskAgentCommandDeck'
 import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
 import { AgentFollowUpOptions } from '@/components/chat/AgentFollowUpOptions'
@@ -26,6 +41,91 @@ import { taskChannelFollowUps } from '@/lib/normalizeFollowUps'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 
 type GuidedGoal = 'leads' | 'roi' | 'content'
+
+type ArtifactPageProps = {
+  artifact: ArtifactRecord | null
+  companyId?: string
+  companyName?: string
+  websiteUrl?: string | null
+  industry?: string
+}
+
+/** Route each CI page to its purpose-built layout (not the generic JSON dump). */
+function renderCiArtifactPage(pageId: CompanyIntelPageId, props: ArtifactPageProps) {
+  const { artifact, companyId, companyName, websiteUrl, industry } = props
+
+  switch (pageId) {
+    case 'icps':
+      return <IcpsPage artifact={artifact} companyId={companyId} companyName={companyName} websiteUrl={websiteUrl} />
+    case 'competitor_intelligence':
+      return (
+        <CompetitorIntelligencePage
+          artifact={artifact}
+          companyId={companyId}
+          companyName={companyName}
+          websiteUrl={websiteUrl}
+        />
+      )
+    case 'positioning_messaging':
+      return <PositioningMessagingPage artifact={artifact} companyName={companyName} industry={industry} />
+    case 'sales_enablement':
+      return <SalesEnablementPage artifact={artifact} />
+    case 'pricing_intelligence':
+      return <PricingIntelligencePage artifact={artifact} companyName={companyName} />
+    case 'content_strategy':
+      return (
+        <ContentStrategyPage
+          artifact={artifact}
+          companyId={companyId}
+          companyName={companyName}
+          websiteUrl={websiteUrl}
+        />
+      )
+    case 'channel_strategy':
+      return <ChannelStrategyPage artifact={artifact} />
+    case 'social_calendar':
+      return <SocialCalendarPage artifact={artifact} />
+    case 'lead_magnets':
+      return <LeadMagnetsPage artifact={artifact} />
+    case 'lookalike_audiences':
+      return <LookalikeAudiencesPage artifact={artifact} />
+    case 'client_profiling':
+      return <ClientProfilingPage artifact={artifact} />
+    case 'partner_profiling':
+      return <PartnerProfilingPage artifact={artifact} />
+    case 'website_audit':
+      return (
+        <WebsiteAuditPage
+          artifact={artifact}
+          companyId={companyId}
+          companyName={companyName}
+          websiteUrl={websiteUrl}
+        />
+      )
+    case 'opportunities':
+      return (
+        <OpportunitiesPage
+          artifact={artifact}
+          companyId={companyId}
+          companyName={companyName}
+          websiteUrl={websiteUrl}
+        />
+      )
+    case 'marketing_strategy':
+      return <MarketingStrategyPage artifact={artifact} />
+    default:
+      return (
+        <GenericArtifactPage
+          title={getCompanyIntelPageTitle(pageId)}
+          pageId={pageId}
+          artifact={artifact}
+          companyId={companyId}
+          companyName={companyName}
+          websiteUrl={websiteUrl}
+        />
+      )
+  }
+}
 
 interface CompanyIntelligenceFlowProps {
   guidedGoal?: GuidedGoal | null
@@ -676,6 +776,9 @@ export function CompanyIntelligenceFlow({
       loading === `generate:${activeArtifactType}`)
 
   const deckAgentName = taskRunMeta?.agentName || agentForCiPage(activePage) || 'neel'
+  const deckMarketingSkills =
+    getCiTaskByPage(activePage)?.marketingSkills ||
+    skillsForCiPage(activePage).marketingSkills
   const deckChannelTitle =
     activePage === 'icps'
       ? 'icps'
@@ -727,6 +830,7 @@ export function CompanyIntelligenceFlow({
             taskTitle={title}
             channelTitle={deckChannelTitle}
             companyName={currentCompany?.companyName || companies.find((c) => c.id === selectedCompanyId)?.companyName}
+            marketingSkills={deckMarketingSkills}
             runState={deckRunState}
             summary={deckSummary}
             onOpenHub={onModuleSelect ? () => onModuleSelect('company-intelligence') : undefined}
@@ -879,7 +983,33 @@ export function CompanyIntelligenceFlow({
                       type="button"
                       className="bg-orange-500 hover:bg-orange-600 text-white"
                       disabled={Boolean(loading)}
-                      onClick={() =>
+                      onClick={() => {
+                        const taskDef = getCiTaskByPage(activePage)
+                        const gate = evaluateTaskConnectors(
+                          {
+                            requiredConnectors: taskDef?.requiredConnectors,
+                            optionalConnectors: taskDef?.optionalConnectors,
+                          },
+                          activeConnectorIds
+                        )
+                        const pending: GtmTaskAutorunPayload = {
+                          channelId: ciChannelIdForPage(activePage),
+                          pageId: activePage,
+                          artifactType: activeArtifactType,
+                          agentTarget: 'company_intel_icp',
+                          agentName: taskDef?.agentName || agentForCiPage(activePage),
+                          companyId: selectedCompanyId,
+                          autoGenerate: true,
+                        }
+                        if (gate.hardBlocked || gate.softNudge) {
+                          pendingGenerateRef.current = pending
+                          setConnectorGate({
+                            hard: gate.hardBlocked,
+                            missing: gate.showIds,
+                            pending,
+                          })
+                          return
+                        }
                         void generate(activeArtifactType, {
                           goal: 'Increase qualified leads',
                           geo: 'India',
@@ -887,7 +1017,7 @@ export function CompanyIntelligenceFlow({
                           channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
                           notes: 'Generate from company profile and GTM context.',
                         })
-                      }
+                      }}
                     >
                       {loading === `generate:${activeArtifactType}` ? 'Generating…' : 'Generate now'}
                     </Button>
@@ -903,23 +1033,22 @@ export function CompanyIntelligenceFlow({
                 <AdsIntelPage companyId={currentCompany?.id} />
               ) : null}
 
-              {!showStartingScanState && activePage === 'lead_magnets' ? (
-                <LeadMagnetsPage artifact={activeArtifact} />
-              ) : null}
-
               {!showStartingScanState &&
               activePage !== 'social_intel' &&
-              activePage !== 'ads_intel' &&
-              activePage !== 'lead_magnets' ? (
-                <GenericArtifactPage
-                  title={getCompanyIntelPageTitle(activePage)}
-                  pageId={activePage}
-                  artifact={activeArtifact}
-                  companyId={currentCompany?.id}
-                  companyName={currentCompany?.companyName}
-                  websiteUrl={currentCompany?.websiteUrl}
-                />
-              ) : null}
+              activePage !== 'ads_intel'
+                ? renderCiArtifactPage(activePage, {
+                    artifact: activeArtifact,
+                    companyId: currentCompany?.id,
+                    companyName: currentCompany?.companyName,
+                    websiteUrl: currentCompany?.websiteUrl,
+                    industry:
+                      currentCompany?.profile &&
+                      typeof currentCompany.profile === 'object' &&
+                      typeof (currentCompany.profile as { industry?: unknown }).industry === 'string'
+                        ? (currentCompany.profile as { industry: string }).industry
+                        : undefined,
+                  })
+                : null}
 
               {taskChannelMode && activeArtifact && followUpOptions.length > 0 ? (
                 <AgentFollowUpOptions

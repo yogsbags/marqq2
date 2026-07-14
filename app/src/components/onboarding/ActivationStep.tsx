@@ -18,18 +18,18 @@ export function ActivationStep({ phase }: ActivationStepProps) {
           <div className="flex animate-in fade-in slide-in-from-bottom-8 flex-col items-center duration-700">
             <div
               className="mb-6 h-16 w-16 animate-spin rounded-full border-2 border-[#FF6521]/20 border-t-[#FF6521]"
-              aria-label="Saving context"
+              aria-label="Assembling team"
               role="status"
             />
             <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.15em] text-[#FF6521]">
-              Saving Context
+              Assembling Team
             </div>
             <h2 className="mb-2 font-syne text-[36px] font-bold tracking-[-0.01em] text-[#EDEDF3]">
-              Opening your GTM wizard…
+              Getting your agents ready…
             </h2>
             <p className="max-w-[360px] font-sans text-sm leading-[1.7] text-white/70">
-              Your company brief is saved. Next you’ll lock a product, service, app, or business-line
-              profile in Home — agents stay idle until you choose a task.
+              Brief is saved. Next you’ll lock a GTM profile on Home — agents stay idle until you
+              pick a task.
             </p>
           </div>
         )}

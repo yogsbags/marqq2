@@ -1,7 +1,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCallback, useRef, useState } from 'react';
-import { STEPS } from '../components/onboarding/constants';
+import { AGENTS, STEPS } from '../components/onboarding/constants';
 import { FormData, Phase } from '../components/onboarding/types';
 import { markUserOnboardedLocal } from '@/lib/onboardingGate';
 import { startGtmPrep } from '@/services/gtmModuleService';
@@ -85,9 +85,11 @@ export function useOnboarding(onComplete: () => void) {
 
   const handleActivate = async () => {
     setPhase('activate');
+    setActivatingAgent(null);
+    setActivatedAgents(new Set());
 
-    // Persist onboarding context only — no Veena cascade / generate-all.
-    // Quiet site prep + GTM wizard run from Home chat.
+    // Persist context + workspace — never await network here (a hung PATCH left
+    // users stuck on the activate screen before onComplete could fire).
     fetch('/api/agents/context', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -98,22 +100,14 @@ export function useOnboarding(onComplete: () => void) {
       }),
     }).catch(() => {/* non-blocking */ });
 
-    setActivatingAgent(null);
-    setActivatedAgents(new Set());
-
     const websiteUrl = formData.websiteUrl.trim();
     const companyName = formData.company?.trim();
 
     if (companyName && activeWorkspace?.id && companyName !== activeWorkspace.name) {
       renameWorkspace(companyName).catch(() => {/* non-blocking */});
     }
-
     if (websiteUrl && activeWorkspace?.id) {
-      try {
-        await updateWebsiteUrl(websiteUrl);
-      } catch {
-        // non-blocking
-      }
+      updateWebsiteUrl(websiteUrl).catch(() => {/* non-blocking */});
     }
 
     // Ensure prep is running; if already started at step 01, backend merges
@@ -121,25 +115,45 @@ export function useOnboarding(onComplete: () => void) {
     void startBackgroundWebResearch(formData, { mergeOnly: true });
 
     if (activeWorkspace?.id) {
-      localStorage.setItem(`marqq_onboarding_ctx_${activeWorkspace.id}`, JSON.stringify({
-        company: formData.company?.trim() || '',
-        websiteUrl: formData.websiteUrl?.trim() || '',
-        industry: formData.industry?.trim() || '',
-        icp: formData.icp?.trim() || '',
-        goals: formData.goals?.trim() || '',
-        connectedIntegrations: formData.connectedIntegrations?.trim() || '',
-      }));
+      try {
+        localStorage.setItem(`marqq_onboarding_ctx_${activeWorkspace.id}`, JSON.stringify({
+          company: formData.company?.trim() || '',
+          websiteUrl: formData.websiteUrl?.trim() || '',
+          industry: formData.industry?.trim() || '',
+          icp: formData.icp?.trim() || '',
+          goals: formData.goals?.trim() || '',
+          connectedIntegrations: formData.connectedIntegrations?.trim() || '',
+        }));
+      } catch {
+        /* ignore */
+      }
     }
 
-    sessionStorage.setItem('marqq_gtm_wizard_pending', '1');
-    sessionStorage.setItem('marqq_post_onboard_home_tour', '1');
+    try {
+      sessionStorage.setItem('marqq_gtm_wizard_pending', '1');
+      sessionStorage.setItem('marqq_post_onboard_home_tour', '1');
+    } catch {
+      /* ignore */
+    }
+
+    // Brief visual handoff only — agents stay idle until the user picks a GTM task.
+    for (const agent of AGENTS) {
+      setActivatingAgent(agent.id);
+      await new Promise(r => setTimeout(r, 80));
+      setActivatedAgents(prev => new Set([...prev, agent.id]));
+    }
+    setActivatingAgent(null);
 
     setPhase('done');
-    sessionStorage.removeItem('marqq_just_signed_up');
+    try {
+      sessionStorage.removeItem('marqq_just_signed_up');
+    } catch {
+      /* ignore */
+    }
     if (user?.id) markUserOnboardedLocal(user.id);
-    await supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});
+    void supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {/* non-blocking */});
 
-    await new Promise(r => setTimeout(r, 600));
+    await new Promise(r => setTimeout(r, 700));
     onComplete();
   };
 
