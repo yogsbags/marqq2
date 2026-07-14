@@ -24,6 +24,7 @@ import { markdownToRichText } from '@/lib/markdown';
 import { BRAND } from '@/lib/brand';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { userNeedsOnboarding } from '@/lib/onboardingGate';
 import {
   Send,
   MessageSquare as Bot,
@@ -1599,6 +1600,7 @@ export function ChatHome({
   scope = 'main',
 }: ChatHomeProps) {
   const { activeWorkspace, clearWebsiteUrl } = useWorkspace();
+  const { user } = useAuth();
   const { plan, creditsRemaining, creditsTotal } = usePlan();
   const [messages, setMessages] = useState<Message[]>(buildInitialMessages);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
@@ -1716,10 +1718,12 @@ export function ChatHome({
   // -- Load today's report for the #main channel feed (Helena-style)
   // Only runs when there is no persisted conversation to restore.
   // Skip when a website URL is set — the onboarding / specialist scan flow owns the feed.
+  // Skip until onboarding is complete so a shared today-report file never greets new accounts.
   useEffect(() => {
     if (scope !== 'main') return;
     if (activeConversationId) return; // a conversation will be loaded by the other effect
     if (activeWorkspace?.website_url?.trim()) return;
+    if (userNeedsOnboarding(user)) return;
     if (loadConversations(activeWorkspace?.id, scope).length > 0) return;
     const ac = new AbortController();
     fetch('/api/agents/today-report', { signal: ac.signal })
@@ -1745,7 +1749,7 @@ export function ChatHome({
       })
       .catch(() => { /* keep greeting; ignore abort */ });
     return () => ac.abort();
-  }, [activeConversationId, activeWorkspace?.id, activeWorkspace?.website_url, scope]);
+  }, [activeConversationId, activeWorkspace?.id, activeWorkspace?.website_url, scope, user?.id, user?.onboarded]);
 
   // sendQuickMessage — used by follow-up suggestion buttons and module quick-actions.
   // Delegates entirely to handleSendMessage via textOverride so it gets the full
@@ -2388,6 +2392,7 @@ export function ChatHome({
   // ── Helena-style auto-first-message ──────────────────────────────────────────
   // Fires once per workspace when a websiteUrl is present (i.e. just after onboarding).
   // Skipped while the GTM wizard is pending — agents must not auto-run and confuse the user.
+  // Also blocked until the user has finished (or clearly skipped) GTM onboarding.
   // Uses localStorage to ensure it only runs once per workspace.
   // CRITICAL: Waits for conversation hydration (useEffect above) before checking.
   useEffect(() => {
@@ -2395,6 +2400,8 @@ export function ChatHome({
     if (!url || !activeWorkspace?.id) return;
     if (activeConversationId) return; // don't override an already-open conversation
     if (currentConvIdRef.current) return;
+    // Never auto-brief specialists for accounts still in onboarding
+    if (userNeedsOnboarding(user)) return;
 
     try {
       if (
@@ -2475,7 +2482,7 @@ export function ChatHome({
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace?.id, activeWorkspace?.website_url, scope, showGtmWizard]);
+  }, [activeWorkspace?.id, activeWorkspace?.website_url, scope, showGtmWizard, user?.id, user?.onboarded]);
 
   const createAgentTaskPlan = async () => {
     if (!taskAgent) return;

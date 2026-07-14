@@ -3,7 +3,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCallback, useRef, useState } from 'react';
 import { AGENTS, STEPS } from '../components/onboarding/constants';
 import { FormData, Phase } from '../components/onboarding/types';
-import { markUserOnboardedLocal } from '@/lib/onboardingGate';
+import { markUserOnboardedLocal, clearJustSignedUpPending } from '@/lib/onboardingGate';
 import { startGtmPrep } from '@/services/gtmModuleService';
 import { supabase } from '@/lib/supabase';
 
@@ -146,7 +146,7 @@ export function useOnboarding(onComplete: () => void) {
 
     setPhase('done');
     try {
-      sessionStorage.removeItem('marqq_just_signed_up');
+      clearJustSignedUpPending();
     } catch {
       /* ignore */
     }

@@ -3,6 +3,11 @@ import { User, AuthState } from '@/types/auth';
 import { supabase } from '@/lib/supabase';
 import type { Session, AuthError } from '@supabase/supabase-js';
 import { persistActiveUserId } from '@/lib/agentContext';
+import {
+  clearUserOnboardedLocal,
+  clearJustSignedUpPending,
+  markJustSignedUpPending,
+} from '@/lib/onboardingGate';
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
@@ -79,6 +84,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (event === 'SIGNED_IN' && session?.user) {
           const user = mapSupabaseUser(session.user);
           persistActiveUserId(session.user.id);
+          // Incomplete accounts must always hit onboarding — set the session
+          // flag here so we win the race when SIGNED_IN fires before signup()
+          // finishes setting marqq_just_signed_up.
+          if (!user?.onboarded) {
+            markJustSignedUpPending();
+            clearUserOnboardedLocal(user?.id);
+          } else {
+            clearJustSignedUpPending();
+          }
           setState({
             user,
             isAuthenticated: true,
@@ -130,13 +144,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const user = mapSupabaseUser(data.user);
         // Incomplete accounts must enter onboarding even if an older session left device flags around
         if (!user.onboarded) {
-          try {
-            sessionStorage.setItem('marqq_just_signed_up', '1');
-            localStorage.removeItem('marqq_onboarded');
-            if (user.id) localStorage.removeItem(`marqq_onboarded:${user.id}`);
-          } catch {
-            /* ignore */
-          }
+          markJustSignedUpPending();
+          clearUserOnboardedLocal(user.id);
+        } else {
+          clearJustSignedUpPending();
         }
         setState({
           user,
@@ -155,6 +166,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signup = async (email: string, password: string, name: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
+
+    // Set BEFORE signUp so onAuthStateChange(SIGNED_IN) cannot race past the gate
+    markJustSignedUpPending();
 
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -176,16 +190,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.session?.user) {
         const user = mapSupabaseUser(data.session.user);
-        sessionStorage.setItem('marqq_just_signed_up', '1');
-        // New account must not inherit a previous user's device "onboarded" flag
-        try {
-          localStorage.removeItem('marqq_onboarded');
-          if (user?.id) localStorage.removeItem(`marqq_onboarded:${user.id}`);
-        } catch {
-          /* ignore */
+        markJustSignedUpPending();
+        clearUserOnboardedLocal(user?.id);
+        // Force metadata flag in case the project ignores options.data defaults
+        if (user?.onboarded) {
+          void supabase.auth.updateUser({ data: { onboarded: false } }).catch(() => {});
+          user.onboarded = false;
         }
         setState({
-          user,
+          user: user ? { ...user, onboarded: false } : user,
           isAuthenticated: true,
           isLoading: false,
         });
@@ -194,12 +207,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         // Email confirmation required — mark so the first login still gets onboarding
-        sessionStorage.setItem('marqq_just_signed_up', '1');
-        try {
-          localStorage.removeItem('marqq_onboarded');
-        } catch {
-          /* ignore */
-        }
+        markJustSignedUpPending();
+        clearUserOnboardedLocal(data.user.id);
         setState({
           user: null,
           isAuthenticated: false,
@@ -207,9 +216,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         return { needsEmailConfirmation: true };
       } else {
+        clearJustSignedUpPending();
         throw new Error('No user data returned');
       }
     } catch (error) {
+      clearJustSignedUpPending();
       setState(prev => ({ ...prev, isLoading: false }));
       const authError = error as AuthError;
       throw new Error(authError.message || 'Signup failed. Please try again.');
@@ -218,6 +229,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     setState(prev => ({ ...prev, isLoading: true }));
+    clearJustSignedUpPending();
 
     try {
       const { error } = await supabase.auth.signOut();
