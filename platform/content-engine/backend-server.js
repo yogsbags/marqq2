@@ -60,7 +60,7 @@ import {
 import { HooksEngine } from "./hooks-engine.js";
 import { listCompanyKpis } from "./kpi-aggregator.js";
 import { detectCompanyAnomalies } from "./anomaly-detector.js";
-import { canAccessModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
+import { canAccessModule, requiredPlanForModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers, computeNextRun } from "./automations/registry.js";
 import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector } from "./mcp-router.js";
@@ -6426,6 +6426,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
     company_id,
     run_id: clientRunId,
     task_type,
+    module_id,
     triggered_by,
     trigger_id,
     hook_id,
@@ -6518,12 +6519,17 @@ app.post("/api/agents/:name/run", async (req, res) => {
             up.credits_remaining = newTotal;
           }
 
-          // Check module access
-          if (!canAccessModule(plan, task_type)) {
+          // Check module access — prefer module_id; task_type may be a skill slug (lead_outreach)
+          const accessKey =
+            (typeof module_id === 'string' && module_id.trim()) ||
+            (typeof task_type === 'string' && task_type.trim()) ||
+            '';
+          if (!canAccessModule(plan, accessKey)) {
+            const needed = requiredPlanForModule(accessKey);
             return res.status(403).json({
               error: "module_locked",
               message: "This module is not available on your current plan.",
-              required_plan: plan === "growth" ? "scale" : "agency",
+              required_plan: needed,
               current_plan: plan,
             });
           }

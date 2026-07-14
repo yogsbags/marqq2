@@ -161,7 +161,7 @@ export function useAgentRun(defaultCompanyId?: string, persistenceKey?: string) 
   }, [persistenceKey, state])
 
   const run = useCallback(
-    async (agentName: string, query: string, taskType?: string, companyId?: string, offer?: Offer | null, tags?: string[], conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>) => {
+    async (agentName: string, query: string, taskType?: string, companyId?: string, offer?: Offer | null, tags?: string[], conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>, moduleId?: string) => {
       abortRef.current?.abort()
       const abort = new AbortController()
       abortRef.current = abort
@@ -175,6 +175,7 @@ export function useAgentRun(defaultCompanyId?: string, persistenceKey?: string) 
             query,
             company_id: companyId ?? defaultCompanyId ?? undefined,
             task_type: taskType,
+            ...(moduleId ? { module_id: moduleId } : {}),
             offer_focus: offer ?? undefined,
             ...(tags?.length ? { tags } : {}),
             conversation_history: conversationHistory ?? [],

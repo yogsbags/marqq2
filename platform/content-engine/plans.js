@@ -88,16 +88,41 @@ const PLAN_LABELS = {
 
 /**
  * Check if a workspace plan can access a given module.
+ * Accepts module IDs (`lead-outreach`) or agent task_types (`lead_outreach`).
+ * Unknown skill/task slugs that are not real modules are allowed (not plan-gated).
  * @param {string} plan - 'growth' | 'scale' | 'agency'
- * @param {string} moduleId - the module ID to check
+ * @param {string} moduleId - the module ID or task_type to check
  * @returns {boolean}
  */
 function canAccessModule(plan, moduleId) {
   if (!moduleId) return true; // no module ID = generic agent run, always allowed
   if (!plan || plan === 'agency') return true;
+
+  const raw = String(moduleId).trim();
+  if (!raw) return true;
+  const hyphen = raw.replace(/_/g, '-');
+  const underscore = raw.replace(/-/g, '_');
+  const candidates = [...new Set([raw, hyphen, underscore])];
+
+  // Scale-only modules: deny on Growth even if underscored
+  for (const id of candidates) {
+    if (PLAN_MODULES.scale.has(id)) {
+      return plan === 'scale';
+    }
+  }
+
   const modules = getModulesForPlan(plan);
   if (!modules) return true;
-  return modules.has(moduleId);
+
+  if (candidates.some((id) => modules.has(id))) return true;
+
+  // task_type / skill slugs that aren't module keys should not lock Growth
+  const isKnownModule =
+    candidates.some((id) => PLAN_MODULES.growth.has(id)) ||
+    candidates.some((id) => PLAN_MODULES.scale.has(id));
+  if (!isKnownModule) return true;
+
+  return false;
 }
 
 /**
@@ -106,8 +131,10 @@ function canAccessModule(plan, moduleId) {
  * @returns {'growth' | 'scale' | 'agency'}
  */
 function requiredPlanForModule(moduleId) {
-  if (PLAN_MODULES.scale.has(moduleId)) return 'scale';
-  if (PLAN_MODULES.growth.has(moduleId)) return 'growth';
+  if (!moduleId) return 'growth';
+  const hyphen = String(moduleId).trim().replace(/_/g, '-');
+  if (PLAN_MODULES.scale.has(hyphen) || PLAN_MODULES.scale.has(moduleId)) return 'scale';
+  if (PLAN_MODULES.growth.has(hyphen) || PLAN_MODULES.growth.has(moduleId)) return 'growth';
   return 'growth'; // default
 }
 
