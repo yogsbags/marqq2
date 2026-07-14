@@ -143,6 +143,20 @@ const ARTIFACT_AGENT_MAP = {
   pricing_intelligence:    { agent: "tara",  taskType: "pricing_intelligence" },
   website_audit:           { agent: "tara",  taskType: "website_audit" },
 };
+
+/** True when an ICP artifact has names but lacks activation fields the IcpsPage needs. */
+function isThinIcpsArtifact(data) {
+  const icps = Array.isArray(data?.icps) ? data.icps : [];
+  if (!icps.length) return true;
+  const withDetail = icps.filter((icp) => {
+    const hook = typeof icp?.hook === "string" && icp.hook.trim();
+    const channels = Array.isArray(icp?.channels) && icp.channels.length > 0;
+    const qualifiers = Array.isArray(icp?.qualifiers) && icp.qualifiers.length > 0;
+    return Boolean(hook || channels || qualifiers);
+  });
+  return withDetail.length === 0;
+}
+
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
 const gemini = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 const COMPANY_PROFILE_PRIMARY_PROVIDER = (
@@ -187,7 +201,7 @@ function buildAgentQueryForArtifact(type, companyName, inputs) {
     opportunities:           `${ctx}Identify the top market opportunities, demand gaps, and near-term growth vectors. Return your analysis plus a structured opportunities artifact.`,
     client_profiling:        `${ctx}Profile the company's likely client base — who they serve, use cases, buying behaviour, and success patterns. Return a structured client_profiling artifact.`,
     partner_profiling:       `${ctx}Identify partner, integration, and channel ecosystem opportunities. Return a structured partner_profiling artifact.`,
-    icps:                    `${ctx}Define 2-3 Ideal Customer Profiles with firmographic, behavioural, and psychographic attributes and recommended messaging angles. Return a structured icps artifact.`,
+    icps:                    `${ctx}Define 2-4 Ideal Customer Profiles for outreach and campaign activation. Return ONLY this JSON shape in artifact.data (no alternate keys): { "scores": { "segmentFit": number, "targetingClarity": number, "activationReadiness": number }, "icps": [{ "name": string, "who": string, "hook": string, "channels": string[], "qualifiers": string[], "disqualifiers": string[] }], "cohorts": [{ "name": string, "priority": number, "definition": string, "messagingAngle": string }], "notes": string[] }. Each ICP MUST include a concrete hook, 2-4 channels, 3-6 qualifiers, and 2-4 disqualifiers. Also return 3-6 cohorts with messagingAngle. Do not return positioning_angle / target_segment / channel_priorities / 90_day_plan for this task.`,
     social_calendar:         `${ctx}Create a 30-day social media content calendar with platform-specific posts, themes, hashtags, and posting cadence. Return a structured social_calendar artifact.`,
     marketing_strategy:      `${ctx}Develop a comprehensive marketing strategy covering positioning, target segments, key messages, channel mix, and 90-day priorities. Return a structured marketing_strategy artifact.`,
     positioning_messaging:   `${ctx}Write a clear positioning statement, core value proposition, and message hierarchy for each ICP segment. Return a structured positioning_messaging artifact.`,
@@ -1041,7 +1055,7 @@ function buildAgentRunGuardrails(name, taskType) {
       "Lead with the positioning, ICP, channel split, and 90-day plan.",
       "Always use real competitor names from Company.competitors in the company knowledge base. Never substitute with generic labels like 'Company A', 'Competitor B', or 'Player X'. Use the actual company name and its specific weakness from the MKG.",
       "Always use exact ICP segment names and firmographics from Company.icp when describing target segments.",
-      "Your artifact.data must always use your native schema: positioning_angle, target_segment, channel_priorities, 90_day_plan, rejected_alternatives, risks. Never return strategy_overview/phases.",
+      "Unless task_type is icp_definition, your artifact.data must use your native schema: positioning_angle, target_segment, channel_priorities, 90_day_plan, rejected_alternatives, risks. Never return strategy_overview/phases.",
     ],
     tara: [
       "Lead with the deliverable itself, not the rationale table.",
@@ -1083,6 +1097,13 @@ function buildAgentRunGuardrails(name, taskType) {
       "For B2B companies, define ICPs using firmographics such as company size, team maturity, function ownership, workflow complexity, or digital maturity.",
       "Do not use consumer wealth tiers, net-worth bands, family-office language, HNI/UHNI framing, or investor personas unless the selected company explicitly operates in wealth or investment services.",
       "If the company profile points to software, AI, SaaS, services, or B2B solutions, keep the ICPs anchored to business buyers and operational use cases.",
+    ],
+    icp_definition: [
+      "CRITICAL: Override Neel's native strategy schema for this task. artifact.data MUST use the ICP page schema exactly:",
+      '{ "scores": { "segmentFit": number, "targetingClarity": number, "activationReadiness": number }, "icps": [{ "name": string, "who": string, "hook": string, "channels": string[], "qualifiers": string[], "disqualifiers": string[] }], "cohorts": [{ "name": string, "priority": number, "definition": string, "messagingAngle": string }], "notes": string[] }',
+      "Return 2-4 ICPs and 3-6 cohorts. Every ICP must include non-empty hook, channels[], qualifiers[], and disqualifiers[].",
+      "Do NOT return positioning_angle, target_segment, channel_priorities, 90_day_plan, rejected_alternatives, or risks as the primary artifact shape for this task.",
+      "Channels must be concrete (e.g. 'LinkedIn outbound', 'partner referrals'), not vague labels like 'digital'.",
     ],
     generate_image: [
       "Use native image generation first for the first draft or concept asset.",
@@ -8891,7 +8912,11 @@ app.post("/api/company-intel/companies/:id/generate", async (req, res) => {
           companyId,
           agentMapping.taskType,
         );
-        const artifactData = contract.artifact?.data || {};
+        let artifactData = normalizeArtifact(type, contract.artifact?.data || {});
+        // Neel/agent runs sometimes return names-only ICPs — fall through to Groq for a full schema fill
+        if (type === "icps" && isThinIcpsArtifact(artifactData)) {
+          throw new Error("Agent ICP payload missing hooks/channels/qualifiers — falling back to Groq schema generation");
+        }
         entry.artifacts[type] = { type, updatedAt: now, data: artifactData };
         entry.company.updatedAt = now;
         await saveArtifact(companyId, entry.artifacts[type]);
@@ -8946,7 +8971,7 @@ app.post("/api/company-intel/companies/:id/generate", async (req, res) => {
       if (!resp.ok) throw new Error(`CrewAI responded with ${resp.status}`);
       const crewData = await resp.json();
       if (crewData.status === "failed") throw new Error(crewData.error || "CrewAI generation failed");
-      entry.artifacts[type] = { type, updatedAt: crewData.generated_at || now, data: crewData.data };
+      entry.artifacts[type] = { type, updatedAt: crewData.generated_at || now, data: normalizeArtifact(type, crewData.data) };
     }
 
     entry.company.updatedAt = now;
@@ -8982,7 +9007,10 @@ async function generateCompanyIntelArtifact(entry, type, inputs) {
         companyId,
         agentMapping.taskType,
       );
-      const artifactData = contract.artifact?.data || {};
+      let artifactData = normalizeArtifact(type, contract.artifact?.data || {});
+      if (type === "icps" && isThinIcpsArtifact(artifactData)) {
+        throw new Error("Agent ICP payload missing hooks/channels/qualifiers — falling back to Groq schema generation");
+      }
       entry.artifacts[type] = { type, updatedAt: now, data: artifactData };
       entry.company.updatedAt = now;
       await saveArtifact(companyId, entry.artifacts[type]);
@@ -9025,7 +9053,7 @@ async function generateCompanyIntelArtifact(entry, type, inputs) {
     if (!resp.ok) throw new Error(`CrewAI responded with ${resp.status}`);
     const crewData = await resp.json();
     if (crewData.status === "failed") throw new Error(crewData.error || "CrewAI generation failed");
-    entry.artifacts[type] = { type, updatedAt: crewData.generated_at || now, data: crewData.data };
+    entry.artifacts[type] = { type, updatedAt: crewData.generated_at || now, data: normalizeArtifact(type, crewData.data) };
   }
 
   entry.company.updatedAt = now;

@@ -32,6 +32,9 @@ export const ARTIFACT_MARKETING_SKILLS = {
   icps: {
     primary: ["product-marketing-context", "customer-research"],
   },
+  icp_definition: {
+    primary: ["product-marketing-context", "customer-research"],
+  },
   client_profiling: {
     primary: ["customer-research"],
     secondary: ["product-marketing-context"],

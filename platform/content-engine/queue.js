@@ -1104,36 +1104,176 @@ function normalizeOpportunities(raw) {
   };
 }
 
+function flattenToStrings(value, limit = 12) {
+  if (value == null) return [];
+  if (typeof value === 'string') {
+    return uniqueStrings(
+      value.split(/[,;\n|]+/).map((part) => part.trim()).filter(Boolean),
+      limit
+    );
+  }
+  if (Array.isArray(value)) {
+    const out = [];
+    for (const item of value) {
+      if (typeof item === 'string') out.push(item);
+      else if (item && typeof item === 'object') {
+        const row = asObject(item);
+        const candidate = row.label || row.name || row.value || row.text || row.title;
+        if (typeof candidate === 'string') out.push(candidate);
+        else out.push(...flattenToStrings(Object.values(row), limit));
+      }
+    }
+    return uniqueStrings(out, limit);
+  }
+  if (typeof value === 'object') {
+    return flattenToStrings(Object.values(value), limit);
+  }
+  return [];
+}
+
+function firstNonEmptyText(...candidates) {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      const row = asObject(candidate);
+      const nested = row.summary || row.description || row.who || row.profile || row.text;
+      if (typeof nested === 'string' && nested.trim()) return nested.trim();
+    }
+  }
+  return '';
+}
+
 function normalizeIcps(raw) {
   const data = asObject(raw);
+  const icpSource = asArray(
+    data.icps ||
+    data.ideal_customer_profiles ||
+    data.idealCustomerProfiles ||
+    data.target_segments ||
+    data.targetSegments ||
+    data.profiles
+  );
+  const cohortSource = asArray(data.cohorts || data.audience_cohorts || data.audienceCohorts);
+
+  const icps = icpSource.map((icp, idx) => {
+    const row = asObject(icp);
+    const firmographics = flattenToStrings(
+      row.firmographics || row.firmographic || row.attributes?.firmographics,
+      8
+    );
+    const behavioural = flattenToStrings(
+      row.behavioural || row.behavioral || row.behaviours || row.behaviors || row.attributes?.behavioural,
+      8
+    );
+    const psychographic = flattenToStrings(
+      row.psychographic || row.psychographics || row.attributes?.psychographic,
+      8
+    );
+    const qualifiers = uniqueStrings([
+      ...flattenToStrings(row.qualifiers || row.qualifier || row.buying_criteria || row.buyingCriteria, 8),
+      ...firmographics,
+      ...behavioural
+    ], 8);
+    const disqualifiers = uniqueStrings([
+      ...flattenToStrings(row.disqualifiers || row.disqualifier || row.anti_persona || row.antiPersona, 8),
+      ...psychographic.filter((item) => /not |avoid|exclude|out of|non-/i.test(item)).slice(0, 4)
+    ], 8);
+    const channels = flattenToStrings(
+      row.channels ||
+      row.channel ||
+      row.channel_priorities ||
+      row.channelPriorities ||
+      row.recommended_channels ||
+      row.recommendedChannels,
+      8
+    );
+    const hook = firstNonEmptyText(
+      row.hook,
+      row.messaging_angle,
+      row.messagingAngle,
+      row.message,
+      row.angle,
+      row.value_prop,
+      row.valueProp,
+      Array.isArray(row.messaging_angles) ? row.messaging_angles[0] : '',
+      Array.isArray(row.messagingAngles) ? row.messagingAngles[0] : ''
+    );
+    const who = firstNonEmptyText(
+      row.who,
+      row.description,
+      row.summary,
+      row.profile,
+      row.target_segment,
+      row.targetSegment,
+      firmographics.slice(0, 3).join('; ')
+    );
+
+    return {
+      name: cleanText(row.name || row.title || row.segment || row.label, `ICP ${idx + 1}`),
+      who,
+      hook,
+      channels,
+      qualifiers,
+      disqualifiers
+    };
+  }).filter((icp) => icp.name);
+
+  const cohorts = cohortSource.map((c, idx) => {
+    const row = asObject(c);
+    return {
+      name: cleanText(row.name || row.title || row.label, `Cohort ${idx + 1}`),
+      priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : idx + 1,
+      definition: firstNonEmptyText(row.definition, row.description, row.who, row.summary),
+      messagingAngle: firstNonEmptyText(
+        row.messagingAngle,
+        row.messaging_angle,
+        row.hook,
+        row.angle,
+        row.message
+      )
+    };
+  }).filter((c) => c.name);
+
+  // If the model only returned Neel's strategy schema, synthesize one usable ICP card
+  if (!icps.length) {
+    const target = firstNonEmptyText(data.target_segment, data.targetSegment, data.positioning_angle);
+    const channels = flattenToStrings(data.channel_priorities || data.channelPriorities, 8);
+    if (target || channels.length) {
+      icps.push({
+        name: cleanText(target, 'Primary ICP'),
+        who: target,
+        hook: firstNonEmptyText(data.positioning_angle, data.positioningAngle),
+        channels,
+        qualifiers: flattenToStrings(data.qualifiers, 8),
+        disqualifiers: flattenToStrings(data.disqualifiers, 8)
+      });
+    }
+  }
+
   const scores = buildNormalizedScores(data.scores, {
     segmentFit: { fields: ['icpDefinitionQuality', 'marketFit', 'cohortCoverage'], weights: [0.4, 0.35, 0.25] },
     targetingClarity: { fields: ['qualifierSpecificity', 'channelClarity', 'messagingAngleStrength'], weights: [0.35, 0.3, 0.35] },
     activationReadiness: { fields: ['hookClarity', 'priorityUsefulness', 'disqualifierQuality'], weights: [0.35, 0.3, 0.35] }
   });
+
+  // If model omitted scores, derive them from filled fields so the UI is not stuck at 66/0/0 heuristics alone
+  const hasModelScores = Number.isFinite(Number(asObject(data.scores).segmentFit))
+    || Number.isFinite(Number(asObject(data.scores).targetingClarity))
+    || Number.isFinite(Number(asObject(data.scores).activationReadiness));
+  if (!hasModelScores) {
+    const withQualifiers = icps.filter((icp) => icp.qualifiers.length > 0).length;
+    const withHooks = icps.filter((icp) => Boolean(icp.hook)).length;
+    const withChannels = icps.filter((icp) => icp.channels.length > 0).length;
+    scores.segmentFit = Math.min(100, Math.round(icps.length * 22 + cohorts.length * 8));
+    scores.targetingClarity = Math.min(100, Math.round(withQualifiers * 18 + withChannels * 10 + cohorts.length * 7));
+    scores.activationReadiness = Math.min(100, Math.round(withHooks * 18 + withChannels * 8 + cohorts.length * 8));
+  }
+
   return {
     scores,
-    icps: asArray(data.icps).map((icp, idx) => {
-      const row = asObject(icp);
-      return {
-        name: cleanText(row.name, `ICP ${idx + 1}`),
-        who: cleanText(row.who),
-        hook: cleanText(row.hook),
-        channels: uniqueStrings(asArray(row.channels), 8),
-        qualifiers: uniqueStrings(asArray(row.qualifiers), 8),
-        disqualifiers: uniqueStrings(asArray(row.disqualifiers), 8)
-      };
-    }).filter((icp) => icp.name),
-    cohorts: asArray(data.cohorts).map((c, idx) => {
-      const row = asObject(c);
-      return {
-        name: cleanText(row.name, `Cohort ${idx + 1}`),
-        priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : idx + 1,
-        definition: cleanText(row.definition),
-        messagingAngle: cleanText(row.messagingAngle)
-      };
-    }).filter((c) => c.name),
-    notes: uniqueStrings(asArray(data.notes), 10)
+    icps,
+    cohorts,
+    notes: uniqueStrings(asArray(data.notes || data.insights), 10)
   };
 }
 
