@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { hasWorkflowForm, WORKFLOW_FORMS } from '@/lib/workflowRequirements'
+import { cn } from '@/lib/utils'
 
 import { fetchJson } from '../api'
 
@@ -17,6 +19,7 @@ type PlannedTask = {
 }
 
 type EditableTask = PlannedTask & { id: string }
+type DialogStep = 'configure' | 'tasks'
 
 type Props = {
   label: string
@@ -86,13 +89,30 @@ function normalizeHorizon(value: unknown): PlannedTask['horizon'] {
   return HORIZONS.includes(value as PlannedTask['horizon']) ? (value as PlannedTask['horizon']) : 'week'
 }
 
-function toEditableTasks(tasks: PlannedTask[] | undefined): EditableTask[] {
-  if (!Array.isArray(tasks) || !tasks.length) return []
+function toEditableTasks(tasks: PlannedTask[] | undefined, fallbackLabel: string): EditableTask[] {
+  if (!Array.isArray(tasks) || !tasks.length) {
+    return [{ id: newTaskId(), label: fallbackLabel, horizon: 'week' }]
+  }
   return tasks.slice(0, 12).map((task) => ({
     id: newTaskId(),
     label: String(task.label || '').trim(),
     horizon: normalizeHorizon(task.horizon),
   }))
+}
+
+function buildAnswersBlock(
+  formFields: Array<{ id: string; label: string; options?: Array<{ value: string; label: string }> }>,
+  values: Record<string, string>,
+) {
+  return formFields
+    .map((field) => {
+      const raw = String(values[field.id] || '').trim()
+      if (!raw) return null
+      const label = field.options?.find((opt) => opt.value === raw)?.label ?? raw
+      return `${field.label}: ${label}.`
+    })
+    .filter(Boolean)
+    .join(' ')
 }
 
 export type OpenAgentTaskDetail = {
@@ -140,48 +160,94 @@ export function CompanyIntelActionButton({
   variant = 'outline',
   className,
 }: Props) {
+  const workflowForm = useMemo(() => {
+    const moduleId = typeof navigateModuleId === 'string' ? navigateModuleId.trim() : ''
+    if (!moduleId || !hasWorkflowForm(moduleId)) return null
+    return WORKFLOW_FORMS[moduleId]
+  }, [navigateModuleId])
+
   const [open, setOpen] = useState(false)
+  const [step, setStep] = useState<DialogStep>('configure')
   const [isPreparing, setIsPreparing] = useState(false)
   const [isDeploying, setIsDeploying] = useState(false)
   const [executionPrompt, setExecutionPrompt] = useState('')
   const [editableTasks, setEditableTasks] = useState<EditableTask[]>([])
+  const [formValues, setFormValues] = useState<Record<string, string>>({})
 
   function resetDialogState() {
+    setStep(workflowForm ? 'configure' : 'tasks')
     setExecutionPrompt('')
     setEditableTasks([])
+    setFormValues({})
+    setIsPreparing(false)
   }
 
-  async function openDeploy() {
-    setOpen(true)
-    resetDialogState()
+  function seedFormValues() {
+    const next: Record<string, string> = {}
+    if (workflowForm) {
+      for (const field of workflowForm.fields) {
+        const preset = moduleWorkflowParams?.[field.id]
+        if (typeof preset === 'string' && preset.trim()) next[field.id] = preset.trim()
+      }
+    }
+    // Keep free-text question from CTA context when the form uses "question"
+    if (workflowForm?.fields.some((field) => field.id === 'question') && !next.question) {
+      const fromParams = moduleWorkflowParams?.question
+      if (typeof fromParams === 'string' && fromParams.trim()) next.question = fromParams.trim()
+    }
+    setFormValues(next)
+  }
+
+  async function prepareTaskPlan(values: Record<string, string>) {
+    setStep('tasks')
     setIsPreparing(true)
+    setEditableTasks([])
+    setExecutionPrompt('')
 
     try {
+      const answersBlock = workflowForm ? buildAnswersBlock(workflowForm.fields, values) : ''
+      const enrichedTask = [taskRequest, answersBlock ? `User options: ${answersBlock}` : null]
+        .filter(Boolean)
+        .join(' ')
+
       const result = await fetchJson<{ tasks?: PlannedTask[]; executionPrompt?: string }>(`/api/agents/${agentName}/plan`, {
         method: 'POST',
         body: JSON.stringify({
-          task: taskRequest,
+          task: enrichedTask,
           marketingContext: {
             companyId,
             companyName,
             websiteUrl,
+            workflowAnswers: values,
             ...(marketingContext || {}),
           },
         }),
       })
       setExecutionPrompt(String(result.executionPrompt || '').trim())
-      const nextTasks = toEditableTasks(result.tasks)
-      setEditableTasks(
-        nextTasks.length
-          ? nextTasks
-          : [{ id: newTaskId(), label: taskPrefix || label, horizon: 'week' }],
-      )
+      setEditableTasks(toEditableTasks(result.tasks, taskPrefix || label))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `Failed to prepare ${titleCase(agentName)} deployment.`)
-      setOpen(false)
+      if (workflowForm) setStep('configure')
+      else {
+        setOpen(false)
+        resetDialogState()
+      }
     } finally {
       setIsPreparing(false)
     }
+  }
+
+  async function openDeploy() {
+    setOpen(true)
+    seedFormValues()
+    if (workflowForm) {
+      setStep('configure')
+      setEditableTasks([])
+      setExecutionPrompt('')
+      return
+    }
+    setStep('tasks')
+    await prepareTaskPlan(moduleWorkflowParams || {})
   }
 
   function updateTask(id: string, patch: Partial<PlannedTask>) {
@@ -266,14 +332,19 @@ export function CompanyIntelActionButton({
     try {
       let prompt = executionPrompt
       if (!prompt) {
+        const answersBlock = workflowForm ? buildAnswersBlock(workflowForm.fields, formValues) : ''
+        const enrichedTask = [taskRequest, answersBlock ? `User options: ${answersBlock}` : null]
+          .filter(Boolean)
+          .join(' ')
         const result = await fetchJson<{ tasks?: PlannedTask[]; executionPrompt?: string }>(`/api/agents/${agentName}/plan`, {
           method: 'POST',
           body: JSON.stringify({
-            task: taskRequest,
+            task: enrichedTask,
             marketingContext: {
               companyId,
               companyName,
               websiteUrl,
+              workflowAnswers: formValues,
               ...(marketingContext || {}),
             },
           }),
@@ -288,34 +359,25 @@ export function CompanyIntelActionButton({
       }
 
       const runPrompt = await persistWorkspaceDeployment(activePlan)
+      const mergedWorkflowParams = {
+        ...(moduleWorkflowParams || {}),
+        ...formValues,
+        question: formValues.question || moduleWorkflowParams?.question || runPrompt || taskRequest,
+      }
 
       if (deploymentMode === 'run_now') {
         const targetModule = typeof navigateModuleId === 'string' ? navigateModuleId.trim() : ''
         const shouldChatHandoff = chatHandoff ?? !targetModule
 
         if (targetModule) {
-          if (moduleWorkflowParams && Object.keys(moduleWorkflowParams).length) {
-            window.dispatchEvent(
-              new CustomEvent('marqq:workflow-params', {
-                detail: {
-                  moduleId: targetModule,
-                  params: {
-                    ...moduleWorkflowParams,
-                    question: moduleWorkflowParams.question || runPrompt || taskRequest,
-                  },
-                },
-              }),
-            )
-          } else {
-            window.dispatchEvent(
-              new CustomEvent('marqq:workflow-params', {
-                detail: {
-                  moduleId: targetModule,
-                  params: { question: runPrompt || taskRequest },
-                },
-              }),
-            )
-          }
+          window.dispatchEvent(
+            new CustomEvent('marqq:workflow-params', {
+              detail: {
+                moduleId: targetModule,
+                params: mergedWorkflowParams,
+              },
+            }),
+          )
           try {
             sessionStorage.setItem('marqq_cta_skip_welcome', '1')
           } catch {
@@ -378,104 +440,202 @@ export function CompanyIntelActionButton({
           if (!next) resetDialogState()
         }}
       >
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
-            <DialogDescription>{dialogDescription}</DialogDescription>
+            <DialogDescription>
+              {step === 'configure'
+                ? 'Answer a few options first (like the GTM wizard). Then we will draft editable tasks before deploy.'
+                : dialogDescription}
+            </DialogDescription>
           </DialogHeader>
 
           <Card className="border-orange-200/70 bg-orange-50/70 dark:border-orange-900/40 dark:bg-orange-950/10">
             <CardContent className="flex items-start gap-4 p-4">
               <AgentAvatar name={agentName} size="lg" className="h-12 w-12 rounded-full" />
               <div className="space-y-1">
-                <div className="text-sm font-semibold text-foreground">{titleCase(agentName)} · Task Deployment</div>
+                <div className="text-sm font-semibold text-foreground">
+                  {titleCase(agentName)} · {step === 'configure' ? 'Configure' : 'Task Deployment'}
+                </div>
                 <div className="text-sm text-muted-foreground">
-                  {navigateModuleId
-                    ? `Edit the tasks below, then add them to Upcoming Tasks and open #${navigateModuleId.replace(/-/g, ' ')}. It does not send LinkedIn, email, or ads by itself.`
-                    : `Edit the tasks below, then add them to Upcoming Tasks and open ${titleCase(agentName)}. It does not send LinkedIn, email, or ads by itself.`}
+                  {step === 'configure'
+                    ? `Step 1 of 2 — choose options for ${workflowForm?.moduleName || 'this deployment'}.`
+                    : navigateModuleId
+                      ? `Step 2 of 2 — edit tasks, then open #${navigateModuleId.replace(/-/g, ' ')}. Does not send LinkedIn/email by itself.`
+                      : `Step 2 of 2 — edit tasks, then deploy. Does not send LinkedIn/email by itself.`}
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
-              <CardTitle className="text-base text-orange-600 dark:text-orange-400">Tasks to be added</CardTitle>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1"
-                disabled={isPreparing || isDeploying}
-                onClick={addTask}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add task
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              {isPreparing ? (
-                <div className="text-muted-foreground">Preparing plan...</div>
-              ) : editableTasks.length ? (
-                editableTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-md border border-border/60 px-2 py-2"
-                  >
-                    <Input
-                      value={task.label}
-                      onChange={(e) => updateTask(task.id, { label: e.target.value })}
-                      placeholder="Task description"
-                      className="flex-1 h-9"
-                      disabled={isDeploying}
-                    />
-                    <Select
-                      value={task.horizon}
-                      onValueChange={(value) => updateTask(task.id, { horizon: normalizeHorizon(value) })}
-                      disabled={isDeploying}
-                    >
-                      <SelectTrigger className="w-full sm:w-[110px] h-9">
-                        <SelectValue placeholder="Horizon" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {HORIZONS.map((horizon) => (
-                          <SelectItem key={horizon} value={horizon}>
-                            {horizon}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+          {step === 'configure' && workflowForm ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base text-orange-600 dark:text-orange-400">{workflowForm.moduleName}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">{workflowForm.prompt}</p>
+                {workflowForm.fields.map((field) => (
+                  <div key={field.id} className="space-y-1.5">
+                    <div className="text-xs font-medium text-muted-foreground">{field.label}</div>
+                    {field.type === 'text' ? (
+                      <Input
+                        value={formValues[field.id] ?? ''}
+                        onChange={(e) => setFormValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                        placeholder={field.placeholder}
+                      />
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(field.options || []).map((opt) => {
+                          const selected = formValues[field.id] === opt.value
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() =>
+                                setFormValues((prev) => ({
+                                  ...prev,
+                                  [field.id]: selected ? '' : opt.value,
+                                }))
+                              }
+                              className={cn(
+                                'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                                selected
+                                  ? 'border-orange-400 bg-orange-100 text-orange-700 dark:border-orange-600 dark:bg-orange-900/30 dark:text-orange-300'
+                                  : 'border-border/60 bg-background/70 text-muted-foreground hover:border-orange-300 hover:text-foreground',
+                              )}
+                            >
+                              {opt.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
+                <CardTitle className="text-base text-orange-600 dark:text-orange-400">Tasks to be added</CardTitle>
+                <div className="flex items-center gap-2">
+                  {workflowForm ? (
                     <Button
                       type="button"
-                      size="icon"
+                      size="sm"
                       variant="ghost"
-                      className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                      disabled={isDeploying || editableTasks.length <= 1}
-                      onClick={() => removeTask(task.id)}
-                      aria-label="Remove task"
+                      className="h-8"
+                      disabled={isPreparing || isDeploying}
+                      onClick={() => setStep('configure')}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      Edit options
                     </Button>
-                  </div>
-                ))
-              ) : (
-                <div className="text-muted-foreground">No tasks yet — add at least one before deploying.</div>
-              )}
-            </CardContent>
-          </Card>
+                  ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1"
+                    disabled={isPreparing || isDeploying}
+                    onClick={addTask}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add task
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {isPreparing ? (
+                  <div className="text-muted-foreground">Preparing plan from your options...</div>
+                ) : editableTasks.length ? (
+                  editableTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-md border border-border/60 px-2 py-2"
+                    >
+                      <Input
+                        value={task.label}
+                        onChange={(e) => updateTask(task.id, { label: e.target.value })}
+                        placeholder="Task description"
+                        className="flex-1 h-9"
+                        disabled={isDeploying}
+                      />
+                      <Select
+                        value={task.horizon}
+                        onValueChange={(value) => updateTask(task.id, { horizon: normalizeHorizon(value) })}
+                        disabled={isDeploying}
+                      >
+                        <SelectTrigger className="w-full sm:w-[110px] h-9">
+                          <SelectValue placeholder="Horizon" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {HORIZONS.map((horizon) => (
+                            <SelectItem key={horizon} value={horizon}>
+                              {horizon}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                        disabled={isDeploying || editableTasks.length <= 1}
+                        onClick={() => removeTask(task.id)}
+                        aria-label="Remove task"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-muted-foreground">No tasks yet — add at least one before deploying.</div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              className="bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600"
-              disabled={isPreparing || isDeploying}
-              onClick={() => void deploy()}
-            >
-              {isDeploying ? 'Deploying...' : deploymentMode === 'scheduled' ? 'Deploy & Schedule' : navigateModuleId ? 'Deploy & Open Channel' : 'Deploy & Open Chat'}
-            </Button>
+            {step === 'configure' ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={isPreparing}
+                  onClick={() => void prepareTaskPlan(formValues)}
+                >
+                  Skip to tasks
+                </Button>
+                <Button
+                  type="button"
+                  className="bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600"
+                  disabled={isPreparing}
+                  onClick={() => void prepareTaskPlan(formValues)}
+                >
+                  Continue to tasks
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                className="bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600"
+                disabled={isPreparing || isDeploying}
+                onClick={() => void deploy()}
+              >
+                {isDeploying
+                  ? 'Deploying...'
+                  : deploymentMode === 'scheduled'
+                    ? 'Deploy & Schedule'
+                    : navigateModuleId
+                      ? 'Deploy & Open Channel'
+                      : 'Deploy & Open Chat'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
