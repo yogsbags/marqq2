@@ -122,9 +122,25 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                         'Create targeting, qualification, and activation tasks for the taskboard and start the first analysis pass.'
                       ].filter(Boolean).join(' ')}
                       marketingContext={{ module: 'icps', icp, icps: data }}
-                      successMessage={`ICP activation queued for ${String(icp.name || `ICP ${idx + 1}`)} — opening Isha.`}
+                      navigateModuleId="audience-profiles"
+                      moduleWorkflowParams={{
+                        question: [
+                          companyName ? `Company: ${companyName}.` : null,
+                          `Activate this ICP for GTM execution: ${String(icp.name || `ICP ${idx + 1}`)}.`,
+                          `Who: ${String(icp.who || '')}.`,
+                          `Hook: ${String(icp.hook || '')}.`,
+                          `Channels: ${(Array.isArray(icp.channels) ? icp.channels : []).join(', ') || 'none'}.`,
+                          `Qualifiers: ${(Array.isArray(icp.qualifiers) ? icp.qualifiers : []).join(' | ') || 'none'}.`,
+                          'Build targeting, qualification, and activation guidance for this ICP.',
+                        ].filter(Boolean).join(' '),
+                        scope: 'icp',
+                        buyer: String(icp.name || ''),
+                        goal: 'activation',
+                      }}
+                      chatHandoff={false}
+                      successMessage={`ICP activation queued for ${String(icp.name || `ICP ${idx + 1}`)} — opening #audiences.`}
                       dialogTitle="Activate ICP"
-                      dialogDescription="Adds ICP targeting and activation tasks to Upcoming Tasks, then opens Isha in chat for the first analysis pass. Does not send outreach on channels by itself."
+                      dialogDescription="Adds ICP targeting tasks to Upcoming Tasks, then opens #audiences with this profile preloaded. Does not send outreach by itself."
                       className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
                     />
                   </div>
@@ -178,9 +194,24 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                           'Create outreach and distribution tasks for the taskboard and prepare the first launch step. Do not claim messages were sent to LinkedIn or email unless a connected channel send is confirmed.'
                         ].filter(Boolean).join(' ')}
                         marketingContext={{ module: 'icps', cohort: c, icps: data }}
-                        successMessage={`Outreach prep queued for ${String(c.name || `Cohort ${idx + 1}`)} — opening Zara.`}
-                        dialogTitle="Prepare Cohort Outreach"
-                        dialogDescription="Adds outreach and distribution tasks to Upcoming Tasks, then opens Zara in chat to prepare the first launch step. Does not send live LinkedIn or email by itself."
+                        navigateModuleId="lead-outreach"
+                        moduleWorkflowParams={{
+                          question: [
+                            companyName ? `Company: ${companyName}.` : null,
+                            `Launch an outreach campaign for cohort: ${String(c.name || `Cohort ${idx + 1}`)}.`,
+                            `Definition: ${String(c.definition || '')}.`,
+                            `Messaging angle: ${String(c.messagingAngle || '')}.`,
+                            `Priority: ${String(c.priority ?? idx + 1)}.`,
+                            'Build the outreach sequence arc, personalization logic, first touch, and follow-ups for this cohort.',
+                          ].filter(Boolean).join(' '),
+                          channel: 'multi',
+                          target: 'decision',
+                          goal: 'meeting',
+                        }}
+                        chatHandoff={false}
+                        successMessage={`Outreach campaign queued for ${String(c.name || `Cohort ${idx + 1}`)} — opening #outreach.`}
+                        dialogTitle="Launch Outreach Campaign"
+                        dialogDescription="Adds outreach tasks to Upcoming Tasks, then opens #outreach with this cohort preloaded. Does not send live LinkedIn or email by itself."
                         className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
                       />
                     </div>

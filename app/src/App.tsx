@@ -159,14 +159,21 @@ function Dashboard() {
   // Listen for in-app navigation events dispatched by deep components (e.g. OfferSelector)
   useEffect(() => {
     const handler = (e: Event) => {
-      const moduleId = (e as CustomEvent<{ moduleId: string | null }>).detail?.moduleId
+      const detail = (e as CustomEvent<{ moduleId?: string | null; autoStart?: boolean }>).detail
+      const moduleId = detail?.moduleId
       if (moduleId === undefined) return
+      if (detail?.autoStart) {
+        setAutoStartModule(true)
+      }
       if (moduleId === null || moduleId === 'home') {
         if (window.location.hash.startsWith('#ci=') || window.location.hash.startsWith('#company-intel')) {
           window.history.replaceState(null, '', window.location.pathname + window.location.search)
         }
         handleModuleSelect(null)
         return
+      }
+      if (window.location.hash.startsWith('#ci=') || window.location.hash.startsWith('#company-intel')) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
       }
       handleModuleSelect(moduleId)
     }

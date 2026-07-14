@@ -45,6 +45,9 @@ type ActionConfig = {
   sectionTitle?: string
   summary?: string
   bullets?: string[]
+  navigateModuleId?: string
+  moduleWorkflowParams?: Record<string, string>
+  chatHandoff?: boolean
 }
 type EditorTarget =
   | { kind: 'section'; key: string; label: string }
@@ -144,6 +147,9 @@ function createAction(config: ActionConfig | null, companyId?: string, companyNa
       deploymentMode={config.deploymentMode}
       scheduleMode={config.scheduleMode}
       recurrenceMinutes={config.recurrenceMinutes}
+      navigateModuleId={config.navigateModuleId}
+      moduleWorkflowParams={config.moduleWorkflowParams}
+      chatHandoff={config.chatHandoff}
       className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
     />
   )
@@ -285,9 +291,24 @@ function buildItemAction(
         'Create targeting, qualification, and activation tasks for the taskboard and start the first analysis pass.'
       ].filter(Boolean).join(' '),
       marketingContext: { module: 'icps', icp: item, icps: data },
-      successMessage: `ICP activation queued for ${name} — opening Isha.`,
+      navigateModuleId: 'audience-profiles',
+      moduleWorkflowParams: {
+        question: [
+          companyName ? `Company: ${companyName}.` : null,
+          `Activate this ICP for GTM execution: ${name}.`,
+          `Who: ${String(item.who || '')}.`,
+          `Hook: ${String(item.hook || '')}.`,
+          `Channels: ${asStringArray(item.channels).join(', ') || 'none'}.`,
+          'Build targeting, qualification, and activation guidance for this ICP.',
+        ].filter(Boolean).join(' '),
+        scope: 'icp',
+        buyer: name,
+        goal: 'activation',
+      },
+      chatHandoff: false,
+      successMessage: `ICP activation queued for ${name} — opening #audiences.`,
       dialogTitle: 'Activate ICP',
-      dialogDescription: 'Adds ICP targeting and activation tasks to Upcoming Tasks, then opens Isha in chat for the first analysis pass. Does not send outreach on channels by itself.'
+      dialogDescription: 'Adds ICP targeting tasks to Upcoming Tasks, then opens #audiences with this profile preloaded. Does not send outreach by itself.'
     }
   }
 
@@ -314,9 +335,24 @@ function buildItemAction(
         'Create outreach and distribution tasks for the taskboard and prepare the first launch step. Do not claim messages were sent to LinkedIn or email unless a connected channel send is confirmed.'
       ].filter(Boolean).join(' '),
       marketingContext: { module: 'icps', cohort: item, icps: data },
-      successMessage: `Outreach prep queued for ${name} — opening Zara.`,
-      dialogTitle: 'Prepare Cohort Outreach',
-      dialogDescription: 'Adds outreach and distribution tasks to Upcoming Tasks, then opens Zara in chat to prepare the first launch step. Does not send live LinkedIn or email by itself.'
+      navigateModuleId: 'lead-outreach',
+      moduleWorkflowParams: {
+        question: [
+          companyName ? `Company: ${companyName}.` : null,
+          `Launch an outreach campaign for cohort: ${name}.`,
+          `Definition: ${String(item.definition || '')}.`,
+          `Messaging angle: ${String(item.messagingAngle || '')}.`,
+          `Priority: ${String(item.priority ?? index + 1)}.`,
+          'Build the outreach sequence arc, personalization logic, first touch, and follow-ups for this cohort.',
+        ].filter(Boolean).join(' '),
+        channel: 'multi',
+        target: 'decision',
+        goal: 'meeting',
+      },
+      chatHandoff: false,
+      successMessage: `Outreach campaign queued for ${name} — opening #outreach.`,
+      dialogTitle: 'Launch Outreach Campaign',
+      dialogDescription: 'Adds outreach tasks to Upcoming Tasks, then opens #outreach with this cohort preloaded. Does not send live LinkedIn or email by itself.'
     }
   }
 

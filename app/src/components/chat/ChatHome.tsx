@@ -2496,6 +2496,17 @@ export function ChatHome({
     if (scope !== 'main') return;
     if (loadConversations(activeWorkspace?.id, scope).length > 0) return;
 
+    // CTA handoffs must not kick the specialist welcome cascade on #main
+    try {
+      if (sessionStorage.getItem('marqq_pending_agent_task')) return;
+      if (sessionStorage.getItem('marqq_cta_skip_welcome') === '1') {
+        sessionStorage.removeItem('marqq_cta_skip_welcome');
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+
     const key = `marqq_welcomed_${activeWorkspace.id}`;
     if (localStorage.getItem(key)) return;
     if (hasRunWelcomeRef.current) return;

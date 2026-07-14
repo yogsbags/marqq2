@@ -34,6 +34,15 @@ type Props = {
   scheduleMode?: string | null
   recurrenceMinutes?: number
   source?: string
+  /** Pin + open this module channel after deploy (e.g. lead-outreach → #outreach). */
+  navigateModuleId?: string
+  /** Params for ModuleDetail / workflow forms when navigating to a module. */
+  moduleWorkflowParams?: Record<string, string>
+  /**
+   * When true, hand off a single agent run into #main chat.
+   * Defaults to false when navigateModuleId is set (module is the work surface).
+   */
+  chatHandoff?: boolean
   size?: 'sm' | 'default' | 'lg' | 'icon'
   variant?: 'default' | 'outline' | 'secondary' | 'ghost' | 'link' | 'destructive'
   className?: string
@@ -100,6 +109,9 @@ export function CompanyIntelActionButton({
   scheduleMode = null,
   recurrenceMinutes,
   source = 'company-intelligence',
+  navigateModuleId,
+  moduleWorkflowParams,
+  chatHandoff,
   size = 'sm',
   variant = 'outline',
   className,
@@ -204,16 +216,59 @@ export function CompanyIntelActionButton({
 
       const runPrompt = await persistWorkspaceDeployment(activePlan)
 
-      // Always feed Upcoming Tasks via workspace deployments. For run_now, hand off a
-      // single visible chat /run (avoid silent double-billing from this button).
+      // Always feed Upcoming Tasks via workspace deployments.
+      // Prefer a dedicated module channel (#outreach, etc.) over dumping into #main.
       if (deploymentMode === 'run_now') {
-        queueOpenAgentTask({
-          agent: agentName,
-          task: runPrompt,
-          companyId: companyId || null,
-          autoRun: true,
-        })
-        window.dispatchEvent(new CustomEvent('marqq:navigate', { detail: { moduleId: 'home' } }))
+        const targetModule = typeof navigateModuleId === 'string' ? navigateModuleId.trim() : ''
+        const shouldChatHandoff = chatHandoff ?? !targetModule
+
+        if (targetModule) {
+          if (moduleWorkflowParams && Object.keys(moduleWorkflowParams).length) {
+            window.dispatchEvent(
+              new CustomEvent('marqq:workflow-params', {
+                detail: {
+                  moduleId: targetModule,
+                  params: {
+                    ...moduleWorkflowParams,
+                    question: moduleWorkflowParams.question || runPrompt || taskRequest,
+                  },
+                },
+              }),
+            )
+          } else {
+            window.dispatchEvent(
+              new CustomEvent('marqq:workflow-params', {
+                detail: {
+                  moduleId: targetModule,
+                  params: { question: runPrompt || taskRequest },
+                },
+              }),
+            )
+          }
+          try {
+            sessionStorage.setItem('marqq_cta_skip_welcome', '1')
+          } catch {
+            /* ignore */
+          }
+          window.dispatchEvent(
+            new CustomEvent('marqq:navigate', {
+              detail: { moduleId: targetModule, autoStart: true },
+            }),
+          )
+        } else if (shouldChatHandoff) {
+          try {
+            sessionStorage.setItem('marqq_cta_skip_welcome', '1')
+          } catch {
+            /* ignore */
+          }
+          queueOpenAgentTask({
+            agent: agentName,
+            task: runPrompt,
+            companyId: companyId || null,
+            autoRun: true,
+          })
+          window.dispatchEvent(new CustomEvent('marqq:navigate', { detail: { moduleId: 'home' } }))
+        }
       }
 
       toast.success(successMessage)
@@ -258,7 +313,9 @@ export function CompanyIntelActionButton({
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-foreground">{titleCase(agentName)} · Task Deployment</div>
                 <div className="text-sm text-muted-foreground">
-                  This adds Upcoming Tasks for the workspace, then opens {titleCase(agentName)} in chat to run the first step with this company-intel context. It does not send LinkedIn, email, or ads by itself.
+                  {navigateModuleId
+                    ? `This adds Upcoming Tasks, then opens #${navigateModuleId.replace(/-/g, ' ')} with this company-intel context. It does not send LinkedIn, email, or ads by itself.`
+                    : `This adds Upcoming Tasks for the workspace, then opens ${titleCase(agentName)} in chat to run the first step with this company-intel context. It does not send LinkedIn, email, or ads by itself.`}
                 </div>
               </div>
             </CardContent>
@@ -297,7 +354,7 @@ export function CompanyIntelActionButton({
               disabled={isPreparing || isDeploying}
               onClick={() => void deploy()}
             >
-              {isDeploying ? 'Deploying...' : deploymentMode === 'scheduled' ? 'Deploy & Schedule' : 'Deploy & Open Chat'}
+              {isDeploying ? 'Deploying...' : deploymentMode === 'scheduled' ? 'Deploy & Schedule' : navigateModuleId ? 'Deploy & Open Channel' : 'Deploy & Open Chat'}
             </Button>
           </DialogFooter>
         </DialogContent>
