@@ -261,10 +261,19 @@ function buildItemAction(
   }
 
   if (pageId === 'icps' && sectionKey === 'icps') {
+    const slug = normalizeKey(name).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || `icp-${index + 1}`
     return {
       label: 'Activate ICP',
       agentName: 'isha',
       taskPrefix: `ICP • ${name}`,
+      sectionId: `icp-activate-${slug}`,
+      sectionTitle: `Activate ICP · ${name}`,
+      summary: `Activate ${name} for GTM targeting and qualification.`,
+      bullets: [
+        String(item.who || '').trim(),
+        String(item.hook || '').trim() ? `Hook: ${String(item.hook)}` : '',
+        asStringArray(item.channels).length ? `Channels: ${asStringArray(item.channels).join(', ')}` : '',
+      ].filter(Boolean),
       taskRequest: [
         companyName ? `Company: ${companyName}.` : null,
         `Activate this ICP for GTM execution: ${name}.`,
@@ -276,29 +285,38 @@ function buildItemAction(
         'Create targeting, qualification, and activation tasks for the taskboard and start the first analysis pass.'
       ].filter(Boolean).join(' '),
       marketingContext: { module: 'icps', icp: item, icps: data },
-      successMessage: `ICP activation started for ${name}.`,
+      successMessage: `ICP activation queued for ${name} — opening Isha.`,
       dialogTitle: 'Activate ICP',
-      dialogDescription: 'This will create ICP targeting and activation tasks, then run Isha on the selected profile.'
+      dialogDescription: 'Adds ICP targeting and activation tasks to Upcoming Tasks, then opens Isha in chat for the first analysis pass. Does not send outreach on channels by itself.'
     }
   }
 
   if (pageId === 'icps' && sectionKey === 'cohorts') {
+    const slug = normalizeKey(name).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || `cohort-${index + 1}`
     return {
       label: 'Launch Outreach',
       agentName: 'zara',
       taskPrefix: `Cohort • ${name}`,
+      sectionId: `cohort-outreach-${slug}`,
+      sectionTitle: `Launch Outreach · ${name}`,
+      summary: `Prepare outreach for cohort ${name} (priority ${String(item.priority ?? index + 1)}).`,
+      bullets: [
+        String(item.definition || '').trim(),
+        String(item.messagingAngle || '').trim() ? `Angle: ${String(item.messagingAngle)}` : '',
+        `Priority: ${String(item.priority ?? index + 1)}`,
+      ].filter(Boolean),
       taskRequest: [
         companyName ? `Company: ${companyName}.` : null,
-        `Launch outreach for this cohort: ${name}.`,
+        `Prepare and schedule outreach for this cohort: ${name}.`,
         `Definition: ${String(item.definition || '')}.`,
         `Messaging angle: ${String(item.messagingAngle || '')}.`,
         `Priority: ${String(item.priority ?? index + 1)}.`,
-        'Create outreach and distribution tasks for the taskboard and prepare the first launch step.'
+        'Create outreach and distribution tasks for the taskboard and prepare the first launch step. Do not claim messages were sent to LinkedIn or email unless a connected channel send is confirmed.'
       ].filter(Boolean).join(' '),
       marketingContext: { module: 'icps', cohort: item, icps: data },
-      successMessage: `Outreach launch prepared for ${name}.`,
-      dialogTitle: 'Launch Cohort Outreach',
-      dialogDescription: 'This will create outreach and distribution tasks for the selected cohort and start the first launch step.'
+      successMessage: `Outreach prep queued for ${name} — opening Zara.`,
+      dialogTitle: 'Prepare Cohort Outreach',
+      dialogDescription: 'Adds outreach and distribution tasks to Upcoming Tasks, then opens Zara in chat to prepare the first launch step. Does not send live LinkedIn or email by itself.'
     }
   }
 
@@ -576,7 +594,22 @@ export function GenericArtifactPage({ title, pageId, artifact, companyId, compan
       return
     }
 
-    const response = await fetchJson<{ deployments?: Array<Record<string, unknown>> }>('/api/agents/deployments')
+    let workspaceId: string | null = null
+    try {
+      const raw = localStorage.getItem('marqq_active_workspace')
+      const parsed = raw ? JSON.parse(raw) : null
+      workspaceId = typeof parsed?.id === 'string' ? parsed.id : null
+    } catch {
+      workspaceId = null
+    }
+    if (!workspaceId) {
+      setDeploymentStates({})
+      return
+    }
+
+    const response = await fetchJson<{ deployments?: Array<Record<string, unknown>> }>(
+      `/api/workspaces/${workspaceId}/agent-deployments`,
+    )
     const next: Record<string, DeploymentState> = {}
 
     for (const deployment of Array.isArray(response.deployments) ? response.deployments : []) {
@@ -794,8 +827,13 @@ export function GenericArtifactPage({ title, pageId, artifact, companyId, compan
     const interval = window.setInterval(() => {
       void loadDeploymentStates()
     }, 15000)
+    const onCreated = () => void loadDeploymentStates()
+    window.addEventListener('marqq:deployment-created', onCreated)
 
-    return () => window.clearInterval(interval)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('marqq:deployment-created', onCreated)
+    }
   }, [companyId, loadDeploymentStates, pageId])
 
   const handleDeploymentAction = useCallback(async (deploymentId: string, action: 'pause' | 'resume' | 'stop') => {

@@ -2061,7 +2061,7 @@ export function ChatHome({
 
     const userMessage: Message = {
       id: Date.now().toString(),
-      content: inputValue.trim(),
+      content: inputValue.trim() || `@${agentEntry.name} ${query}`,
       sender: 'user',
       timestamp: new Date(),
     };
@@ -2213,6 +2213,80 @@ export function ChatHome({
       setIsTyping(false);
     }
   };
+
+  // Company-intel CTAs (Activate ICP / Launch Outreach): persist tasks then hand off here
+  useEffect(() => {
+    if (scope !== 'main') return;
+
+    const resolveHandoffAgent = (agent: string) => {
+      const fromSlash = Object.values(SLASH_AGENTS).find((entry) => entry.name === agent);
+      if (fromSlash) return fromSlash;
+      const fromDirect = DIRECT_AGENTS.find((entry) => entry.name === agent);
+      if (fromDirect) {
+        return {
+          name: fromDirect.name,
+          label: `${fromDirect.label} · ${fromDirect.role}`,
+          defaultQuery: '',
+        };
+      }
+      const title = agent.slice(0, 1).toUpperCase() + agent.slice(1);
+      return { name: agent, label: title, defaultQuery: '' };
+    };
+
+    let cancelled = false;
+
+    const consume = (detail: { agent?: string; task?: string; autoRun?: boolean } | null) => {
+      if (cancelled || !detail) return;
+      const agent = String(detail.agent || '').trim().toLowerCase();
+      const task = String(detail.task || '').trim();
+      if (!agent || !task) return;
+      if (detail.autoRun === false) {
+        setTaskDraft(task);
+        setPlanPreview(null);
+        setShowAgentSuggestions(false);
+        // Prefer auto-run path; fallback drafts only when chat can mention the agent
+        const known = DIRECT_AGENTS.some((entry) => entry.name === agent);
+        if (known) {
+          setTaskAgent(agent as EmployeeName);
+          return;
+        }
+      }
+      void runAgentSlashCommand(resolveHandoffAgent(agent), task);
+    };
+
+    const readPending = () => {
+      try {
+        const raw = sessionStorage.getItem('marqq_pending_agent_task');
+        if (!raw) return null;
+        sessionStorage.removeItem('marqq_pending_agent_task');
+        return JSON.parse(raw) as { agent?: string; task?: string; autoRun?: boolean };
+      } catch {
+        return null;
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      consume(readPending());
+    }, 250);
+
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ agent?: string; task?: string; autoRun?: boolean }>).detail;
+      try {
+        sessionStorage.removeItem('marqq_pending_agent_task');
+      } catch {
+        /* ignore */
+      }
+      consume(detail || null);
+    };
+    window.addEventListener('marqq:open-agent-task', handler);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener('marqq:open-agent-task', handler);
+    };
+    // Intentionally only re-bind on scope; runAgentSlashCommand always uses latest closures via mount remount after navigate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
 
   // -- Autonomous agent sequence — streams each agent card in order
   const runAgentSequence = async (agents: SequenceAgent[], introText: string) => {

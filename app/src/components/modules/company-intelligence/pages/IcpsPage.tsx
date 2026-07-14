@@ -16,6 +16,15 @@ function asObj(data: unknown): any {
   return data && typeof data === 'object' ? (data as any) : null
 }
 
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'item'
+}
+
 export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props) {
   const { context: gtmCtx, dismiss: dismissGtm } = useGtmContext('company_intel_icp')
   const data = asObj(artifact?.data)
@@ -91,6 +100,16 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                       companyId={companyId}
                       companyName={companyName}
                       websiteUrl={websiteUrl}
+                      sectionId={`icp-activate-${slugify(String(icp.name || `icp-${idx + 1}`))}`}
+                      sectionTitle={`Activate ICP · ${String(icp.name || `ICP ${idx + 1}`)}`}
+                      summary={`Activate ${String(icp.name || `ICP ${idx + 1}`)} for GTM targeting and qualification.`}
+                      bullets={[
+                        String(icp.who || '').trim(),
+                        String(icp.hook || '').trim() ? `Hook: ${String(icp.hook)}` : '',
+                        (Array.isArray(icp.channels) ? icp.channels : []).join(', ')
+                          ? `Channels: ${(Array.isArray(icp.channels) ? icp.channels : []).join(', ')}`
+                          : '',
+                      ].filter(Boolean)}
                       taskPrefix={`ICP • ${String(icp.name || `ICP ${idx + 1}`)}`}
                       taskRequest={[
                         companyName ? `Company: ${companyName}.` : null,
@@ -103,9 +122,9 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                         'Create targeting, qualification, and activation tasks for the taskboard and start the first analysis pass.'
                       ].filter(Boolean).join(' ')}
                       marketingContext={{ module: 'icps', icp, icps: data }}
-                      successMessage={`ICP activation started for ${String(icp.name || `ICP ${idx + 1}`)}.`}
+                      successMessage={`ICP activation queued for ${String(icp.name || `ICP ${idx + 1}`)} — opening Isha.`}
                       dialogTitle="Activate ICP"
-                      dialogDescription="This will create ICP targeting and activation tasks, then run Isha on the selected profile."
+                      dialogDescription="Adds ICP targeting and activation tasks to Upcoming Tasks, then opens Isha in chat for the first analysis pass. Does not send outreach on channels by itself."
                       className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
                     />
                   </div>
@@ -141,19 +160,27 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                         companyId={companyId}
                         companyName={companyName}
                         websiteUrl={websiteUrl}
+                        sectionId={`cohort-outreach-${slugify(String(c.name || `cohort-${idx + 1}`))}`}
+                        sectionTitle={`Launch Outreach · ${String(c.name || `Cohort ${idx + 1}`)}`}
+                        summary={`Prepare outreach for cohort ${String(c.name || `Cohort ${idx + 1}`)} (priority ${String(c.priority ?? idx + 1)}).`}
+                        bullets={[
+                          String(c.definition || '').trim(),
+                          String(c.messagingAngle || '').trim() ? `Angle: ${String(c.messagingAngle)}` : '',
+                          `Priority: ${String(c.priority ?? idx + 1)}`,
+                        ].filter(Boolean)}
                         taskPrefix={`Cohort • ${String(c.name || `Cohort ${idx + 1}`)}`}
                         taskRequest={[
                           companyName ? `Company: ${companyName}.` : null,
-                          `Launch outreach for this cohort: ${String(c.name || `Cohort ${idx + 1}`)}.`,
+                          `Prepare and schedule outreach for this cohort: ${String(c.name || `Cohort ${idx + 1}`)}.`,
                           `Definition: ${String(c.definition || '')}.`,
                           `Messaging angle: ${String(c.messagingAngle || '')}.`,
                           `Priority: ${String(c.priority ?? idx + 1)}.`,
-                          'Create outreach and distribution tasks for the taskboard and prepare the first launch step.'
+                          'Create outreach and distribution tasks for the taskboard and prepare the first launch step. Do not claim messages were sent to LinkedIn or email unless a connected channel send is confirmed.'
                         ].filter(Boolean).join(' ')}
                         marketingContext={{ module: 'icps', cohort: c, icps: data }}
-                        successMessage={`Outreach launch prepared for ${String(c.name || `Cohort ${idx + 1}`)}.`}
-                        dialogTitle="Launch Cohort Outreach"
-                        dialogDescription="This will create outreach and distribution tasks for the selected cohort and start the first launch step."
+                        successMessage={`Outreach prep queued for ${String(c.name || `Cohort ${idx + 1}`)} — opening Zara.`}
+                        dialogTitle="Prepare Cohort Outreach"
+                        dialogDescription="Adds outreach and distribution tasks to Upcoming Tasks, then opens Zara in chat to prepare the first launch step. Does not send live LinkedIn or email by itself."
                         className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
                       />
                     </div>

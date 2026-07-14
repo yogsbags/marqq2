@@ -63,6 +63,16 @@ function formatFuture(iso: string | null | undefined): string | null {
   return `in ${Math.floor(hr / 24)}d`
 }
 
+function getActiveWorkspaceId() {
+  try {
+    const raw = localStorage.getItem('marqq_active_workspace')
+    const parsed = raw ? JSON.parse(raw) : null
+    return typeof parsed?.id === 'string' ? parsed.id : null
+  } catch {
+    return null
+  }
+}
+
 export function CompetitorIntelligencePage({ artifact, companyId, companyName, websiteUrl }: Props) {
   const data = asObj(artifact?.data)
 
@@ -78,8 +88,12 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
 
   const loadDeployments = useCallback(async () => {
     if (!companyId) return
+    const workspaceId = getActiveWorkspaceId()
+    if (!workspaceId) return
     try {
-      const response = await fetchJson<{ deployments?: Array<Record<string, unknown>> }>('/api/agents/deployments')
+      const response = await fetchJson<{ deployments?: Array<Record<string, unknown>> }>(
+        `/api/workspaces/${workspaceId}/agent-deployments`,
+      )
       const next: Record<string, DeploymentInfo> = {}
       for (const dep of Array.isArray(response.deployments) ? response.deployments : []) {
         if (String(dep?.source || '') !== 'company-intelligence') continue
@@ -107,6 +121,9 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
 
   useEffect(() => {
     void loadDeployments()
+    const handler = () => void loadDeployments()
+    window.addEventListener('marqq:deployment-created', handler)
+    return () => window.removeEventListener('marqq:deployment-created', handler)
   }, [loadDeployments])
 
   function buildMonitorRequest(competitor: any, index: number) {
@@ -158,6 +175,11 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
     setDeployingKey(key)
 
     try {
+      const workspaceId = getActiveWorkspaceId()
+      if (!workspaceId) {
+        throw new Error('Select a workspace before deploying competitor monitoring.')
+      }
+
       const plan = deployPlan || await fetchJson<{ tasks?: Array<{ label: string; horizon: 'day' | 'week' | 'month' }>; executionPrompt?: string }>(
         '/api/agents/priya/plan',
         {
@@ -169,31 +191,34 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
         }
       )
 
-      // Register as a scheduled monitor deployment (server-persisted, survives browser refresh)
-      await fetchJson('/api/agents/deployments', {
+      // Same workspace queue as CompanyIntelActionButton / Upcoming Tasks panel
+      await fetchJson(`/api/workspaces/${workspaceId}/agent-deployments`, {
         method: 'POST',
         body: JSON.stringify({
           agentName: 'priya',
           agentTarget: key,
           companyId: companyId || null,
           sectionId: 'competitor_intelligence',
-          sectionTitle: `Competitor Monitor: ${name}`,
+          sectionTitle: `Competitor Monitor · ${name}`,
           summary: `Recurring competitor monitoring for ${name}.`,
           bullets: ['Track positioning changes', 'Monitor messaging and offer updates', 'Catch campaign moves'],
           tasks: (Array.isArray(plan.tasks) ? plan.tasks : []).map((t) => ({ label: t.label, horizon: t.horizon })),
           scheduleMode: 'monitor',
+          recurrenceMinutes: 1440,
           runPrompt: String(plan.executionPrompt || '').trim() || buildMonitorRequest(competitor, index),
+          scheduledFor: new Date().toISOString(),
           source: 'company-intelligence',
         }),
       })
 
+      window.dispatchEvent(new CustomEvent('marqq:deployment-created'))
       await loadDeployments()
-      toast.success(`Priya is now monitoring ${name}. Tasks added to the taskboard.`)
+      toast.success(`Priya monitoring scheduled for ${name}. It will show in Upcoming Tasks.`)
       setDeployCompetitor(null)
       setDeployCompetitorIndex(null)
       setDeployPlan(null)
-    } catch {
-      toast.error(`Failed to start monitoring for ${name}.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Failed to start monitoring for ${name}.`)
     } finally {
       setDeployingKey(null)
     }
@@ -481,7 +506,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
           <DialogHeader>
             <DialogTitle>Deploy Priya for Competitor Monitoring</DialogTitle>
             <DialogDescription>
-              Priya will track competitor moves on a recurring schedule. Tasks will be added to the taskboard and results surface in notifications.
+              Schedules recurring Priya monitoring and adds items to Upcoming Tasks. It does not post or scrape channels live outside of Priya’s scheduled agent runs.
             </DialogDescription>
           </DialogHeader>
 
@@ -493,7 +518,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
                   <div className="space-y-1">
                     <div className="text-sm font-semibold text-foreground">Priya · Brand Intelligence</div>
                     <div className="text-sm text-muted-foreground">
-                      Tracks positioning, messaging, pricing, and campaign moves. Runs on a recurring schedule and pushes updates to notifications.
+                      Tracks positioning, messaging, pricing, and campaign moves on a recurring schedule. Work appears in Upcoming Tasks and Notifications.
                     </div>
                   </div>
                 </CardContent>
@@ -518,7 +543,7 @@ export function CompetitorIntelligencePage({ artifact, companyId, companyName, w
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base text-orange-600 dark:text-orange-400">Tasks Priya will add to the taskboard</CardTitle>
+                  <CardTitle className="text-base text-orange-600 dark:text-orange-400">Tasks to be added</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   {isPreparingDeploy ? (
