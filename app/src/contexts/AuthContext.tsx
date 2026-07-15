@@ -38,6 +38,12 @@ function mapSupabaseUser(supabaseUser: any): User | null {
   };
 }
 
+function isUsableAuthUser(supabaseUser: any): boolean {
+  if (!supabaseUser) return false;
+  if (supabaseUser.is_anonymous === true) return false;
+  return typeof supabaseUser.email === 'string' && supabaseUser.email.trim().length > 0;
+}
+
 function shouldForceOnboarding(user: User): boolean {
   if (accountNeedsOnboardingFlag(user.id)) return true;
   try {
@@ -73,8 +79,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (session?.user) {
-          const user = mapSupabaseUser(session.user);
-          persistActiveUserId(session.user.id);
+          const { data: verified, error: userError } = await supabase.auth.getUser();
+          const verifiedUser = verified?.user;
+          if (userError || !isUsableAuthUser(verifiedUser)) {
+            await supabase.auth.signOut().catch(() => {});
+            persistActiveUserId(null);
+            setState({ user: null, isAuthenticated: false, isLoading: false });
+            return;
+          }
+
+          const user = mapSupabaseUser(verifiedUser);
+          persistActiveUserId(verifiedUser.id);
           if (user && shouldForceOnboarding(user)) {
             markNeedsOnboarding(user.id);
             setState({
@@ -105,10 +120,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
-          const user = mapSupabaseUser(session.user);
-          persistActiveUserId(session.user.id);
+          const { data: verified, error: userError } = await supabase.auth.getUser();
+          const verifiedUser = verified?.user;
+          if (userError || !isUsableAuthUser(verifiedUser)) {
+            await supabase.auth.signOut().catch(() => {});
+            persistActiveUserId(null);
+            setState({ user: null, isAuthenticated: false, isLoading: false });
+            return;
+          }
+
+          const user = mapSupabaseUser(verifiedUser);
+          persistActiveUserId(verifiedUser.id);
           if (!user) {
-            setState({ user: null, isAuthenticated: true, isLoading: false });
+            setState({ user: null, isAuthenticated: false, isLoading: false });
             return;
           }
 
@@ -150,6 +174,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             isLoading: false,
           });
         } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          if (!isUsableAuthUser(session.user)) {
+            await supabase.auth.signOut().catch(() => {});
+            persistActiveUserId(null);
+            setState({ user: null, isAuthenticated: false, isLoading: false });
+            return;
+          }
+
           const mapped = mapSupabaseUser(session.user);
           persistActiveUserId(session.user.id);
           // Sticky incomplete flag beats refreshed metadata
@@ -194,6 +225,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data.user) {
+        if (!isUsableAuthUser(data.user)) {
+          await supabase.auth.signOut().catch(() => {});
+          throw new Error('No verified user email returned');
+        }
         const user = mapSupabaseUser(data.user);
         if (!user) throw new Error('No user data returned');
 

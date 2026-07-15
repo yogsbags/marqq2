@@ -86,7 +86,7 @@ function ensureFavicon() {
 }
 
 function AuthScreen() {
-  const [isSignup, setIsSignup] = useState(false);
+  const [isSignup, setIsSignup] = useState(true);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(107,79,235,0.12),transparent_28%),radial-gradient(circle_at_top_right,rgba(107,79,235,0.07),transparent_22%),linear-gradient(180deg,rgba(255,251,255,0.98),rgba(255,255,255,0.94))] p-4 dark:bg-[radial-gradient(circle_at_top_left,rgba(107,79,235,0.16),transparent_24%),radial-gradient(circle_at_top_right,rgba(107,79,235,0.08),transparent_18%),linear-gradient(180deg,rgba(10,10,10,0.98),rgba(10,10,10,0.96))]">
