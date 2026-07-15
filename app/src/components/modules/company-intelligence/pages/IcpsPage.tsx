@@ -25,6 +25,61 @@ function slugify(value: string) {
     .slice(0, 48) || 'item'
 }
 
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+}
+
+function cohortMarketType(cohort: any): 'b2b' | 'b2c' | 'mixed' {
+  const explicit = String(cohort?.marketType || cohort?.market_type || '').toLowerCase()
+  if (explicit === 'b2b' || explicit === 'b2c' || explicit === 'mixed') return explicit
+
+  const recommended = asStringArray(cohort?.recommendedChannels || cohort?.recommended_channels)
+  const blocked = asStringArray(cohort?.blockedChannels || cohort?.blocked_channels)
+  if (recommended.includes('apollo_outreach')) return 'b2b'
+  if (blocked.includes('apollo_outreach')) return 'b2c'
+
+  const text = [
+    cohort?.name,
+    cohort?.definition,
+    cohort?.messagingAngle,
+    cohort?.messaging_angle,
+  ].map((v) => String(v || '').toLowerCase()).join(' ')
+  const consumerSignals = [
+    'adult', 'women', 'men', 'person', 'people', 'users', 'consumer', 'patient',
+    'diagnosed', 'diabetes', 'pcos', 'thyroid', 'pregnant', 'health condition',
+    'fitness enthusiasts', 'meal', 'lab reports',
+  ]
+  const businessSignals = [
+    'companies', 'businesses', 'clinics', 'labs', 'agencies', 'teams', 'founders',
+    'owners', 'operators', 'buyers', 'decision makers', 'partners', 'hospitals',
+  ]
+  const hasConsumer = consumerSignals.some((signal) => text.includes(signal))
+  const hasBusiness = businessSignals.some((signal) => text.includes(signal))
+  if (hasBusiness && !hasConsumer) return 'b2b'
+  if (hasBusiness && hasConsumer) return 'mixed'
+  return 'b2c'
+}
+
+function acquisitionChannels(cohort: any): string[] {
+  const explicit = asStringArray(cohort?.recommendedChannels || cohort?.recommended_channels)
+    .filter((channel) => channel !== 'apollo_outreach')
+  return explicit.length ? explicit : ['paid_ads', 'social_posts', 'seo_article']
+}
+
+function channelLabel(channel: string) {
+  const labels: Record<string, string> = {
+    paid_ads: 'Paid ads',
+    social_posts: 'Social posts',
+    seo_article: 'SEO article',
+    creator_partnerships: 'Creator partnerships',
+    community: 'Community plan',
+    landing_page: 'Landing page',
+  }
+  return labels[channel] || channel.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
+}
+
 export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props) {
   const { context: gtmCtx, dismiss: dismissGtm } = useGtmContext('company_intel_icp')
   const data = asObj(artifact?.data)
@@ -161,63 +216,185 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
               cohorts
                 .slice()
                 .sort((a, b) => Number(a?.priority || 0) - Number(b?.priority || 0))
-                .map((c, idx) => (
-                  <div key={idx} className="border rounded-md p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-semibold text-sm">{String(c.name || `Cohort ${idx + 1}`)}</div>
-                      <div className="text-xs text-muted-foreground">Priority: {String(c.priority ?? '—')}</div>
+                .map((c, idx) => {
+                  const cohortName = String(c.name || `Cohort ${idx + 1}`)
+                  const marketType = cohortMarketType(c)
+                  const channels = acquisitionChannels(c)
+                  const isB2BOutreach = marketType === 'b2b'
+                  return (
+                    <div key={idx} className="border rounded-md p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold text-sm">{cohortName}</div>
+                        <div className="text-xs text-muted-foreground">Priority: {String(c.priority ?? '—')}</div>
+                      </div>
+                      <div className="text-sm text-foreground mt-1">{String(c.definition || '')}</div>
+                      <div className="text-xs text-muted-foreground mt-2">Angle: {String(c.messagingAngle || '—')}</div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Channel fit: {marketType.toUpperCase()}
+                        {!isB2BOutreach ? ' · Apollo outreach disabled; use consumer acquisition channels.' : ' · Apollo outreach is available for business buyers.'}
+                      </div>
+                      {c.reason ? (
+                        <div className="mt-1 text-xs text-muted-foreground">{String(c.reason)}</div>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {isB2BOutreach ? (
+                          <CompanyIntelActionButton
+                            label="Launch Outreach"
+                            agentName="arjun"
+                            companyId={companyId}
+                            companyName={companyName}
+                            websiteUrl={websiteUrl}
+                            sectionId={`cohort-outreach-${slugify(cohortName)}`}
+                            sectionTitle={`Launch Outreach · ${cohortName}`}
+                            summary={`Prepare outreach for B2B cohort ${cohortName} (priority ${String(c.priority ?? idx + 1)}).`}
+                            bullets={[
+                              String(c.definition || '').trim(),
+                              String(c.messagingAngle || '').trim() ? `Angle: ${String(c.messagingAngle)}` : '',
+                              asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).length
+                                ? `Apollo industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ')}`
+                                : '',
+                              asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).length
+                                ? `Buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ')}`
+                                : '',
+                              `Priority: ${String(c.priority ?? idx + 1)}`,
+                            ].filter(Boolean)}
+                            taskPrefix={`B2B Cohort • ${cohortName}`}
+                            taskRequest={[
+                              companyName ? `Company: ${companyName}.` : null,
+                              `Prepare B2B outreach for this Apollo-searchable cohort: ${cohortName}.`,
+                              `Definition: ${String(c.definition || '')}.`,
+                              `Messaging angle: ${String(c.messagingAngle || '')}.`,
+                              `Apollo target industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ') || 'derive from cohort only if business/professional buyer safe'}.`,
+                              `Apollo buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
+                              'Use Apollo only for companies/professional decision makers. Do not search for consumers, patients, demographics, or sensitive traits.'
+                            ].filter(Boolean).join(' ')}
+                            marketingContext={{ module: 'icps', cohort: c, icps: data }}
+                            navigateModuleId="lead-outreach"
+                            moduleWorkflowParams={{
+                              question: [
+                                companyName ? `Company: ${companyName}.` : null,
+                                `Launch B2B outreach for Apollo-searchable cohort: ${cohortName}.`,
+                                `Definition: ${String(c.definition || '')}.`,
+                                `Messaging angle: ${String(c.messagingAngle || '')}.`,
+                                `Apollo target industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ') || 'not provided'}.`,
+                                `Apollo buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
+                                'Use Apollo only for businesses/professional buyers; never for consumer traits or health-condition users.',
+                              ].filter(Boolean).join(' '),
+                              channel: 'multi',
+                              target: 'decision',
+                              goal: 'meeting',
+                              delivery: 'draft',
+                            }}
+                            chatHandoff={false}
+                            successMessage={`Outreach campaign queued for ${cohortName} — opening #outreach.`}
+                            dialogTitle="Launch Outreach Campaign"
+                            dialogDescription="Adds outreach tasks to Upcoming Tasks, then opens #outreach with this B2B cohort preloaded."
+                            className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
+                          />
+                        ) : (
+                          <>
+                            {channels.includes('paid_ads') ? (
+                              <CompanyIntelActionButton
+                                label="Create Paid Ads"
+                                agentName="zara"
+                                companyId={companyId}
+                                companyName={companyName}
+                                websiteUrl={websiteUrl}
+                                sectionId={`cohort-paid-ads-${slugify(cohortName)}`}
+                                sectionTitle={`Paid Ads · ${cohortName}`}
+                                summary={`Create consumer paid acquisition for ${cohortName}.`}
+                                bullets={[String(c.definition || '').trim(), String(c.messagingAngle || '').trim()].filter(Boolean)}
+                                taskPrefix={`Paid Ads • ${cohortName}`}
+                                taskRequest={[
+                                  companyName ? `Company: ${companyName}.` : null,
+                                  `Create paid acquisition tasks for B2C cohort: ${cohortName}.`,
+                                  `Definition: ${String(c.definition || '')}.`,
+                                  `Messaging angle: ${String(c.messagingAngle || '')}.`,
+                                  'Do not use Apollo outreach for this consumer/persona cohort.'
+                                ].filter(Boolean).join(' ')}
+                                marketingContext={{ module: 'icps', cohort: c, icps: data }}
+                                navigateModuleId="paid-ads"
+                                moduleWorkflowParams={{
+                                  question: `Create paid ads for B2C cohort ${cohortName}. Angle: ${String(c.messagingAngle || '')}.`,
+                                  objective: 'leads',
+                                  channel: 'meta',
+                                }}
+                                chatHandoff={false}
+                                successMessage={`Paid ads queued for ${cohortName}.`}
+                                dialogTitle="Create Paid Ads"
+                                dialogDescription="Creates paid acquisition tasks for this consumer cohort."
+                                className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
+                              />
+                            ) : null}
+                            {channels.some((channel) => ['social_posts', 'creator_partnerships', 'community'].includes(channel)) ? (
+                              <CompanyIntelActionButton
+                                label="Generate Social Posts"
+                                agentName="kiran"
+                                companyId={companyId}
+                                companyName={companyName}
+                                websiteUrl={websiteUrl}
+                                sectionId={`cohort-social-${slugify(cohortName)}`}
+                                sectionTitle={`Social Posts · ${cohortName}`}
+                                summary={`Create social content for ${cohortName}.`}
+                                bullets={[String(c.definition || '').trim(), String(c.messagingAngle || '').trim()].filter(Boolean)}
+                                taskPrefix={`Social • ${cohortName}`}
+                                taskRequest={[
+                                  companyName ? `Company: ${companyName}.` : null,
+                                  `Create social/content acquisition tasks for B2C cohort: ${cohortName}.`,
+                                  `Definition: ${String(c.definition || '')}.`,
+                                  `Messaging angle: ${String(c.messagingAngle || '')}.`,
+                                  `Recommended channels: ${channels.map(channelLabel).join(', ')}.`,
+                                  'Do not use Apollo outreach for this consumer/persona cohort.'
+                                ].filter(Boolean).join(' ')}
+                                marketingContext={{ module: 'icps', cohort: c, icps: data }}
+                                navigateModuleId="social-media"
+                                moduleWorkflowParams={{
+                                  question: `Generate social posts for B2C cohort ${cohortName}. Angle: ${String(c.messagingAngle || '')}.`,
+                                }}
+                                chatHandoff={false}
+                                successMessage={`Social posts queued for ${cohortName}.`}
+                                dialogTitle="Generate Social Posts"
+                                dialogDescription="Creates organic social tasks for this consumer cohort."
+                                className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
+                              />
+                            ) : null}
+                            {channels.includes('seo_article') ? (
+                              <CompanyIntelActionButton
+                                label="Write Article"
+                                agentName="riya"
+                                companyId={companyId}
+                                companyName={companyName}
+                                websiteUrl={websiteUrl}
+                                sectionId={`cohort-article-${slugify(cohortName)}`}
+                                sectionTitle={`SEO Article · ${cohortName}`}
+                                summary={`Create SEO content for ${cohortName}.`}
+                                bullets={[String(c.definition || '').trim(), String(c.messagingAngle || '').trim()].filter(Boolean)}
+                                taskPrefix={`SEO Article • ${cohortName}`}
+                                taskRequest={[
+                                  companyName ? `Company: ${companyName}.` : null,
+                                  `Write an acquisition article plan for B2C cohort: ${cohortName}.`,
+                                  `Definition: ${String(c.definition || '')}.`,
+                                  `Messaging angle: ${String(c.messagingAngle || '')}.`,
+                                  'Do not use Apollo outreach for this consumer/persona cohort.'
+                                ].filter(Boolean).join(' ')}
+                                marketingContext={{ module: 'icps', cohort: c, icps: data }}
+                                navigateModuleId="ai-content"
+                                moduleWorkflowParams={{
+                                  question: `Write an SEO/article brief for B2C cohort ${cohortName}. Angle: ${String(c.messagingAngle || '')}.`,
+                                }}
+                                chatHandoff={false}
+                                successMessage={`Article task queued for ${cohortName}.`}
+                                dialogTitle="Write Article"
+                                dialogDescription="Creates content tasks for this consumer cohort."
+                                className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
+                              />
+                            ) : null}
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-sm text-foreground mt-1">{String(c.definition || '')}</div>
-                    <div className="text-xs text-muted-foreground mt-2">Angle: {String(c.messagingAngle || '—')}</div>
-                    <div className="mt-3">
-                      <CompanyIntelActionButton
-                        label="Launch Outreach"
-                        agentName="arjun"
-                        companyId={companyId}
-                        companyName={companyName}
-                        websiteUrl={websiteUrl}
-                        sectionId={`cohort-outreach-${slugify(String(c.name || `cohort-${idx + 1}`))}`}
-                        sectionTitle={`Launch Outreach · ${String(c.name || `Cohort ${idx + 1}`)}`}
-                        summary={`Prepare outreach for cohort ${String(c.name || `Cohort ${idx + 1}`)} (priority ${String(c.priority ?? idx + 1)}).`}
-                        bullets={[
-                          String(c.definition || '').trim(),
-                          String(c.messagingAngle || '').trim() ? `Angle: ${String(c.messagingAngle)}` : '',
-                          `Priority: ${String(c.priority ?? idx + 1)}`,
-                        ].filter(Boolean)}
-                        taskPrefix={`Cohort • ${String(c.name || `Cohort ${idx + 1}`)}`}
-                        taskRequest={[
-                          companyName ? `Company: ${companyName}.` : null,
-                          `Prepare and schedule outreach for this cohort: ${String(c.name || `Cohort ${idx + 1}`)}.`,
-                          `Definition: ${String(c.definition || '')}.`,
-                          `Messaging angle: ${String(c.messagingAngle || '')}.`,
-                          `Priority: ${String(c.priority ?? idx + 1)}.`,
-                          'Create outreach and distribution tasks for the taskboard and prepare the first launch step. Do not claim messages were sent to LinkedIn or email unless a connected channel send is confirmed.'
-                        ].filter(Boolean).join(' ')}
-                        marketingContext={{ module: 'icps', cohort: c, icps: data }}
-                        navigateModuleId="lead-outreach"
-                        moduleWorkflowParams={{
-                          question: [
-                            companyName ? `Company: ${companyName}.` : null,
-                            `Launch an outreach campaign for cohort: ${String(c.name || `Cohort ${idx + 1}`)}.`,
-                            `Definition: ${String(c.definition || '')}.`,
-                            `Messaging angle: ${String(c.messagingAngle || '')}.`,
-                            `Priority: ${String(c.priority ?? idx + 1)}.`,
-                            'Build the outreach sequence arc, personalization logic, first touch, and follow-ups for this cohort.',
-                          ].filter(Boolean).join(' '),
-                          channel: 'multi',
-                          target: 'decision',
-                          goal: 'meeting',
-                          delivery: 'draft',
-                        }}
-                        chatHandoff={false}
-                        successMessage={`Outreach campaign queued for ${String(c.name || `Cohort ${idx + 1}`)} — opening #outreach.`}
-                        dialogTitle="Launch Outreach Campaign"
-                        dialogDescription="Adds outreach tasks to Upcoming Tasks, then opens #outreach with this cohort preloaded. Does not send live LinkedIn or email by itself."
-                        className="border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-900/40 dark:text-orange-300"
-                      />
-                    </div>
-                  </div>
-                ))
+                  )
+                })
             ) : (
               <div className="text-sm text-muted-foreground">—</div>
             )}

@@ -601,9 +601,10 @@ function buildArtifactSpec(type, companyName, context) {
         systemPrompt: [
           'You are a B2B go-to-market strategist defining ideal customer profiles.',
           ...sharedRules,
-          'Output JSON shape: { "scores": { "segmentFit": number, "targetingClarity": number, "activationReadiness": number, "rubric": { "segmentFit": { "icpDefinitionQuality": number, "marketFit": number, "cohortCoverage": number }, "targetingClarity": { "qualifierSpecificity": number, "channelClarity": number, "messagingAngleStrength": number }, "activationReadiness": { "hookClarity": number, "priorityUsefulness": number, "disqualifierQuality": number } } }, "icps": [{ "name": string, "who": string, "hook": string, "channels": string[], "qualifiers": string[], "disqualifiers": string[] }], "cohorts": [{ "name": string, "priority": number, "definition": string, "messagingAngle": string }], "notes": string[] }.',
+          'Output JSON shape: { "scores": { "segmentFit": number, "targetingClarity": number, "activationReadiness": number, "rubric": { "segmentFit": { "icpDefinitionQuality": number, "marketFit": number, "cohortCoverage": number }, "targetingClarity": { "qualifierSpecificity": number, "channelClarity": number, "messagingAngleStrength": number }, "activationReadiness": { "hookClarity": number, "priorityUsefulness": number, "disqualifierQuality": number } } }, "icps": [{ "name": string, "who": string, "hook": string, "channels": string[], "qualifiers": string[], "disqualifiers": string[] }], "cohorts": [{ "name": string, "priority": number, "definition": string, "messagingAngle": string, "marketType": "b2c" | "b2b" | "mixed", "recommendedChannels": string[], "blockedChannels": string[], "reason": string, "apolloTargetIndustries": string[], "apolloBuyerTitles": string[] }], "notes": string[] }.',
           'Rubric scores must be 0-100 integers. Derive top-level scores consistently: segmentFit = 40% icpDefinitionQuality + 35% marketFit + 25% cohortCoverage; targetingClarity = 35% qualifierSpecificity + 30% channelClarity + 35% messagingAngleStrength; activationReadiness = 35% hookClarity + 30% priorityUsefulness + 35% disqualifierQuality.',
           'Define 2 to 4 ICPs and 3 to 6 cohorts. Priority for cohorts is an integer (1 = highest). Qualifiers and disqualifiers must be concrete, not generic demographic filler.',
+          'Every cohort MUST include marketType and channel fit. Consumer, patient, app-user, demographic, or sensitive-trait cohorts are B2C: recommend paid_ads/social_posts/seo_article/creator_partnerships/community/landing_page and block apollo_outreach. Only cohorts that are businesses or professional buyers are B2B and may recommend apollo_outreach.',
           'Channels should list actual channels (e.g., "LinkedIn outbound", "Google Search", "referral network"), not generic types.',
           'If social presence is not explicit in context, do not default to Instagram, YouTube, or WhatsApp. Prefer LinkedIn, website inbound, partner/referral, webinars, and outbound email.'
         ].join(' '),
@@ -1242,6 +1243,10 @@ function normalizeIcps(raw) {
 
   const cohorts = cohortSource.map((c, idx) => {
     const row = asObject(c);
+    const recommendedChannels = uniqueStrings(asArray(row.recommendedChannels || row.recommended_channels), 8);
+    const blockedChannels = uniqueStrings(asArray(row.blockedChannels || row.blocked_channels), 8);
+    const marketTypeRaw = String(row.marketType || row.market_type || '').toLowerCase();
+    const marketType = ['b2b', 'b2c', 'mixed'].includes(marketTypeRaw) ? marketTypeRaw : '';
     return {
       name: cleanText(row.name || row.title || row.label, `Cohort ${idx + 1}`),
       priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : idx + 1,
@@ -1252,7 +1257,13 @@ function normalizeIcps(raw) {
         row.hook,
         row.angle,
         row.message
-      )
+      ),
+      marketType,
+      recommendedChannels,
+      blockedChannels,
+      reason: firstNonEmptyText(row.reason, row.channelReason, row.channel_reason, row.complianceNote, row.compliance_note),
+      apolloTargetIndustries: uniqueStrings(asArray(row.apolloTargetIndustries || row.apollo_target_industries), 8),
+      apolloBuyerTitles: uniqueStrings(asArray(row.apolloBuyerTitles || row.apollo_buyer_titles), 8)
     };
   }).filter((c) => c.name);
 
@@ -1915,6 +1926,12 @@ function buildGeminiArtifactSchema(type) {
           priority: schemaInteger(),
           definition: schemaString(),
           messagingAngle: schemaString(),
+          marketType: schemaString(),
+          recommendedChannels: schemaStringArray(1, 8),
+          blockedChannels: schemaStringArray(0, 8),
+          reason: schemaString(),
+          apolloTargetIndustries: schemaStringArray(0, 8),
+          apolloBuyerTitles: schemaStringArray(0, 8),
         }), 3, 6),
         notes: schemaStringArray(1, 8),
       });

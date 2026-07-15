@@ -56,6 +56,7 @@ function buildArjunQuery(
     `Primary target: ${formatLabel(target) || 'Decision makers'}.`,
     `Primary goal: ${formatLabel(goal) || 'Book meetings'}.`,
     deliveryLine,
+    'Before using Apollo, verify the target is a B2B/company/professional-buyer cohort. If the cohort describes consumers, patients, users, demographics, health conditions, or sensitive traits, do not use Apollo; explain that paid ads, social, SEO/content, creators, communities, or landing pages are the right acquisition channels.',
     'Use connected outbound tools in order when available: Apollo/Hunter to find or enrich contacts → HubSpot/CRM to check existing accounts → Instantly or Gmail to write the sequence into the tool.',
     'Execute research and connector write steps sequentially with tools before writing the final sequence arc.',
     'Return the outreach sequence arc, the personalization logic, the first touch, the follow-up sequence, and how the messaging should change across the motion.',
