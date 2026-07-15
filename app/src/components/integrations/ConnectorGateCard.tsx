@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { connectComposioConnector } from '@/lib/composio'
 import { CONNECTOR_DISPLAY } from '@/lib/connectorMeta'
 import { Link2, ShieldAlert } from 'lucide-react'
+import { toast } from 'sonner'
 
 type Props = {
   missingConnectorIds: string[]
@@ -45,8 +46,8 @@ export function ConnectorGateCard({
         userName: user?.name ?? user?.email,
         onConnected: () => onConnected(connectorId),
       })
-    } catch {
-      /* user closed popup */
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not open connector popup')
     } finally {
       setConnecting(null)
     }

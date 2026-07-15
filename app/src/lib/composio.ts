@@ -64,6 +64,20 @@ export async function connectComposioConnector({
   userName,
   onConnected,
 }: ConnectComposioOptions) {
+  // Must open synchronously from the button click; opening after the async
+  // backend call is commonly blocked by Safari/Chrome popup protection.
+  const popup = window.open(
+    'about:blank',
+    'composio_oauth',
+    'width=600,height=700,left=200,top=100'
+  )
+
+  if (popup) {
+    popup.document.title = 'Connecting account...'
+    popup.document.body.innerHTML =
+      '<div style="font-family: system-ui, -apple-system, sans-serif; padding: 24px;">Opening secure connection...</div>'
+  }
+
   const response = await fetch('/api/integrations/connect', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -71,6 +85,7 @@ export async function connectComposioConnector({
   })
   const json = await response.json().catch(() => ({}))
   if (!response.ok) {
+    popup?.close()
     throw new Error(json?.error || 'connect failed')
   }
 
@@ -86,19 +101,16 @@ export async function connectComposioConnector({
   }
 
   if (!json.redirectUrl) {
+    popup?.close()
     await finalize(connectorId)
     return { status: 'connected' as const, connectorId }
   }
 
-  const popup = window.open(
-    json.redirectUrl,
-    'composio_oauth',
-    'width=600,height=700,left=200,top=100'
-  )
-
   if (!popup) {
     throw new Error('Unable to open the OAuth popup')
   }
+
+  popup.location.href = json.redirectUrl
 
   return await new Promise<{ status: 'connected' | 'closed'; connectorId?: string }>((resolve) => {
     let settled = false
