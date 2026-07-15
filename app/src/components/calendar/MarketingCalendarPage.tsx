@@ -797,7 +797,7 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
               size="sm"
               variant="outline"
               className="h-8 text-xs gap-1.5 border-dashed"
-              onClick={() => onModuleSelect('workflow-builder')}
+              onClick={() => openNewPost('blog', 'WordPress', selectedDay)}
             >
               <PlusCircle className="h-3.5 w-3.5" />
               Schedule
