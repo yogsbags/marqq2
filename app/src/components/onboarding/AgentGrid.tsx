@@ -22,7 +22,7 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
 
       {/* Section label */}
       <div className="font-mono text-[10px] tracking-[0.16em] uppercase text-white/25 mb-[18px]">
-        {phase === 'activate' ? 'Assembling team…' : phase === 'done' ? 'Ready for GTM' : 'Your AI Team'}
+        {phase === 'activate' ? 'Assembling team…' : phase === 'done' ? 'Ready for GTM' : phase === 'review' ? 'Brand DNA' : 'Your AI Team'}
       </div>
 
       {/* Agent cards — 2 column grid */}
@@ -30,7 +30,7 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
         {AGENTS.map((agent) => {
           const isActive = activatedAgents.has(agent.id);
           const isActivating = activatingAgent === agent.id;
-          const dim = phase === 'welcome' || phase === 'form';
+          const dim = phase === 'welcome' || phase === 'form' || phase === 'review';
 
           return (
             <div

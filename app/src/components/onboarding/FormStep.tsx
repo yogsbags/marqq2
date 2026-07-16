@@ -226,10 +226,10 @@ export function FormStep({
         >
           {isIntegrationsStep
             ? connectedCount > 0
-              ? `Activate Team (${connectedCount} connected) →`
+              ? `Review Brand DNA (${connectedCount} connected) →`
               : 'Skip for now →'
             : stepIdx === totalSteps - 1
-              ? 'Activate Team →'
+              ? 'Review Brand DNA →'
               : 'Continue →'}
         </button>
         {stepIdx > 0 && (

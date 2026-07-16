@@ -8,6 +8,7 @@ import { PenLine, Image as ImageIcon, Film, Video, Mail, Linkedin, Globe, Instag
 
 type ContentType = 'post' | 'image' | 'video-faceless' | 'video-avatar' | 'email'
 type TopicAngle = { id: string; title: string; prompt: string; rationale: string }
+type OutputMode = NonNullable<AgentConfig['outputMode']>
 
 function formatLabel(value?: string) {
   return (value || '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
@@ -376,6 +377,17 @@ function getNextActions(channel?: string, contentType?: ContentType, deliverable
   return actions
 }
 
+function resolveOutputMode(contentType: ContentType, deliverable?: string, channel?: string): OutputMode {
+  if (contentType === 'image') return 'image'
+  if (contentType === 'video-faceless') return 'video'
+  if (contentType === 'video-avatar') return 'avatar_video'
+  if (contentType === 'email') return 'email_html'
+  if (deliverable === 'blog_article' || deliverable === 'seo_page' || channel === 'website_blog') {
+    return 'seo_article'
+  }
+  return 'text'
+}
+
 const CONTENT_TYPES: {
   id: ContentType
   label: string
@@ -435,8 +447,8 @@ const CHANNELS: { id: string; label: string; icon: React.ComponentType<{ classNa
 
 const DESCRIPTIONS: Record<ContentType, string> = {
   post:           'Write channel-ready text content for social, landing pages, and blog-style drafts — powered by Riya.',
-  image:          'Generate brand-consistent social images via DALL-E 3 in any aspect ratio — powered by Riya.',
-  'video-faceless': 'Generate cinematic faceless videos via Fal AI Veo 2 — powered by Riya.',
+  image:          'Generate brand-consistent social images via Gemini image generation in any aspect ratio — powered by Riya.',
+  'video-faceless': 'Generate cinematic faceless videos via Veo 3.1 — powered by Riya.',
   'video-avatar': 'Generate avatar spokesperson videos via HeyGen — powered by Riya.',
   email:          'Generate email content and HTML-ready campaign drafts for your ESP — powered by Riya.',
 }
@@ -555,19 +567,19 @@ export function AIContentFlow({
     return type
   })
   const cfg = contentOptions.find((t) => t.id === contentType) ?? contentOptions[0]
-  const topicAngles = getTopicAngles({
+  const topicAngles = useMemo(() => getTopicAngles({
     workspaceName: activeWorkspace?.name,
     channel: channel || undefined,
     objective: initialObjective,
     deliverable: initialDeliverable,
     contentType,
-  })
+  }), [activeWorkspace?.name, channel, initialObjective, initialDeliverable, contentType])
   const [selectedTopicId, setSelectedTopicId] = useState(topicAngles[0]?.id ?? '')
   const [customTopic, setCustomTopic] = useState('')
   useEffect(() => {
     setSelectedTopicId(topicAngles[0]?.id ?? '')
     setCustomTopic('')
-  }, [contentType, channel, initialObjective, initialDeliverable, activeWorkspace?.name])
+  }, [topicAngles])
   const selectedTopic = topicAngles.find((item) => item.id === selectedTopicId) ?? topicAngles[0]
   const customTopicText = customTopic.trim()
   const selectedTopicPrompt = customTopicText
@@ -610,6 +622,7 @@ export function AIContentFlow({
     channel === 'website_blog'
   )
   const seoBrief = `Build an SEO brief for a ${deliverableLabel.toLowerCase()} on ${channel ? channel.replace(/_/g, ' ') : 'the website'}. ${selectedTopicPrompt || ''} Identify likely search intent, topic angle, suggested structure, and SEO guidance before drafting.`
+  const outputMode = resolveOutputMode(contentType, initialDeliverable, channel || undefined)
   const contentAgents: AgentConfig[] = isSeoDraftFlow
     ? [
         {
@@ -618,6 +631,7 @@ export function AIContentFlow({
           taskType: 'seo_analysis',
           defaultQuery: seoBrief,
           placeholder: 'Maya will shape the SEO angle, search intent, and structure before Riya drafts.',
+          outputMode: 'text',
         },
         {
           name: 'riya',
@@ -625,6 +639,7 @@ export function AIContentFlow({
           taskType: cfg.taskType,
           defaultQuery: `${startingBrief} If Maya has provided an SEO brief above, use it directly in the draft.`,
           placeholder: cfg.placeholder,
+          outputMode,
         },
       ]
     : [
@@ -634,6 +649,7 @@ export function AIContentFlow({
           taskType: cfg.taskType,
           defaultQuery: startingBrief,
           placeholder: cfg.placeholder,
+          outputMode,
         },
       ]
 

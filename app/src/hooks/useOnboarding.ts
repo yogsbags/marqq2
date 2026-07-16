@@ -2,7 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCallback, useRef, useState } from 'react';
 import { AGENTS, STEPS } from '../components/onboarding/constants';
-import { FormData, Phase } from '../components/onboarding/types';
+import { BrandDna, FormData, Phase } from '../components/onboarding/types';
 import { markUserOnboardedLocal, clearNeedsOnboarding } from '@/lib/onboardingGate';
 import { startGtmPrep } from '@/services/gtmModuleService';
 import { supabase } from '@/lib/supabase';
@@ -27,7 +27,11 @@ export function useOnboarding(onComplete: () => void) {
 
   const [activatedAgents, setActivatedAgents] = useState<Set<string>>(new Set());
   const [activatingAgent, setActivatingAgent] = useState<string | null>(null);
+  const [brandDna, setBrandDna] = useState<BrandDna | null>(null);
+  const [brandDnaLoading, setBrandDnaLoading] = useState(false);
+  const [brandDnaError, setBrandDnaError] = useState<string | null>(null);
   const prepStartedForUrlRef = useRef<string | null>(null);
+  const brandDnaFetchKeyRef = useRef<string | null>(null);
 
   const currentStep = STEPS[stepIdx];
   const canAdvance = currentStep?.fields.every(f => f.optional || !!formData[f.key]?.trim()) !== false;
@@ -83,6 +87,64 @@ export function useOnboarding(onComplete: () => void) {
     });
   }, [user?.id, activeWorkspace?.id, activeWorkspace?.name, updateWebsiteUrl, renameWorkspace]);
 
+  const fetchBrandDna = useCallback(async (data: FormData, force = false) => {
+    const websiteUrl = data.websiteUrl.trim();
+    if (!websiteUrl) {
+      setBrandDnaError('Add a website URL first so we can fetch Brand DNA.');
+      return;
+    }
+
+    const key = `${normalizeWebsiteUrl(websiteUrl)}|${data.company.trim()}|${data.industry.trim()}|${data.icp.trim()}`;
+    if (!force && brandDnaFetchKeyRef.current === key && brandDna) return;
+
+    brandDnaFetchKeyRef.current = key;
+    setBrandDnaLoading(true);
+    setBrandDnaError(null);
+
+    try {
+      const res = await fetch('/api/brand-dna', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName: data.company.trim(),
+          websiteUrl,
+          industry: data.industry.trim(),
+          icp: data.icp.trim(),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || `Brand DNA fetch failed (${res.status})`);
+      }
+      const dna = json.brandDna as BrandDna;
+      if (!dna?.companyName) throw new Error('Brand DNA response was empty');
+      setBrandDna(dna);
+      if (json.partial) {
+        setBrandDnaError('Fetched partial Brand DNA from your site. Review and edit before continuing.');
+      }
+    } catch (err) {
+      brandDnaFetchKeyRef.current = null;
+      setBrandDna({
+        companyName: data.company.trim() || 'Your Company',
+        websiteUrl: normalizeWebsiteUrl(websiteUrl),
+        logoUrl: null,
+        businessSummary: '',
+        fonts: ['Inter', 'Georgia'],
+        colors: ['#0f3d2e', '#f0e9d8', '#faf7f0'],
+        brandTagline: '',
+        toneOfVoice: '',
+      });
+      setBrandDnaError(err instanceof Error ? err.message : 'Could not fetch Brand DNA. You can edit manually.');
+    } finally {
+      setBrandDnaLoading(false);
+    }
+  }, [brandDna]);
+
+  const enterBrandDnaReview = useCallback((data: FormData) => {
+    setPhase('review');
+    void fetchBrandDna(data);
+  }, [fetchBrandDna]);
+
   const handleActivate = async () => {
     setPhase('activate');
     setActivatingAgent(null);
@@ -97,11 +159,14 @@ export function useOnboarding(onComplete: () => void) {
         userId: user?.id,
         workspaceId: activeWorkspace?.id,
         ...formData,
+        company: brandDna?.companyName || formData.company,
+        websiteUrl: brandDna?.websiteUrl || formData.websiteUrl,
+        brandDna: brandDna || undefined,
       }),
     }).catch(() => {/* non-blocking */ });
 
-    const websiteUrl = formData.websiteUrl.trim();
-    const companyName = formData.company?.trim();
+    const websiteUrl = (brandDna?.websiteUrl || formData.websiteUrl).trim();
+    const companyName = (brandDna?.companyName || formData.company)?.trim();
 
     if (companyName && activeWorkspace?.id && companyName !== activeWorkspace.name) {
       renameWorkspace(companyName).catch(() => {/* non-blocking */});
@@ -112,18 +177,25 @@ export function useOnboarding(onComplete: () => void) {
 
     // Ensure prep is running; if already started at step 01, backend merges
     // richer industry/ICP into the in-flight Compound crawl (no second crawl).
-    void startBackgroundWebResearch(formData, { mergeOnly: true });
+    void startBackgroundWebResearch({
+      ...formData,
+      company: companyName || formData.company,
+      websiteUrl: websiteUrl || formData.websiteUrl,
+    }, { mergeOnly: true });
 
     if (activeWorkspace?.id) {
       try {
         localStorage.setItem(`marqq_onboarding_ctx_${activeWorkspace.id}`, JSON.stringify({
-          company: formData.company?.trim() || '',
-          websiteUrl: formData.websiteUrl?.trim() || '',
+          company: companyName || formData.company?.trim() || '',
+          websiteUrl: websiteUrl || formData.websiteUrl?.trim() || '',
           industry: formData.industry?.trim() || '',
           icp: formData.icp?.trim() || '',
           goals: formData.goals?.trim() || '',
           connectedIntegrations: formData.connectedIntegrations?.trim() || '',
         }));
+        if (brandDna) {
+          localStorage.setItem(`marqq_brand_dna_${activeWorkspace.id}`, JSON.stringify(brandDna));
+        }
       } catch {
         /* ignore */
       }
@@ -164,17 +236,26 @@ export function useOnboarding(onComplete: () => void) {
     if (stepIdx < STEPS.length - 1) {
       setStepIdx(s => s + 1);
     } else {
-      handleActivate();
+      enterBrandDnaReview(formData);
     }
   };
 
   const handleBack = () => {
+    if (phase === 'review') {
+      setPhase('form');
+      return;
+    }
     if (stepIdx > 0) {
       setStepIdx(s => s - 1);
     }
   };
 
   const handleSkip = () => {
+    // From form (e.g. skip integrations) still review Brand DNA before activating agents.
+    if (phase === 'form') {
+      enterBrandDnaReview(formData);
+      return;
+    }
     handleActivate();
   };
 
@@ -191,6 +272,12 @@ export function useOnboarding(onComplete: () => void) {
     handleNext,
     handleBack,
     handleSkip,
-    totalSteps: STEPS.length
+    handleActivate,
+    brandDna,
+    setBrandDna,
+    brandDnaLoading,
+    brandDnaError,
+    retryBrandDna: () => void fetchBrandDna(formData, true),
+    totalSteps: STEPS.length,
   };
 }

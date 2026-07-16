@@ -1,6 +1,7 @@
 import { useOnboarding } from '../../hooks/useOnboarding';
 import { ActivationStep } from './ActivationStep';
 import { AgentGrid } from './AgentGrid';
+import { BrandDnaStep } from './BrandDnaStep';
 import { STEPS } from './constants';
 import { FormStep } from './FormStep';
 import { WelcomeStep } from './WelcomeStep';
@@ -9,7 +10,8 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
   const {
     phase, setPhase, stepIdx, formData, updateField, activatedAgents,
     activatingAgent, currentStep, canAdvance, handleNext, handleBack,
-    handleSkip, totalSteps
+    handleSkip, handleActivate, brandDna, setBrandDna, brandDnaLoading,
+    brandDnaError, retryBrandDna, totalSteps,
   } = useOnboarding(onComplete);
 
   return (
@@ -45,6 +47,19 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
               onBack={handleBack}
               onSkip={handleSkip}
               canAdvance={canAdvance}
+            />
+          )}
+
+          {phase === 'review' && (
+            <BrandDnaStep
+              brandDna={brandDna}
+              loading={brandDnaLoading}
+              error={brandDnaError}
+              onChange={(next) => setBrandDna(next)}
+              onConfirm={handleActivate}
+              onBack={handleBack}
+              onSkip={handleActivate}
+              onRetry={retryBrandDna}
             />
           )}
 

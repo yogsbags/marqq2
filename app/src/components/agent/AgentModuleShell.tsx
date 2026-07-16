@@ -41,6 +41,8 @@ export interface AgentConfig {
   tags?: string[]       // extra Langfuse trace tags for this agent run
   /** draft = save in connector tools; live = allow send/activate tools */
   deliveryMode?: 'draft' | 'live'
+  /** Forces the backend contract to emit the matching asset automation trigger. */
+  outputMode?: 'text' | 'image' | 'video' | 'avatar_video' | 'email_html' | 'seo_article'
 }
 
 interface AgentModuleShellProps {
@@ -138,7 +140,7 @@ function SingleAgentCard({
   useEffect(() => {
     if (!shouldAutoRun || autoRunTriggeredRef.current) return
     autoRunTriggeredRef.current = true
-    void agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode)
+    void agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode, cfg.outputMode)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoRun])
 
@@ -205,7 +207,7 @@ function SingleAgentCard({
           <Button
             size="sm"
             disabled={Boolean(disabledReason) || agentRun.streaming || !query.trim()}
-            onClick={() => agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode)}
+            onClick={() => agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode, cfg.outputMode)}
             className="h-auto min-h-9 max-w-full whitespace-normal text-left leading-5 gap-1"
             title={disabledReason || undefined}
           >

@@ -1,6 +1,17 @@
-export type Phase = 'welcome' | 'form' | 'activate' | 'done';
+export type Phase = 'welcome' | 'form' | 'review' | 'activate' | 'done';
 
 export type PrimaryGoal = 'leads' | 'conversion' | 'content' | 'market' | 'budget';
+
+export interface BrandDna {
+  companyName: string;
+  websiteUrl: string;
+  logoUrl: string | null;
+  businessSummary: string;
+  fonts: string[];
+  colors: string[];
+  brandTagline: string;
+  toneOfVoice: string;
+}
 
 export interface FormData {
   company: string;

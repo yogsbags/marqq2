@@ -15,13 +15,20 @@ import {
   HiPaperClip as Paperclip,
   HiDocumentText as FileText,
   HiPhotograph as Image,
-  HiTable as FileSpreadsheet
+  HiTable as FileSpreadsheet,
+  HiVideoCamera as Film
 } from 'react-icons/hi';
 import { cn } from '@/lib/utils';
 import { GroqService, ChatMessage } from '@/services/groqService';
 import { executeGuidedWorkflow, type GuidedGoal, type GuidedWorkflowResponse } from '@/services/guidedWorkflowService';
 import { toast } from 'sonner';
 import { CSVAnalysisPanel } from '@/components/ui/csv-analysis-panel';
+import {
+  AGENT_ATTACHMENT_ACCEPT,
+  createAgentInputAttachment,
+  formatAttachmentForPrompt,
+  isSupportedAgentAttachment,
+} from '@/lib/agentAttachments';
 
 // Slash command definitions
 const SLASH_COMMANDS = [
@@ -349,7 +356,7 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
   };
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() && !selectedFile) return;
 
     // Check if it's a slash command
     if (inputValue.startsWith('/')) {
@@ -429,9 +436,15 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
       }));
 
       // Add the current user message
+      const inputAttachments = currentFile
+        ? [await createAgentInputAttachment(currentFile)]
+        : [];
       let messageContent = currentInput;
       if (currentFile) {
         messageContent += currentFile ? ` [File uploaded: ${currentFile.name} (${formatFileSize(currentFile.size)})]` : '';
+      }
+      if (inputAttachments.length) {
+        messageContent += `\n\n${inputAttachments.map(formatAttachmentForPrompt).join('\n\n')}`;
       }
 
       chatMessages.push({
@@ -503,21 +516,8 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Validate file type
-      const validTypes = [
-        'text/csv',
-        'application/pdf',
-        'image/jpeg',
-        'image/jpg',
-        'image/png',
-        'image/gif',
-        'image/webp',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      ];
-
-      if (!validTypes.includes(file.type)) {
-        toast.error('Please upload a valid CSV, PDF, or image file');
+      if (!isSupportedAgentAttachment(file)) {
+        toast.error('Please upload a valid CSV, PDF, text, image, spreadsheet, or video file');
         return;
       }
 
@@ -549,6 +549,8 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
   const getFileIcon = (fileType: string) => {
     if (fileType.includes('image')) {
       return <Image className="h-4 w-4" />;
+    } else if (fileType.includes('video')) {
+      return <Film className="h-4 w-4" />;
     } else if (fileType.includes('pdf')) {
       return <FileText className="h-4 w-4" />;
     } else if (fileType.includes('csv') || fileType.includes('excel') || fileType.includes('spreadsheet')) {
@@ -780,7 +782,7 @@ export function ChatPanel({ isOpen, onClose, messages, onMessagesChange, onModul
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,.pdf,.jpg,.jpeg,.png,.gif,.webp,.xls,.xlsx"
+              accept={AGENT_ATTACHMENT_ACCEPT}
               onChange={handleFileSelect}
               className="hidden"
             />

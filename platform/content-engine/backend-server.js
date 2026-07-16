@@ -17,6 +17,12 @@ import multer from "multer";
 import Groq from "groq-sdk";
 import { tracedGroq, tracedLLM, langfuse } from "./langfuse.js";
 import { runAgenticLoop, getComposioTools } from "./agents/agenticLoop.js";
+import {
+  scrapeBrandSignals,
+  buildBrandDnaPrompt,
+  normalizeBrandDna,
+  normalizeWebsiteUrl as normalizeBrandDnaWebsiteUrl,
+} from "./brand-dna.js";
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleAuth } from "google-auth-library";
@@ -4507,6 +4513,7 @@ app.post("/api/agents/context", async (req, res) => {
     campaigns,
     keywords,
     goals,
+    brandDna,
   } = req.body;
 
   if (!company) {
@@ -4530,12 +4537,26 @@ app.post("/api/agents/context", async (req, res) => {
     await writeContextToSupabase(workspaceId, fields);
   }
 
+  const dna = brandDna && typeof brandDna === "object" ? brandDna : null;
+  const dnaBlock = dna
+    ? `\n\n## Brand DNA\n**Tagline**: ${dna.brandTagline || "—"}\n**Summary**: ${dna.businessSummary || "—"}\n**Tone of Voice**: ${dna.toneOfVoice || "—"}\n**Fonts**: ${Array.isArray(dna.fonts) ? dna.fonts.join(", ") : "—"}\n**Colors**: ${Array.isArray(dna.colors) ? dna.colors.join(", ") : "—"}\n**Logo**: ${dna.logoUrl || "—"}\n`
+    : "";
+
   // 2. Write to filesystem (legacy cache — user-scoped fallback)
   if (userId) {
-    const content = `# Client Context\n\n**Company**: ${fields.company}\n**Website**: ${fields.website_url || "—"}\n**Industry**: ${fields.industry || "—"}\n**Target ICP**: ${fields.icp || "—"}\n**Top Competitors**: ${fields.competitors || "—"}\n**Primary Goal**: ${fields.primary_goal || "—"}\n**Key Goals this Quarter**: ${fields.goals || "—"}\n`;
+    const content = `# Client Context\n\n**Company**: ${fields.company}\n**Website**: ${fields.website_url || "—"}\n**Industry**: ${fields.industry || "—"}\n**Target ICP**: ${fields.icp || "—"}\n**Top Competitors**: ${fields.competitors || "—"}\n**Primary Goal**: ${fields.primary_goal || "—"}\n**Key Goals this Quarter**: ${fields.goals || "—"}${dnaBlock}`;
     try {
       await mkdir(CTX_DIR, { recursive: true });
       await writeFile(join(CTX_DIR, `${userId}.md`), content, "utf-8");
+    } catch { /* non-critical */ }
+  }
+
+  // Persist Brand DNA JSON beside workspace for agents / creative modules
+  if (workspaceId && dna) {
+    try {
+      const dnaDir = join(CTX_DIR, "brand-dna");
+      await mkdir(dnaDir, { recursive: true });
+      await writeFile(join(dnaDir, `${workspaceId}.json`), JSON.stringify(dna, null, 2), "utf-8");
     } catch { /* non-critical */ }
   }
 
@@ -4551,6 +4572,108 @@ app.get("/api/agents/context", async (req, res) => {
   }
 
   res.json(await readSavedAgentContext(userId, workspaceId));
+});
+
+// ── POST /api/brand-dna ───────────────────────────────────────────────────────
+// Fetch Brand DNA from a website for onboarding review before agent activation.
+app.post("/api/brand-dna", async (req, res) => {
+  const companyName = String(req.body?.companyName || req.body?.company || "").trim();
+  const websiteUrl = String(req.body?.websiteUrl || "").trim();
+  const industry = String(req.body?.industry || "").trim();
+  const icp = String(req.body?.icp || "").trim();
+
+  if (!websiteUrl) {
+    return res.status(400).json({ error: "websiteUrl is required" });
+  }
+
+  const normalizedUrl = normalizeBrandDnaWebsiteUrl(websiteUrl);
+  let signals = null;
+  try {
+    signals = await scrapeBrandSignals(normalizedUrl);
+  } catch (err) {
+    console.warn("[brand-dna] scrape failed:", err?.message || err);
+    signals = {
+      websiteUrl: normalizedUrl,
+      title: "",
+      description: "",
+      siteName: "",
+      h1: "",
+      logoUrl: null,
+      colors: ["#0f3d2e", "#f0e9d8", "#faf7f0"],
+      fonts: ["Inter", "Georgia"],
+      themeColor: null,
+    };
+  }
+
+  const fallback = normalizeBrandDna({
+    companyName: companyName || signals.siteName || signals.title || "Your Company",
+    websiteUrl: normalizedUrl,
+    logoUrl: signals.logoUrl,
+    businessSummary: signals.description || "",
+    fonts: signals.fonts,
+    colors: signals.colors,
+    brandTagline: signals.h1 || "",
+    toneOfVoice: "",
+  });
+
+  const userContent = buildBrandDnaPrompt({
+    companyName,
+    websiteUrl: normalizedUrl,
+    industry,
+    icp,
+    signals,
+  });
+
+  try {
+    let parsed = null;
+    if (COMPANY_PROFILE_PRIMARY_PROVIDER === "gemini" || process.env.GEMINI_API_KEY) {
+      try {
+        parsed = await generateJsonWithGemini({
+          model: process.env.GEMINI_BRAND_DNA_MODEL || COMPANY_PROFILE_GEMINI_MODEL || "gemini-2.5-flash",
+          systemPrompt: "You extract Brand DNA for marketing agents. Return one strict JSON object only.",
+          userContent,
+          temperature: 0.35,
+          maxOutputTokens: 1200,
+          label: "brand_dna",
+        });
+      } catch (err) {
+        console.warn("[brand-dna] Gemini failed, falling back to Groq:", err?.message || err);
+      }
+    }
+
+    if (!parsed) {
+      for (const model of COMPANY_PROFILE_GROQ_MODELS) {
+        try {
+          const completion = await groq.chat.completions.create({
+            model,
+            messages: [
+              { role: "system", content: "You extract Brand DNA for marketing agents. Return one strict JSON object only." },
+              { role: "user", content: userContent },
+            ],
+            temperature: 0.35,
+            ...(isGroqProvider && model === "groq/compound"
+              ? {
+                  max_completion_tokens: 1200,
+                  compound_custom: { tools: { enabled_tools: ["web_search", "visit_website"] } },
+                }
+              : { response_format: { type: "json_object" } }),
+          });
+          const raw = completion.choices[0]?.message?.content?.trim() || "{}";
+          const candidate = extractJsonObject(raw) || raw;
+          parsed = JSON.parse(candidate);
+          break;
+        } catch (err) {
+          console.warn(`[brand-dna] model ${model} failed:`, err?.message || err);
+        }
+      }
+    }
+
+    const brandDna = normalizeBrandDna(parsed || {}, fallback);
+    return res.json({ brandDna, signals });
+  } catch (err) {
+    console.error("[brand-dna] generation failed:", err?.message || err);
+    return res.json({ brandDna: fallback, signals, partial: true });
+  }
 });
 
 app.get("/api/marketing-context", async (req, res) => {
@@ -6447,6 +6570,96 @@ app.post("/api/veena/follow-ups", async (req, res) => {
 // Loads SOUL.md + MEMORY.md + skills/*.md as system prompt, calls Groq, streams SSE.
 // Response format: data: {"text":"..."}\n\n ... data: [DONE]\n\n
 
+function normalizeAgentInputAttachments(rawAttachments) {
+  if (!Array.isArray(rawAttachments)) return [];
+  return rawAttachments
+    .slice(0, 3)
+    .map((attachment) => ({
+      name: String(attachment?.name || "attachment").slice(0, 180),
+      type: String(attachment?.type || "application/octet-stream").slice(0, 120),
+      kind: String(attachment?.kind || "other").slice(0, 40),
+      size: Number.isFinite(Number(attachment?.size)) ? Number(attachment.size) : 0,
+      text: typeof attachment?.text === "string" ? attachment.text.slice(0, 12000) : "",
+      base64: typeof attachment?.base64 === "string" ? attachment.base64 : "",
+    }))
+    .filter((attachment) => attachment.name && (attachment.text || attachment.base64 || attachment.size));
+}
+
+function getGeminiText(response) {
+  if (typeof response?.text === "string") return response.text;
+  const parts = response?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .map((part) => typeof part?.text === "string" ? part.text : "")
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+async function summarizeAttachmentWithGemini(attachment) {
+  if (!attachment.base64) return "";
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) return "";
+
+  try {
+    const { GoogleGenAI } = await import("@google/genai");
+    const ai = new GoogleGenAI({ apiKey });
+    const model = process.env.GEMINI_MULTIMODAL_MODEL || process.env.GEMINI_PRIMARY_MODEL || "gemini-2.5-flash";
+    const prompt = [
+      "You are preparing an uploaded file for a marketing AI agent.",
+      "Summarize only what is useful for downstream marketing, sales, content, audience, analytics, or campaign work.",
+      "If it is an image, describe visible text, layout, product, brand elements, objects, people, and likely marketing implications.",
+      "If it is a PDF/document, extract the key sections, data points, claims, requirements, and action items.",
+      "If it is a video, summarize the scenes, spoken/visible text if available, narrative, offer, creative angle, and improvement opportunities.",
+      "Keep the summary concise and factual. Do not invent details you cannot observe.",
+    ].join(" ");
+
+    const response = await ai.models.generateContent({
+      model,
+      contents: [{
+        role: "user",
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: attachment.type, data: attachment.base64 } },
+        ],
+      }],
+    });
+
+    return getGeminiText(response).slice(0, 6000);
+  } catch (error) {
+    console.warn("[agent-input] Gemini attachment summary failed:", error?.message || error);
+    return "";
+  }
+}
+
+async function buildInputAttachmentsBlock(rawAttachments) {
+  const attachments = normalizeAgentInputAttachments(rawAttachments);
+  if (!attachments.length) return "";
+
+  const sections = [];
+  for (const attachment of attachments) {
+    const lines = [
+      `### ${attachment.name}`,
+      `kind: ${attachment.kind}`,
+      `mime_type: ${attachment.type}`,
+      `size_bytes: ${attachment.size}`,
+    ];
+    if (attachment.text) {
+      lines.push(`readable_excerpt:\n${attachment.text}`);
+    } else if (attachment.base64) {
+      const summary = await summarizeAttachmentWithGemini(attachment);
+      if (summary) {
+        lines.push(`multimodal_summary:\n${summary}`);
+      } else {
+        lines.push("multimodal_summary: unavailable. Use the file metadata only and ask the user for more detail if the visual/document contents are essential.");
+      }
+    }
+    sections.push(lines.join("\n"));
+  }
+
+  return `\n\n## User Input Attachments\nThe user attached the following files. Treat these summaries/excerpts as first-class input context for this run.\n\n${sections.join("\n\n")}\n`;
+}
+
 app.post("/api/agents/:name/run", async (req, res) => {
   const { name } = req.params;
   const {
@@ -6456,6 +6669,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
     task_type,
     module_id,
     delivery_mode,
+    output_mode,
     triggered_by,
     trigger_id,
     hook_id,
@@ -6463,6 +6677,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
     offer_focus,
     tags: clientTags,
     conversation_history,
+    input_attachments,
   } = req.body;
   const workspaceId = typeof req.headers["x-workspace-id"] === "string"
     ? req.headers["x-workspace-id"].trim()
@@ -6815,6 +7030,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
     } catch { /* non-blocking */ }
   }
 
+  const inputAttachmentsBlock = await buildInputAttachmentsBlock(input_attachments);
   const guardrailsBlock = buildAgentRunGuardrails(name, task_type);
   const deliveryModeResolved =
     typeof delivery_mode === "string" && delivery_mode.trim().toLowerCase() === "live"
@@ -6828,6 +7044,34 @@ app.post("/api/agents/:name/run", async (req, res) => {
             : "Save as draft in connected tools (Gmail drafts, Instantly sequences/campaigns). Do NOT call live send tools."
         }\n`
       : "";
+  const inferOutputModeFromTaskType = (taskType) => {
+    if (taskType === "generate_image") return "image";
+    if (taskType === "generate_video") return "video";
+    if (taskType === "generate_avatar_video") return "avatar_video";
+    if (taskType === "generate_email") return "email_html";
+    if (taskType === "seo_analysis") return "text";
+    return "";
+  };
+  const outputModeResolved = typeof output_mode === "string" && output_mode.trim()
+    ? output_mode.trim().toLowerCase()
+    : inferOutputModeFromTaskType(task_type);
+  const outputModeInstructions = {
+    image:
+      "Return a visual concept in artifact.data and include exactly one automation_triggers entry with automation_id generate_social_image. Fill params.prompt with the final image prompt, params.aspect_ratio with 1:1, 4:5, 9:16, or 16:9, and params.platform when known.",
+    video:
+      "Return a video brief/script in artifact.data and include exactly one automation_triggers entry with automation_id generate_faceless_video. Fill params.prompt with the final production prompt, params.duration when known, params.aspect_ratio when known, and params.style when useful.",
+    avatar_video:
+      "Return a spokesperson video script in artifact.data and include exactly one automation_triggers entry with automation_id generate_avatar_video. Fill params.script with the final spoken script and include avatar_id or voice_id only if the user provided exact IDs.",
+    email_html:
+      "Return email strategy/copy in artifact.data and include exactly one automation_triggers entry with automation_id generate_email_html. Fill params.subject, params.content, params.tone, params.brand_name, and params.sections when available.",
+    seo_article:
+      "Return the article plan in artifact.data and include exactly one automation_triggers entry with automation_id create_seo_article. Fill params.keyword, params.topic, params.word_count_target, params.target_audience, and params.brand_context when available.",
+    text:
+      "Return a complete text deliverable in artifact.data. Do not include content-generation automation_triggers unless the user explicitly asks for an asset file.",
+  };
+  const outputModeBlock = outputModeInstructions[outputModeResolved]
+    ? `\n\n## Required Output Mode\noutput_mode: ${outputModeResolved}\n${outputModeInstructions[outputModeResolved]}\nIf the selected output mode needs an automation trigger and required params are missing, infer safe defaults from the user request and workspace context instead of omitting the trigger.\n`
+    : "";
 
   // Industry intel — auto-inject stored brief if available
   let industryIntelBlock = '';
@@ -6917,6 +7161,8 @@ Replace ALL placeholder values with your actual outputs.
     runContextBlock,
     guardrailsBlock,
     deliveryModeBlock,
+    outputModeBlock,
+    inputAttachmentsBlock,
     recentAutomationData,
     industryIntelBlock,
     contractInstruction,  // always last

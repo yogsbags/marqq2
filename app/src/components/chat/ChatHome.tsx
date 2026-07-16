@@ -31,6 +31,7 @@ import {
   User,
   FileText,
   Image,
+  Film,
   Table as FileSpreadsheet,
   X,
   Map,
@@ -56,6 +57,13 @@ import {
 } from '@/lib/conversationPersistence';
 import { hasWorkflowForm, WORKFLOW_FORMS, buildWorkflowSummary, checkConnectorReadiness } from '@/lib/workflowRequirements';
 import { connectComposioConnector } from '@/lib/composio';
+import {
+  AGENT_ATTACHMENT_ACCEPT,
+  createAgentInputAttachment,
+  formatAttachmentForPrompt,
+  isSupportedAgentAttachment,
+  type AgentInputAttachment,
+} from '@/lib/agentAttachments';
 import type { WorkflowFormData } from '@/types/chat';
 
 // -- Conversation persistence helpers
@@ -524,6 +532,56 @@ function AgentResponseBlocks({
   );
 }
 
+function DocumentArtifactBlock({
+  title,
+  body,
+  format,
+}: {
+  title?: string;
+  body?: string;
+  format?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!body) return;
+    navigator.clipboard.writeText(body).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
+
+  const formatEmoji = format === 'blog_post' ? '📝'
+    : format === 'email_sequence' ? '📧'
+    : format === 'social_post' ? '📱'
+    : format === 'ad_copy' ? '📣'
+    : format === 'sales_pitch' ? '🤝'
+    : format === 'seo_brief' ? '🔍'
+    : '✍️';
+
+  return (
+    <div className="mt-3 bg-teal-50 border border-teal-200 rounded-lg p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-teal-800">{formatEmoji} {title ?? 'Generated Document'}</p>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1 text-[10px] font-medium text-teal-600 hover:text-teal-800 transition-colors px-2 py-0.5 rounded border border-teal-200 bg-white hover:bg-teal-50"
+        >
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+      </div>
+      {body && (
+        <div className="bg-white rounded border border-teal-100 p-2.5 max-h-60 overflow-y-auto">
+          <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{body}</p>
+        </div>
+      )}
+      {format && (
+        <p className="text-[10px] text-teal-600 capitalize">{format.replace(/_/g, ' ')}</p>
+      )}
+    </div>
+  );
+}
+
 function ThinkingBlock({ reasoning, isStreaming }: { reasoning: string; isStreaming?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
@@ -808,45 +866,7 @@ function ArtifactBlock({ artifact }: { artifact: { type: string; [key: string]: 
     const title = artifact.title as string | undefined;
     const body = artifact.body as string | undefined;
     const format = artifact.format as string | undefined;
-    const [copied, setCopied] = useState(false);
-
-    const handleCopy = () => {
-      if (!body) return;
-      navigator.clipboard.writeText(body).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }).catch(() => {});
-    };
-
-    const formatEmoji = format === 'blog_post' ? '📝'
-      : format === 'email_sequence' ? '📧'
-      : format === 'social_post' ? '📱'
-      : format === 'ad_copy' ? '📣'
-      : format === 'sales_pitch' ? '🤝'
-      : format === 'seo_brief' ? '🔍'
-      : '✍️';
-
-    return (
-      <div className="mt-3 bg-teal-50 border border-teal-200 rounded-lg p-3 space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-teal-800">{formatEmoji} {title ?? 'Generated Document'}</p>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1 text-[10px] font-medium text-teal-600 hover:text-teal-800 transition-colors px-2 py-0.5 rounded border border-teal-200 bg-white hover:bg-teal-50"
-          >
-            {copied ? '✓ Copied' : 'Copy'}
-          </button>
-        </div>
-        {body && (
-          <div className="bg-white rounded border border-teal-100 p-2.5 max-h-60 overflow-y-auto">
-            <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{body}</p>
-          </div>
-        )}
-        {format && (
-          <p className="text-[10px] text-teal-600 capitalize">{format.replace(/_/g, ' ')}</p>
-        )}
-      </div>
-    );
+    return <DocumentArtifactBlock title={title} body={body} format={format} />;
   }
 
   if (type === 'execution_tracker') {
@@ -1084,7 +1104,8 @@ const AGENT_RUN_TIMEOUT_MS = 45_000;
 async function fetchAgentRun(
   agentName: string,
   query: string,
-  headers: Record<string, string>,
+  headers: HeadersInit,
+  inputAttachments?: AgentInputAttachment[],
   timeoutMs = AGENT_RUN_TIMEOUT_MS,
 ) {
   const controller = new AbortController();
@@ -1093,7 +1114,10 @@ async function fetchAgentRun(
     return await fetch(`/api/agents/${agentName}/run`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(buildAgentRunPayload({ query })),
+      body: JSON.stringify(buildAgentRunPayload({
+        query,
+        ...(inputAttachments?.length ? { input_attachments: inputAttachments } : {}),
+      })),
       signal: controller.signal,
     });
   } finally {
@@ -1794,6 +1818,7 @@ export function ChatHome({
 
   const getFileIcon = (fileType: string) => {
     if (fileType.includes('image')) return <Image className="h-4 w-4" />;
+    if (fileType.includes('video')) return <Film className="h-4 w-4" />;
     if (fileType.includes('pdf')) return <FileText className="h-4 w-4" />;
     if (fileType.includes('csv') || fileType.includes('excel') || fileType.includes('spreadsheet')) return <FileSpreadsheet className="h-4 w-4" />;
     return <FileText className="h-4 w-4" />;
@@ -2056,7 +2081,11 @@ export function ChatHome({
 
   // -- Digital employee slash command: streams SSE response into chat
 
-  const runAgentSlashCommand = async (agentEntry: { name: string; label: string; defaultQuery: string }, extraQuery: string) => {
+  const runAgentSlashCommand = async (
+    agentEntry: { name: string; label: string; defaultQuery: string },
+    extraQuery: string,
+    inputAttachments?: AgentInputAttachment[],
+  ) => {
     const query = extraQuery.trim() || agentEntry.defaultQuery;
 
     const userMessage: Message = {
@@ -2072,7 +2101,7 @@ export function ChatHome({
     setIsTyping(true);
 
     try {
-      const res = await fetchAgentRun(agentEntry.name, query, buildAgentHeaders());
+      const res = await fetchAgentRun(agentEntry.name, query, buildAgentHeaders(), inputAttachments);
 
       // Guard: HTML response means extension/proxy hijacked the request
       if ((res.headers.get('content-type') || '').includes('text/html')) {
@@ -2124,7 +2153,7 @@ export function ChatHome({
             if (parsed.contractError || parsed.details) return;
             if (parsed.contract) {
               // Pull follow_ups out of the backend-generated contract
-              const fups = parsed.contract?.follow_ups;
+              const fups = (parsed.contract as { follow_ups?: unknown })?.follow_ups;
               if (Array.isArray(fups) && fups.length) agentFollowUps = fups as string[];
               return;
             }
@@ -2379,7 +2408,7 @@ export function ChatHome({
               if (parsed.contractError || parsed.details) return;
               if (parsed.contract) {
                 // Extract follow_ups from contract payload
-                const fups = parsed.contract?.follow_ups;
+                const fups = (parsed.contract as { follow_ups?: unknown })?.follow_ups;
                 if (Array.isArray(fups) && fups.length) seqFollowUps = fups.map(fu => typeof fu === 'string' ? fu : (fu && typeof fu === 'object' && 'text' in fu ? String(fu.text) : String(fu))).filter(Boolean);
                 return;
               }
@@ -2643,7 +2672,7 @@ export function ChatHome({
             if (parsed.contractError || parsed.details) return;
             if (parsed.contract) {
               // Pull follow_ups from the backend contract event
-              const fups = parsed.contract?.follow_ups;
+              const fups = (parsed.contract as { follow_ups?: unknown })?.follow_ups;
               if (Array.isArray(fups) && fups.length) planFollowUps = fups.map(fu => typeof fu === 'string' ? fu : (fu && typeof fu === 'object' && 'text' in fu ? String(fu.text) : String(fu))).filter(Boolean);
               return;
             }
@@ -3037,7 +3066,7 @@ export function ChatHome({
       }
     }
 
-    if (!textOverride && text.startsWith('/')) {
+    if (!textOverride && text.startsWith('/') && !selectedFile) {
       // Check for digital employee slash commands first
       const parts = text.trim().split(/\s+/);
       const cmd = parts[0];
@@ -3124,14 +3153,19 @@ export function ChatHome({
     setIsTyping(true);
 
     try {
+      const inputAttachments = currentFile
+        ? [await createAgentInputAttachment(currentFile)]
+        : [];
       const chatMessages: ChatMessage[] = messages.map(msg => ({
         role: msg.sender === 'user' ? 'user' : 'assistant',
         content: msg.content,
       }));
 
       let messageContent = currentInput;
-      if (currentFile) {
-        messageContent += ` [File uploaded: ${currentFile.name} (${formatFileSize(currentFile.size)})]`;
+      if (inputAttachments.length) {
+        const firstAttachment = inputAttachments[0];
+        messageContent += ` [File uploaded: ${firstAttachment.name} (${formatFileSize(firstAttachment.size)})]`;
+        messageContent += `\n\n${inputAttachments.map(formatAttachmentForPrompt).join('\n\n')}`;
       }
       chatMessages.push({ role: 'user', content: messageContent });
 
@@ -3214,6 +3248,7 @@ export function ChatHome({
         await runAgentSlashCommand(
           { name: veena.agentName, label: veena.label, defaultQuery: veena.query },
           veena.query,
+          inputAttachments,
         );
         return;
       }
@@ -3347,15 +3382,8 @@ export function ChatHome({
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const validTypes = [
-      'text/csv', 'application/pdf',
-      'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    ];
-
-    if (!validTypes.includes(file.type)) {
-      toast.error('Please upload a valid CSV, PDF, or image file');
+    if (!isSupportedAgentAttachment(file)) {
+      toast.error('Please upload a valid CSV, PDF, text, image, spreadsheet, or video file');
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
@@ -3552,8 +3580,7 @@ export function ChatHome({
                       message={message}
                       onModuleSelect={onModuleSelect}
                       onFollowUpClick={(text) => {
-                        if (typeof text === 'string') setInputValue(text);
-                        else if (text && typeof text === 'object' && 'text' in text) setInputValue(String(text.text));
+                        setInputValue(text);
                       }}
                     />
                   </div>
@@ -3832,7 +3859,7 @@ export function ChatHome({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,.pdf,.jpg,.jpeg,.png,.gif,.webp,.xls,.xlsx"
+              accept={AGENT_ATTACHMENT_ACCEPT}
               onChange={handleFileSelect}
               className="hidden"
             />
