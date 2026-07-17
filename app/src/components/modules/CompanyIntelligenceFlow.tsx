@@ -636,8 +636,8 @@ export function CompanyIntelligenceFlow({
     const taskDef = getCiTaskByPage(payload.pageId)
     const gate = evaluateTaskConnectors(
       {
-        requiredConnectors: taskDef?.requiredConnectors,
-        optionalConnectors: taskDef?.optionalConnectors,
+        requiredConnectors: taskDef?.requiredConnectors || [],
+        optionalConnectors: taskDef?.optionalConnectors || [],
       },
       activeConnectorIds
     )
@@ -866,8 +866,8 @@ export function CompanyIntelligenceFlow({
               const taskDef = getCiTaskByPage(pending.pageId)
               const gate = evaluateTaskConnectors(
                 {
-                  requiredConnectors: taskDef?.requiredConnectors,
-                  optionalConnectors: taskDef?.optionalConnectors,
+                  requiredConnectors: taskDef?.requiredConnectors || [],
+                  optionalConnectors: taskDef?.optionalConnectors || [],
                 },
                 nextIds
               )
@@ -987,8 +987,8 @@ export function CompanyIntelligenceFlow({
                         const taskDef = getCiTaskByPage(activePage)
                         const gate = evaluateTaskConnectors(
                           {
-                            requiredConnectors: taskDef?.requiredConnectors,
-                            optionalConnectors: taskDef?.optionalConnectors,
+                            requiredConnectors: taskDef?.requiredConnectors || [],
+                            optionalConnectors: taskDef?.optionalConnectors || [],
                           },
                           activeConnectorIds
                         )

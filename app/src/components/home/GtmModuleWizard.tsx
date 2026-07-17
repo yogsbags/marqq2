@@ -97,7 +97,14 @@ export function GtmModuleWizard({
   );
 
   const pushChat = useCallback((line: Omit<ChatLine, 'id'> & { id?: string }) => {
-    setChat((prev) => [...prev, { ...line, id: line.id || `${Date.now()}-${prev.length}` }]);
+    setChat((prev) => {
+      const id = line.id || `${Date.now()}-${prev.length}`
+      const next: ChatLine =
+        line.type === 'system'
+          ? { id, role: 'assistant', type: 'system', text: line.text }
+          : { id, role: line.role, type: 'text', text: line.text }
+      return [...prev, next]
+    });
   }, []);
 
   useEffect(() => {

@@ -3,7 +3,7 @@
  * Shared by chat scheduling and the deployment queue processor.
  */
 
-const DAY_INDEX = {
+const DAY_INDEX: Record<string, number> = {
   sunday: 0,
   sun: 0,
   monday: 1,

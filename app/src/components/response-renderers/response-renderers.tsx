@@ -30,7 +30,7 @@ export function AnalysisRenderer({ artifact }: { artifact: any }) {
             <MetricCard
               key={key}
               label={key}
-              value={value}
+              value={String(value as string | number)}
             />
           ))}
         </div>
@@ -54,7 +54,7 @@ export function AnalysisRenderer({ artifact }: { artifact: any }) {
         <div className="space-y-2">
           <h4 className="font-semibold text-gray-900 text-sm">Key Findings</h4>
           <ul className="space-y-2">
-            {findings.map((finding, idx) => (
+            {findings.map((finding: string, idx: number) => (
               <li key={idx} className="flex gap-2 text-sm text-gray-700">
                 <span className="text-blue-600 font-bold">•</span>
                 <span>{finding}</span>
@@ -69,7 +69,7 @@ export function AnalysisRenderer({ artifact }: { artifact: any }) {
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2">
           <h4 className="font-semibold text-amber-900 text-sm">💡 Insights</h4>
           <ul className="space-y-2">
-            {insights.map((insight, idx) => (
+            {insights.map((insight: string, idx: number) => (
               <li key={idx} className="text-sm text-amber-900">{insight}</li>
             ))}
           </ul>
@@ -81,7 +81,7 @@ export function AnalysisRenderer({ artifact }: { artifact: any }) {
         <div className="space-y-2">
           <h4 className="font-semibold text-gray-900 text-sm">Comparisons</h4>
           <div className="space-y-2">
-            {comparisons.map((comp, idx) => (
+            {comparisons.map((comp: { name: string; value: string | number; percentile?: number }, idx: number) => (
               <div key={idx} className="flex justify-between items-center text-sm">
                 <span className="text-gray-700">{comp.name}</span>
                 <div className="flex items-center gap-2">
@@ -165,7 +165,7 @@ export function CreationRenderer({ artifact }: { artifact: any }) {
           {/* Sections */}
           {sections.length > 0 && (
             <div className="space-y-4">
-              {sections.map((section, idx) => (
+              {sections.map((section: { title?: string; content: string }, idx: number) => (
                 <div key={idx} className="border rounded-lg p-4 bg-white">
                   {section.title && (
                     <h4 className="font-bold text-gray-900 mb-2">{section.title}</h4>
@@ -193,7 +193,7 @@ export function CreationRenderer({ artifact }: { artifact: any }) {
           {/* Emails */}
           {emails.length > 0 && (
             <div className="space-y-3">
-              {emails.map((email, idx) => (
+              {emails.map((email: { subject: string; body: string; cta?: string }, idx: number) => (
                 <div key={idx} className="border rounded-lg p-4 bg-white">
                   <div className="mb-3 pb-3 border-b">
                     <p className="text-sm font-semibold text-gray-900">Email {idx + 1}</p>
@@ -248,7 +248,7 @@ export function CreationRenderer({ artifact }: { artifact: any }) {
       {/* Variations */}
       {activeTab === 'variations' && variations.length > 0 && (
         <div className="space-y-3">
-          {variations.map((variation, idx) => (
+          {variations.map((variation: string, idx: number) => (
             <button
               key={idx}
               className="w-full text-left border rounded-lg p-4 hover:border-blue-400 hover:bg-blue-50 transition"
@@ -283,10 +283,10 @@ export function OptimizationRenderer({ artifact }: { artifact: any }) {
             <p className="text-sm text-gray-700 mb-3">{current_state.description}</p>
           )}
           <div className="grid grid-cols-2 gap-2">
-            {Object.entries(current_state.metrics).map(([key, value]) => (
+            {Object.entries(current_state.metrics || {}).map(([key, value]) => (
               <div key={key} className="text-xs">
                 <p className="text-gray-600">{key}</p>
-                <p className="font-semibold text-gray-900">{value}</p>
+                <p className="font-semibold text-gray-900">{String(value)}</p>
               </div>
             ))}
           </div>
@@ -299,7 +299,7 @@ export function OptimizationRenderer({ artifact }: { artifact: any }) {
           <h4 className="font-semibold text-blue-900 mb-2">💡 Recommendation</h4>
           <p className="text-sm text-blue-900 mb-3">{recommendation.description}</p>
           <div className="space-y-2">
-            {recommendation.changes.map((change, idx) => (
+            {(recommendation.changes || []).map((change: { field: string; current: string; recommended: string }, idx: number) => (
               <div key={idx} className="flex justify-between items-center text-sm bg-white rounded p-2">
                 <span className="text-gray-600">{change.field}</span>
                 <div className="flex items-center gap-2">
@@ -318,10 +318,10 @@ export function OptimizationRenderer({ artifact }: { artifact: any }) {
           <h4 className="font-semibold text-green-900 mb-2">✓ Expected Impact</h4>
           <p className="text-sm text-green-900 mb-3">{expected_impact.description}</p>
           <div className="grid grid-cols-2 gap-2 mb-3">
-            {Object.entries(expected_impact.metrics).map(([key, value]) => (
+            {Object.entries(expected_impact.metrics || {}).map(([key, value]) => (
               <div key={key} className="text-xs">
                 <p className="text-green-700">{key}</p>
-                <p className="font-semibold text-green-900">{value}</p>
+                <p className="font-semibold text-green-900">{String(value)}</p>
               </div>
             ))}
           </div>
@@ -336,7 +336,7 @@ export function OptimizationRenderer({ artifact }: { artifact: any }) {
         <div className="space-y-2">
           <h4 className="font-semibold text-gray-900 mb-2">🔄 What-If Scenarios</h4>
           <div className="flex gap-2 mb-3">
-            {whatIfScenarios.map((scenario, idx) => (
+            {whatIfScenarios.map((scenario: { name: string; projectedImpact?: Record<string, unknown> }, idx: number) => (
               <button
                 key={idx}
                 onClick={() => setActiveScenario(idx)}
@@ -353,10 +353,10 @@ export function OptimizationRenderer({ artifact }: { artifact: any }) {
           {whatIfScenarios[activeScenario] && (
             <div className="border rounded-lg p-4 bg-white">
               <div className="space-y-2">
-                {Object.entries(whatIfScenarios[activeScenario].projectedImpact).map(([key, value]) => (
+                {Object.entries(whatIfScenarios[activeScenario].projectedImpact || {}).map(([key, value]) => (
                   <div key={key} className="flex justify-between text-sm">
                     <span className="text-gray-600">{key}</span>
-                    <span className="font-semibold text-gray-900">{value}</span>
+                    <span className="font-semibold text-gray-900">{String(value)}</span>
                   </div>
                 ))}
               </div>
@@ -377,7 +377,7 @@ export function ExecutionRenderer({ artifact }: { artifact: any }) {
 
   const { status, metrics = {}, controls = [], campaign_name, startedAt } = artifact;
 
-  const statusColors = {
+  const statusColors: Record<string, string> = {
     queued: 'bg-gray-100 text-gray-700',
     running: 'bg-green-100 text-green-700',
     paused: 'bg-yellow-100 text-yellow-700',
@@ -394,7 +394,7 @@ export function ExecutionRenderer({ artifact }: { artifact: any }) {
           {startedAt && <p className="text-xs text-gray-600">Started: {new Date(startedAt).toLocaleString()}</p>}
         </div>
         <span className={`px-3 py-1 rounded-full text-sm font-semibold ${statusColors[status] || statusColors.queued}`}>
-          {status.toUpperCase()}
+          {String(status || 'queued').toUpperCase()}
         </span>
       </div>
 
@@ -402,7 +402,7 @@ export function ExecutionRenderer({ artifact }: { artifact: any }) {
       {Object.keys(metrics).length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {Object.entries(metrics).map(([key, value]) => (
-            <MetricCard key={key} label={key} value={value} />
+            <MetricCard key={key} label={key} value={String(value as string | number)} />
           ))}
         </div>
       )}
@@ -410,7 +410,7 @@ export function ExecutionRenderer({ artifact }: { artifact: any }) {
       {/* Controls */}
       {controls.length > 0 && (
         <div className="flex gap-2">
-          {controls.map((control, idx) => (
+          {controls.map((control: { label: string }, idx: number) => (
             <button
               key={idx}
               className="px-4 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50 transition"
@@ -454,8 +454,8 @@ export function DiscoveryRenderer({ artifact }: { artifact: any }) {
 
       {/* Results List */}
       <div className="space-y-2">
-        {results.slice(0, 10).map((result, idx) => {
-          const resultId = result.id || `result-${idx}`;
+        {results.slice(0, 10).map((result: Record<string, unknown>, idx: number) => {
+          const resultId = String(result.id || `result-${idx}`);
           const isExpanded = expandedId === resultId;
 
           return (
@@ -469,7 +469,7 @@ export function DiscoveryRenderer({ artifact }: { artifact: any }) {
               >
                 <div className="flex-1">
                   {result.name || result.title ? (
-                    <p className="font-semibold text-gray-900">{result.name || result.title}</p>
+                    <p className="font-semibold text-gray-900">{String(result.name || result.title)}</p>
                   ) : null}
                   <p className="text-xs text-gray-600 mt-1">
                     {Object.keys(result)

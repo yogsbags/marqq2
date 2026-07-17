@@ -38,10 +38,18 @@ function mapSupabaseUser(supabaseUser: any): User | null {
   };
 }
 
-function isUsableAuthUser(supabaseUser: any): boolean {
-  if (!supabaseUser) return false;
-  if (supabaseUser.is_anonymous === true) return false;
-  return typeof supabaseUser.email === 'string' && supabaseUser.email.trim().length > 0;
+type UsableAuthUser = {
+  id: string;
+  email: string;
+  is_anonymous?: boolean;
+  user_metadata?: Record<string, unknown>;
+};
+
+function isUsableAuthUser(supabaseUser: unknown): supabaseUser is UsableAuthUser {
+  if (!supabaseUser || typeof supabaseUser !== 'object') return false;
+  const user = supabaseUser as Record<string, unknown>;
+  if (user.is_anonymous === true) return false;
+  return typeof user.id === 'string' && typeof user.email === 'string' && user.email.trim().length > 0;
 }
 
 function shouldForceOnboarding(user: User): boolean {
@@ -197,7 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               isAuthenticated: true,
             }));
           }
-        } else if (event === 'TOKEN_REFRESH_FAILED' || (!session && event === 'INITIAL_SESSION')) {
+        } else if ((event as string) === 'TOKEN_REFRESH_FAILED' || (!session && event === 'INITIAL_SESSION')) {
           // Stale / invalid refresh token — clear session and force re-login
           persistActiveUserId(null);
           await supabase.auth.signOut().catch(() => {});
