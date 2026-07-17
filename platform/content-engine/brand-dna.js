@@ -5,13 +5,13 @@
 
 const HEX_RE = /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/g;
 const FONT_FAMILY_RE = /font-family\s*:\s*([^;}{]+)/gi;
-const LOGO_IMG_RE =
-  /<img[^>]+(?:class|id|alt|src)=["'][^"']*logo[^"']*["'][^>]*>/gi;
-const SRC_RE = /(?:src|content)=["']([^"']+)["']/i;
-const OG_IMAGE_RE =
-  /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i;
-const OG_IMAGE_RE_ALT =
-  /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]*>/i;
+const IMG_RE = /<img\b[^>]*>/gi;
+const SOURCE_RE = /<source\b[^>]*>/gi;
+const ATTR_RE = /([a-zA-Z_:.-]+)\s*=\s*["']([^"']*)["']/g;
+const SCHEMA_LOGO_RE =
+  /<meta[^>]+(?:itemprop|property)=["']logo["'][^>]+content=["']([^"']+)["'][^>]*>/i;
+const SCHEMA_LOGO_RE_ALT =
+  /<meta[^>]+content=["']([^"']+)["'][^>]+(?:itemprop|property)=["']logo["'][^>]*>/i;
 const THEME_COLOR_RE =
   /<meta[^>]+name=["']theme-color["'][^>]+content=["']([^"']+)["'][^>]*>/i;
 const APPLE_ICON_RE =
@@ -63,6 +63,60 @@ function absolutizeUrl(baseUrl, href) {
   } catch {
     return null;
   }
+}
+
+function parseAttrs(tag) {
+  const attrs = {};
+  let match;
+  ATTR_RE.lastIndex = 0;
+  while ((match = ATTR_RE.exec(tag)) !== null) {
+    attrs[match[1].toLowerCase()] = match[2];
+  }
+  return attrs;
+}
+
+function pickSrcFromSrcset(srcset) {
+  const first = String(srcset || "")
+    .split(",")
+    .map((part) => part.trim().split(/\s+/)[0])
+    .find(Boolean);
+  return first || null;
+}
+
+function looksLikeLogoText(value) {
+  return /\b(logo|logotype|brandmark|brand-logo|site-logo|navbar-brand|header-logo)\b/i.test(
+    String(value || ""),
+  );
+}
+
+function looksLikeNonLogoImage(value) {
+  return /\b(hero|banner|cover|og-image|opengraph|social|thumbnail|thumb|background|bg-|poster|card)\b/i.test(
+    String(value || ""),
+  );
+}
+
+function scoreLogoCandidate(attrs) {
+  const descriptor = [
+    attrs.alt,
+    attrs.title,
+    attrs.class,
+    attrs.id,
+    attrs["aria-label"],
+    attrs.src,
+    attrs.srcset,
+    attrs["data-src"],
+  ].filter(Boolean).join(" ");
+
+  let score = 0;
+  if (looksLikeLogoText(attrs.alt)) score += 80;
+  if (looksLikeLogoText(attrs.class)) score += 70;
+  if (looksLikeLogoText(attrs.id)) score += 70;
+  if (looksLikeLogoText(attrs.src) || looksLikeLogoText(attrs["data-src"])) score += 55;
+  if (looksLikeLogoText(attrs.title) || looksLikeLogoText(attrs["aria-label"])) score += 40;
+  if (/header|nav|masthead|brand/i.test(descriptor)) score += 15;
+  if (/\.svg(?:[?#]|$)/i.test(attrs.src || attrs["data-src"] || "")) score += 12;
+  if (looksLikeNonLogoImage(descriptor)) score -= 80;
+  return score;
 }
 
 function expandShortHex(hex) {
@@ -125,17 +179,37 @@ function extractFonts(html) {
 }
 
 function extractLogoUrl(html, baseUrl) {
-  const og = (html.match(OG_IMAGE_RE) || html.match(OG_IMAGE_RE_ALT) || [])[1];
-  if (og) return absolutizeUrl(baseUrl, og);
+  const candidates = [];
+
+  for (const tag of html.match(IMG_RE) || []) {
+    const attrs = parseAttrs(tag);
+    const src = attrs.src || attrs["data-src"] || pickSrcFromSrcset(attrs.srcset || attrs["data-srcset"]);
+    if (!src) continue;
+    const score = scoreLogoCandidate(attrs);
+    if (score > 0) candidates.push({ src, score });
+  }
+
+  for (const tag of html.match(SOURCE_RE) || []) {
+    const attrs = parseAttrs(tag);
+    const src = attrs.src || attrs["data-src"] || pickSrcFromSrcset(attrs.srcset || attrs["data-srcset"]);
+    if (!src) continue;
+    const score = scoreLogoCandidate(attrs);
+    if (score > 40) candidates.push({ src, score: score - 5 });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  if (candidates[0]) return absolutizeUrl(baseUrl, candidates[0].src);
+
+  const schemaLogo = (html.match(SCHEMA_LOGO_RE) || html.match(SCHEMA_LOGO_RE_ALT) || [])[1];
+  if (schemaLogo) return absolutizeUrl(baseUrl, schemaLogo);
+
   const apple = (html.match(APPLE_ICON_RE) || [])[1];
   if (apple) return absolutizeUrl(baseUrl, apple);
   const icon = (html.match(ICON_RE) || [])[1];
   if (icon) return absolutizeUrl(baseUrl, icon);
-  const logoTag = (html.match(LOGO_IMG_RE) || [])[0];
-  if (logoTag) {
-    const src = (logoTag.match(SRC_RE) || [])[1];
-    if (src) return absolutizeUrl(baseUrl, src);
-  }
+
+  // Keep social share images as a separate signal, but do not label them logos.
+  // og:image is often a hero/banner and caused Brand DNA to show the wrong asset.
   return null;
 }
 
