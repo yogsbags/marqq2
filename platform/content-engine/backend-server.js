@@ -26,7 +26,7 @@ import {
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleAuth } from "google-auth-library";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { AccessToken, AgentDispatchClient, RoomServiceClient } from "livekit-server-sdk";
@@ -7751,43 +7751,95 @@ app.post('/api/webhooks/outreach/reply', express.json({ limit: '1mb' }), async (
   }
 });
 
-/** Composio project webhook — route GMAIL_NEW_GMAIL_MESSAGE into outreach replies */
-app.post('/api/webhooks/composio', express.json({ limit: '2mb' }), async (req, res) => {
-  try {
-    const secret = process.env.COMPOSIO_WEBHOOK_SECRET || process.env.OUTREACH_WEBHOOK_SECRET;
-    if (secret) {
-      const provided =
-        req.get('x-composio-signature') ||
-        req.get('x-webhook-secret') ||
-        req.get('x-outreach-secret') ||
-        req.query.secret ||
-        '';
-      // Soft check: Composio may use HMAC; accept shared secret header/query when configured
-      if (provided && String(provided) !== String(secret) && !String(provided).startsWith('sha')) {
-        return res.status(401).json({ error: 'Invalid webhook secret' });
-      }
-    }
+/**
+ * Verify a Composio webhook (Svix-style HMAC).
+ * Signs `{webhook-id}.{webhook-timestamp}.{rawBody}` with the secret and
+ * compares the base64 digest against the `webhook-signature` header, which is
+ * a space-separated list of `v1,<sig>` entries.
+ */
+function verifyComposioWebhook(req, secret) {
+  if (!secret) return { ok: true, skipped: true };
 
-    const body = req.body || {};
-    const slug = String(
-      body.metadata?.trigger_slug ||
-        body.trigger_slug ||
-        body.type ||
-        body.event ||
-        '',
-    ).toUpperCase();
+  const webhookId = req.get('webhook-id') || req.get('svix-id');
+  const timestamp = req.get('webhook-timestamp') || req.get('svix-timestamp');
+  const signatureHeader =
+    req.get('webhook-signature') || req.get('svix-signature') || req.get('x-composio-signature');
 
-    if (slug.includes('GMAIL') || slug.includes('NEW_GMAIL_MESSAGE') || body.data?.sender || body.data?.message_text) {
-      const result = await handleComposioGmailTrigger(body);
-      return res.json(result);
-    }
-
-    return res.json({ status: 'ignored', reason: 'unhandled_composio_event', slug: slug || null });
-  } catch (err) {
-    console.error('[composio/webhook]', err);
-    return res.status(500).json({ error: err.message || 'Composio webhook failed' });
+  // Legacy fallback: allow a plain shared secret via header/query for manual tests
+  if (!webhookId || !timestamp || !signatureHeader) {
+    const provided =
+      req.get('x-webhook-secret') || req.get('x-outreach-secret') || req.query.secret || '';
+    if (provided && String(provided) === String(secret)) return { ok: true };
+    return { ok: false, reason: 'missing_signature_headers' };
   }
-});
+
+  const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body || {});
+  const signingString = `${webhookId}.${timestamp}.${rawBody}`;
+  const expected = createHmac('sha256', secret).update(signingString).digest('base64');
+
+  const candidates = String(signatureHeader)
+    .split(' ')
+    .map((part) => (part.includes(',') ? part.split(',')[1] : part))
+    .filter(Boolean);
+
+  const expectedBuf = Buffer.from(expected);
+  for (const candidate of candidates) {
+    const candidateBuf = Buffer.from(candidate);
+    if (
+      candidateBuf.length === expectedBuf.length &&
+      timingSafeEqual(candidateBuf, expectedBuf)
+    ) {
+      return { ok: true };
+    }
+  }
+
+  return { ok: false, reason: 'signature_mismatch' };
+}
+
+/** Composio project webhook — route GMAIL_NEW_GMAIL_MESSAGE into outreach replies */
+app.post(
+  '/api/webhooks/composio',
+  express.json({
+    limit: '2mb',
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+  async (req, res) => {
+    try {
+      const secret = process.env.COMPOSIO_WEBHOOK_SECRET || process.env.OUTREACH_WEBHOOK_SECRET;
+      const verification = verifyComposioWebhook(req, secret);
+      if (!verification.ok) {
+        console.warn('[composio/webhook] rejected:', verification.reason);
+        return res.status(401).json({ error: 'Invalid webhook signature' });
+      }
+
+      const body = req.body || {};
+      const slug = String(
+        body.metadata?.trigger_slug ||
+          body.trigger_slug ||
+          body.type ||
+          body.event ||
+          '',
+      ).toUpperCase();
+
+      if (
+        slug.includes('GMAIL') ||
+        slug.includes('NEW_GMAIL_MESSAGE') ||
+        body.data?.sender ||
+        body.data?.message_text
+      ) {
+        const result = await handleComposioGmailTrigger(body);
+        return res.json(result);
+      }
+
+      return res.json({ status: 'ignored', reason: 'unhandled_composio_event', slug: slug || null });
+    } catch (err) {
+      console.error('[composio/webhook]', err);
+      return res.status(500).json({ error: err.message || 'Composio webhook failed' });
+    }
+  },
+);
 
 /** Instantly-shaped alias */
 app.post('/api/webhooks/instantly', express.json({ limit: '1mb' }), async (req, res) => {
