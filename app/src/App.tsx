@@ -109,15 +109,44 @@ function ensureFavicon() {
   link.href = BRAND.faviconSrc;
 }
 
-function AuthScreen() {
-  const [isSignup, setIsSignup] = useState(true);
+type AuthPathMode = 'login' | 'signup';
+
+function getAuthPathMode(pathname = window.location.pathname): AuthPathMode | null {
+  const path = pathname.replace(/\/+$/, '') || '/'
+  if (path === '/login') return 'login'
+  if (path === '/signup') return 'signup'
+  return null
+}
+
+function replaceAuthPath(mode: AuthPathMode | 'home') {
+  const url = new URL(window.location.href)
+  url.pathname = mode === 'home' ? '/' : `/${mode}`
+  window.history.replaceState(null, '', url.toString())
+}
+
+function AuthScreen({ initialMode = 'login' }: { initialMode?: AuthPathMode }) {
+  const [isSignup, setIsSignup] = useState(initialMode === 'signup');
+
+  useEffect(() => {
+    setIsSignup(initialMode === 'signup')
+  }, [initialMode])
+
+  const showSignup = () => {
+    setIsSignup(true)
+    replaceAuthPath('signup')
+  }
+
+  const showLogin = () => {
+    setIsSignup(false)
+    replaceAuthPath('login')
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(107,79,235,0.12),transparent_28%),radial-gradient(circle_at_top_right,rgba(107,79,235,0.07),transparent_22%),linear-gradient(180deg,rgba(255,251,255,0.98),rgba(255,255,255,0.94))] p-4 dark:bg-[radial-gradient(circle_at_top_left,rgba(107,79,235,0.16),transparent_24%),radial-gradient(circle_at_top_right,rgba(107,79,235,0.08),transparent_18%),linear-gradient(180deg,rgba(10,10,10,0.98),rgba(10,10,10,0.96))]">
       {isSignup ? (
-        <SignupForm onToggleMode={() => setIsSignup(false)} />
+        <SignupForm onToggleMode={showLogin} />
       ) : (
-        <LoginForm onToggleMode={() => setIsSignup(true)} />
+        <LoginForm onToggleMode={showSignup} />
       )}
     </div>
   );
@@ -364,6 +393,7 @@ function AppContent() {
   const { isAuthenticated, isLoading, user } = useAuth();
   // Set when this session finishes the flow (so we leave onboarding without waiting for metadata refresh)
   const [finishedOnboarding, setFinishedOnboarding] = useState(false);
+  const [authPathMode, setAuthPathMode] = useState<AuthPathMode | null>(() => getAuthPathMode());
 
   const needsOnboarding =
     !finishedOnboarding &&
@@ -376,6 +406,31 @@ function AppContent() {
     const params = new URLSearchParams(window.location.search)
     return params.get('invite') || null
   })
+
+  // Keep /login and /signup in sync with auth state (SPA has no React Router).
+  useEffect(() => {
+    if (isLoading) return
+
+    const path = window.location.pathname.replace(/\/+$/, '') || '/'
+    const mode = getAuthPathMode(path)
+
+    if (!isAuthenticated) {
+      // Unauthenticated root → /login (preserve query, e.g. ?invite=)
+      if (path === '/') {
+        replaceAuthPath('login')
+        setAuthPathMode('login')
+        return
+      }
+      if (mode) setAuthPathMode(mode)
+      return
+    }
+
+    // Authenticated users shouldn't stay on auth URLs
+    if (mode) {
+      replaceAuthPath('home')
+      setAuthPathMode(null)
+    }
+  }, [isAuthenticated, isLoading])
 
   // After login, check for a pending invite stored before the user signed in
   useEffect(() => {
@@ -439,7 +494,11 @@ function AppContent() {
     );
   }
 
-  return isAuthenticated ? <Dashboard /> : <AuthScreen />;
+  return isAuthenticated ? (
+    <Dashboard />
+  ) : (
+    <AuthScreen initialMode={authPathMode || 'login'} />
+  );
 }
 
 function App() {
