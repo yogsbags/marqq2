@@ -455,43 +455,91 @@ export async function createOutreachRun({
   const entityId = workspaceId || companyId
   if (!entityId) throw new Error('workspaceId or companyId is required')
 
-  const titleList = Array.isArray(titles) ? titles.map(String).map((t) => t.trim()).filter(Boolean).slice(0, 8) : []
+  const titleList = Array.isArray(titles)
+    ? titles
+        .map((t) => String(t || '').trim())
+        // Composio: each entry must be a plain title string — no "A OR B"
+        .filter((t) => t && !/\bOR\b/i.test(t))
+        .slice(0, 8)
+    : []
   const industryList = Array.isArray(industries)
     ? industries.map(String).map((i) => i.replace(/_/g, ' ').trim()).filter(Boolean).slice(0, 8)
     : []
-  const countryLabel = { IN: 'India', US: 'United States' }[String(country || 'IN').toUpperCase()] || String(country || '').trim()
+  const countryLabel =
+    { IN: 'India', US: 'United States' }[String(country || 'IN').toUpperCase()] ||
+    String(country || '').trim()
+
+  // Map outreach "target" to Apollo person_seniorities (schema examples: Director, VP, Senior)
+  const seniorityByTarget = {
+    decision: ['c_suite', 'founder', 'owner', 'partner', 'vp', 'head', 'director'],
+    champion: ['director', 'manager', 'head', 'senior'],
+    all: [],
+  }
+  const seniorityList = seniorityByTarget[String(target || 'decision').toLowerCase()] || seniorityByTarget.decision
 
   let leads = []
   let source = 'apollo'
 
-  // Build Apollo people-search args carefully: empty arrays / dual location filters
-  // commonly trigger Composio/Apollo 422 "Invalid request parameters".
+  /**
+   * Build APOLLO_PEOPLE_SEARCH args from Composio schema only.
+   * Omit empty values — empty arrays commonly cause 422.
+   * Start broad: titles + location (+ optional seniorities). Do not dump the
+   * full ICP question into q_keywords (docs: AND search → zero/invalid results).
+   */
   const buildPeopleSearchArgs = (mode = 'full') => {
     const args = {
       page: 1,
-      per_page: capped,
+      per_page: Math.min(Math.max(capped, 1), 100),
     }
     if (mode === 'full' && titleList.length) args.person_titles = titleList
-    // Prefer person location (where the person lives). Do not also send
-    // organization_locations — combining both often over-constrains / 422s.
+    if (mode === 'full' && seniorityList.length) args.person_seniorities = seniorityList
     if (countryLabel) args.person_locations = [countryLabel]
-    const keywords = [industryList.join(' '), String(question || '').slice(0, 120)]
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(' ')
-      .trim()
-    if (mode === 'full' && keywords) args.q_keywords = keywords
+    // Short industry keyword only — not the full briefing question
+    if (mode === 'full' && industryList.length === 1 && industryList[0].split(/\s+/).length <= 4) {
+      args.q_keywords = industryList[0]
+    }
     return args
   }
 
-  // Composio Apollo toolkit: APOLLO_PEOPLE_SEARCH = global prospecting DB
+  const unwrapApolloPeople = (payload) => {
+    let data = payload
+    // Composio schema types `data` as string — may arrive JSON-encoded
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data)
+      } catch {
+        return []
+      }
+    }
+    if (!data || typeof data !== 'object') return []
+    if (typeof data.data === 'string') {
+      try {
+        data = { ...data, ...(JSON.parse(data.data) || {}) }
+      } catch {
+        /* keep */
+      }
+    }
+    const nested = data.data && typeof data.data === 'object' ? data.data : null
+    const list =
+      data.people ||
+      data.contacts ||
+      data.matches ||
+      nested?.people ||
+      nested?.contacts ||
+      (Array.isArray(data.data) ? data.data : null) ||
+      (Array.isArray(data) ? data : null) ||
+      []
+    return Array.isArray(list) ? list : []
+  }
+
+  // Composio Apollo toolkit: APOLLO_PEOPLE_SEARCH
   let composioSearch = await executeComposioAction(
     'APOLLO_PEOPLE_SEARCH',
     buildPeopleSearchArgs('full'),
     entityId,
   )
 
-  // Retry once with a minimal location-only payload if Apollo rejects params
+  // Retry once: drop seniorities/keywords if Apollo rejects the filter set
   if (
     composioSearch.error &&
     /422|invalid request parameters|invalid parameters/i.test(String(composioSearch.error))
@@ -504,16 +552,8 @@ export async function createOutreachRun({
   }
 
   if (!composioSearch.error) {
-    const data = composioSearch.result || {}
-    const people =
-      data.people ||
-      data.contacts ||
-      data.matches ||
-      data?.data?.people ||
-      data?.data?.contacts ||
-      (Array.isArray(data?.data) ? data.data : null) ||
-      []
-    if (Array.isArray(people) && people.length) {
+    const people = unwrapApolloPeople(composioSearch.result)
+    if (people.length) {
       leads = people.slice(0, capped).map((person) => ({
         id: person.id,
         full_name: person.name || [person.first_name, person.last_name].filter(Boolean).join(' '),
