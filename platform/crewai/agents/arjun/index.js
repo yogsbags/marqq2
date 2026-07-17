@@ -126,16 +126,25 @@ class ArjunAgent {
     let connectorUsed = false;
 
     try {
+      const titles = (icpParams.targetTitles || extracted_params.titles || [])
+        .map((t) => String(t || '').trim())
+        .filter(Boolean)
+        .slice(0, 8)
+      const geos = (icpParams.targetGeographies || extracted_params.geography || [])
+        .map((g) => String(g || '').trim())
+        .filter(Boolean)
+        .slice(0, 5)
+      const keywords = String(extracted_params.keywords || '').trim()
+      const maxEmployees = Number(icpParams.maxEmployees) || 5000
+
       const searchArgs = {
-        q_organization_num_employees_ranges: icpParams.maxEmployees
-          ? [`1,${icpParams.maxEmployees}`]
-          : ['1,5000'],
-        person_titles:       icpParams.targetTitles       || extracted_params.titles    || [],
-        organization_locations: icpParams.targetGeographies || extracted_params.geography || [],
-        q_keywords:          extracted_params.keywords     || '',
-        per_page:            100,
-        page:                1,
-      };
+        page: 1,
+        per_page: 100,
+        organization_num_employees_ranges: [`1,${maxEmployees}`],
+      }
+      if (titles.length) searchArgs.person_titles = titles
+      if (geos.length) searchArgs.person_locations = geos
+      if (keywords) searchArgs.q_keywords = keywords
 
       const result = await executeComposioTool(entityId, 'apollo', 'APOLLO_PEOPLE_SEARCH', searchArgs, apiKey);
       rawContacts = result?.people || result?.contacts || result?.data?.people || result?.data?.contacts || [];

@@ -455,27 +455,53 @@ export async function createOutreachRun({
   const entityId = workspaceId || companyId
   if (!entityId) throw new Error('workspaceId or companyId is required')
 
-  const titleList = Array.isArray(titles) ? titles.filter(Boolean).slice(0, 8) : []
-  const industryList = Array.isArray(industries) ? industries.filter(Boolean).slice(0, 8) : []
-  const countryLabel = { IN: 'India', US: 'United States' }[String(country || 'IN').toUpperCase()] || country
+  const titleList = Array.isArray(titles) ? titles.map(String).map((t) => t.trim()).filter(Boolean).slice(0, 8) : []
+  const industryList = Array.isArray(industries)
+    ? industries.map(String).map((i) => i.replace(/_/g, ' ').trim()).filter(Boolean).slice(0, 8)
+    : []
+  const countryLabel = { IN: 'India', US: 'United States' }[String(country || 'IN').toUpperCase()] || String(country || '').trim()
 
   let leads = []
   let source = 'apollo'
 
-  // Composio Apollo toolkit: APOLLO_PEOPLE_SEARCH = global prospecting DB
-  // (APOLLO_SEARCH_CONTACTS is CRM-only; APOLLO_IO_* slugs were removed)
-  const composioSearch = await executeComposioAction(
-    'APOLLO_PEOPLE_SEARCH',
-    {
-      per_page: capped,
+  // Build Apollo people-search args carefully: empty arrays / dual location filters
+  // commonly trigger Composio/Apollo 422 "Invalid request parameters".
+  const buildPeopleSearchArgs = (mode = 'full') => {
+    const args = {
       page: 1,
-      person_titles: titleList,
-      person_locations: countryLabel ? [countryLabel] : [],
-      organization_locations: countryLabel ? [countryLabel] : [],
-      q_keywords: [industryList.join(' '), String(question || '').slice(0, 200)].filter(Boolean).join(' ').trim(),
-    },
+      per_page: capped,
+    }
+    if (mode === 'full' && titleList.length) args.person_titles = titleList
+    // Prefer person location (where the person lives). Do not also send
+    // organization_locations — combining both often over-constrains / 422s.
+    if (countryLabel) args.person_locations = [countryLabel]
+    const keywords = [industryList.join(' '), String(question || '').slice(0, 120)]
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+    if (mode === 'full' && keywords) args.q_keywords = keywords
+    return args
+  }
+
+  // Composio Apollo toolkit: APOLLO_PEOPLE_SEARCH = global prospecting DB
+  let composioSearch = await executeComposioAction(
+    'APOLLO_PEOPLE_SEARCH',
+    buildPeopleSearchArgs('full'),
     entityId,
   )
+
+  // Retry once with a minimal location-only payload if Apollo rejects params
+  if (
+    composioSearch.error &&
+    /422|invalid request parameters|invalid parameters/i.test(String(composioSearch.error))
+  ) {
+    composioSearch = await executeComposioAction(
+      'APOLLO_PEOPLE_SEARCH',
+      buildPeopleSearchArgs('minimal'),
+      entityId,
+    )
+  }
 
   if (!composioSearch.error) {
     const data = composioSearch.result || {}
@@ -529,9 +555,9 @@ export async function createOutreachRun({
     const apollo = apolloWrap.result || apolloWrap
     if (apollo.status === 'error' || apolloWrap.status === 'error') {
       const msg =
-        composioSearch.error ||
         apollo.error ||
         apolloWrap.error ||
+        composioSearch.error ||
         'Apollo search failed — reconnect Apollo in Integrations'
       throw new Error(msg)
     }
