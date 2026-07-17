@@ -4,11 +4,16 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { connectComposioConnector, formatConnectorError } from '@/lib/composio'
 import { CONNECTOR_DISPLAY, isConnectorActive } from '@/lib/connectorMeta'
-import { Link2, ShieldAlert } from 'lucide-react'
+import { Check, Link2, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Props = {
-  missingConnectorIds: string[]
+  /** Connectors to list in the card (missing and/or already connected). */
+  connectorIds?: string[]
+  /** @deprecated Prefer connectorIds — kept for older call sites */
+  missingConnectorIds?: string[]
+  /** IDs already linked for this workspace */
+  connectedConnectorIds?: string[]
   taskLabel: string
   workspaceId: string | undefined
   /** Hard gate — must connect at least one before continuing */
@@ -21,9 +26,12 @@ type Props = {
 /**
  * Blocks (or soft-nudges) a task channel until the user connects a Composio account.
  * Connect opens the OAuth popup via connectComposioConnector.
+ * Already-linked accounts stay visible with a Connected badge.
  */
 export function ConnectorGateCard({
+  connectorIds,
   missingConnectorIds,
+  connectedConnectorIds = [],
   taskLabel,
   workspaceId,
   hardGate = true,
@@ -33,10 +41,20 @@ export function ConnectorGateCard({
 }: Props) {
   const [connecting, setConnecting] = useState<string | null>(null)
   const { user } = useAuth()
-  const shown = missingConnectorIds.slice(0, 4)
+  const connectedSet = new Set(connectedConnectorIds)
+
+  const shown = (connectorIds?.length ? connectorIds : missingConnectorIds || [])
+    .filter(Boolean)
+    .slice(0, 6)
 
   const handleConnect = async (connectorId: string) => {
     if (!workspaceId) return
+    if (connectedSet.has(connectorId)) {
+      onConnected(connectorId)
+      toast.success('Already connected')
+      return
+    }
+
     setConnecting(connectorId)
     try {
       const result = await connectComposioConnector({
@@ -115,12 +133,14 @@ export function ConnectorGateCard({
       <div className="space-y-2">
         {shown.map((id) => {
           const meta = CONNECTOR_DISPLAY[id] ?? { label: id, bg: 'bg-gray-500' }
+          const isConnected = connectedSet.has(id)
           return (
             <div
               key={id}
               className={cn(
                 'flex items-center gap-3 rounded-xl border px-3 py-2',
                 hardGate ? 'border-white/10 bg-black/30' : 'border-border/60 bg-background/80',
+                isConnected && 'border-emerald-500/30 bg-emerald-500/5',
               )}
             >
               <span
@@ -134,15 +154,29 @@ export function ConnectorGateCard({
               <span className={cn('flex-1 text-sm', hardGate ? 'text-zinc-100' : 'text-foreground')}>
                 {meta.label}
               </span>
-              <Button
-                type="button"
-                size="sm"
-                disabled={!workspaceId || connecting === id}
-                onClick={() => void handleConnect(id)}
-                className="h-8 bg-orange-500 px-3 text-xs text-white hover:bg-orange-600"
-              >
-                {connecting === id ? 'Popup…' : 'Connect'}
-              </Button>
+              {isConnected ? (
+                <span
+                  className={cn(
+                    'inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium',
+                    hardGate
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                  )}
+                >
+                  <Check className="h-3.5 w-3.5" aria-hidden />
+                  Connected
+                </span>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!workspaceId || connecting === id}
+                  onClick={() => void handleConnect(id)}
+                  className="h-8 bg-orange-500 px-3 text-xs text-white hover:bg-orange-600"
+                >
+                  {connecting === id ? 'Popup…' : 'Connect'}
+                </Button>
+              )}
             </div>
           )
         })}

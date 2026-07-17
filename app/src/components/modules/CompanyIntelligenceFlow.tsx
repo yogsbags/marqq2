@@ -224,6 +224,8 @@ export function CompanyIntelligenceFlow({
   const [connectorGate, setConnectorGate] = useState<{
     hard: boolean
     missing: string[]
+    /** Full list to show (connected + missing) so linked accounts stay visible */
+    allIds: string[]
     pending: GtmTaskAutorunPayload
   } | null>(null)
   const [followUpOptions, setFollowUpOptions] = useState<string[]>([])
@@ -653,10 +655,13 @@ export function CompanyIntelligenceFlow({
     setHashCi(payload.pageId)
 
     const taskDef = getCiTaskByPage(payload.pageId)
+    const required = taskDef?.requiredConnectors || []
+    const optional = taskDef?.optionalConnectors || []
+    const allIds = Array.from(new Set([...required, ...optional]))
     const gate = evaluateTaskConnectors(
       {
-        requiredConnectors: taskDef?.requiredConnectors || [],
-        optionalConnectors: taskDef?.optionalConnectors || [],
+        requiredConnectors: required,
+        optionalConnectors: optional,
       },
       activeConnectorIds
     )
@@ -664,14 +669,14 @@ export function CompanyIntelligenceFlow({
     if (gate.hardBlocked) {
       pendingGenerateRef.current = payload
       setTaskGenPending(false)
-      setConnectorGate({ hard: true, missing: gate.showIds, pending: payload })
+      setConnectorGate({ hard: true, missing: gate.showIds, allIds, pending: payload })
       return
     }
 
     if (gate.softNudge) {
       pendingGenerateRef.current = payload
       setTaskGenPending(false)
-      setConnectorGate({ hard: false, missing: gate.showIds, pending: payload })
+      setConnectorGate({ hard: false, missing: gate.showIds, allIds, pending: payload })
       return
     }
 
@@ -874,7 +879,10 @@ export function CompanyIntelligenceFlow({
 
         {taskChannelMode && connectorGate ? (
           <ConnectorGateCard
-            missingConnectorIds={connectorGate.missing}
+            connectorIds={connectorGate.allIds}
+            connectedConnectorIds={activeConnectorIds.filter((id) =>
+              connectorGate.allIds.includes(id),
+            )}
             taskLabel={title}
             workspaceId={activeWorkspace?.id}
             hardGate={connectorGate.hard}
@@ -883,21 +891,24 @@ export function CompanyIntelligenceFlow({
               setActiveConnectorIds(nextIds)
               const pending = connectorGate.pending
               const taskDef = getCiTaskByPage(pending.pageId)
+              const required = taskDef?.requiredConnectors || []
+              const optional = taskDef?.optionalConnectors || []
+              const allIds = Array.from(new Set([...required, ...optional]))
               const gate = evaluateTaskConnectors(
                 {
-                  requiredConnectors: taskDef?.requiredConnectors || [],
-                  optionalConnectors: taskDef?.optionalConnectors || [],
+                  requiredConnectors: required,
+                  optionalConnectors: optional,
                 },
                 nextIds
               )
               if (connectorGate.hard) {
                 if (!gate.hardBlocked) void runTaskGenerate(pending)
-                else setConnectorGate({ hard: true, missing: gate.showIds, pending })
+                else setConnectorGate({ hard: true, missing: gate.showIds, allIds, pending })
               } else if (gate.softNudge) {
-                // Soft gate: drop the newly connected account from the list
-                setConnectorGate({ hard: false, missing: gate.showIds, pending })
+                // Keep full list so Apollo stays visible as Connected
+                setConnectorGate({ hard: false, missing: gate.showIds, allIds, pending })
               } else {
-                setConnectorGate(null)
+                setConnectorGate({ hard: false, missing: [], allIds, pending })
               }
             }}
             onSkip={() => {
@@ -1025,9 +1036,16 @@ export function CompanyIntelligenceFlow({
                         }
                         if (gate.hardBlocked || gate.softNudge) {
                           pendingGenerateRef.current = pending
+                          const allIds = Array.from(
+                            new Set([
+                              ...(taskDef?.requiredConnectors || []),
+                              ...(taskDef?.optionalConnectors || []),
+                            ]),
+                          )
                           setConnectorGate({
                             hard: gate.hardBlocked,
                             missing: gate.showIds,
+                            allIds,
                             pending,
                           })
                           return
@@ -1090,7 +1108,8 @@ export function CompanyIntelligenceFlow({
                       if (soft.length) {
                         setConnectorGate({
                           hard: false,
-                          missing: soft,
+                          missing: soft.filter((id) => !activeConnectorIds.includes(id)),
+                          allIds: Array.from(new Set(soft)),
                           pending: taskRunMeta || {
                             channelId: ciChannelIdForPage(activePage),
                             pageId: activePage,
