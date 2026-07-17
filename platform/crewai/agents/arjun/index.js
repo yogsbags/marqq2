@@ -137,8 +137,8 @@ class ArjunAgent {
         page:                1,
       };
 
-      const result = await executeComposioTool(entityId, 'apollo', 'APOLLO_IO_SEARCH_CONTACTS', searchArgs, apiKey);
-      rawContacts = result?.contacts || result?.people || [];
+      const result = await executeComposioTool(entityId, 'apollo', 'APOLLO_PEOPLE_SEARCH', searchArgs, apiKey);
+      rawContacts = result?.people || result?.contacts || result?.data?.people || result?.data?.contacts || [];
       connectorUsed = true;
     } catch (err) {
       return this._connectorMissing('apollo', err.message);
@@ -215,7 +215,7 @@ class ArjunAgent {
       }));
 
       const result = await executeComposioTool(
-        entityId, 'apollo', 'APOLLO_IO_PEOPLE_BULK_MATCH',
+        entityId, 'apollo', 'APOLLO_BULK_PEOPLE_ENRICHMENT',
         { details: inputs.length ? inputs : [{ organization_name: extracted_params.company || '' }] },
         apiKey
       );

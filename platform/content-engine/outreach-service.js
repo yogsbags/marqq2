@@ -462,12 +462,15 @@ export async function createOutreachRun({
   let leads = []
   let source = 'apollo'
 
+  // Composio Apollo toolkit: APOLLO_PEOPLE_SEARCH = global prospecting DB
+  // (APOLLO_SEARCH_CONTACTS is CRM-only; APOLLO_IO_* slugs were removed)
   const composioSearch = await executeComposioAction(
-    'APOLLO_IO_SEARCH_CONTACTS',
+    'APOLLO_PEOPLE_SEARCH',
     {
       per_page: capped,
       page: 1,
       person_titles: titleList,
+      person_locations: countryLabel ? [countryLabel] : [],
       organization_locations: countryLabel ? [countryLabel] : [],
       q_keywords: [industryList.join(' '), String(question || '').slice(0, 200)].filter(Boolean).join(' ').trim(),
     },
@@ -476,7 +479,14 @@ export async function createOutreachRun({
 
   if (!composioSearch.error) {
     const data = composioSearch.result || {}
-    const people = data.contacts || data.people || data.matches || data?.data?.contacts || data?.data?.people || []
+    const people =
+      data.people ||
+      data.contacts ||
+      data.matches ||
+      data?.data?.people ||
+      data?.data?.contacts ||
+      (Array.isArray(data?.data) ? data.data : null) ||
+      []
     if (Array.isArray(people) && people.length) {
       leads = people.slice(0, capped).map((person) => ({
         id: person.id,
@@ -493,7 +503,7 @@ export async function createOutreachRun({
         state: person.state,
         seniority: person.seniority,
       }))
-      source = 'apollo_composio_search'
+      source = 'apollo_people_search'
     }
   }
 
