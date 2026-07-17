@@ -182,18 +182,25 @@ export function ConnectorGateCard({
         })}
       </div>
       {onSkip ? (
-        <button
+        <Button
           type="button"
           onClick={onSkip}
           className={cn(
-            'mt-3 text-xs transition-colors',
+            'mt-4 h-10 w-full text-sm font-semibold',
             hardGate
-              ? 'text-zinc-500 hover:text-zinc-300'
-              : 'text-muted-foreground hover:text-foreground',
+              ? 'bg-white/10 text-zinc-100 hover:bg-white/15'
+              : connectedConnectorIds.length > 0
+                ? 'bg-orange-500 text-white hover:bg-orange-600'
+                : 'border border-orange-500/40 bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 dark:text-orange-300',
           )}
+          variant={hardGate ? 'secondary' : 'default'}
         >
-          {hardGate ? 'Cancel — stay on this channel' : 'Continue without connecting'}
-        </button>
+          {hardGate
+            ? 'Cancel — stay on this channel'
+            : connectedConnectorIds.length > 0
+              ? 'Continue'
+              : 'Continue without connecting'}
+        </Button>
       ) : null}
     </div>
   )
