@@ -77,6 +77,11 @@ import {
   saveProspectGmailDraft,
   updateProspectCopy,
   suggestAptSendTime,
+  hydrateOutreachStore,
+  processDueOutreachSends,
+  recordOutreachReply,
+  getWorkspaceOutreachSummary,
+  sendProspectImmediately,
 } from "./outreach-service.js";
 import { getLLMModel, LLM_PROVIDER, LLM_MODEL, inferProviderForModel, isClaudeProvider, isGroqProvider } from "./llm-client.js";
 import { registerGtmWizardRoutes } from "./gtm-wizard-routes.js";
@@ -7673,6 +7678,84 @@ app.get('/api/outreach/suggest-send-time', (req, res) => {
   return res.json({ scheduled_for: suggestAptSendTime({ timezoneOffsetMinutes: offset }) });
 });
 
+app.get('/api/outreach/workspaces/:workspaceId/summary', async (req, res) => {
+  try {
+    await hydrateOutreachStore();
+    const workspaceId = String(req.params.workspaceId || '').trim();
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    return res.json(getWorkspaceOutreachSummary(workspaceId));
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Failed to load outreach summary' });
+  }
+});
+
+app.post('/api/outreach/runs/:runId/prospects/:prospectId/send-now', async (req, res) => {
+  try {
+    const result = await sendProspectImmediately(req.params.runId, req.params.prospectId);
+    return res.json(result);
+  } catch (err) {
+    console.error('[outreach/send-now]', err);
+    return res.status(500).json({ error: err.message || 'Send failed' });
+  }
+});
+
+app.post('/api/outreach/process-due', async (req, res) => {
+  try {
+    const results = await processDueOutreachSends();
+    return res.json({ processed: results.length, results });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Failed to process due sends' });
+  }
+});
+
+/** Instantly / Gmail / generic reply webhook */
+app.post('/api/webhooks/outreach/reply', express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    const secret = process.env.OUTREACH_WEBHOOK_SECRET;
+    if (secret) {
+      const provided =
+        req.get('x-outreach-secret') ||
+        req.get('x-webhook-secret') ||
+        req.query.secret ||
+        '';
+      if (String(provided) !== String(secret)) {
+        return res.status(401).json({ error: 'Invalid webhook secret' });
+      }
+    }
+
+    const payload = {
+      ...(req.body || {}),
+      provider: req.body?.provider || req.query.provider || 'webhook',
+    };
+    const result = await recordOutreachReply(payload);
+    return res.json(result);
+  } catch (err) {
+    console.error('[outreach/webhook]', err);
+    return res.status(500).json({ error: err.message || 'Webhook failed' });
+  }
+});
+
+/** Instantly-shaped alias */
+app.post('/api/webhooks/instantly', express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await recordOutreachReply({
+      provider: 'instantly',
+      email: body.email || body.lead_email || body.from_address || body.from,
+      campaign_id: body.campaign_id || body.campaignId,
+      subject: body.subject || body.email_subject,
+      body: body.body || body.text || body.reply_text || body.message,
+      id: body.id || body.email_id || body.uuid,
+      received_at: body.timestamp || body.created_at || new Date().toISOString(),
+      ...body,
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error('[instantly/webhook]', err);
+    return res.status(500).json({ error: err.message || 'Instantly webhook failed' });
+  }
+});
+
 // POST /api/automations/video-poll — poll Veo 3.1 operation or HeyGen video_id, upload to Cloudinary when done
 app.post('/api/automations/video-poll', async (req, res) => {
   const { provider, operation_name, video_id, company_id } = req.body || {};
@@ -8339,6 +8422,46 @@ function stopAutomationScheduler() {
   automationScheduler = null;
 }
 
+// ── Outreach scheduled-send reconciler ──────────────────────────────────────
+const OUTREACH_SCHEDULER_INTERVAL_MS = Math.max(
+  15_000,
+  Number(process.env.OUTREACH_SCHEDULER_INTERVAL_MS || 60_000),
+);
+let outreachScheduler = null;
+
+async function runOutreachSchedulerTick() {
+  try {
+    await hydrateOutreachStore();
+    const results = await processDueOutreachSends();
+    if (results.length > 0) {
+      console.info(
+        `[outreach-scheduler] processed ${results.length}:`,
+        results.map((r) => `${r.prospectId}:${r.status}`).join(', '),
+      );
+    }
+  } catch (err) {
+    console.error('[outreach-scheduler] tick failed:', err.message);
+  }
+}
+
+function startOutreachScheduler() {
+  if (outreachScheduler) return;
+  outreachScheduler = setInterval(() => {
+    runOutreachSchedulerTick().catch((err) => {
+      console.error('[outreach-scheduler] interval error:', err.message);
+    });
+  }, OUTREACH_SCHEDULER_INTERVAL_MS);
+  runOutreachSchedulerTick().catch((err) => {
+    console.error('[outreach-scheduler] initial tick failed:', err.message);
+  });
+}
+
+function stopOutreachScheduler() {
+  if (!outreachScheduler) return;
+  clearInterval(outreachScheduler);
+  outreachScheduler = null;
+}
+
 function buildHookDispatchQuery(batch, entry) {
   const lines = [
     `Execute hook task "${entry.task_type}" for company ${batch.company_id}.`,
@@ -8547,6 +8670,7 @@ function startBackendRuntime() {
     startWorker();
     startDeploymentScheduler();
     startAutomationScheduler();
+    startOutreachScheduler();
     startOnboardBriefingScheduler();
     if (!nightlyScheduler) {
       nightlyScheduler = createNightlyScheduler({
@@ -8577,6 +8701,7 @@ async function stopBackendRuntime() {
   }
   stopAutomationScheduler();
   stopDeploymentScheduler();
+  stopOutreachScheduler();
   if (nightlyScheduler) {
     nightlyScheduler.stop();
     nightlyScheduler = null;

@@ -4,7 +4,7 @@ import {
   LinkBreak2Icon,
   PaperPlaneIcon,
 } from '@radix-ui/react-icons'
-import { Loader2, Sparkles, CalendarClock } from 'lucide-react'
+import { Loader2, Sparkles, CalendarClock, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -36,6 +36,8 @@ type OutreachProspect = {
   body: string
   scheduled_for: string | null
   gmail_draft_id: string | null
+  sent_at?: string | null
+  replies?: Array<{ id: string; body?: string; subject?: string; received_at?: string }>
 }
 
 type OutreachCampaign = {
@@ -45,6 +47,40 @@ type OutreachCampaign = {
   status: string
   prospectIds: string[]
   createdAt: string
+  sentCount?: number
+  replyCount?: number
+  runId?: string
+}
+
+type OutreachReply = {
+  id: string
+  body?: string
+  subject?: string
+  received_at?: string
+  prospect_name?: string
+  prospect_company?: string
+  prospect_email?: string
+  provider?: string
+}
+
+type ScheduledItem = {
+  runId: string
+  prospectId: string
+  full_name: string
+  company: string
+  email: string
+  scheduled_for: string
+  subject: string
+}
+
+type SentItem = {
+  runId: string
+  prospectId: string
+  full_name: string
+  company: string
+  email: string
+  sent_at: string
+  subject: string
 }
 
 function formatLabel(value?: string) {
@@ -90,7 +126,9 @@ function parseListAfterLabel(question: string, label: RegExp) {
 }
 
 function statusTone(status: string) {
-  if (status === 'scheduled' || status === 'drafted') return 'text-emerald-600 dark:text-emerald-400'
+  if (status === 'replied') return 'text-sky-600 dark:text-sky-400'
+  if (status === 'sent') return 'text-emerald-600 dark:text-emerald-400'
+  if (status === 'scheduled' || status === 'drafted') return 'text-amber-600 dark:text-amber-400'
   if (status === 'copy_ready') return 'text-orange-600 dark:text-orange-400'
   return 'text-muted-foreground'
 }
@@ -112,6 +150,9 @@ export function LeadOutreachFlow({
   const [runId, setRunId] = useState<string | null>(null)
   const [prospects, setProspects] = useState<OutreachProspect[]>([])
   const [campaigns, setCampaigns] = useState<OutreachCampaign[]>([])
+  const [replies, setReplies] = useState<OutreachReply[]>([])
+  const [scheduledQueue, setScheduledQueue] = useState<ScheduledItem[]>([])
+  const [sentQueue, setSentQueue] = useState<SentItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
   const [streaming, setStreaming] = useState(false)
@@ -120,6 +161,8 @@ export function LeadOutreachFlow({
   const [body, setBody] = useState('')
   const [scheduledLocal, setScheduledLocal] = useState('')
   const [savingDraft, setSavingDraft] = useState(false)
+  const [sendingNow, setSendingNow] = useState(false)
+  const [refreshingInbox, setRefreshingInbox] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const selected = useMemo(
@@ -148,6 +191,31 @@ export function LeadOutreachFlow({
     setStreamText('')
     setScheduledLocal(toLocalInputValue(p.scheduled_for))
   }, [])
+
+  const refreshInbox = useCallback(async () => {
+    if (!workspaceId) return
+    setRefreshingInbox(true)
+    try {
+      const res = await fetch(`/api/outreach/workspaces/${encodeURIComponent(workspaceId)}/summary`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+      setCampaigns((data.campaigns || []) as OutreachCampaign[])
+      setReplies((data.replies || []) as OutreachReply[])
+      setScheduledQueue((data.scheduled || []) as ScheduledItem[])
+      setSentQueue((data.sent || []) as SentItem[])
+
+      if (runId && Array.isArray(data.runs)) {
+        const active = data.runs.find((r: { id: string }) => r.id === runId)
+        if (active?.prospects) {
+          setProspects(active.prospects as OutreachProspect[])
+        }
+      }
+    } catch (err) {
+      console.warn('[outreach] inbox refresh failed', err)
+    } finally {
+      setRefreshingInbox(false)
+    }
+  }, [workspaceId, runId])
 
   const fetchProspects = async () => {
     if (!workspaceId) {
@@ -179,7 +247,6 @@ export function LeadOutreachFlow({
       const list = (data.prospects || []) as OutreachProspect[]
       setRunId(data.runId)
       setProspects(list)
-      setCampaigns([])
       setSelectedId(null)
       setSubject('')
       setBody('')
@@ -188,6 +255,7 @@ export function LeadOutreachFlow({
         setScheduledLocal(toLocalInputValue(data.suggested_send_at))
       }
       toast.success(`Loaded ${list.length} prospects from Apollo (max 100)`)
+      void refreshInbox()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to fetch prospects')
     } finally {
@@ -302,22 +370,10 @@ export function LeadOutreachFlow({
       const updated = data.prospect as OutreachProspect
       setProspects((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)))
       setScheduledLocal(toLocalInputValue(updated.scheduled_for))
-      if (data.campaign) {
-        setCampaigns((prev) => {
-          const exists = prev.find((c) => c.id === data.campaign.id)
-          if (exists) {
-            return prev.map((c) =>
-              c.id === data.campaign.id
-                ? { ...c, prospectIds: data.campaign.prospectIds }
-                : c,
-            )
-          }
-          return [...prev, data.campaign as OutreachCampaign]
-        })
-      }
       toast.success(
-        `Gmail draft saved · scheduled ${updated.scheduled_for ? new Date(updated.scheduled_for).toLocaleString() : 'at apt time'}`,
+        `Gmail draft saved · auto-sends ${updated.scheduled_for ? new Date(updated.scheduled_for).toLocaleString() : 'at apt time'}`,
       )
+      void refreshInbox()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save Gmail draft')
     } finally {
@@ -325,16 +381,61 @@ export function LeadOutreachFlow({
     }
   }
 
+  const sendNow = async () => {
+    if (!runId || !selected) return
+    setSendingNow(true)
+    try {
+      if (selected.status === 'copy_ready' || !selected.gmail_draft_id) {
+        const draftRes = await fetch(`/api/outreach/runs/${runId}/prospects/${selected.id}/gmail-draft`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subject,
+            body,
+            scheduled_for: fromLocalInputValue(scheduledLocal),
+            timezoneOffsetMinutes: -new Date().getTimezoneOffset(),
+          }),
+        })
+        const draftData = await draftRes.json()
+        if (!draftRes.ok) throw new Error(draftData?.error || 'Failed to save draft before send')
+        setProspects((prev) =>
+          prev.map((p) => (p.id === selected.id ? { ...p, ...draftData.prospect } : p)),
+        )
+      }
+
+      const res = await fetch(`/api/outreach/runs/${runId}/prospects/${selected.id}/send-now`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+      setProspects((prev) =>
+        prev.map((p) => (p.id === selected.id ? { ...p, ...data.prospect } : p)),
+      )
+      toast.success('Email sent via Gmail')
+      void refreshInbox()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Send failed')
+    } finally {
+      setSendingNow(false)
+    }
+  }
+
   useEffect(() => {
     return () => abortRef.current?.abort()
   }, [])
 
-  // Auto-fetch once when opened from Launch Outreach with a question
   useEffect(() => {
     if (!question || !workspaceId || runId) return
     void fetchProspects()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId])
+
+  useEffect(() => {
+    if (!workspaceId) return
+    void refreshInbox()
+    const timer = window.setInterval(() => void refreshInbox(), 60_000)
+    return () => window.clearInterval(timer)
+  }, [workspaceId, refreshInbox])
 
   return (
     <div className="space-y-5">
@@ -375,8 +476,8 @@ export function LeadOutreachFlow({
               </div>
             </div>
             <p className="text-xs leading-5 text-orange-100/65">
-              Fetch up to 100 Apollo prospects, pick one, stream a short personalized email, then save as a Gmail draft
-              scheduled for the next weekday morning.
+              Fetch up to 100 Apollo prospects, pick one, stream a short personalized email, save as a Gmail draft,
+              and the runner auto-sends at the scheduled apt time.
             </p>
           </CardContent>
         </Card>
@@ -513,47 +614,141 @@ export function LeadOutreachFlow({
                     onChange={(e) => setScheduledLocal(e.target.value)}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Defaults to next weekday 09:30 local. Saves as Gmail draft now; send later from Gmail or a runner.
+                    Defaults to next weekday 09:30 local. Draft saves now; the server runner sends at this time.
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  className="w-full bg-orange-500 hover:bg-orange-600"
-                  onClick={() => void saveGmailDraft()}
-                  disabled={savingDraft || streaming || !subject.trim() || !body.trim()}
-                >
-                  {savingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Save Gmail draft + schedule
-                </Button>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    type="button"
+                    className="bg-orange-500 hover:bg-orange-600"
+                    onClick={() => void saveGmailDraft()}
+                    disabled={savingDraft || streaming || !subject.trim() || !body.trim()}
+                  >
+                    {savingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Save draft + schedule
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void sendNow()}
+                    disabled={sendingNow || streaming || !subject.trim() || !body.trim()}
+                  >
+                    {sendingNow ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Send now
+                  </Button>
+                </div>
               </>
             )}
           </CardContent>
         </Card>
       </section>
 
-      {campaigns.length > 0 ? (
-        <Card className="rounded-[1.75rem] border-orange-200/70">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Campaigns (Gmail drafts)</CardTitle>
+      <section className="grid gap-4 lg:grid-cols-3">
+        <Card className="rounded-[1.75rem] border-orange-200/70 lg:col-span-1">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-base">Campaigns</CardTitle>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void refreshInbox()}
+              disabled={refreshingInbox}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} />
+            </Button>
           </CardHeader>
           <CardContent className="space-y-2">
-            {campaigns.map((c) => (
-              <div
-                key={c.id}
-                className="flex items-center justify-between rounded-xl border px-4 py-3 text-sm"
-              >
-                <div>
-                  <div className="font-medium">{c.name}</div>
+            {!campaigns.length ? (
+              <p className="text-sm text-muted-foreground">No campaigns yet.</p>
+            ) : (
+              campaigns.map((c) => (
+                <div key={c.id} className="rounded-xl border px-3 py-2 text-sm">
+                  <div className="font-medium truncate">{c.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {c.provider} · {c.prospectIds.length} draft{c.prospectIds.length === 1 ? '' : 's'}
+                    {c.provider} · {c.sentCount || 0} sent · {c.replyCount || 0} replies ·{' '}
+                    {c.prospectIds?.length || 0} prospects
+                  </div>
+                  <div className={`mt-1 text-[11px] uppercase tracking-wide ${statusTone(c.status)}`}>
+                    {c.status}
                   </div>
                 </div>
-                <span className="text-xs uppercase tracking-wide text-emerald-600">{c.status}</span>
-              </div>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
-      ) : null}
+
+        <Card className="rounded-[1.75rem] border-orange-200/70 lg:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Scheduled / Sent</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 max-h-72 overflow-auto">
+            {scheduledQueue.length ? (
+              <div className="space-y-2">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Queued</div>
+                {scheduledQueue.slice(0, 12).map((item) => (
+                  <div key={`${item.runId}-${item.prospectId}`} className="rounded-lg border px-3 py-2 text-xs">
+                    <div className="font-medium">{item.full_name}</div>
+                    <div className="text-muted-foreground truncate">{item.subject}</div>
+                    <div className="text-amber-600 dark:text-amber-400">
+                      {item.scheduled_for ? new Date(item.scheduled_for).toLocaleString() : '—'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {sentQueue.length ? (
+              <div className="space-y-2">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Sent</div>
+                {sentQueue.slice(0, 12).map((item) => (
+                  <div key={`${item.runId}-${item.prospectId}-sent`} className="rounded-lg border px-3 py-2 text-xs">
+                    <div className="font-medium">{item.full_name}</div>
+                    <div className="text-muted-foreground truncate">{item.subject}</div>
+                    <div className="text-emerald-600 dark:text-emerald-400">
+                      {item.sent_at ? new Date(item.sent_at).toLocaleString() : '—'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {!scheduledQueue.length && !sentQueue.length ? (
+              <p className="text-sm text-muted-foreground">Nothing scheduled or sent yet.</p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[1.75rem] border-orange-200/70 lg:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Replies inbox</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 max-h-72 overflow-auto">
+            {!replies.length ? (
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>No replies yet.</p>
+                <p className="text-[11px] leading-4">
+                  Point Instantly webhooks to{' '}
+                  <code className="rounded bg-muted px-1">/api/webhooks/instantly</code> or post to{' '}
+                  <code className="rounded bg-muted px-1">/api/webhooks/outreach/reply</code>.
+                </p>
+              </div>
+            ) : (
+              replies.slice(0, 20).map((r) => (
+                <div key={r.id} className="rounded-xl border px-3 py-2 text-xs">
+                  <div className="font-medium">
+                    {r.prospect_name || r.prospect_email || 'Unknown'}
+                    {r.prospect_company ? ` · ${r.prospect_company}` : ''}
+                  </div>
+                  {r.subject ? <div className="text-muted-foreground">{r.subject}</div> : null}
+                  <div className="mt-1 line-clamp-3 whitespace-pre-wrap">{r.body || '—'}</div>
+                  <div className="mt-1 text-[10px] text-muted-foreground">
+                    {r.received_at ? new Date(r.received_at).toLocaleString() : ''}
+                    {r.provider ? ` · ${r.provider}` : ''}
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </section>
     </div>
   )
 }
