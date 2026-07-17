@@ -7,8 +7,12 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { executeAutomationTriggers } from './automations/registry.js'
-import { executeComposioAction, upsertComposioTrigger } from './mcp-router.js'
+import {
+  executeComposioAction,
+  executeComposioActionForEntities,
+  formatApolloConnectionError,
+  upsertComposioTrigger,
+} from './mcp-router.js'
 import { MKGService } from './mkg-service.js'
 import { getLLMModel } from './llm-client.js'
 import { getSupabaseReadClient, getSupabaseWriteClient } from './supabase.js'
@@ -532,11 +536,12 @@ export async function createOutreachRun({
     return Array.isArray(list) ? list : []
   }
 
-  // Composio Apollo toolkit: APOLLO_PEOPLE_SEARCH
-  let composioSearch = await executeComposioAction(
+  // Composio Apollo toolkit: APOLLO_PEOPLE_SEARCH (try workspace + company entity IDs)
+  const composioEntityIds = [workspaceId, companyId].filter(Boolean)
+  let composioSearch = await executeComposioActionForEntities(
     'APOLLO_PEOPLE_SEARCH',
     buildPeopleSearchArgs('full'),
-    entityId,
+    composioEntityIds,
   )
 
   // Retry once: drop seniorities/keywords if Apollo rejects the filter set
@@ -544,10 +549,10 @@ export async function createOutreachRun({
     composioSearch.error &&
     /422|invalid request parameters|invalid parameters/i.test(String(composioSearch.error))
   ) {
-    composioSearch = await executeComposioAction(
+    composioSearch = await executeComposioActionForEntities(
       'APOLLO_PEOPLE_SEARCH',
       buildPeopleSearchArgs('minimal'),
-      entityId,
+      composioEntityIds,
     )
   }
 
@@ -574,36 +579,10 @@ export async function createOutreachRun({
   }
 
   if (!leads.length) {
-    const results = await executeAutomationTriggers(
-      {
-        automation_triggers: [
-          {
-            automation_id: 'apollo_find_leads',
-            params: {
-              country,
-              industries: industryList,
-              designation_keywords: titleList.join(', '),
-              limit: capped,
-            },
-          },
-        ],
-      },
-      entityId,
-    )
-
-    const apolloWrap = results[0] || {}
-    const apollo = apolloWrap.result || apolloWrap
-    if (apollo.status === 'error' || apolloWrap.status === 'error') {
-      const msg =
-        apollo.error ||
-        apolloWrap.error ||
-        composioSearch.error ||
-        'Apollo search failed — reconnect Apollo in Integrations'
-      throw new Error(msg)
+    if (composioSearch.error) {
+      throw new Error(formatApolloConnectionError(composioSearch.error))
     }
-
-    leads = Array.isArray(apollo.leads) ? apollo.leads.slice(0, capped) : []
-    source = apollo.source || 'apollo'
+    throw new Error('No prospects matched your filters in Apollo. Try broader titles or location.')
   }
 
   const prospects = leads.map((lead, i) => normalizeProspect(lead, i))

@@ -712,6 +712,63 @@ async function executeHunterDirect(actionSlug, inputParams, userId, apiKey) {
   return { ok: true, result: data }
 }
 
+export function composioEntityCandidates(...ids) {
+  const out = []
+  for (const id of ids) {
+    const s = String(id || '').trim()
+    if (s && !out.includes(s)) out.push(s)
+  }
+  return out
+}
+
+function isComposioMissingConnectionError(message) {
+  return /no active .* connection|connect it in settings|connect it in settings → accounts/i.test(String(message || ''))
+}
+
+/**
+ * Try Composio execute across workspace/company entity IDs (integrations may be
+ * stored under either). Stops on first success or first non-connection error.
+ */
+export async function executeComposioActionForEntities(actionSlug, inputParams = {}, entityIds = []) {
+  const candidates = composioEntityCandidates(...entityIds)
+  if (!candidates.length) {
+    return { error: 'workspaceId or companyId is required for Composio' }
+  }
+
+  let lastResult = { error: 'No Composio connection found' }
+  for (const userId of candidates) {
+    const result = await executeComposioAction(actionSlug, inputParams, userId)
+    if (!result.error) return { ...result, composioUserId: userId }
+    lastResult = { ...result, composioUserId: userId }
+    if (!isComposioMissingConnectionError(result.error)) return lastResult
+  }
+  return lastResult
+}
+
+export async function getConnectedAccountApiKeyForEntities(connectorId, entityIds = []) {
+  const candidates = composioEntityCandidates(...entityIds)
+  if (!candidates.length) return { error: 'workspaceId or companyId is required' }
+
+  let last = { error: 'No connection found' }
+  for (const userId of candidates) {
+    const result = await getConnectedAccountApiKey(connectorId, userId)
+    if (result.api_key) return { ...result, composioUserId: userId }
+    last = result
+  }
+  return last
+}
+
+export function formatApolloConnectionError(err) {
+  const msg = String(err || '')
+  if (/401|403|unauthorized|invalid api key/i.test(msg)) {
+    return 'Apollo authorization failed. Open Settings → Integrations, disconnect Apollo, and reconnect with a valid master API key.'
+  }
+  if (isComposioMissingConnectionError(msg)) {
+    return 'Apollo is not connected for this workspace. Connect it in Settings → Integrations.'
+  }
+  return msg || 'Apollo search failed'
+}
+
 export async function executeComposioAction(actionSlug, inputParams = {}, userId = 'default') {
   const apiKey = process.env.COMPOSIO_API_KEY
   if (!apiKey) return { error: 'COMPOSIO_API_KEY not configured' }

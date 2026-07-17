@@ -14,7 +14,13 @@ import { ytDlpYoutubeFetch } from './handlers/ytdlp.js';
 import { socialIntelExtract } from './handlers/social.js';
 import { adsIntelScrape } from './handlers/ads.js';
 import { adsIntelAnalyze } from './handlers/adsAnalysis.js';
-import { executeComposioAction, getConnectedAccountToken, getConnectedAccountApiKey } from '../mcp-router.js';
+import {
+  executeComposioAction,
+  getConnectedAccountToken,
+  getConnectedAccountApiKey,
+  getConnectedAccountApiKeyForEntities,
+  formatApolloConnectionError,
+} from '../mcp-router.js';
 import { routeLeads, routingSummary, groupByChannel, explainRouting } from './channelRouter.js';
 import {
   generateSocialImage,
@@ -782,10 +788,15 @@ const directApiHandlers = {
   },
 
   async apollo_find_leads(params, companyId) {
-    const connectedApollo = await getConnectedAccountApiKey('apollo', companyId);
-    const apolloApiKey = connectedApollo.api_key || process.env.APOLLO_API_KEY || null;
+    const connectedApollo = await getConnectedAccountApiKeyForEntities('apollo', [companyId]);
+    const apolloApiKey = connectedApollo.api_key || null;
     if (!apolloApiKey) {
-      return { status: 'error', error: connectedApollo.error || 'Apollo API key not available', leads: [], count: 0 };
+      return {
+        status: 'error',
+        error: formatApolloConnectionError(connectedApollo.error || 'Apollo API key not available'),
+        leads: [],
+        count: 0,
+      };
     }
 
     const countryMap = { IN: 'India', US: 'United States' };
@@ -813,7 +824,11 @@ const directApiHandlers = {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data?.error || data?.error_message || data?.message || `Apollo API failed: ${res.status}`);
+        const base = data?.error || data?.error_message || data?.message || `Apollo API failed: ${res.status}`;
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(formatApolloConnectionError(base));
+        }
+        throw new Error(base);
       }
       return data;
     };
