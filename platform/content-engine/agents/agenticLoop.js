@@ -473,8 +473,48 @@ function markdownToPlainDocumentText(value) {
     .trim();
 }
 
+const APOLLO_MAX_RESULTS = 100;
+
+function clampApolloSearchArgs(args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  const next = { ...args };
+  const clampInt = (value, fallback) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(Math.max(Math.floor(n), 1), APOLLO_MAX_RESULTS);
+  };
+
+  if (next.per_page != null) next.per_page = clampInt(next.per_page, APOLLO_MAX_RESULTS);
+  else if (next.page_size != null) next.page_size = clampInt(next.page_size, APOLLO_MAX_RESULTS);
+  else if (next.limit != null) next.limit = clampInt(next.limit, APOLLO_MAX_RESULTS);
+  else if (next.num_records != null) next.num_records = clampInt(next.num_records, APOLLO_MAX_RESULTS);
+  else if (next.max_results != null) next.max_results = clampInt(next.max_results, APOLLO_MAX_RESULTS);
+  else next.per_page = APOLLO_MAX_RESULTS;
+
+  if (next.page_size != null) next.page_size = clampInt(next.page_size, APOLLO_MAX_RESULTS);
+  if (next.limit != null) next.limit = clampInt(next.limit, APOLLO_MAX_RESULTS);
+  if (next.num_records != null) next.num_records = clampInt(next.num_records, APOLLO_MAX_RESULTS);
+  if (next.max_results != null) next.max_results = clampInt(next.max_results, APOLLO_MAX_RESULTS);
+
+  return next;
+}
+
+function isApolloSearchTool(toolSlug) {
+  const slug = String(toolSlug || "").toUpperCase();
+  return slug.includes("APOLLO") && (
+    slug.includes("SEARCH") ||
+    slug.includes("PEOPLE") ||
+    slug.includes("CONTACT") ||
+    slug.includes("MIXED")
+  );
+}
+
 function normalizeToolExecutionArgs(toolSlug, args, taskType = null) {
   if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+
+  if (isApolloSearchTool(toolSlug)) {
+    return clampApolloSearchArgs(args);
+  }
 
   if (taskType === "marketing_report") {
     if (toolSlug === "GOOGLEDOCS_CREATE_DOCUMENT") {
@@ -744,11 +784,27 @@ async function executeComposioTool(entityId, toolSlug, args, apiKey) {
   }
 
   const result = await resp.json();
-  return {
+  const payload = {
     successful: result.successful ?? true,
     data: result.data ?? result,
     error: result.error ?? result.data?.message ?? null,
   };
+  if (isApolloSearchTool(resolvedToolSlug) && payload.data && typeof payload.data === "object") {
+    payload.data = truncateApolloResultPayload(payload.data);
+  }
+  return payload;
+}
+
+function truncateApolloResultPayload(data) {
+  if (!data || typeof data !== "object") return data;
+  const next = { ...data };
+  for (const key of ["people", "contacts", "matches", "accounts", "organizations"]) {
+    if (Array.isArray(next[key])) next[key] = next[key].slice(0, APOLLO_MAX_RESULTS);
+  }
+  if (next.data && typeof next.data === "object") {
+    next.data = truncateApolloResultPayload(next.data);
+  }
+  return next;
 }
 
 // ── Streaming tool-call accumulator ──────────────────────────────────────────

@@ -443,7 +443,7 @@ export const REGISTRY = [
       designation_keywords: "Optional comma-separated title keywords",
       cities: "Optional comma-separated cities",
       states: "Optional comma-separated states",
-      limit: "Max rows to return (Apollo max 25 here, default 25)",
+      limit: "Max rows to return (max 100, default 100)",
     },
     returns: "{ leads: [...], source: 'apollo_people_search'|'apollo_search_accounts', count: number }",
     which_agents_can_invoke: ["arjun"],
@@ -798,7 +798,7 @@ const directApiHandlers = {
       .filter(Boolean);
     const cities = String(params.cities || '').split(',').map((entry) => entry.trim()).filter(Boolean);
     const states = String(params.states || '').split(',').map((entry) => entry.trim()).filter(Boolean);
-    const limit = Math.min(Math.max(Number(params.limit) || 25, 1), 25);
+    const limit = Math.min(Math.max(Number(params.limit) || 100, 1), 100);
 
     const fetchApollo = async (url, options = {}) => {
       const res = await fetch(url, {

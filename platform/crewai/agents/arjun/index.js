@@ -133,7 +133,7 @@ class ArjunAgent {
         person_titles:       icpParams.targetTitles       || extracted_params.titles    || [],
         organization_locations: icpParams.targetGeographies || extracted_params.geography || [],
         q_keywords:          extracted_params.keywords     || '',
-        per_page:            25,
+        per_page:            100,
         page:                1,
       };
 
@@ -159,7 +159,7 @@ class ArjunAgent {
         icp_fit_pct: Math.round(scoreIcpFit(c, icpParams) * 100),
       }))
       .sort((a, b) => b.icp_fit_pct - a.icp_fit_pct)
-      .slice(0, 20);
+      .slice(0, 100);
 
     const avgFit = leads.length > 0
       ? Math.round(leads.reduce((s, l) => s + l.icp_fit_pct, 0) / leads.length)

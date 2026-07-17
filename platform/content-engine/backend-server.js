@@ -70,6 +70,14 @@ import { canAccessModule, requiredPlanForModule, PLAN_CREDITS, CREDIT_COSTS } fr
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers, computeNextRun } from "./automations/registry.js";
 import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector } from "./mcp-router.js";
+import {
+  createOutreachRun,
+  getOutreachRun,
+  streamProspectCopy,
+  saveProspectGmailDraft,
+  updateProspectCopy,
+  suggestAptSendTime,
+} from "./outreach-service.js";
 import { getLLMModel, LLM_PROVIDER, LLM_MODEL, inferProviderForModel, isClaudeProvider, isGroqProvider } from "./llm-client.js";
 import { registerGtmWizardRoutes } from "./gtm-wizard-routes.js";
 import {
@@ -7546,6 +7554,123 @@ app.post('/api/automations/execute', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Structured Lead Outreach (Apollo ≤100 → one prospect → stream copy → Gmail draft) ──
+
+app.post('/api/outreach/runs', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const workspaceId = String(body.workspaceId || body.workspace_id || '').trim();
+    const companyId = String(body.companyId || body.company_id || '').trim() || null;
+    if (!workspaceId && !companyId) {
+      return res.status(400).json({ error: 'workspaceId is required' });
+    }
+
+    const industries = Array.isArray(body.industries)
+      ? body.industries
+      : String(body.industries || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+    const titles = Array.isArray(body.titles)
+      ? body.titles
+      : String(body.titles || body.apolloBuyerTitles || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+    const run = await createOutreachRun({
+      workspaceId: workspaceId || companyId,
+      companyId,
+      companyName: String(body.companyName || body.company_name || '').trim(),
+      question: String(body.question || '').trim(),
+      channel: String(body.channel || 'email').trim(),
+      target: String(body.target || 'decision').trim(),
+      goal: String(body.goal || 'reply').trim(),
+      industries,
+      titles,
+      country: String(body.country || 'IN').trim(),
+      limit: body.limit,
+    });
+
+    return res.json({
+      runId: run.id,
+      count: run.prospects.length,
+      source: run.source,
+      prospects: run.prospects,
+      suggested_send_at: suggestAptSendTime({
+        timezoneOffsetMinutes: Number(body.timezoneOffsetMinutes) || 330,
+      }),
+    });
+  } catch (err) {
+    console.error('[outreach/runs]', err);
+    return res.status(500).json({ error: err.message || 'Failed to fetch prospects' });
+  }
+});
+
+app.get('/api/outreach/runs/:runId', (req, res) => {
+  const run = getOutreachRun(req.params.runId);
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+  return res.json(run);
+});
+
+app.post('/api/outreach/runs/:runId/prospects/:prospectId/copy', async (req, res) => {
+  const run = getOutreachRun(req.params.runId);
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  try {
+    await streamProspectCopy({
+      runId: req.params.runId,
+      prospectId: req.params.prospectId,
+      groqClient: groq,
+      res,
+    });
+  } catch (err) {
+    console.error('[outreach/copy]', err);
+    res.write(`data: ${JSON.stringify({ error: err.message || 'Copy generation failed' })}\n\n`);
+    res.write('data: [DONE]\n\n');
+  }
+  return res.end();
+});
+
+app.patch('/api/outreach/runs/:runId/prospects/:prospectId', (req, res) => {
+  try {
+    const prospect = updateProspectCopy(req.params.runId, req.params.prospectId, {
+      subject: req.body?.subject,
+      body: req.body?.body,
+    });
+    return res.json({ prospect });
+  } catch (err) {
+    return res.status(404).json({ error: err.message });
+  }
+});
+
+app.post('/api/outreach/runs/:runId/prospects/:prospectId/gmail-draft', async (req, res) => {
+  try {
+    const result = await saveProspectGmailDraft({
+      runId: req.params.runId,
+      prospectId: req.params.prospectId,
+      subject: req.body?.subject,
+      body: req.body?.body,
+      scheduledFor: req.body?.scheduled_for || req.body?.scheduledFor || null,
+      timezoneOffsetMinutes: Number(req.body?.timezoneOffsetMinutes) || 330,
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error('[outreach/gmail-draft]', err);
+    return res.status(500).json({ error: err.message || 'Failed to create Gmail draft' });
+  }
+});
+
+app.get('/api/outreach/suggest-send-time', (req, res) => {
+  const offset = Number(req.query.timezoneOffsetMinutes) || 330;
+  return res.json({ scheduled_for: suggestAptSendTime({ timezoneOffsetMinutes: offset }) });
 });
 
 // POST /api/automations/video-poll — poll Veo 3.1 operation or HeyGen video_id, upload to Cloudinary when done

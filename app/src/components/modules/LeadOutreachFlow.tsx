@@ -1,12 +1,17 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   EnvelopeClosedIcon,
   LinkBreak2Icon,
-  LinkedInLogoIcon,
   PaperPlaneIcon,
 } from '@radix-ui/react-icons'
-import { AgentModuleShell, type AgentConfig } from '@/components/agent/AgentModuleShell'
+import { Loader2, Sparkles, CalendarClock } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { getActiveAgentContext } from '@/lib/agentContext'
 
 type LeadOutreachFlowProps = {
   initialQuestion?: string
@@ -14,6 +19,32 @@ type LeadOutreachFlowProps = {
   initialTarget?: string
   initialGoal?: string
   initialDelivery?: string
+}
+
+type OutreachProspect = {
+  id: string
+  full_name: string
+  first_name?: string
+  title: string
+  company: string
+  industry: string
+  email: string
+  linkedin_url?: string
+  city?: string
+  status: string
+  subject: string
+  body: string
+  scheduled_for: string | null
+  gmail_draft_id: string | null
+}
+
+type OutreachCampaign = {
+  id: string
+  provider: string
+  name: string
+  status: string
+  prospectIds: string[]
+  createdAt: string
 }
 
 function formatLabel(value?: string) {
@@ -28,40 +59,40 @@ function formatLabel(value?: string) {
     meeting: 'Book meetings',
     reply: 'Earn replies',
     qualification: 'Qualify interest',
-    draft: 'Save as draft',
+    draft: 'Gmail draft (default)',
     live: 'Push live',
   }
-  return labelMap[value] || value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase())
+  return labelMap[value] || value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
 }
 
-function normalizeDelivery(value?: string): 'draft' | 'live' {
-  return value === 'live' ? 'live' : 'draft'
+function toLocalInputValue(iso: string | null | undefined) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function buildArjunQuery(
-  channel: string,
-  target: string,
-  goal: string,
-  delivery: 'draft' | 'live',
-  initialQuestion?: string,
-) {
-  const deliveryLine =
-    delivery === 'live'
-      ? 'Delivery mode: PUSH LIVE. After building the sequence, use connected Instantly/Gmail send tools to activate or send when tools allow. Confirm what went live vs what stayed draft.'
-      : 'Delivery mode: SAVE AS DRAFT IN TOOLS. Create Instantly campaigns/leads and Gmail drafts via connected tools. Do not live-send unless the user later switches to push live.'
+function fromLocalInputValue(local: string) {
+  if (!local) return null
+  const d = new Date(local)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString()
+}
 
-  return [
-    initialQuestion || `Build a ${formatLabel(channel)?.toLowerCase() || 'multitouch'} outreach sequence.`,
-    `Outreach motion: ${formatLabel(channel) || 'Multitouch'}.`,
-    `Primary target: ${formatLabel(target) || 'Decision makers'}.`,
-    `Primary goal: ${formatLabel(goal) || 'Book meetings'}.`,
-    deliveryLine,
-    'Before using Apollo, verify the target is a B2B/company/professional-buyer cohort. If the cohort describes consumers, patients, users, demographics, health conditions, or sensitive traits, do not use Apollo; explain that paid ads, social, SEO/content, creators, communities, or landing pages are the right acquisition channels.',
-    'Use connected outbound tools in order when available: Apollo/Hunter to find or enrich contacts → HubSpot/CRM to check existing accounts → Instantly or Gmail to write the sequence into the tool.',
-    'Execute research and connector write steps sequentially with tools before writing the final sequence arc.',
-    'Return the outreach sequence arc, the personalization logic, the first touch, the follow-up sequence, and how the messaging should change across the motion.',
-    'Keep the output practical for real outbound execution, not generic cold-email advice. Cite tool results when you used connectors.',
-  ].join('\n\n')
+function parseListAfterLabel(question: string, label: RegExp) {
+  const match = question.match(label)
+  if (!match?.[1]) return [] as string[]
+  return match[1]
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter((s) => s && !/^not provided$/i.test(s) && !/^derive/i.test(s))
+}
+
+function statusTone(status: string) {
+  if (status === 'scheduled' || status === 'drafted') return 'text-emerald-600 dark:text-emerald-400'
+  if (status === 'copy_ready') return 'text-orange-600 dark:text-orange-400'
+  return 'text-muted-foreground'
 }
 
 export function LeadOutreachFlow({
@@ -71,170 +102,458 @@ export function LeadOutreachFlow({
   initialGoal,
   initialDelivery,
 }: LeadOutreachFlowProps = {}) {
-  const channel = initialChannel || 'multi'
+  const { activeWorkspace } = useWorkspace()
+  const channel = initialChannel || 'email'
   const target = initialTarget || 'decision'
-  const goal = initialGoal || 'meeting'
-  const delivery = normalizeDelivery(initialDelivery)
+  const goal = initialGoal || 'reply'
+  const delivery = initialDelivery === 'live' ? 'live' : 'draft'
+  const question = initialQuestion || ''
 
-  const agents = useMemo<Array<AgentConfig>>(
-    () => [
-      {
-        name: 'arjun',
-        label: 'Build Outreach Sequence',
-        taskType: 'lead_outreach',
-        deliveryMode: delivery,
-        defaultQuery: buildArjunQuery(channel, target, goal, delivery, initialQuestion),
-        placeholder: 'Describe the ICP, the account context, and the response or meeting outcome this sequence should drive.',
-        tags: ['outreach', 'sequence', 'pipeline', `delivery:${delivery}`],
-      },
-    ],
-    [channel, delivery, goal, initialQuestion, target]
+  const [runId, setRunId] = useState<string | null>(null)
+  const [prospects, setProspects] = useState<OutreachProspect[]>([])
+  const [campaigns, setCampaigns] = useState<OutreachCampaign[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [fetching, setFetching] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const [streamText, setStreamText] = useState('')
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+  const [scheduledLocal, setScheduledLocal] = useState('')
+  const [savingDraft, setSavingDraft] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+
+  const selected = useMemo(
+    () => prospects.find((p) => p.id === selectedId) || null,
+    [prospects, selectedId],
   )
 
-  const preAgentContent = (
+  const industries = useMemo(
+    () => parseListAfterLabel(question, /Apollo target industries:\s*([^.]+)/i),
+    [question],
+  )
+  const titles = useMemo(
+    () => parseListAfterLabel(question, /Apollo buyer titles:\s*([^.]+)/i),
+    [question],
+  )
+
+  const workspaceId = activeWorkspace?.id || getActiveAgentContext().workspaceId
+  const companyId = getActiveAgentContext().companyId
+  const companyName =
+    activeWorkspace?.name || getActiveAgentContext().companyName || getActiveAgentContext().workspaceName || ''
+
+  const selectProspect = useCallback((p: OutreachProspect) => {
+    setSelectedId(p.id)
+    setSubject(p.subject || '')
+    setBody(p.body || '')
+    setStreamText('')
+    setScheduledLocal(toLocalInputValue(p.scheduled_for))
+  }, [])
+
+  const fetchProspects = async () => {
+    if (!workspaceId) {
+      toast.error('Select a workspace first')
+      return
+    }
+    setFetching(true)
+    try {
+      const res = await fetch('/api/outreach/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          companyId,
+          companyName,
+          question,
+          channel,
+          target,
+          goal,
+          industries,
+          titles,
+          limit: 100,
+          timezoneOffsetMinutes: -new Date().getTimezoneOffset(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+
+      const list = (data.prospects || []) as OutreachProspect[]
+      setRunId(data.runId)
+      setProspects(list)
+      setCampaigns([])
+      setSelectedId(null)
+      setSubject('')
+      setBody('')
+      setStreamText('')
+      if (data.suggested_send_at) {
+        setScheduledLocal(toLocalInputValue(data.suggested_send_at))
+      }
+      toast.success(`Loaded ${list.length} prospects from Apollo (max 100)`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch prospects')
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const generateCopy = async () => {
+    if (!runId || !selected) {
+      toast.error('Select one prospect first')
+      return
+    }
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    setStreaming(true)
+    setStreamText('')
+    setSubject('')
+    setBody('')
+
+    try {
+      const res = await fetch(`/api/outreach/runs/${runId}/prospects/${selected.id}/copy`, {
+        method: 'POST',
+        signal: controller.signal,
+      })
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err?.error || `HTTP ${res.status}`)
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let assembled = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const chunks = buffer.split('\n\n')
+        buffer = chunks.pop() || ''
+
+        for (const chunk of chunks) {
+          const line = chunk.split('\n').find((l) => l.startsWith('data: '))
+          if (!line) continue
+          const payload = line.slice(6).trim()
+          if (payload === '[DONE]') continue
+          try {
+            const json = JSON.parse(payload) as {
+              text?: string
+              done?: boolean
+              subject?: string
+              body?: string
+              error?: string
+            }
+            if (json.error) throw new Error(json.error)
+            if (json.text) {
+              assembled += json.text
+              setStreamText(assembled)
+            }
+            if (json.done) {
+              setSubject(json.subject || '')
+              setBody(json.body || '')
+              setProspects((prev) =>
+                prev.map((p) =>
+                  p.id === selected.id
+                    ? {
+                        ...p,
+                        subject: json.subject || '',
+                        body: json.body || '',
+                        status: 'copy_ready',
+                      }
+                    : p,
+                ),
+              )
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) continue
+            throw parseErr
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
+      toast.error(err instanceof Error ? err.message : 'Copy generation failed')
+    } finally {
+      setStreaming(false)
+    }
+  }
+
+  const saveGmailDraft = async () => {
+    if (!runId || !selected) return
+    if (!subject.trim() || !body.trim()) {
+      toast.error('Generate or write subject + body first')
+      return
+    }
+    setSavingDraft(true)
+    try {
+      const res = await fetch(`/api/outreach/runs/${runId}/prospects/${selected.id}/gmail-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject,
+          body,
+          scheduled_for: fromLocalInputValue(scheduledLocal),
+          timezoneOffsetMinutes: -new Date().getTimezoneOffset(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+
+      const updated = data.prospect as OutreachProspect
+      setProspects((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)))
+      setScheduledLocal(toLocalInputValue(updated.scheduled_for))
+      if (data.campaign) {
+        setCampaigns((prev) => {
+          const exists = prev.find((c) => c.id === data.campaign.id)
+          if (exists) {
+            return prev.map((c) =>
+              c.id === data.campaign.id
+                ? { ...c, prospectIds: data.campaign.prospectIds }
+                : c,
+            )
+          }
+          return [...prev, data.campaign as OutreachCampaign]
+        })
+      }
+      toast.success(
+        `Gmail draft saved · scheduled ${updated.scheduled_for ? new Date(updated.scheduled_for).toLocaleString() : 'at apt time'}`,
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save Gmail draft')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
+  useEffect(() => {
+    return () => abortRef.current?.abort()
+  }, [])
+
+  // Auto-fetch once when opened from Launch Outreach with a question
+  useEffect(() => {
+    if (!question || !workspaceId || runId) return
+    void fetchProspects()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId])
+
+  return (
     <div className="space-y-5">
-      <section className="grid gap-4 lg:grid-cols-[0.96fr_1.04fr]">
-        <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50 shadow-[0_28px_80px_-34px_rgba(113,63,18,0.42)] dark:border-orange-900/70">
-          <CardContent className="space-y-6 p-5 lg:p-6">
+      <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+        <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50">
+          <CardContent className="space-y-5 p-5 lg:p-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-500/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-200">
               Outreach Desk
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[1.2rem] border border-orange-400/15 bg-white/5 p-3">
+                <div className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/12 text-orange-200">
                   <LinkBreak2Icon className="h-4 w-4" />
                 </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Motion</div>
-                <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(channel)}</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-orange-100/45">Motion</div>
+                <div className="mt-1 text-sm font-medium">{formatLabel(channel)}</div>
               </div>
-              <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
+              <div className="rounded-[1.2rem] border border-orange-400/15 bg-white/5 p-3">
+                <div className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/12 text-orange-200">
                   <PaperPlaneIcon className="h-4 w-4" />
                 </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Target</div>
-                <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(target)}</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-orange-100/45">Target</div>
+                <div className="mt-1 text-sm font-medium">{formatLabel(target)}</div>
               </div>
-              <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
+              <div className="rounded-[1.2rem] border border-orange-400/15 bg-white/5 p-3">
+                <div className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/12 text-orange-200">
                   <EnvelopeClosedIcon className="h-4 w-4" />
                 </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Goal</div>
-                <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(goal)}</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-orange-100/45">Goal</div>
+                <div className="mt-1 text-sm font-medium">{formatLabel(goal)}</div>
               </div>
-              <div className="rounded-[1.4rem] border border-orange-400/15 bg-white/5 p-4">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-200">
-                  <LinkedInLogoIcon className="h-4 w-4" />
+              <div className="rounded-[1.2rem] border border-orange-400/15 bg-white/5 p-3">
+                <div className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/12 text-orange-200">
+                  <CalendarClock className="h-4 w-4" />
                 </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-orange-100/45">Delivery</div>
-                <div className="mt-2 text-sm font-medium text-orange-50">{formatLabel(delivery)}</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-orange-100/45">Delivery</div>
+                <div className="mt-1 text-sm font-medium">{formatLabel(delivery)}</div>
               </div>
             </div>
+            <p className="text-xs leading-5 text-orange-100/65">
+              Fetch up to 100 Apollo prospects, pick one, stream a short personalized email, then save as a Gmail draft
+              scheduled for the next weekday morning.
+            </p>
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden rounded-[2rem] border-orange-200/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.99),rgba(255,247,237,0.95)_48%,rgba(255,237,213,0.9)_100%)] shadow-[0_28px_80px_-34px_rgba(154,52,18,0.22)] dark:border-orange-950/70 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,41,59,0.94)_55%,rgba(67,20,7,0.82)_100%)]">
-          <CardContent className="grid gap-4 p-8 lg:grid-cols-[0.9fr_1.1fr] lg:p-10">
-            <div className="space-y-4">
-              <div className="text-xs uppercase tracking-[0.24em] text-orange-600 dark:text-orange-200/70">Sequence stack</div>
-              <div className="space-y-3">
-                <div className="rounded-[1.4rem] border border-orange-200/70 bg-white/80 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-orange-900/60 dark:bg-white/5">
-                  <div className="text-xs uppercase tracking-[0.22em] text-slate-500 dark:text-orange-100/45">Hook</div>
-                  <div className="mt-2 text-sm font-medium text-slate-900 dark:text-orange-50">Why this account or person should even notice the message</div>
-                </div>
-                <div className="rounded-[1.4rem] border border-orange-200/70 bg-white/80 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-orange-900/60 dark:bg-white/5">
-                  <div className="text-xs uppercase tracking-[0.22em] text-slate-500 dark:text-orange-100/45">Progression</div>
-                  <div className="mt-2 text-sm font-medium text-slate-900 dark:text-orange-50">How the sequence earns the next reply instead of repeating the same ask</div>
-                </div>
-                <div className="rounded-[1.4rem] border border-orange-200/70 bg-white/80 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-orange-900/60 dark:bg-white/5">
-                  <div className="text-xs uppercase tracking-[0.22em] text-slate-500 dark:text-orange-100/45">Personalization</div>
-                  <div className="mt-2 text-sm font-medium text-slate-900 dark:text-orange-50">What context makes the message feel earned instead of obviously templated</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              <div className="rounded-[1.45rem] border border-orange-200/70 bg-white/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-orange-900/60 dark:bg-white/5">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-700 dark:bg-orange-400/15 dark:text-orange-200">
-                  <EnvelopeClosedIcon className="h-4 w-4" />
-                </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-slate-500 dark:text-orange-100/45">Email</div>
-                <div className="mt-2 text-sm leading-6 text-slate-700 dark:text-orange-100/78">Use when the ask needs more room and proof in the first touch.</div>
-              </div>
-              <div className="rounded-[1.45rem] border border-orange-200/70 bg-white/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-orange-900/60 dark:bg-white/5">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-700 dark:bg-orange-400/15 dark:text-orange-200">
-                  <LinkedInLogoIcon className="h-4 w-4" />
-                </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-slate-500 dark:text-orange-100/45">LinkedIn</div>
-                <div className="mt-2 text-sm leading-6 text-slate-700 dark:text-orange-100/78">Use when context and lighter-friction touches matter more than volume.</div>
-              </div>
-              <div className="rounded-[1.45rem] border border-orange-200/70 bg-white/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-orange-900/60 dark:bg-white/5">
-                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/12 text-orange-700 dark:bg-orange-400/15 dark:text-orange-200">
-                  <PaperPlaneIcon className="h-4 w-4" />
-                </div>
-                <div className="text-xs uppercase tracking-[0.22em] text-slate-500 dark:text-orange-100/45">Multitouch</div>
-                <div className="mt-2 text-sm leading-6 text-slate-700 dark:text-orange-100/78">Use when sequence timing and cross-channel rhythm matter most.</div>
-              </div>
+        <Card className="rounded-[2rem] border-orange-200/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-orange-600 dark:text-orange-400">Campaign brief</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm leading-6 text-muted-foreground whitespace-pre-wrap">
+              {question || 'Open Launch Outreach from an ICP cohort to preload the Apollo-searchable brief.'}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => void fetchProspects()} disabled={fetching || !workspaceId}>
+                {fetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {runId ? 'Refresh prospects' : 'Fetch prospects (max 100)'}
+              </Button>
+              {prospects.length > 0 ? (
+                <span className="self-center text-xs text-muted-foreground">{prospects.length} loaded</span>
+              ) : null}
             </div>
           </CardContent>
         </Card>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-[0.82fr_1.18fr]">
-        <Card className="rounded-[1.75rem] border-orange-200/70 bg-white/92 shadow-[0_18px_44px_-28px_rgba(180,83,9,0.24)] dark:border-orange-950/70 dark:bg-slate-950/86">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base tracking-tight text-slate-950 dark:text-orange-50">What You Should Get</CardTitle>
+      <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card className="rounded-[1.75rem] border-orange-200/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Prospects</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm leading-6 text-slate-700 dark:text-orange-100/78">
-            <div>• A sharper outreach arc instead of disconnected cold messages.</div>
-            <div>• Clear personalization logic the team can repeat without sounding robotic.</div>
-            <div>• First-touch and follow-up messages aligned to one pipeline goal.</div>
-            <div>
-              •{' '}
-              {delivery === 'live'
-                ? 'Live push into Instantly/Gmail when send tools are connected.'
-                : 'Drafts saved into Instantly/Gmail (live send locked until Push live).'}
-            </div>
+          <CardContent>
+            {!prospects.length ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {fetching ? 'Searching Apollo…' : 'No prospects yet. Fetch from Apollo to begin.'}
+              </p>
+            ) : (
+              <div className="max-h-[520px] overflow-auto rounded-xl border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                    <tr>
+                      {['Name', 'Title', 'Company', 'Email', 'Status'].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {prospects.map((p) => {
+                      const active = p.id === selectedId
+                      return (
+                        <tr
+                          key={p.id}
+                          className={`border-t cursor-pointer transition-colors ${
+                            active ? 'bg-orange-500/10' : 'hover:bg-muted/40'
+                          }`}
+                          onClick={() => selectProspect(p)}
+                        >
+                          <td className="px-3 py-2 font-medium whitespace-nowrap max-w-[140px] truncate">{p.full_name}</td>
+                          <td className="px-3 py-2 text-muted-foreground whitespace-nowrap max-w-[120px] truncate">
+                            {p.title || '—'}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap max-w-[120px] truncate">{p.company || '—'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap max-w-[140px] truncate">{p.email || '—'}</td>
+                          <td className={`px-3 py-2 whitespace-nowrap ${statusTone(p.status)}`}>{p.status}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        <Card className="rounded-[1.75rem] border-orange-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,247,237,0.92))] shadow-[0_18px_44px_-28px_rgba(180,83,9,0.22)] dark:border-orange-950/70 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.92),rgba(30,41,59,0.88))]">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base tracking-tight text-slate-950 dark:text-orange-50">Outreach Lens</CardTitle>
+        <Card className="rounded-[1.75rem] border-orange-200/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              {selected ? `Copy · ${selected.full_name}` : 'Select one prospect'}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-[1.25rem] border border-orange-200/70 bg-white/70 p-4 dark:border-orange-900/60 dark:bg-white/5">
-              <div className="mb-3 text-xs uppercase tracking-[0.22em] text-orange-600 dark:text-orange-200/70">Relevance</div>
-              <div className="text-sm leading-6 text-slate-700 dark:text-orange-100/78">Why is this message for this account right now, not any account anytime?</div>
-            </div>
-            <div className="rounded-[1.25rem] border border-orange-200/70 bg-white/70 p-4 dark:border-orange-900/60 dark:bg-white/5">
-              <div className="mb-3 text-xs uppercase tracking-[0.22em] text-orange-600 dark:text-orange-200/70">Friction</div>
-              <div className="text-sm leading-6 text-slate-700 dark:text-orange-100/78">Is the ask small enough to earn the next move instead of demanding too much too early?</div>
-            </div>
-            <div className="rounded-[1.25rem] border border-orange-200/70 bg-white/70 p-4 dark:border-orange-900/60 dark:bg-white/5">
-              <div className="mb-3 text-xs uppercase tracking-[0.22em] text-orange-600 dark:text-orange-200/70">Momentum</div>
-              <div className="text-sm leading-6 text-slate-700 dark:text-orange-100/78">Does each follow-up add pressure and context, or just repeat the same generic pitch?</div>
-            </div>
+          <CardContent className="space-y-3">
+            {!selected ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                Click a single row. AI writes one short email for that person only.
+              </p>
+            ) : (
+              <>
+                <div className="rounded-xl border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  {selected.title || 'Role n/a'} · {selected.company || 'Company n/a'}
+                  {selected.industry ? ` · ${selected.industry}` : ''}
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => void generateCopy()}
+                  disabled={streaming}
+                >
+                  {streaming ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  {streaming ? 'Streaming personalized copy…' : 'Generate short email'}
+                </Button>
+
+                {streaming && streamText ? (
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl border bg-zinc-950/95 p-3 text-xs text-orange-50">
+                    {streamText}
+                    <span className="animate-pulse">▍</span>
+                  </pre>
+                ) : null}
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-muted-foreground">Subject</div>
+                  <Input value={subject} onChange={(e) => setSubject(e.target.value)} disabled={streaming} />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-muted-foreground">Body</div>
+                  <Textarea
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    className="min-h-[160px]"
+                    disabled={streaming}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-muted-foreground">Schedule send (apt time)</div>
+                  <Input
+                    type="datetime-local"
+                    value={scheduledLocal}
+                    onChange={(e) => setScheduledLocal(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Defaults to next weekday 09:30 local. Saves as Gmail draft now; send later from Gmail or a runner.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  className="w-full bg-orange-500 hover:bg-orange-600"
+                  onClick={() => void saveGmailDraft()}
+                  disabled={savingDraft || streaming || !subject.trim() || !body.trim()}
+                >
+                  {savingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Save Gmail draft + schedule
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </section>
+
+      {campaigns.length > 0 ? (
+        <Card className="rounded-[1.75rem] border-orange-200/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Campaigns (Gmail drafts)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {campaigns.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-center justify-between rounded-xl border px-4 py-3 text-sm"
+              >
+                <div>
+                  <div className="font-medium">{c.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {c.provider} · {c.prospectIds.length} draft{c.prospectIds.length === 1 ? '' : 's'}
+                  </div>
+                </div>
+                <span className="text-xs uppercase tracking-wide text-emerald-600">{c.status}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
-  )
-
-  return (
-    <AgentModuleShell
-      hideHeader
-      moduleId="lead-outreach"
-      hideMarketSignals
-      title="Build Outreach Sequences"
-      description="Shape the outreach arc, tighten the personalization logic, and leave with the first messages ready to send."
-      agents={agents}
-      preAgentContent={preAgentContent}
-      collapseSetupControls
-      resourceContextLabel="Lead list, CRM, or account brief URL"
-      resourceContextPlaceholder="Paste the lead sheet, CRM view, account brief, or notes doc URL if the outreach should follow a specific source"
-      resourceContextHint="Optional. Use this when the sequence should be built against an exact lead list, CRM slice, or account brief."
-      buildResourceContext={(value) => `Use this exact lead list, CRM view, or account brief if needed: ${value}`}
-      resourceContextPlacement="primary"
-    />
   )
 }

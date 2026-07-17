@@ -280,9 +280,9 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                                 `Apollo buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
                                 'Use Apollo only for businesses/professional buyers; never for consumer traits or health-condition users.',
                               ].filter(Boolean).join(' '),
-                              channel: 'multi',
+                              channel: 'email',
                               target: 'decision',
-                              goal: 'meeting',
+                              goal: 'reply',
                               delivery: 'draft',
                             }}
                             chatHandoff={false}
