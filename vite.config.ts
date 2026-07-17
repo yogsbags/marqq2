@@ -1,18 +1,55 @@
 import path from 'path';
+import fs from 'fs';
+import { execSync } from 'child_process';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 
 const backendPort = process.env.BACKEND_PORT || process.env.VITE_BACKEND_PORT || '3008';
 const backendTarget = `http://localhost:${backendPort}`;
 
+function resolveBuildId() {
+  if (process.env.VITE_APP_BUILD_ID) return String(process.env.VITE_APP_BUILD_ID).trim();
+  if (process.env.RAILWAY_GIT_COMMIT_SHA) return String(process.env.RAILWAY_GIT_COMMIT_SHA).slice(0, 12);
+  if (process.env.SOURCE_COMMIT) return String(process.env.SOURCE_COMMIT).slice(0, 12);
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    return `build-${Date.now()}`;
+  }
+}
+
+const buildId = resolveBuildId();
+const builtAt = new Date().toISOString();
+
+/** Writes dist/version.json so clients can detect a new Railway deploy. */
+function writeVersionJsonPlugin(): Plugin {
+  return {
+    name: 'marqq-write-version-json',
+    apply: 'build',
+    closeBundle() {
+      const outDir = path.resolve(__dirname, 'dist');
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(outDir, 'version.json'),
+        JSON.stringify({ buildId, builtAt }, null, 2),
+        'utf8',
+      );
+      console.log(`[build] version.json → ${buildId}`);
+    },
+  };
+}
+
 export default defineConfig({
   root: path.resolve(__dirname, 'app'),
   envDir: __dirname,  // load .env from martech/ root, not app/
+  define: {
+    'import.meta.env.VITE_APP_BUILD_ID': JSON.stringify(buildId),
+  },
   build: {
     outDir: path.resolve(__dirname, 'dist'),
     emptyOutDir: true,
   },
-  plugins: [react()],
+  plugins: [react(), writeVersionJsonPlugin()],
   server: {
     port: 3007,
     host: true,

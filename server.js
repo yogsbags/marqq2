@@ -80,6 +80,11 @@ async function serveFile(res, filePath) {
   const data = await fs.readFile(filePath)
   res.statusCode = 200
   res.setHeader('content-type', contentTypeFor(filePath))
+  // version.json must never be cached — clients poll it for deploy updates
+  if (path.basename(filePath) === 'version.json') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+  }
   res.end(data)
 }
 

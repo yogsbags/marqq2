@@ -1,3 +1,4 @@
+import { AppUpdateBanner } from '@/components/AppUpdateBanner';
 import { AgentDashboard } from '@/components/agents/AgentDashboard';
 import { ChatHome } from '@/components/chat/ChatHome';
 import { ChatSessionsPage } from '@/components/chat/ChatSessionsPage';
@@ -506,6 +507,7 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <WorkspaceProvider>
+          <AppUpdateBanner />
           <AppContent />
           <Toaster richColors position="top-right" />
         </WorkspaceProvider>
