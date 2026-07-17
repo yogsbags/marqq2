@@ -8478,18 +8478,35 @@ app.get("/api/integrations", async (req, res) => {
 });
 
 // ── POST /api/integrations/connect & /disconnect ──────────────────────────
+function asApiErrorMessage(error, fallback = 'Request failed') {
+  if (error == null) return fallback;
+  if (typeof error === 'string') return error;
+  if (error instanceof Error) return error.message || fallback;
+  if (typeof error === 'object') {
+    const message = error.message || error.error || error.detail || error.description;
+    if (typeof message === 'string' && message.trim()) return message.trim();
+    if (message && typeof message === 'object') return asApiErrorMessage(message, fallback);
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return fallback;
+    }
+  }
+  return String(error);
+}
+
 app.post("/api/integrations/connect", async (req, res) => {
   const { companyId, connectorId, extraFields } = req.body;
   if (!companyId || !connectorId) return res.status(400).json({ error: 'companyId and connectorId required' });
   const result = await initiateConnection(companyId, connectorId, extraFields || {});
-  if (result.error) return res.status(400).json({ error: result.error });
+  if (result.error) return res.status(400).json({ error: asApiErrorMessage(result.error, 'Connect failed') });
   res.json(result);
 });
 app.post("/api/integrations/disconnect", async (req, res) => {
   const { companyId, connectorId } = req.body;
   if (!companyId || !connectorId) return res.status(400).json({ error: 'companyId and connectorId required' });
   const result = await disconnectConnector(companyId, connectorId);
-  if (result.error) return res.status(400).json({ error: result.error });
+  if (result.error) return res.status(400).json({ error: asApiErrorMessage(result.error, 'Disconnect failed') });
   res.json(result);
 });
 

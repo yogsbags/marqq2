@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { addIntegrationConnectedListener, connectComposioConnector } from '@/lib/composio';
+import { addIntegrationConnectedListener, connectComposioConnector, formatConnectorError } from '@/lib/composio';
 import { cn } from '@/lib/utils';
 import { BarChart2, Check, ChevronDown, Loader2, Search, X } from 'lucide-react';
 
@@ -366,7 +366,7 @@ export function AccountsTab() {
         await load();
       }
     } catch (err: any) {
-      toast.error(err?.message || 'Connect failed');
+      toast.error(formatConnectorError(err, 'Connect failed'));
       setActionId(null);
     }
   };

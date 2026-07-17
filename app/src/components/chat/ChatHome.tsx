@@ -56,6 +56,7 @@ import {
   type ConversationScope,
 } from '@/lib/conversationPersistence';
 import { hasWorkflowForm, WORKFLOW_FORMS, buildWorkflowSummary, checkConnectorReadiness } from '@/lib/workflowRequirements';
+import { isConnectorActive } from '@/lib/connectorMeta';
 import { connectComposioConnector } from '@/lib/composio';
 import {
   AGENT_ATTACHMENT_ACCEPT,
@@ -1678,7 +1679,7 @@ export function ChatHome({
       .catch(() => ({}))
       .then(json => {
         const ids: string[] = (json?.connectors ?? [])
-          .filter((c: { status: string }) => c.status === 'active')
+          .filter((c: { id?: string; connected?: boolean; status?: string }) => Boolean(c.id) && isConnectorActive(c))
           .map((c: { id: string }) => c.id);
         setActiveConnectorIds(ids);
       });

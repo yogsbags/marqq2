@@ -19,70 +19,117 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const AGENTS_DIR = join(__dirname, '..', 'crewai', 'agents')
+const REPO_ROOT = join(__dirname, '..', '..')
+
+// Load .env before any auth-config lookups. backend-server also loads env, but
+// this module can be imported before that runs — so IDs must not be snapshotted
+// at import time.
+function loadEnvFileIntoProcess(envPath) {
+  try {
+    const raw = readFileSync(envPath, 'utf8')
+    for (const line of raw.split('\n')) {
+      const match = line.match(/^([^#=]+)=(.*)$/)
+      if (!match) continue
+      const key = match[1].trim()
+      const value = match[2].trim().replace(/^["']|["']$/g, '')
+      if (!process.env[key]) process.env[key] = value
+    }
+  } catch {
+    /* missing file is fine */
+  }
+}
+loadEnvFileIntoProcess(join(REPO_ROOT, '.env'))
+loadEnvFileIntoProcess(join(REPO_ROOT, '.env.local'))
+loadEnvFileIntoProcess(join(__dirname, '..', 'crewai', '.env'))
 
 // ─── Connector → Composio app name mapping ────────────────────────────────────
 // Composio app names: https://app.composio.dev/apps
 
-// Composio auth config IDs — set per-app when you create a custom OAuth config in Composio dashboard
-// These are passed as integrationId so Composio uses your configured OAuth app (client ID/secret)
-export const AUTH_CONFIG_MAP = {
+// Env var names for Composio auth config IDs (OAuth / Connect Link popup).
+// Read at call time via getAuthConfigId() — never cache at import.
+const AUTH_CONFIG_ENV_KEYS = {
   // Paid ads
-  google_ads:       process.env.COMPOSIO_GOOGLE_ADS_AUTH_CONFIG_ID              || null,
-  meta_ads:         process.env.COMPOSIO_META_ADS_AUTH_CONFIG_ID                || null,
-  linkedin_ads:     process.env.COMPOSIO_LINKEDIN_ADS_AUTH_CONFIG_ID            || null,
+  google_ads: 'COMPOSIO_GOOGLE_ADS_AUTH_CONFIG_ID',
+  meta_ads: 'COMPOSIO_META_ADS_AUTH_CONFIG_ID',
+  linkedin_ads: 'COMPOSIO_LINKEDIN_ADS_AUTH_CONFIG_ID',
   // CRM
-  apollo:           process.env.COMPOSIO_APOLLO_AUTH_CONFIG_ID                  || null,
-  hubspot:          process.env.COMPOSIO_HUBSPOT_AUTH_CONFIG_ID                 || null,
-  zoho_crm:         process.env.COMPOSIO_ZOHO_CRM_AUTH_CONFIG_ID                || null,
-  salesforce:       process.env.COMPOSIO_SALESFORCE_AUTH_CONFIG_ID              || null,
+  apollo: 'COMPOSIO_APOLLO_AUTH_CONFIG_ID',
+  hubspot: 'COMPOSIO_HUBSPOT_AUTH_CONFIG_ID',
+  zoho_crm: 'COMPOSIO_ZOHO_CRM_AUTH_CONFIG_ID',
+  salesforce: 'COMPOSIO_SALESFORCE_AUTH_CONFIG_ID',
   // Email & messaging
-  gmail:            process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID                   || null,
-  outlook:          process.env.COMPOSIO_OUTLOOK_AUTH_CONFIG_ID                 || null,
-  hunter:           process.env.COMPOSIO_HUNTER_AUTH_CONFIG_ID                  || null,
-  mailchimp:        process.env.COMPOSIO_MAILCHIMP_AUTH_CONFIG_ID               || null,
-  klaviyo:          process.env.COMPOSIO_KLAVIYO_AUTH_CONFIG_ID                 || null,
-  sendgrid:         process.env.COMPOSIO_SENDGRID_AUTH_CONFIG_ID                || null,
-  instantly:        process.env.COMPOSIO_INSTANTLY_AUTH_CONFIG_ID               || null,
-  heyreach:         process.env.COMPOSIO_HEYREACH_AUTH_CONFIG_ID                || null,
-  lemlist:          process.env.COMPOSIO_LEMLIST_AUTH_CONFIG_ID                 || null,
-  whatsapp:         process.env.COMPOSIO_WHATSAPP_AUTH_CONFIG_ID                || null,
-  slack:            process.env.COMPOSIO_SLACK_AUTH_CONFIG_ID                   || null,
-  zoho_mail:        process.env.COMPOSIO_ZOHO_MAIL_AUTH_CONFIG_ID               || null,
+  gmail: 'COMPOSIO_GMAIL_AUTH_CONFIG_ID',
+  outlook: 'COMPOSIO_OUTLOOK_AUTH_CONFIG_ID',
+  hunter: 'COMPOSIO_HUNTER_AUTH_CONFIG_ID',
+  mailchimp: 'COMPOSIO_MAILCHIMP_AUTH_CONFIG_ID',
+  klaviyo: 'COMPOSIO_KLAVIYO_AUTH_CONFIG_ID',
+  sendgrid: 'COMPOSIO_SENDGRID_AUTH_CONFIG_ID',
+  instantly: 'COMPOSIO_INSTANTLY_AUTH_CONFIG_ID',
+  heyreach: 'COMPOSIO_HEYREACH_AUTH_CONFIG_ID',
+  lemlist: 'COMPOSIO_LEMLIST_AUTH_CONFIG_ID',
+  whatsapp: 'COMPOSIO_WHATSAPP_AUTH_CONFIG_ID',
+  slack: 'COMPOSIO_SLACK_AUTH_CONFIG_ID',
+  zoho_mail: 'COMPOSIO_ZOHO_MAIL_AUTH_CONFIG_ID',
   // Google workspace
-  ga4:              process.env.COMPOSIO_GOOGLE_ANALYTICS_AUTH_CONFIG_ID        || null,
-  gsc:              process.env.COMPOSIO_GOOGLE_SEARCH_CONSOLE_AUTH_CONFIG_ID   || null,
-  google_sheets:    process.env.COMPOSIO_GOOGLE_SHEETS_AUTH_CONFIG_ID           || null,
-  google_docs:      process.env.COMPOSIO_GOOGLE_DOCS_AUTH_CONFIG_ID             || null,
-  google_drive:     process.env.COMPOSIO_GOOGLE_DRIVE_AUTH_CONFIG_ID            || null,
-  google_calendar:  process.env.COMPOSIO_GOOGLE_CALENDAR_AUTH_CONFIG_ID         || null,
-  youtube:          process.env.COMPOSIO_YOUTUBE_AUTH_CONFIG_ID                 || null,
+  ga4: 'COMPOSIO_GOOGLE_ANALYTICS_AUTH_CONFIG_ID',
+  gsc: 'COMPOSIO_GOOGLE_SEARCH_CONSOLE_AUTH_CONFIG_ID',
+  google_sheets: 'COMPOSIO_GOOGLE_SHEETS_AUTH_CONFIG_ID',
+  google_docs: 'COMPOSIO_GOOGLE_DOCS_AUTH_CONFIG_ID',
+  google_drive: 'COMPOSIO_GOOGLE_DRIVE_AUTH_CONFIG_ID',
+  google_calendar: 'COMPOSIO_GOOGLE_CALENDAR_AUTH_CONFIG_ID',
+  youtube: 'COMPOSIO_YOUTUBE_AUTH_CONFIG_ID',
   // Microsoft
-  one_drive:        process.env.COMPOSIO_ONE_DRIVE_AUTH_CONFIG_ID               || null,
+  one_drive: 'COMPOSIO_ONE_DRIVE_AUTH_CONFIG_ID',
   // SEO
-  semrush:          process.env.COMPOSIO_SEMRUSH_AUTH_CONFIG_ID                 || null,
-  ahrefs:           process.env.COMPOSIO_AHREFS_AUTH_CONFIG_ID                  || null,
+  semrush: 'COMPOSIO_SEMRUSH_AUTH_CONFIG_ID',
+  ahrefs: 'COMPOSIO_AHREFS_AUTH_CONFIG_ID',
   // Analytics
-  mixpanel:         process.env.COMPOSIO_MIXPANEL_AUTH_CONFIG_ID                || null,
-  amplitude:        process.env.COMPOSIO_AMPLITUDE_AUTH_CONFIG_ID               || null,
+  mixpanel: 'COMPOSIO_MIXPANEL_AUTH_CONFIG_ID',
+  amplitude: 'COMPOSIO_AMPLITUDE_AUTH_CONFIG_ID',
   // Social
-  linkedin:         process.env.COMPOSIO_LINKEDIN_AUTH_CONFIG_ID                || null,
-  facebook:         process.env.COMPOSIO_FACEBOOK_AUTH_CONFIG_ID                || null,
-  instagram:        process.env.COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID               || null,
-  reddit:           process.env.COMPOSIO_REDDIT_AUTH_CONFIG_ID                  || null,
+  linkedin: 'COMPOSIO_LINKEDIN_AUTH_CONFIG_ID',
+  facebook: 'COMPOSIO_FACEBOOK_AUTH_CONFIG_ID',
+  instagram: 'COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID',
+  reddit: 'COMPOSIO_REDDIT_AUTH_CONFIG_ID',
   // Content & creative
-  canva:            process.env.COMPOSIO_CANVA_AUTH_CONFIG_ID                   || null,
-  heygen:           process.env.COMPOSIO_HEYGEN_AUTH_CONFIG_ID                  || null,
-  elevenlabs:       process.env.COMPOSIO_ELEVENLABS_AUTH_CONFIG_ID              || null,
-  veo:              process.env.COMPOSIO_VEO_AUTH_CONFIG_ID                     || null,
+  canva: 'COMPOSIO_CANVA_AUTH_CONFIG_ID',
+  heygen: 'COMPOSIO_HEYGEN_AUTH_CONFIG_ID',
+  elevenlabs: 'COMPOSIO_ELEVENLABS_AUTH_CONFIG_ID',
+  veo: 'COMPOSIO_VEO_AUTH_CONFIG_ID',
   // Automation & data
-  make:             process.env.COMPOSIO_MAKE_AUTH_CONFIG_ID                    || null,
-  apify:            process.env.COMPOSIO_APIFY_AUTH_CONFIG_ID                   || null,
-  shopify:          process.env.COMPOSIO_SHOPIFY_AUTH_CONFIG_ID                 || null,
+  make: 'COMPOSIO_MAKE_AUTH_CONFIG_ID',
+  apify: 'COMPOSIO_APIFY_AUTH_CONFIG_ID',
+  shopify: 'COMPOSIO_SHOPIFY_AUTH_CONFIG_ID',
   // AI providers
-  openai:           process.env.COMPOSIO_OPENAI_AUTH_CONFIG_ID                  || null,
-  anthropic:        process.env.COMPOSIO_ANTHROPIC_AUTH_CONFIG_ID               || null,
-  perplexity:       process.env.COMPOSIO_PERPLEXITY_AUTH_CONFIG_ID              || null,
+  openai: 'COMPOSIO_OPENAI_AUTH_CONFIG_ID',
+  anthropic: 'COMPOSIO_ANTHROPIC_AUTH_CONFIG_ID',
+  perplexity: 'COMPOSIO_PERPLEXITY_AUTH_CONFIG_ID',
 }
+
+export function getAuthConfigId(connectorId) {
+  const envKey = AUTH_CONFIG_ENV_KEYS[connectorId]
+  if (!envKey) return null
+  const value = process.env[envKey]
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+/** @deprecated Prefer getAuthConfigId() — values are resolved at access time */
+export const AUTH_CONFIG_MAP = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      if (typeof prop !== 'string') return undefined
+      return getAuthConfigId(prop)
+    },
+    ownKeys() {
+      return Object.keys(AUTH_CONFIG_ENV_KEYS)
+    },
+    getOwnPropertyDescriptor(_target, prop) {
+      if (typeof prop !== 'string' || !(prop in AUTH_CONFIG_ENV_KEYS)) return undefined
+      return { enumerable: true, configurable: true, value: getAuthConfigId(prop) }
+    },
+  },
+)
 
 export const CONNECTOR_APP_MAP = {
   // Paid ads
@@ -282,12 +329,14 @@ export async function getConnectors(userId) {
       for (const [connId, appName] of Object.entries(CONNECTOR_APP_MAP)) {
         if (normalizeToolkitSlug(toolkitSlug) === normalizeToolkitSlug(appName)) {
           const existing = connected.get(connId)
+          const statusUpper = String(acct.status || '').toUpperCase()
+          const isActive = statusUpper === 'ACTIVE' || statusUpper === 'CONNECTED' || statusUpper === 'SUCCESS'
           // Prefer ACTIVE over any other status — don't let an EXPIRED entry overwrite an ACTIVE one
-          if (!existing || acct.status === 'ACTIVE') {
+          if (!existing || isActive) {
             connected.set(connId, {
-              connected: acct.status === 'ACTIVE',
+              connected: isActive,
               connectedAt: acct.created_at || acct.createdAt || null,
-              status: acct.status?.toLowerCase() || 'connected',
+              status: isActive ? 'active' : (acct.status?.toLowerCase() || 'connected'),
             })
           }
         }
@@ -300,21 +349,63 @@ export async function getConnectors(userId) {
   }
 }
 
-// ─── Initiate OAuth (returns redirectUrl for popup) ───────────────────────────
+// ─── Initiate OAuth Connect Link (returns redirectUrl for popup) ──────────────
+
+function extractRedirectUrl(data) {
+  if (!data || typeof data !== 'object') return null
+  return (
+    data.link ||
+    data.redirectUrl ||
+    data.redirect_url ||
+    data.redirectURI ||
+    data.redirect_uri ||
+    data?.connection?.redirectUrl ||
+    data?.connection?.redirect_url ||
+    data?.data?.link ||
+    data?.data?.redirectUrl ||
+    data?.data?.redirect_url ||
+    null
+  )
+}
+
+function formatComposioError(data, fallback = 'Connect failed') {
+  const raw = data?.message || data?.error || data?.detail || data?.errors || data
+  if (typeof raw === 'string' && raw.trim()) return raw.trim()
+  if (Array.isArray(raw) && raw.length) {
+    return raw
+      .map((item) => (typeof item === 'string' ? item : item?.message || JSON.stringify(item)))
+      .join('; ')
+  }
+  if (raw && typeof raw === 'object') {
+    const nested = raw.message || raw.error || raw.detail || raw.description
+    if (typeof nested === 'string' && nested.trim()) return nested.trim()
+    try {
+      return JSON.stringify(raw)
+    } catch {
+      return fallback
+    }
+  }
+  return fallback
+}
 
 export async function initiateConnection(userId, connectorId, extraFields = {}) {
   const apiKey       = process.env.COMPOSIO_API_KEY
   const appName      = CONNECTOR_APP_MAP[connectorId]
-  const authConfigId = AUTH_CONFIG_MAP[connectorId] || null
+  const authConfigId = getAuthConfigId(connectorId)
+  const authEnvKey   = AUTH_CONFIG_ENV_KEYS[connectorId] || `COMPOSIO_${String(connectorId).toUpperCase()}_AUTH_CONFIG_ID`
   if (!apiKey)      return { error: 'COMPOSIO_API_KEY not configured — add it to your .env' }
   if (!appName)     return { error: `Unknown connector: ${connectorId}` }
-  if (!authConfigId) return { error: `No auth config ID for ${connectorId} — add COMPOSIO_${connectorId.toUpperCase()}_AUTH_CONFIG_ID to .env` }
+  if (!authConfigId) {
+    return {
+      error: `No auth config ID for ${connectorId} — set ${authEnvKey} in your environment (Composio Auth Config for Connect Link / OAuth popup)`,
+    }
+  }
 
   const appUrl = process.env.APP_URL || 'http://localhost:3007'
 
   // Build connection data — some connectors need extra fields (e.g. Google Ads needs
   // developer_token + customer_id which Composio stores as generic_token + generic_id)
-  const connectionData = Object.keys(extraFields).length ? extraFields : undefined
+  const connectionData = Object.keys(extraFields || {}).length ? extraFields : undefined
 
   try {
     const res = await fetch(`${COMPOSIO_V3}/connected_accounts/link`, {
@@ -324,19 +415,39 @@ export async function initiateConnection(userId, connectorId, extraFields = {}) 
         auth_config_id: authConfigId,
         user_id: userId,
         callback_url: `${appUrl}/settings?tab=accounts&connected=${connectorId}`,
+        allow_multiple: true,
         ...(connectionData && { data: connectionData }),
       }),
     })
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
     if (!res.ok) {
       console.error('[initiateConnection] Composio v3 error:', JSON.stringify(data))
-      return { error: data?.message || data?.error || JSON.stringify(data) }
+      // Already linked — treat as success so Outreach / Integrations don't toast an error
+      try {
+        const existing = await getConnectors(userId)
+        const match = existing.find((c) => c.id === connectorId)
+        if (match?.connected || match?.status === 'active') {
+          return { alreadyConnected: true, redirectUrl: null, connectionId: null }
+        }
+      } catch {
+        /* fall through to error */
+      }
+      return { error: formatComposioError(data, `Composio connect failed (${res.status})`) }
     }
-    // v3 returns { link: "https://..." } or { redirectUrl: "..." }
-    const redirectUrl = data.link || data.redirectUrl || data.redirect_url
-    return { redirectUrl, connectionId: data.id || data.connection_id }
+
+    const redirectUrl = extractRedirectUrl(data)
+    if (!redirectUrl) {
+      console.error('[initiateConnection] Missing redirect URL in Composio response:', JSON.stringify(data))
+      return {
+        error: formatComposioError(
+          data,
+          'Composio did not return an OAuth popup URL — check the Apollo auth config in Composio dashboard',
+        ),
+      }
+    }
+    return { redirectUrl, connectionId: data.id || data.connection_id || data.connected_account_id || null }
   } catch (err) {
-    return { error: err.message }
+    return { error: err.message || 'Connect failed' }
   }
 }
 

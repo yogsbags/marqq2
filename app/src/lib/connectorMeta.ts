@@ -31,3 +31,14 @@ export const CONNECTOR_DISPLAY: Record<string, { label: string; bg: string }> = 
 export function connectorLabel(id: string): string {
   return CONNECTOR_DISPLAY[id]?.label || id;
 }
+
+/** Match Integrations menu: prefer `connected`, also accept active-ish status strings. */
+export function isConnectorActive(connector: {
+  connected?: boolean
+  status?: string
+} | null | undefined): boolean {
+  if (!connector) return false
+  if (connector.connected) return true
+  const status = String(connector.status || '').toLowerCase()
+  return status === 'active' || status === 'connected' || status === 'success'
+}

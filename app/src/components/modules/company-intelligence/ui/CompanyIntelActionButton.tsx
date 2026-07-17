@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { addIntegrationConnectedListener } from '@/lib/composio'
+import { isConnectorActive } from '@/lib/connectorMeta'
 import {
   checkConnectorReadiness,
   hasWorkflowForm,
@@ -182,7 +183,8 @@ export function CompanyIntelActionButton({
   className,
 }: Props) {
   const { activeWorkspace } = useWorkspace()
-  const workspaceId = activeWorkspace?.id
+  // Prefer context, fall back to localStorage (same source deploy uses)
+  const workspaceId = activeWorkspace?.id || getActiveWorkspaceId() || undefined
 
   const workflowForm = useMemo(() => {
     const moduleId = typeof navigateModuleId === 'string' ? navigateModuleId.trim() : ''
@@ -218,7 +220,7 @@ export function CompanyIntelActionButton({
       const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`)
       const json = res.ok ? await res.json().catch(() => ({})) : {}
       const ids: string[] = (json?.connectors ?? [])
-        .filter((c: { status?: string }) => c.status === 'active')
+        .filter((c: { id?: string; connected?: boolean; status?: string }) => Boolean(c.id) && isConnectorActive(c))
         .map((c: { id: string }) => c.id)
       setActiveConnectorIds(ids)
     } catch {

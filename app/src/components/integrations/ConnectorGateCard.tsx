@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
-import { connectComposioConnector } from '@/lib/composio'
-import { CONNECTOR_DISPLAY } from '@/lib/connectorMeta'
+import { connectComposioConnector, formatConnectorError } from '@/lib/composio'
+import { CONNECTOR_DISPLAY, isConnectorActive } from '@/lib/connectorMeta'
 import { Link2, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -47,7 +47,20 @@ export function ConnectorGateCard({
         onConnected: () => onConnected(connectorId),
       })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not open connector popup')
+      // Integrations may already show this as connected — re-check before toasting
+      try {
+        const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`)
+        const json = res.ok ? await res.json().catch(() => ({})) : {}
+        const match = (json?.connectors ?? []).find((c: { id?: string }) => c.id === connectorId)
+        if (isConnectorActive(match)) {
+          onConnected(connectorId)
+          toast.success('Already connected — continuing.')
+          return
+        }
+      } catch {
+        /* ignore */
+      }
+      toast.error(formatConnectorError(error, 'Could not open connector popup'))
     } finally {
       setConnecting(null)
     }

@@ -6,6 +6,39 @@ type ConnectComposioOptions = {
   onConnected?: (connectorId: string) => void | Promise<void>
 }
 
+/** Turn API/error payloads into a toast-safe string (avoids `[object Object]`). */
+export function formatConnectorError(error: unknown, fallback = 'Connect failed'): string {
+  if (error == null) return fallback
+  if (typeof error === 'string') {
+    const trimmed = error.trim()
+    return trimmed && trimmed !== '[object Object]' ? trimmed : fallback
+  }
+  if (error instanceof Error) {
+    const msg = error.message?.trim()
+    return msg && msg !== '[object Object]' ? msg : fallback
+  }
+  if (typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    for (const key of ['message', 'error', 'detail', 'description']) {
+      const value = record[key]
+      if (typeof value === 'string' && value.trim() && value.trim() !== '[object Object]') {
+        return value.trim()
+      }
+      if (value && typeof value === 'object') {
+        const nested = formatConnectorError(value, '')
+        if (nested) return nested
+      }
+    }
+    try {
+      const json = JSON.stringify(error)
+      if (json && json !== '{}' && json !== 'null') return json.slice(0, 280)
+    } catch {
+      /* ignore */
+    }
+  }
+  return fallback
+}
+
 type IntegrationConnectedDetail = {
   companyId: string
   connectorId: string
@@ -86,7 +119,7 @@ export async function connectComposioConnector({
   const json = await response.json().catch(() => ({}))
   if (!response.ok) {
     popup?.close()
-    throw new Error(json?.error || 'connect failed')
+    throw new Error(formatConnectorError(json?.error ?? json?.message ?? json, 'Could not start connector OAuth'))
   }
 
   const finalize = async (resolvedConnectorId: string) => {

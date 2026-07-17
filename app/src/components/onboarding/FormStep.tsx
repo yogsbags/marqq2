@@ -1,4 +1,8 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { connectComposioConnector, formatConnectorError } from '@/lib/composio';
 import OnboardingContainer from './OnboardingContainer';
 import ProgressBar from './ProgressBar';
 import { FormData, OnboardingStep } from './types';
@@ -11,13 +15,15 @@ interface Integration {
   color: string;
 }
 
+/** IDs must match Composio connector keys in mcp-router CONNECTOR_APP_MAP */
 const INTEGRATIONS: Integration[] = [
-  { id: 'google-analytics', name: 'Google Analytics 4', icon: 'GA', description: 'Traffic & conversion data', color: '#E37400' },
-  { id: 'google-ads', name: 'Google Ads', icon: 'G', description: 'Ad spend & ROAS', color: '#4285F4' },
-  { id: 'meta-ads', name: 'Meta Ads', icon: 'M', description: 'Facebook & Instagram ads', color: '#1877F2' },
+  { id: 'ga4', name: 'Google Analytics 4', icon: 'GA', description: 'Traffic & conversion data', color: '#E37400' },
+  { id: 'google_ads', name: 'Google Ads', icon: 'G', description: 'Ad spend & ROAS', color: '#4285F4' },
+  { id: 'meta_ads', name: 'Meta Ads', icon: 'M', description: 'Facebook & Instagram ads', color: '#1877F2' },
   { id: 'hubspot', name: 'HubSpot', icon: 'HS', description: 'CRM & pipeline data', color: '#FF7A59' },
-  { id: 'linkedin-ads', name: 'LinkedIn Ads', icon: 'In', description: 'B2B campaign performance', color: '#0A66C2' },
+  { id: 'linkedin_ads', name: 'LinkedIn Ads', icon: 'In', description: 'B2B campaign performance', color: '#0A66C2' },
   { id: 'mailchimp', name: 'Mailchimp', icon: 'MC', description: 'Email campaigns', color: '#FFE01B' },
+  { id: 'apollo', name: 'Apollo', icon: 'AP', description: 'Prospecting & lead data', color: '#5B6CFF' },
 ];
 
 interface FormStepProps {
@@ -41,6 +47,9 @@ function IntegrationsGrid({
 }) {
   const connected = new Set(value ? value.split(',').filter(Boolean) : []);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const { user } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id;
 
   const toggle = async (id: string) => {
     if (connected.has(id)) {
@@ -49,13 +58,48 @@ function IntegrationsGrid({
       onChange([...next].join(','));
       return;
     }
-    // Simulate OAuth connect flow
+
+    if (!workspaceId) {
+      toast.error('Create or select a workspace before connecting accounts');
+      return;
+    }
+
     setConnecting(id);
-    await new Promise(r => setTimeout(r, 900));
-    setConnecting(null);
-    const next = new Set(connected);
-    next.add(id);
-    onChange([...next].join(','));
+    try {
+      toast.info('Complete the connection in the popup window');
+      const result = await connectComposioConnector({
+        companyId: workspaceId,
+        connectorId: id,
+        userEmail: user?.email,
+        userName: user?.name ?? user?.email,
+      });
+
+      if (result.status === 'connected') {
+        const next = new Set(connected);
+        next.add(id);
+        onChange([...next].join(','));
+        toast.success('Account connected');
+        return;
+      }
+
+      // Popup closed without success postMessage — re-check Integrations status
+      const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`);
+      const json = res.ok ? await res.json().catch(() => ({})) : {};
+      const match = (json?.connectors ?? []).find((c: { id?: string }) => c.id === id);
+      const isActive = Boolean(match?.connected || match?.status === 'active');
+      if (isActive) {
+        const next = new Set(connected);
+        next.add(id);
+        onChange([...next].join(','));
+        toast.success('Account connected');
+      } else {
+        toast.error('Connection not completed — try again');
+      }
+    } catch (error) {
+      toast.error(formatConnectorError(error, 'Could not open connector popup'));
+    } finally {
+      setConnecting(null);
+    }
   };
 
   return (
@@ -68,8 +112,9 @@ function IntegrationsGrid({
           <button
             key={integration.id}
             type="button"
-            onClick={() => toggle(integration.id)}
-            className="flex items-center gap-3 rounded-xl px-4 py-3.5 text-left transition-all duration-300 border"
+            disabled={Boolean(connecting)}
+            onClick={() => void toggle(integration.id)}
+            className="flex items-center gap-3 rounded-xl px-4 py-3.5 text-left transition-all duration-300 border disabled:opacity-60"
             style={{
               background: isConnected
                 ? `${integration.color}12`
