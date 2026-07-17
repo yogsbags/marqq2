@@ -71,14 +71,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    // Check for existing Supabase session
+    let cancelled = false;
+
+    const applyAuthUser = (supabaseUser: UsableAuthUser) => {
+      const user = mapSupabaseUser(supabaseUser);
+      persistActiveUserId(supabaseUser.id);
+      if (user && shouldForceOnboarding(user)) {
+        markNeedsOnboarding(user.id);
+        return {
+          user: { ...user, onboarded: false },
+          isAuthenticated: true,
+          isLoading: false,
+        } satisfies AuthState;
+      }
+      return {
+        user,
+        isAuthenticated: true,
+        isLoading: false,
+      } satisfies AuthState;
+    };
+
+    const verifySessionInBackground = async () => {
+      try {
+        const { data: verified, error: userError } = await supabase.auth.getUser();
+        if (cancelled) return;
+        const verifiedUser = verified?.user;
+        if (userError || !isUsableAuthUser(verifiedUser)) {
+          await supabase.auth.signOut().catch(() => {});
+          persistActiveUserId(null);
+          setState({ user: null, isAuthenticated: false, isLoading: false });
+          return;
+        }
+        setState(applyAuthUser(verifiedUser));
+      } catch (error) {
+        console.error('Error verifying session:', error);
+      }
+    };
+
+    // Fast path: restore from persisted session locally, verify with Supabase in background.
     const checkSession = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
 
+        if (cancelled) return;
+
         if (error) {
           console.error('Error getting session:', error);
-          // Stale refresh token — sign out cleanly so the user lands on the login page
           if (error.message?.toLowerCase().includes('refresh token')) {
             await supabase.auth.signOut().catch(() => {});
           }
@@ -86,59 +124,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        if (session?.user) {
-          const { data: verified, error: userError } = await supabase.auth.getUser();
-          const verifiedUser = verified?.user;
-          if (userError || !isUsableAuthUser(verifiedUser)) {
-            await supabase.auth.signOut().catch(() => {});
-            persistActiveUserId(null);
-            setState({ user: null, isAuthenticated: false, isLoading: false });
-            return;
-          }
-
-          const user = mapSupabaseUser(verifiedUser);
-          persistActiveUserId(verifiedUser.id);
-          if (user && shouldForceOnboarding(user)) {
-            markNeedsOnboarding(user.id);
-            setState({
-              user: { ...user, onboarded: false },
-              isAuthenticated: true,
-              isLoading: false,
-            });
-          } else {
-            setState({
-              user,
-              isAuthenticated: true,
-              isLoading: false,
-            });
-          }
-        } else {
-          persistActiveUserId(null);
-          setState(prev => ({ ...prev, isLoading: false }));
+        if (session?.user && isUsableAuthUser(session.user)) {
+          setState(applyAuthUser(session.user));
+          void verifySessionInBackground();
+          return;
         }
+
+        persistActiveUserId(null);
+        setState({ user: null, isAuthenticated: false, isLoading: false });
       } catch (error) {
         console.error('Error checking session:', error);
-        setState(prev => ({ ...prev, isLoading: false }));
+        if (!cancelled) {
+          setState(prev => ({ ...prev, isLoading: false }));
+        }
       }
     };
 
-    checkSession();
+    void checkSession();
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          const { data: verified, error: userError } = await supabase.auth.getUser();
-          const verifiedUser = verified?.user;
-          if (userError || !isUsableAuthUser(verifiedUser)) {
+        if (event === 'INITIAL_SESSION') {
+          if (session?.user && isUsableAuthUser(session.user)) {
+            setState(applyAuthUser(session.user));
+          } else if (!session) {
+            persistActiveUserId(null);
+            setState({ user: null, isAuthenticated: false, isLoading: false });
+          }
+        } else if (event === 'SIGNED_IN' && session?.user) {
+          if (!isUsableAuthUser(session.user)) {
             await supabase.auth.signOut().catch(() => {});
             persistActiveUserId(null);
             setState({ user: null, isAuthenticated: false, isLoading: false });
             return;
           }
 
-          const user = mapSupabaseUser(verifiedUser);
-          persistActiveUserId(verifiedUser.id);
+          const user = mapSupabaseUser(session.user);
+          persistActiveUserId(session.user.id);
           if (!user) {
             setState({ user: null, isAuthenticated: false, isLoading: false });
             return;
@@ -151,7 +174,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             /* ignore */
           }
 
-          // Fresh signup pending always sticky-marks; otherwise respect local completion.
           const force =
             isJustSignedUpPending() ||
             accountNeedsOnboardingFlag(user.id) ||
@@ -205,8 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               isAuthenticated: true,
             }));
           }
-        } else if ((event as string) === 'TOKEN_REFRESH_FAILED' || (!session && event === 'INITIAL_SESSION')) {
-          // Stale / invalid refresh token — clear session and force re-login
+        } else if ((event as string) === 'TOKEN_REFRESH_FAILED') {
           persistActiveUserId(null);
           await supabase.auth.signOut().catch(() => {});
           setState({ user: null, isAuthenticated: false, isLoading: false });
@@ -215,6 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     return () => {
+      cancelled = true;
       subscription.unsubscribe();
     };
   }, []);

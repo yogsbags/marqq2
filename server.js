@@ -76,15 +76,41 @@ function proxyToBackend(req, res) {
   req.pipe(proxyReq)
 }
 
-async function serveFile(res, filePath) {
+function setStaticCacheHeaders(res, filePath, { spaFallback = false } = {}) {
+  const base = path.basename(filePath)
+  const ext = path.extname(filePath).toLowerCase()
+  const rel = path.relative(distDir, filePath).split(path.sep).join('/')
+
+  // Deploy probe — never cache
+  if (base === 'version.json') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    return
+  }
+
+  // HTML shell must revalidate so new deploys pick up fresh hashed assets
+  if (base === 'index.html' || spaFallback) {
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate')
+    return
+  }
+
+  // Vite fingerprinted bundles — safe to cache forever
+  if (rel.startsWith('assets/')) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    return
+  }
+
+  // Other static files (icons, fonts shipped with the app)
+  if (['.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.webp'].includes(ext)) {
+    res.setHeader('Cache-Control', 'public, max-age=86400')
+  }
+}
+
+async function serveFile(res, filePath, options = {}) {
   const data = await fs.readFile(filePath)
   res.statusCode = 200
   res.setHeader('content-type', contentTypeFor(filePath))
-  // version.json must never be cached — clients poll it for deploy updates
-  if (path.basename(filePath) === 'version.json') {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
-    res.setHeader('Pragma', 'no-cache')
-  }
+  setStaticCacheHeaders(res, filePath, options)
   res.end(data)
 }
 
@@ -106,7 +132,7 @@ async function serveFrontend(req, res) {
   // SPA fallback
   const indexPath = path.join(distDir, 'index.html')
   try {
-    return await serveFile(res, indexPath)
+    return await serveFile(res, indexPath, { spaFallback: true })
   } catch (err) {
     res.statusCode = 500
     res.setHeader('content-type', 'text/plain; charset=utf-8')
