@@ -740,6 +740,41 @@ export async function executeComposioAction(actionSlug, inputParams = {}, userId
   }
 }
 
+/**
+ * Create or update a Composio trigger instance for a user.
+ * Events are delivered to the project webhook URL configured in Composio.
+ */
+export async function upsertComposioTrigger(slug, { userId = 'default', triggerConfig = {} } = {}) {
+  const apiKey = process.env.COMPOSIO_API_KEY
+  if (!apiKey) return { error: 'COMPOSIO_API_KEY not configured' }
+  if (!slug) return { error: 'Trigger slug is required' }
+
+  try {
+    const res = await fetch(`${COMPOSIO_V3}/trigger_instances/${encodeURIComponent(slug)}/upsert`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        trigger_config: triggerConfig,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return {
+        error: data?.error?.message || data?.message || JSON.stringify(data) || `HTTP ${res.status}`,
+        raw: data,
+      }
+    }
+    return {
+      ok: true,
+      trigger_id: data?.trigger_id || data?.id || data?.triggerId || null,
+      result: data,
+    }
+  } catch (err) {
+    return { error: err.message }
+  }
+}
+
 // ─── Get OAuth access token for a connected account ──────────────────────────
 // Returns the live access_token from Composio's stored credentials.
 // Composio handles refresh automatically — the token in data.access_token is

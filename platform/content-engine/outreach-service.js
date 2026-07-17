@@ -8,9 +8,10 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { executeAutomationTriggers } from './automations/registry.js'
-import { executeComposioAction } from './mcp-router.js'
+import { executeComposioAction, upsertComposioTrigger } from './mcp-router.js'
 import { MKGService } from './mkg-service.js'
 import { getLLMModel } from './llm-client.js'
+import { getSupabaseReadClient, getSupabaseWriteClient } from './supabase.js'
 
 export const OUTREACH_APOLLO_MAX = 100
 
@@ -95,11 +96,202 @@ function normalizeProspect(raw, index = 0) {
     body: raw.body || '',
     scheduled_for: raw.scheduled_for || null,
     gmail_draft_id: raw.gmail_draft_id || null,
+    gmail_thread_id: raw.gmail_thread_id || null,
     sent_at: raw.sent_at || null,
     send_error: raw.send_error || null,
+    send_meta: raw.send_meta || null,
     replies: Array.isArray(raw.replies) ? raw.replies : [],
     raw: raw.raw || raw,
   }
+}
+
+function getOutreachDbClient() {
+  return getSupabaseWriteClient()
+}
+
+function prospectToRow(runId, prospect) {
+  return {
+    id: prospect.id,
+    run_id: runId,
+    full_name: prospect.full_name || null,
+    first_name: prospect.first_name || null,
+    last_name: prospect.last_name || null,
+    title: prospect.title || null,
+    company: prospect.company || null,
+    industry: prospect.industry || null,
+    email: prospect.email || null,
+    linkedin_url: prospect.linkedin_url || null,
+    city: prospect.city || null,
+    state: prospect.state || null,
+    seniority: prospect.seniority || null,
+    status: prospect.status || 'fetched',
+    subject: prospect.subject || null,
+    body: prospect.body || null,
+    scheduled_for: prospect.scheduled_for || null,
+    gmail_draft_id: prospect.gmail_draft_id || null,
+    gmail_thread_id: prospect.gmail_thread_id || null,
+    sent_at: prospect.sent_at || null,
+    send_error: prospect.send_error || null,
+    send_meta: prospect.send_meta || null,
+    replies: prospect.replies || [],
+    raw: prospect.raw || null,
+  }
+}
+
+function prospectFromRow(row) {
+  return normalizeProspect({
+    ...row,
+    scheduled_for: row.scheduled_for || null,
+    sent_at: row.sent_at || null,
+  })
+}
+
+function runToRow(run) {
+  return {
+    id: run.id,
+    workspace_id: run.workspaceId,
+    company_id: run.companyId || null,
+    company_name: run.companyName || null,
+    question: run.question || null,
+    channel: run.channel || 'email',
+    target: run.target || 'decision',
+    goal: run.goal || 'reply',
+    source: run.source || null,
+    campaigns: run.campaigns || [],
+    replies: run.replies || [],
+    created_at: run.createdAt || new Date().toISOString(),
+  }
+}
+
+function runFromDbRow(runRow, prospectRows = []) {
+  return {
+    id: runRow.id,
+    workspaceId: runRow.workspace_id,
+    companyId: runRow.company_id || null,
+    companyName: runRow.company_name || '',
+    question: runRow.question || '',
+    channel: runRow.channel || 'email',
+    target: runRow.target || 'decision',
+    goal: runRow.goal || 'reply',
+    source: runRow.source || '',
+    createdAt: runRow.created_at,
+    prospects: prospectRows.map(prospectFromRow),
+    campaigns: Array.isArray(runRow.campaigns) ? runRow.campaigns : [],
+    replies: Array.isArray(runRow.replies) ? runRow.replies : [],
+  }
+}
+
+function registerRunInMemory(run) {
+  if (!run?.id) return run
+  run.prospects = (run.prospects || []).map((p, i) => normalizeProspect(p, i))
+  run.campaigns = Array.isArray(run.campaigns) ? run.campaigns : []
+  run.replies = Array.isArray(run.replies) ? run.replies : []
+  runsById.set(run.id, run)
+  return run
+}
+
+async function persistRunToSupabase(run) {
+  const client = getOutreachDbClient()
+  if (!client) return false
+
+  const runRow = runToRow(run)
+  const { error: runError } = await client
+    .from('outreach_runs')
+    .upsert(runRow, { onConflict: 'id' })
+
+  if (runError) {
+    if (runError.code === '42P01') {
+      console.warn('[outreach] outreach_runs table missing — run database/migrations/outreach-runs.sql')
+      return false
+    }
+    throw runError
+  }
+
+  const { error: deleteError } = await client
+    .from('outreach_prospects')
+    .delete()
+    .eq('run_id', run.id)
+
+  if (deleteError && deleteError.code !== '42P01') {
+    throw deleteError
+  }
+
+  const prospectRows = (run.prospects || []).map((p) => prospectToRow(run.id, p))
+  if (prospectRows.length) {
+    const { error: prospectError } = await client.from('outreach_prospects').insert(prospectRows)
+    if (prospectError) {
+      if (prospectError.code === '42P01') return false
+      throw prospectError
+    }
+  }
+
+  return true
+}
+
+async function loadRunsFromSupabase() {
+  const client = getSupabaseReadClient()
+  if (!client) return []
+
+  const { data: runRows, error } = await client
+    .from('outreach_runs')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    if (error.code === '42P01') {
+      console.warn('[outreach] outreach_runs table missing — using disk fallback')
+      return []
+    }
+    throw error
+  }
+
+  if (!runRows?.length) return []
+
+  const runIds = runRows.map((row) => row.id)
+  const { data: prospectRows, error: prospectError } = await client
+    .from('outreach_prospects')
+    .select('*')
+    .in('run_id', runIds)
+
+  if (prospectError && prospectError.code !== '42P01') {
+    throw prospectError
+  }
+
+  const prospectsByRun = new Map()
+  for (const row of prospectRows || []) {
+    if (!prospectsByRun.has(row.run_id)) prospectsByRun.set(row.run_id, [])
+    prospectsByRun.get(row.run_id).push(row)
+  }
+
+  return runRows.map((row) => runFromDbRow(row, prospectsByRun.get(row.id) || []))
+}
+
+async function loadRunsFromDisk() {
+  const loaded = []
+  try {
+    await ensureDataDir()
+    const files = await readdir(OUTREACH_DATA_DIR)
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue
+      try {
+        const raw = await readFile(join(OUTREACH_DATA_DIR, file), 'utf8')
+        const run = JSON.parse(raw)
+        if (run?.id) {
+          loaded.push({
+            ...run,
+            prospects: (run.prospects || []).map((p, i) => normalizeProspect(p, i)),
+            campaigns: Array.isArray(run.campaigns) ? run.campaigns : [],
+            replies: Array.isArray(run.replies) ? run.replies : [],
+          })
+        }
+      } catch (err) {
+        console.warn('[outreach] skip corrupt run file', file, err.message)
+      }
+    }
+  } catch (err) {
+    console.warn('[outreach] disk load failed:', err.message)
+  }
+  return loaded
 }
 
 async function ensureDataDir() {
@@ -112,11 +304,17 @@ function runFilePath(runId) {
 
 async function persistRun(run) {
   if (!run?.id) return
-  runsById.set(run.id, run)
+  registerRunInMemory(run)
   persistQueue = persistQueue
     .then(async () => {
-      await ensureDataDir()
-      await writeFile(runFilePath(run.id), JSON.stringify(run, null, 2), 'utf8')
+      const savedToDb = await persistRunToSupabase(run).catch((err) => {
+        console.error('[outreach] supabase persist failed:', err.message)
+        return false
+      })
+      if (!savedToDb) {
+        await ensureDataDir()
+        await writeFile(runFilePath(run.id), JSON.stringify(run, null, 2), 'utf8')
+      }
     })
     .catch((err) => {
       console.error('[outreach] persist failed:', err.message)
@@ -129,25 +327,32 @@ export async function hydrateOutreachStore() {
   if (hydratePromise) return hydratePromise
   hydratePromise = (async () => {
     try {
-      await ensureDataDir()
-      const files = await readdir(OUTREACH_DATA_DIR)
-      for (const file of files) {
-        if (!file.endsWith('.json')) continue
-        try {
-          const raw = await readFile(join(OUTREACH_DATA_DIR, file), 'utf8')
-          const run = JSON.parse(raw)
-          if (run?.id) {
-            run.prospects = (run.prospects || []).map((p, i) => normalizeProspect(p, i))
-            run.campaigns = Array.isArray(run.campaigns) ? run.campaigns : []
-            run.replies = Array.isArray(run.replies) ? run.replies : []
-            runsById.set(run.id, run)
-          }
-        } catch (err) {
-          console.warn('[outreach] skip corrupt run file', file, err.message)
-        }
+      const supabaseRuns = await loadRunsFromSupabase().catch((err) => {
+        console.error('[outreach] supabase hydrate failed:', err.message)
+        return []
+      })
+
+      for (const run of supabaseRuns) {
+        registerRunInMemory(run)
       }
+
+      const diskRuns = await loadRunsFromDisk()
+      for (const run of diskRuns) {
+        if (runsById.has(run.id)) continue
+        registerRunInMemory(run)
+        await persistRunToSupabase(run).catch((err) => {
+          console.warn('[outreach] disk→supabase migration failed for', run.id, err.message)
+        })
+      }
+
       hydrated = true
-      console.info(`[outreach] hydrated ${runsById.size} run(s) from disk`)
+      const source =
+        supabaseRuns.length > 0
+          ? `supabase (${supabaseRuns.length})`
+          : diskRuns.length > 0
+            ? `disk (${diskRuns.length})`
+            : 'empty'
+      console.info(`[outreach] hydrated ${runsById.size} run(s) from ${source}`)
     } catch (err) {
       console.error('[outreach] hydrate failed:', err.message)
       hydrated = true
@@ -551,6 +756,11 @@ export async function saveProspectGmailDraft({
   campaign.status = 'scheduled'
   await persistRun(run)
 
+  // Register Composio inbox trigger so replies can push via webhook (poll is backup)
+  void ensureGmailReplyTrigger(run.workspaceId || 'default').catch((err) => {
+    console.warn('[outreach] ensureGmailReplyTrigger:', err?.message || err)
+  })
+
   return {
     prospect,
     draftId,
@@ -592,7 +802,9 @@ async function sendProspectNow(run, prospect) {
       run.workspaceId,
     )
     if (!sendDraft.error) {
-      return { method: 'gmail_send_draft', result: sendDraft.result }
+      const threadId = extractGmailThreadId(sendDraft.result)
+      if (threadId) prospect.gmail_thread_id = threadId
+      return { method: 'gmail_send_draft', result: sendDraft.result, thread_id: threadId }
     }
   }
 
@@ -611,7 +823,338 @@ async function sendProspectNow(run, prospect) {
   if (sendEmail.error) {
     throw new Error(sendEmail.error)
   }
-  return { method: 'gmail_send_email', result: sendEmail.result }
+  const threadId = extractGmailThreadId(sendEmail.result)
+  if (threadId) prospect.gmail_thread_id = threadId
+  return { method: 'gmail_send_email', result: sendEmail.result, thread_id: threadId }
+}
+
+function extractEmailAddress(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const angle = raw.match(/<([^>]+)>/)
+  const candidate = (angle?.[1] || raw).trim()
+  const match = candidate.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
+  return match ? match[0].toLowerCase() : ''
+}
+
+function extractGmailThreadId(payload) {
+  if (!payload || typeof payload !== 'object') return null
+  return (
+    payload.thread_id ||
+    payload.threadId ||
+    payload.data?.thread_id ||
+    payload.data?.threadId ||
+    payload.message?.thread_id ||
+    payload.message?.threadId ||
+    payload.response_data?.thread_id ||
+    payload.response_data?.threadId ||
+    null
+  )
+}
+
+function gmailAfterQueryDate(iso) {
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return null
+  return `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}/${d.getUTCDate()}`
+}
+
+function unwrapMessages(result) {
+  if (!result) return []
+  if (Array.isArray(result)) return result
+  const candidates = [
+    result.messages,
+    result.data?.messages,
+    result.response_data?.messages,
+    result.items,
+    result.data?.items,
+    result.emails,
+    result.data?.emails,
+  ]
+  for (const list of candidates) {
+    if (Array.isArray(list)) return list
+  }
+  // Single message object
+  if (result.message_id || result.messageId || result.id || result.thread_id || result.threadId) {
+    return [result]
+  }
+  return []
+}
+
+function normalizeGmailMessage(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const headers = raw.payload?.headers || raw.headers || []
+  const headerMap = Object.fromEntries(
+    (Array.isArray(headers) ? headers : []).map((h) => [
+      String(h?.name || '').toLowerCase(),
+      String(h?.value || ''),
+    ]),
+  )
+  const from =
+    raw.sender ||
+    raw.from ||
+    raw.from_email ||
+    headerMap.from ||
+    raw.payload?.headers?.find?.((h) => /from/i.test(h?.name))?.value ||
+    ''
+  const subject =
+    raw.subject ||
+    headerMap.subject ||
+    raw.preview?.subject ||
+    ''
+  const body =
+    raw.message_text ||
+    raw.body ||
+    raw.text ||
+    raw.snippet ||
+    raw.preview?.body ||
+    raw.payload?.body?.data ||
+    ''
+  const messageId =
+    raw.message_id ||
+    raw.messageId ||
+    raw.id ||
+    headerMap['message-id'] ||
+    null
+  const threadId = raw.thread_id || raw.threadId || null
+  const receivedAt =
+    raw.message_timestamp ||
+    raw.internalDate ||
+    raw.date ||
+    headerMap.date ||
+    null
+
+  return {
+    from: extractEmailAddress(from),
+    from_raw: from,
+    subject: String(subject || '').trim(),
+    body: typeof body === 'string' ? body.trim() : String(body || '').trim(),
+    message_id: messageId ? String(messageId) : null,
+    thread_id: threadId ? String(threadId) : null,
+    received_at: receivedAt
+      ? new Date(Number.isFinite(Number(receivedAt)) ? Number(receivedAt) : receivedAt).toISOString()
+      : new Date().toISOString(),
+    raw,
+  }
+}
+
+/**
+ * Ensure Composio GMAIL_NEW_GMAIL_MESSAGE trigger exists for this workspace user.
+ * Requires project webhook URL configured in Composio dashboard.
+ */
+export async function ensureGmailReplyTrigger(workspaceId = 'default') {
+  const interval = Math.max(1, Number(process.env.GMAIL_REPLY_TRIGGER_INTERVAL_MIN || 1))
+  const result = await upsertComposioTrigger('GMAIL_NEW_GMAIL_MESSAGE', {
+    userId: workspaceId,
+    triggerConfig: {
+      interval,
+      labelIds: 'INBOX',
+      userId: 'me',
+      query: 'in:inbox -category:promotions -category:social',
+    },
+  })
+  return result
+}
+
+/**
+ * Handle a Composio GMAIL_NEW_GMAIL_MESSAGE (or generic) trigger payload.
+ */
+export async function handleComposioGmailTrigger(payload = {}) {
+  const data = payload.data || payload.payload || payload
+  const meta = payload.metadata || {}
+  const slug = String(
+    meta.trigger_slug || payload.trigger_slug || payload.type || '',
+  ).toUpperCase()
+
+  if (slug && !slug.includes('GMAIL') && !slug.includes('NEW_GMAIL_MESSAGE')) {
+    return { status: 'ignored', reason: `unsupported_trigger:${slug}` }
+  }
+
+  const normalized = normalizeGmailMessage({
+    ...data,
+    sender: data.sender || data.from || data.from_email,
+    message_text: data.message_text || data.body || data.text,
+    message_id: data.message_id || data.messageId || data.id,
+    thread_id: data.thread_id || data.threadId,
+    message_timestamp: data.message_timestamp || data.timestamp || data.date,
+  })
+
+  if (!normalized?.from) {
+    return { status: 'ignored', reason: 'missing_from' }
+  }
+
+  return recordOutreachReply({
+    provider: 'composio_gmail_trigger',
+    email: normalized.from,
+    subject: normalized.subject,
+    body: normalized.body,
+    id: normalized.message_id || `gmail-${normalized.thread_id || randomUUID()}`,
+    received_at: normalized.received_at,
+    thread_id: normalized.thread_id,
+    source: 'composio',
+    raw: payload,
+  })
+}
+
+async function fetchGmailMessagesForQuery(workspaceId, query, maxResults = 15) {
+  const res = await executeComposioAction(
+    'GMAIL_FETCH_EMAILS',
+    {
+      query,
+      q: query,
+      max_results: maxResults,
+      maxResults,
+      label_ids: ['INBOX'],
+      labelIds: ['INBOX'],
+      user_id: 'me',
+      userId: 'me',
+      include_payload: true,
+      verbose: true,
+    },
+    workspaceId,
+  )
+  if (res.error) return { error: res.error, messages: [] }
+  const messages = unwrapMessages(res.result)
+    .map(normalizeGmailMessage)
+    .filter(Boolean)
+  return { messages, raw: res.result }
+}
+
+/**
+ * Poll Gmail inboxes for replies to sent outreach prospects.
+ */
+export async function processGmailReplyPolls() {
+  await hydrateOutreachStore()
+
+  /** @type {Map<string, Array<{ run: any, prospect: any }>>} */
+  const byWorkspace = new Map()
+  for (const run of runsById.values()) {
+    const workspaceId = run.workspaceId || 'default'
+    for (const prospect of run.prospects || []) {
+      if (prospect.status !== 'sent') continue
+      if (!prospect.email) continue
+      if (!byWorkspace.has(workspaceId)) byWorkspace.set(workspaceId, [])
+      byWorkspace.get(workspaceId).push({ run, prospect })
+    }
+  }
+
+  const results = []
+
+  for (const [workspaceId, items] of byWorkspace.entries()) {
+    // Best-effort: keep trigger registered for push path
+    try {
+      await ensureGmailReplyTrigger(workspaceId)
+    } catch {
+      /* non-fatal */
+    }
+
+    // Chunk prospects to keep Gmail query size reasonable
+    const chunkSize = 5
+    for (let i = 0; i < items.length; i += chunkSize) {
+      const chunk = items.slice(i, i + chunkSize)
+      const fromClauses = chunk.map(({ prospect }) => `from:${prospect.email}`)
+      const earliestSent = chunk
+        .map(({ prospect }) => prospect.sent_at)
+        .filter(Boolean)
+        .sort()[0]
+      const after = earliestSent ? gmailAfterQueryDate(earliestSent) : null
+      const queryParts = [`(${fromClauses.join(' OR ')})`, 'in:inbox', '-in:sent']
+      if (after) queryParts.push(`after:${after}`)
+      const query = queryParts.join(' ')
+
+      const fetched = await fetchGmailMessagesForQuery(workspaceId, query, 25)
+      if (fetched.error) {
+        results.push({ workspaceId, status: 'error', error: fetched.error, query })
+        continue
+      }
+
+      const emailSet = new Set(
+        chunk.map(({ prospect }) => String(prospect.email).trim().toLowerCase()),
+      )
+
+      for (const msg of fetched.messages) {
+        if (!msg.from || !emailSet.has(msg.from)) continue
+        try {
+          const recorded = await recordOutreachReply({
+            provider: 'gmail_poll',
+            email: msg.from,
+            subject: msg.subject,
+            body: msg.body,
+            id: msg.message_id || `gmail-poll-${msg.thread_id || randomUUID()}`,
+            received_at: msg.received_at,
+            thread_id: msg.thread_id,
+          })
+          results.push({
+            workspaceId,
+            status: recorded.status,
+            email: msg.from,
+            messageId: msg.message_id,
+            runId: recorded.runId,
+            prospectId: recorded.prospectId,
+          })
+        } catch (err) {
+          results.push({
+            workspaceId,
+            status: 'error',
+            email: msg.from,
+            error: err.message || String(err),
+          })
+        }
+      }
+
+      // Thread-id fallback for prospects whose from: query missed (alias / different From)
+      for (const { prospect } of chunk) {
+        const threadId = prospect.gmail_thread_id || extractGmailThreadId(prospect.send_meta)
+        if (!threadId) continue
+        const threadRes = await executeComposioAction(
+          'GMAIL_FETCH_MESSAGE_BY_THREAD_ID',
+          {
+            thread_id: threadId,
+            threadId,
+            user_id: 'me',
+            userId: 'me',
+          },
+          workspaceId,
+        )
+        if (threadRes.error) continue
+        const threadMessages = unwrapMessages(threadRes.result)
+          .map(normalizeGmailMessage)
+          .filter(Boolean)
+        for (const msg of threadMessages) {
+          if (!msg.from) continue
+          if (msg.from === String(prospect.email).trim().toLowerCase()) {
+            try {
+              const recorded = await recordOutreachReply({
+                provider: 'gmail_thread_poll',
+                email: msg.from,
+                subject: msg.subject,
+                body: msg.body,
+                id: msg.message_id || `gmail-thread-${threadId}-${msg.received_at}`,
+                received_at: msg.received_at,
+                thread_id: threadId,
+              })
+              results.push({
+                workspaceId,
+                status: recorded.status,
+                email: msg.from,
+                messageId: msg.message_id,
+                runId: recorded.runId,
+                prospectId: recorded.prospectId,
+              })
+            } catch (err) {
+              results.push({
+                workspaceId,
+                status: 'error',
+                email: msg.from,
+                error: err.message || String(err),
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return results
 }
 
 /**
@@ -671,7 +1214,7 @@ export async function processDueOutreachSends({ now = new Date() } = {}) {
 export async function recordOutreachReply(payload = {}) {
   await hydrateOutreachStore()
 
-  const email = String(
+  const email = extractEmailAddress(
     payload.email ||
       payload.from_email ||
       payload.from ||
@@ -679,18 +1222,17 @@ export async function recordOutreachReply(payload = {}) {
       payload.prospect_email ||
       '',
   )
-    .trim()
-    .toLowerCase()
   const campaignExternalId = String(
     payload.campaign_id || payload.campaignId || payload.external_campaign_id || '',
   ).trim()
+  const threadId = String(payload.thread_id || payload.threadId || '').trim()
   const body = String(payload.body || payload.text || payload.reply || payload.message || '').trim()
   const subject = String(payload.subject || '').trim()
   const receivedAt = payload.received_at || payload.timestamp || new Date().toISOString()
   const externalId = String(payload.id || payload.email_id || payload.message_id || randomUUID())
 
-  if (!email && !campaignExternalId) {
-    throw new Error('Reply payload needs email or campaign_id')
+  if (!email && !campaignExternalId && !threadId) {
+    throw new Error('Reply payload needs email, campaign_id, or thread_id')
   }
 
   let matched = null
@@ -699,6 +1241,14 @@ export async function recordOutreachReply(payload = {}) {
     for (const prospect of run.prospects || []) {
       const prospectEmail = String(prospect.email || '').trim().toLowerCase()
       if (email && prospectEmail && prospectEmail === email) {
+        matched = { run, prospect }
+        break
+      }
+      if (
+        threadId &&
+        (prospect.gmail_thread_id === threadId ||
+          extractGmailThreadId(prospect.send_meta) === threadId)
+      ) {
         matched = { run, prospect }
         break
       }
@@ -732,15 +1282,20 @@ export async function recordOutreachReply(payload = {}) {
     subject,
     body,
     received_at: receivedAt,
+    thread_id: threadId || prospect.gmail_thread_id || null,
     provider: payload.provider || payload.source || 'webhook',
     raw: payload,
   }
 
   prospect.replies = Array.isArray(prospect.replies) ? prospect.replies : []
-  if (!prospect.replies.some((r) => r.id === reply.id)) {
+  const already = prospect.replies.some((r) => r.id === reply.id)
+  if (!already) {
     prospect.replies.push(reply)
   }
   prospect.status = 'replied'
+  if (threadId && !prospect.gmail_thread_id) {
+    prospect.gmail_thread_id = threadId
+  }
 
   run.replies = Array.isArray(run.replies) ? run.replies : []
   if (!run.replies.some((r) => r.id === reply.id)) {
@@ -748,13 +1303,15 @@ export async function recordOutreachReply(payload = {}) {
   }
 
   const campaign = upsertGmailCampaign(run, prospect.id)
-  campaign.replyCount = (campaign.replyCount || 0) + 1
+  if (!already) {
+    campaign.replyCount = (campaign.replyCount || 0) + 1
+  }
   campaign.status = 'active'
 
   await persistRun(run)
 
   return {
-    status: 'recorded',
+    status: already ? 'duplicate' : 'recorded',
     runId: run.id,
     prospectId: prospect.id,
     reply,

@@ -27,6 +27,7 @@
 --  19.  swarm-competitive-intelligence.sql — swarm_watchdog_runs, competitive_intelligence
 --  20.  conversations.sql           — conversations, messages
 --  21.  social-accounts-user-rls.sql — updates social_accounts RLS
+--  22.  outreach-runs.sql            — outreach_runs, outreach_prospects
 -- =============================================================================
 
 -- NOTE: Paste each file's content below, or run them individually via psql:

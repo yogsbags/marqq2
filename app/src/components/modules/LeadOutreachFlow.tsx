@@ -725,9 +725,10 @@ export function LeadOutreachFlow({
               <div className="space-y-2 text-sm text-muted-foreground">
                 <p>No replies yet.</p>
                 <p className="text-[11px] leading-4">
-                  Point Instantly webhooks to{' '}
-                  <code className="rounded bg-muted px-1">/api/webhooks/instantly</code> or post to{' '}
-                  <code className="rounded bg-muted px-1">/api/webhooks/outreach/reply</code>.
+                  Gmail replies are polled automatically from your connected inbox (every ~2 min). For push
+                  delivery, set your Composio project webhook to{' '}
+                  <code className="rounded bg-muted px-1">/api/webhooks/composio</code>. Instantly can post to{' '}
+                  <code className="rounded bg-muted px-1">/api/webhooks/instantly</code>.
                 </p>
               </div>
             ) : (

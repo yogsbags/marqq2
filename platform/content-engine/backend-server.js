@@ -79,7 +79,9 @@ import {
   suggestAptSendTime,
   hydrateOutreachStore,
   processDueOutreachSends,
+  processGmailReplyPolls,
   recordOutreachReply,
+  handleComposioGmailTrigger,
   getWorkspaceOutreachSummary,
   sendProspectImmediately,
 } from "./outreach-service.js";
@@ -7708,6 +7710,20 @@ app.post('/api/outreach/process-due', async (req, res) => {
   }
 });
 
+app.post('/api/outreach/poll-gmail-replies', async (req, res) => {
+  try {
+    const results = await processGmailReplyPolls();
+    return res.json({
+      processed: results.length,
+      recorded: results.filter((r) => r.status === 'recorded').length,
+      results,
+    });
+  } catch (err) {
+    console.error('[outreach/poll-gmail-replies]', err);
+    return res.status(500).json({ error: err.message || 'Gmail reply poll failed' });
+  }
+});
+
 /** Instantly / Gmail / generic reply webhook */
 app.post('/api/webhooks/outreach/reply', express.json({ limit: '1mb' }), async (req, res) => {
   try {
@@ -7732,6 +7748,44 @@ app.post('/api/webhooks/outreach/reply', express.json({ limit: '1mb' }), async (
   } catch (err) {
     console.error('[outreach/webhook]', err);
     return res.status(500).json({ error: err.message || 'Webhook failed' });
+  }
+});
+
+/** Composio project webhook — route GMAIL_NEW_GMAIL_MESSAGE into outreach replies */
+app.post('/api/webhooks/composio', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const secret = process.env.COMPOSIO_WEBHOOK_SECRET || process.env.OUTREACH_WEBHOOK_SECRET;
+    if (secret) {
+      const provided =
+        req.get('x-composio-signature') ||
+        req.get('x-webhook-secret') ||
+        req.get('x-outreach-secret') ||
+        req.query.secret ||
+        '';
+      // Soft check: Composio may use HMAC; accept shared secret header/query when configured
+      if (provided && String(provided) !== String(secret) && !String(provided).startsWith('sha')) {
+        return res.status(401).json({ error: 'Invalid webhook secret' });
+      }
+    }
+
+    const body = req.body || {};
+    const slug = String(
+      body.metadata?.trigger_slug ||
+        body.trigger_slug ||
+        body.type ||
+        body.event ||
+        '',
+    ).toUpperCase();
+
+    if (slug.includes('GMAIL') || slug.includes('NEW_GMAIL_MESSAGE') || body.data?.sender || body.data?.message_text) {
+      const result = await handleComposioGmailTrigger(body);
+      return res.json(result);
+    }
+
+    return res.json({ status: 'ignored', reason: 'unhandled_composio_event', slug: slug || null });
+  } catch (err) {
+    console.error('[composio/webhook]', err);
+    return res.status(500).json({ error: err.message || 'Composio webhook failed' });
   }
 });
 
@@ -8427,7 +8481,12 @@ const OUTREACH_SCHEDULER_INTERVAL_MS = Math.max(
   15_000,
   Number(process.env.OUTREACH_SCHEDULER_INTERVAL_MS || 60_000),
 );
+const GMAIL_REPLY_POLL_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.GMAIL_REPLY_POLL_INTERVAL_MS || 120_000),
+);
 let outreachScheduler = null;
+let gmailReplyPollScheduler = null;
 
 async function runOutreachSchedulerTick() {
   try {
@@ -8444,6 +8503,22 @@ async function runOutreachSchedulerTick() {
   }
 }
 
+async function runGmailReplyPollTick() {
+  try {
+    await hydrateOutreachStore();
+    const results = await processGmailReplyPolls();
+    const recorded = results.filter((r) => r.status === 'recorded');
+    if (recorded.length > 0) {
+      console.info(
+        `[gmail-reply-poll] recorded ${recorded.length}:`,
+        recorded.map((r) => `${r.email}:${r.prospectId}`).join(', '),
+      );
+    }
+  } catch (err) {
+    console.error('[gmail-reply-poll] tick failed:', err.message);
+  }
+}
+
 function startOutreachScheduler() {
   if (outreachScheduler) return;
   outreachScheduler = setInterval(() => {
@@ -8454,12 +8529,31 @@ function startOutreachScheduler() {
   runOutreachSchedulerTick().catch((err) => {
     console.error('[outreach-scheduler] initial tick failed:', err.message);
   });
+
+  if (!gmailReplyPollScheduler) {
+    gmailReplyPollScheduler = setInterval(() => {
+      runGmailReplyPollTick().catch((err) => {
+        console.error('[gmail-reply-poll] interval error:', err.message);
+      });
+    }, GMAIL_REPLY_POLL_INTERVAL_MS);
+    // Delay first poll slightly so send tick can run first
+    setTimeout(() => {
+      runGmailReplyPollTick().catch((err) => {
+        console.error('[gmail-reply-poll] initial tick failed:', err.message);
+      });
+    }, 15_000);
+  }
 }
 
 function stopOutreachScheduler() {
-  if (!outreachScheduler) return;
-  clearInterval(outreachScheduler);
-  outreachScheduler = null;
+  if (outreachScheduler) {
+    clearInterval(outreachScheduler);
+    outreachScheduler = null;
+  }
+  if (gmailReplyPollScheduler) {
+    clearInterval(gmailReplyPollScheduler);
+    gmailReplyPollScheduler = null;
+  }
 }
 
 function buildHookDispatchQuery(batch, entry) {
