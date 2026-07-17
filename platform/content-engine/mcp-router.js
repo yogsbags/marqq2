@@ -229,7 +229,16 @@ function readGenericApiKey(detail) {
 }
 
 function accountMatchesUser(item, userId) {
-  return String(item?.user_id || '') === String(userId || '')
+  const wanted = String(userId || '')
+  if (!wanted) return false
+  const candidates = [
+    item?.user_id,
+    item?.userId,
+    item?.entity_id,
+    item?.entityId,
+    item?.member?.user_id,
+  ]
+  return candidates.some((value) => String(value || '') === wanted)
 }
 
 function normalizeToolkitSlug(value) {
@@ -237,6 +246,22 @@ function normalizeToolkitSlug(value) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')
+}
+
+/** Extra Composio toolkit slugs that map to our connector ids */
+const CONNECTOR_SLUG_ALIASES = {
+  apollo: ['apolloio', 'apollo_io'],
+  ga4: ['googleanalytics', 'google_analytics'],
+  gsc: ['googlesearchconsole', 'google_search_console'],
+}
+
+function toolkitMatchesConnector(connectorId, toolkitSlug) {
+  const normalized = normalizeToolkitSlug(toolkitSlug)
+  if (!normalized) return false
+  const primary = normalizeToolkitSlug(CONNECTOR_APP_MAP[connectorId] || '')
+  if (primary && normalized === primary) return true
+  const aliases = CONNECTOR_SLUG_ALIASES[connectorId] || []
+  return aliases.some((alias) => normalizeToolkitSlug(alias) === normalized)
 }
 
 // ─── Agent config ─────────────────────────────────────────────────────────────
@@ -327,7 +352,7 @@ export async function getConnectors(userId) {
       // v3 uses toolkit_slug instead of appName
       const toolkitSlug = acct.toolkit?.slug || acct.toolkit_slug || acct.appName || ''
       for (const [connId, appName] of Object.entries(CONNECTOR_APP_MAP)) {
-        if (normalizeToolkitSlug(toolkitSlug) === normalizeToolkitSlug(appName)) {
+        if (toolkitMatchesConnector(connId, toolkitSlug) || normalizeToolkitSlug(toolkitSlug) === normalizeToolkitSlug(appName)) {
           const existing = connected.get(connId)
           const statusUpper = String(acct.status || '').toUpperCase()
           const isActive = statusUpper === 'ACTIVE' || statusUpper === 'CONNECTED' || statusUpper === 'SUCCESS'

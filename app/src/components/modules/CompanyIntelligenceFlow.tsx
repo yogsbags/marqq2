@@ -36,6 +36,8 @@ import {
 import { skillsForCiPage } from '@/lib/marketingSkillMap'
 import { TaskAgentCommandDeck, type TaskAgentRunState } from '@/components/agents/TaskAgentCommandDeck'
 import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
+import { isConnectorActive } from '@/lib/connectorMeta'
+import { addIntegrationConnectedListener } from '@/lib/composio'
 import { AgentFollowUpOptions } from '@/components/chat/AgentFollowUpOptions'
 import { taskChannelFollowUps } from '@/lib/normalizeFollowUps'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
@@ -530,23 +532,40 @@ export function CompanyIntelligenceFlow({
       return
     }
     let cancelled = false
-    fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`)
-      .then((r) => r.json())
-      .then((json) => {
-        if (cancelled) return
-        const ids = (json?.connectors || [])
-          .filter((c: { connected?: boolean; id?: string }) => c.connected && c.id)
-          .map((c: { id: string }) => c.id)
-        setActiveConnectorIds(ids)
-      })
-      .catch(() => {
-        if (!cancelled) setActiveConnectorIds([])
-      })
-      .finally(() => {
-        if (!cancelled) setConnectorsLoaded(true)
-      })
+
+    const refresh = () => {
+      fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (cancelled) return
+          const ids = (json?.connectors || [])
+            .filter(
+              (c: { connected?: boolean; status?: string; id?: string }) =>
+                Boolean(c.id) && isConnectorActive(c),
+            )
+            .map((c: { id: string }) => c.id)
+          setActiveConnectorIds(ids)
+        })
+        .catch(() => {
+          if (!cancelled) setActiveConnectorIds([])
+        })
+        .finally(() => {
+          if (!cancelled) setConnectorsLoaded(true)
+        })
+    }
+
+    refresh()
+    const removeListener = addIntegrationConnectedListener((detail) => {
+      if (detail.companyId !== workspaceId) return
+      setActiveConnectorIds((prev) =>
+        prev.includes(detail.connectorId) ? prev : [...prev, detail.connectorId],
+      )
+      refresh()
+    })
+
     return () => {
       cancelled = true
+      removeListener()
     }
   }, [activeWorkspace?.id])
 
@@ -874,8 +893,11 @@ export function CompanyIntelligenceFlow({
               if (connectorGate.hard) {
                 if (!gate.hardBlocked) void runTaskGenerate(pending)
                 else setConnectorGate({ hard: true, missing: gate.showIds, pending })
+              } else if (gate.softNudge) {
+                // Soft gate: drop the newly connected account from the list
+                setConnectorGate({ hard: false, missing: gate.showIds, pending })
               } else {
-                void runTaskGenerate(pending)
+                setConnectorGate(null)
               }
             }}
             onSkip={() => {

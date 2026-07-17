@@ -39,13 +39,29 @@ export function ConnectorGateCard({
     if (!workspaceId) return
     setConnecting(connectorId)
     try {
-      await connectComposioConnector({
+      const result = await connectComposioConnector({
         companyId: workspaceId,
         connectorId,
         userEmail: user?.email,
         userName: user?.name ?? user?.email,
         onConnected: () => onConnected(connectorId),
       })
+
+      // If popup closed without postMessage, connectComposioConnector already
+      // polled Integrations; if still closed, do one more explicit check.
+      if (result.status === 'closed') {
+        const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(workspaceId)}`)
+        const json = res.ok ? await res.json().catch(() => ({})) : {}
+        const match = (json?.connectors ?? []).find((c: { id?: string }) => c.id === connectorId)
+        if (isConnectorActive(match)) {
+          onConnected(connectorId)
+          toast.success('Account connected')
+          return
+        }
+        toast.error('Connection not completed — finish the popup and try again')
+      } else if (result.status === 'connected') {
+        toast.success('Account connected')
+      }
     } catch (error) {
       // Integrations may already show this as connected — re-check before toasting
       try {

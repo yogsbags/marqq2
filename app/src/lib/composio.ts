@@ -46,6 +46,40 @@ type IntegrationConnectedDetail = {
 
 const COMPOSIO_SUCCESS_EVENT = 'marqq:integration-connected'
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function isActiveConnectorRecord(connector: { connected?: boolean; status?: string } | null | undefined) {
+  if (!connector) return false
+  if (connector.connected) return true
+  const status = String(connector.status || '').toLowerCase()
+  return status === 'active' || status === 'connected' || status === 'success'
+}
+
+/** Poll Integrations until Composio marks the connector active (OAuth can lag the popup close). */
+async function waitForConnectorActive(
+  companyId: string,
+  connectorId: string,
+  {
+    attempts = 8,
+    delayMs = 900,
+  }: { attempts?: number; delayMs?: number } = {},
+): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
+      const json = res.ok ? await res.json().catch(() => ({})) : {}
+      const match = (json?.connectors ?? []).find((c: { id?: string }) => c.id === connectorId)
+      if (isActiveConnectorRecord(match)) return true
+    } catch {
+      /* retry */
+    }
+    if (i < attempts - 1) await sleep(delayMs)
+  }
+  return false
+}
+
 async function notifyAgentIntegrationConnected({
   connectorId,
   companyId,
@@ -153,18 +187,21 @@ export async function connectComposioConnector({
       window.clearInterval(pollTimer)
     }
 
+    const settleConnected = async (resolvedConnectorId: string) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      await finalize(resolvedConnectorId)
+      resolve({ status: 'connected', connectorId: resolvedConnectorId })
+    }
+
     const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
       if (event.data?.type !== 'composio_oauth_success') return
 
       const resolvedConnectorId = String(event.data?.connectorId || connectorId)
       if (event.data?.connectorId && resolvedConnectorId !== connectorId) return
-      if (settled) return
-
-      settled = true
-      cleanup()
-      await finalize(resolvedConnectorId)
-      resolve({ status: 'connected', connectorId: resolvedConnectorId })
+      await settleConnected(resolvedConnectorId)
     }
 
     const pollTimer = window.setInterval(() => {
@@ -172,7 +209,17 @@ export async function connectComposioConnector({
         if (settled) return
         settled = true
         cleanup()
-        resolve({ status: 'closed' })
+        // Popup often closes before postMessage arrives (or APP_URL callback misses).
+        // Verify with Composio status before treating as abandoned.
+        void (async () => {
+          const active = await waitForConnectorActive(companyId, connectorId)
+          if (active) {
+            await finalize(connectorId)
+            resolve({ status: 'connected', connectorId })
+            return
+          }
+          resolve({ status: 'closed' })
+        })()
       }
     }, 1500)
 

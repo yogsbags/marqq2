@@ -33,13 +33,37 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 
 // ── Composio OAuth popup callback ────────────────────────────────────────────
-// When Composio redirects back to /settings?connected=xxx inside the popup,
-// post a message to the opener and close the popup immediately.
-if (window.opener && window.location.search.includes('connected=')) {
+// When Composio redirects back into the popup, post success to the opener and close.
+// Supports our `connected=` callback and Composio's `status=success` append.
+if (window.opener) {
   const params = new URLSearchParams(window.location.search)
-  const connectorId = params.get('connected')
-  try { window.opener.postMessage({ type: 'composio_oauth_success', connectorId }, window.location.origin) } catch {}
-  window.close()
+  const connectorId =
+    params.get('connected') ||
+    params.get('connectorId') ||
+    params.get('connector_id') ||
+    null
+  const status = (params.get('status') || '').toLowerCase()
+  const connectedAccountId =
+    params.get('connected_account_id') ||
+    params.get('connectedAccountId') ||
+    null
+
+  if (connectorId || status === 'success' || connectedAccountId) {
+    try {
+      window.opener.postMessage(
+        {
+          type: 'composio_oauth_success',
+          connectorId,
+          connectedAccountId,
+          status: status || 'success',
+        },
+        window.location.origin,
+      )
+    } catch {
+      /* ignore */
+    }
+    window.close()
+  }
 }
 
 // Update document title based on current view
