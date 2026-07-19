@@ -4,7 +4,10 @@
  */
 
 import type { AgentTarget } from '@/types/gtm';
-import type { CompanyIntelPageId } from '@/components/modules/company-intelligence/pages';
+import {
+  COMPANY_INTEL_PAGES,
+  type CompanyIntelPageId,
+} from '@/components/modules/company-intelligence/pages';
 import { skillsForAgentTarget, skillsForCiPage } from '@/lib/marketingSkillMap';
 
 export const CI_TASK_CHANNEL_PREFIX = 'ci-';
@@ -208,9 +211,26 @@ export function ciChannelIdForPage(pageId: CompanyIntelPageId): string {
   return `${CI_TASK_CHANNEL_PREFIX}${pageId}`;
 }
 
+export function moduleIdFromCiHash(hash?: string): string | null {
+  const raw = hash ?? (typeof window !== 'undefined' ? window.location.hash : '');
+  const value = raw.startsWith('#') ? raw.slice(1) : raw;
+  if (!value) return null;
+
+  const candidate = value.startsWith('company-intel:')
+    ? value.slice('company-intel:'.length)
+    : new URLSearchParams(value.replace(/^(\?|&)/, '')).get('ci');
+
+  if (!candidate) return null;
+  const page = COMPANY_INTEL_PAGES.find(({ id }) => id === candidate);
+  return page ? ciChannelIdForPage(page.id) : null;
+}
+
 export function pageIdFromCiChannel(moduleId: string): CompanyIntelPageId | null {
   if (!isCiTaskChannel(moduleId)) return null;
-  return moduleId.slice(CI_TASK_CHANNEL_PREFIX.length) as CompanyIntelPageId;
+  const candidate = moduleId.slice(CI_TASK_CHANNEL_PREFIX.length);
+  return COMPANY_INTEL_PAGES.some(({ id }) => id === candidate)
+    ? candidate as CompanyIntelPageId
+    : null;
 }
 
 export function getGtmTaskDestination(target: AgentTarget): GtmTaskDestination | null {

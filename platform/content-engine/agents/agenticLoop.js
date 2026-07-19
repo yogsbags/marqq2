@@ -642,9 +642,11 @@ async function getComposioTools(entityId, apiKey, { toolkits = [], limit = 20 } 
  * @param {string} apiKey
  * @returns {Promise<{successful: boolean, data: any, error: string|null}>}
  */
-async function resolveConnectedAccountId(entityId, toolkitSlug, apiKey) {
+async function resolveConnectedAccountId(entityId, toolkitSlug, apiKey, { bypassCache = false, excludeIds = [] } = {}) {
   const cacheKey = `${entityId}:${toolkitSlug}`;
-  if (CONNECTED_ACCOUNT_CACHE.has(cacheKey)) return CONNECTED_ACCOUNT_CACHE.get(cacheKey);
+  if (!bypassCache && !excludeIds.length && CONNECTED_ACCOUNT_CACHE.has(cacheKey)) {
+    return CONNECTED_ACCOUNT_CACHE.get(cacheKey);
+  }
 
   const res = await fetch(
     `${COMPOSIO_V3}/connected_accounts?user_id=${encodeURIComponent(entityId)}&toolkit_slug=${encodeURIComponent(toolkitSlug)}&limit=10`,
@@ -657,10 +659,24 @@ async function resolveConnectedAccountId(entityId, toolkitSlug, apiKey) {
   }
 
   const data = await res.json();
-  const account = (data.items || []).find((item) => {
-    const slug = normalizeAppSlug(item.toolkit?.slug || item.toolkit_slug);
-    return accountMatchesEntity(item, entityId) && slug === toolkitSlug && item.status === "ACTIVE";
-  });
+  const excluded = new Set((excludeIds || []).filter(Boolean).map(String));
+  const accounts = (data.items || [])
+    .filter((item) => {
+      const slug = normalizeAppSlug(item.toolkit?.slug || item.toolkit_slug);
+      return (
+        accountMatchesEntity(item, entityId) &&
+        slug === toolkitSlug &&
+        item.status === "ACTIVE" &&
+        item.id &&
+        !excluded.has(String(item.id))
+      );
+    })
+    .sort((a, b) => {
+      const aMs = Date.parse(a.updated_at || a.created_at || "") || 0;
+      const bMs = Date.parse(b.updated_at || b.created_at || "") || 0;
+      return bMs - aMs;
+    });
+  const account = accounts[0];
 
   if (!account?.id) {
     throw new Error(`No active ${toolkitSlug} connection for user ${entityId}`);
@@ -769,32 +785,56 @@ async function executeComposioTool(entityId, toolSlug, args, apiKey) {
     return { successful: false, data: null, error: String(err.message || err) };
   }
 
-  let resp;
-  try {
-    resp = await fetch(`${COMPOSIO_V3}/tools/execute/${resolvedToolSlug}`, {
-      method: "POST",
-      headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ connected_account_id: connectedAccountId, arguments: normalizedArgs }),
-    });
-  } catch (networkErr) {
-    return { successful: false, data: null, error: String(networkErr.message) };
-  }
+  const executeOnce = async (accountId) => {
+    let resp;
+    try {
+      resp = await fetch(`${COMPOSIO_V3}/tools/execute/${resolvedToolSlug}`, {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connected_account_id: accountId,
+          user_id: entityId,
+          arguments: normalizedArgs,
+        }),
+      });
+    } catch (networkErr) {
+      return { successful: false, data: null, error: String(networkErr.message) };
+    }
 
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      return {
+        successful: false,
+        data: null,
+        error: `HTTP ${resp.status}: ${errText.slice(0, 200)}`,
+      };
+    }
+
+    const result = await resp.json();
     return {
-      successful: false,
-      data: null,
-      error: `HTTP ${resp.status}: ${errText.slice(0, 200)}`,
+      successful: result.successful ?? true,
+      data: result.data ?? result,
+      error: result.error ?? result.data?.message ?? null,
     };
+  };
+
+  let payload = await executeOnce(connectedAccountId);
+  const staleMsg = `${payload.error || ""} ${payload.data?.message || ""}`;
+  const stale = /no connected account found with id|connected account .* not found|invalid connected.?account/i.test(staleMsg);
+  if (stale) {
+    CONNECTED_ACCOUNT_CACHE.delete(`${entityId}:${toolkitSlug}`);
+    CONNECTED_ACCOUNT_DETAIL_CACHE.delete(connectedAccountId);
+    try {
+      connectedAccountId = await resolveConnectedAccountId(entityId, toolkitSlug, apiKey, {
+        bypassCache: true,
+        excludeIds: [connectedAccountId],
+      });
+      payload = await executeOnce(connectedAccountId);
+    } catch (err) {
+      return { successful: false, data: null, error: String(err.message || err) };
+    }
   }
 
-  const result = await resp.json();
-  const payload = {
-    successful: result.successful ?? true,
-    data: result.data ?? result,
-    error: result.error ?? result.data?.message ?? null,
-  };
   if (isApolloSearchTool(resolvedToolSlug) && payload.data && typeof payload.data === "object") {
     payload.data = truncateApolloResultPayload(payload.data);
   }

@@ -28,7 +28,12 @@ import { markUserOnboardedLocal, userNeedsOnboarding } from '@/lib/onboardingGat
 import type { Conversation } from '@/types/chat';
 import { loadConversationsLocal } from '@/lib/conversationPersistence';
 import { pinChannel } from '@/lib/pinnedChannels';
-import { channelMetaForModule, isCiTaskChannel, pageIdFromCiChannel } from '@/lib/gtmTaskRegistry';
+import {
+  channelMetaForModule,
+  isCiTaskChannel,
+  moduleIdFromCiHash,
+  pageIdFromCiChannel,
+} from '@/lib/gtmTaskRegistry';
 import { CompanyIntelligenceFlow } from '@/components/modules/CompanyIntelligenceFlow';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
@@ -155,7 +160,7 @@ function AuthScreen({ initialMode = 'login' }: { initialMode?: AuthPathMode }) {
 
 function Dashboard() {
   const { activeWorkspace } = useWorkspace();
-  const [selectedModule, setSelectedModule] = useState<string | null>(null);
+  const [selectedModule, setSelectedModule] = useState<string | null>(() => moduleIdFromCiHash());
   const [autoStartModule, setAutoStartModule] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     return loadConversationsLocal(activeWorkspace?.id, 'veena-dm');
@@ -176,6 +181,12 @@ function Dashboard() {
   }, [activeWorkspace?.id]);
 
   const handleModuleSelect = (moduleId: string | null) => {
+    if (
+      (moduleId === null || moduleId === 'home') &&
+      (window.location.hash.startsWith('#ci=') || window.location.hash.startsWith('#company-intel'))
+    ) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
     if (moduleId !== 'veena-dm' && moduleId !== 'chat-sessions') {
       setActiveConversationId(null);
     }
@@ -202,6 +213,20 @@ function Dashboard() {
     setActiveConversationId(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id]);
+
+  // Restore Company Intelligence task channels from their deep-link hash after
+  // refresh, and follow browser hash navigation without mounting legacy #main.
+  useEffect(() => {
+    const restoreCiRoute = () => {
+      const moduleId = moduleIdFromCiHash();
+      if (!moduleId) return;
+      setAutoStartModule(false);
+      setSelectedModule(moduleId);
+      updateDocumentTitle(moduleId);
+    };
+    window.addEventListener('hashchange', restoreCiRoute);
+    return () => window.removeEventListener('hashchange', restoreCiRoute);
+  }, []);
 
   // Reset auto-start after module change
   useEffect(() => {

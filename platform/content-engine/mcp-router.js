@@ -440,7 +440,8 @@ export async function initiateConnection(userId, connectorId, extraFields = {}) 
         auth_config_id: authConfigId,
         user_id: userId,
         callback_url: `${appUrl}/settings?tab=accounts&connected=${connectorId}`,
-        allow_multiple: true,
+        // One active Apollo (etc.) account per workspace — avoids stale ca_* IDs
+        allow_multiple: false,
         ...(connectionData && { data: connectionData }),
       }),
     })
@@ -473,6 +474,8 @@ export async function initiateConnection(userId, connectorId, extraFields = {}) 
     return { redirectUrl, connectionId: data.id || data.connection_id || data.connected_account_id || null }
   } catch (err) {
     return { error: err.message || 'Connect failed' }
+  } finally {
+    invalidateConnectedAccountCache(userId, appName)
   }
 }
 
@@ -490,16 +493,22 @@ export async function disconnectConnector(userId, connectorId) {
       { headers: { 'x-api-key': apiKey } }
     )
     const listData = await listRes.json()
-    const acct = (listData.items || []).find((item) =>
+    const accounts = (listData.items || []).filter((item) =>
       accountMatchesUser(item, userId) &&
       normalizeToolkitSlug(item.toolkit?.slug || item.toolkit_slug || item.appName || '') === normalizeToolkitSlug(appName)
     )
-    if (!acct) return { error: 'No connected account found' }
+    if (!accounts.length) {
+      invalidateConnectedAccountCache(userId, appName)
+      return { error: 'No connected account found' }
+    }
 
-    await fetch(`${COMPOSIO_V3}/connected_accounts/${acct.id}`, {
-      method: 'DELETE',
-      headers: { 'x-api-key': apiKey },
-    })
+    await Promise.all(accounts.map((acct) =>
+      fetch(`${COMPOSIO_V3}/connected_accounts/${acct.id}`, {
+        method: 'DELETE',
+        headers: { 'x-api-key': apiKey },
+      })
+    ))
+    invalidateConnectedAccountCache(userId, appName)
     return { ok: true }
   } catch (err) {
     return { error: err.message }
@@ -626,9 +635,66 @@ function toolkitForAction(actionSlug) {
 const _caIdCache = new Map()
 const _caDetailCache = new Map()
 
-async function resolveConnectedAccountId(toolkit, userId, apiKey) {
+function accountRecency(acct) {
+  const stamp = acct?.updated_at || acct?.created_at || acct?.createdAt || acct?.updatedAt || ''
+  const ms = Date.parse(stamp)
+  return Number.isFinite(ms) ? ms : 0
+}
+
+function pickNewestActiveAccount(items, userId, toolkit, { excludeIds = [] } = {}) {
+  const excluded = new Set((excludeIds || []).filter(Boolean).map(String))
+  return (items || [])
+    .filter((a) =>
+      accountMatchesUser(a, userId) &&
+      normalizeToolkitSlug(a.toolkit?.slug || a.toolkit_slug || '') === normalizeToolkitSlug(toolkit) &&
+      a.status === 'ACTIVE' &&
+      a.id &&
+      !excluded.has(String(a.id))
+    )
+    .sort((a, b) => accountRecency(b) - accountRecency(a))[0] || null
+}
+
+function composioErrorText(value) {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (value instanceof Error) return value.message || String(value)
+  if (typeof value === 'object') {
+    const nested = value.message || value.error || value.detail || value.description
+    if (typeof nested === 'string' && nested.trim()) return nested.trim()
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
+
+export function invalidateConnectedAccountCache(userId, toolkit = null) {
+  const uid = String(userId || '').trim()
+  if (!uid) {
+    _caIdCache.clear()
+    _caDetailCache.clear()
+    return
+  }
+  const toolkitSlug = toolkit ? normalizeToolkitSlug(toolkit) : null
+  for (const key of [..._caIdCache.keys()]) {
+    if (!key.startsWith(`${uid}:`)) continue
+    if (toolkitSlug) {
+      const keyToolkit = key.slice(uid.length + 1)
+      if (normalizeToolkitSlug(keyToolkit) !== toolkitSlug) continue
+    }
+    const cachedId = _caIdCache.get(key)
+    _caIdCache.delete(key)
+    if (cachedId) _caDetailCache.delete(cachedId)
+  }
+}
+
+async function resolveConnectedAccountId(toolkit, userId, apiKey, { bypassCache = false, excludeIds = [] } = {}) {
   const cacheKey = `${userId}:${toolkit}`
-  if (_caIdCache.has(cacheKey)) return _caIdCache.get(cacheKey)
+  if (!bypassCache && !excludeIds.length && _caIdCache.has(cacheKey)) {
+    return _caIdCache.get(cacheKey)
+  }
 
   const res = await fetch(
     `${COMPOSIO_V3}/connected_accounts?user_id=${encodeURIComponent(userId)}&toolkit_slug=${toolkit}&limit=10`,
@@ -636,16 +702,18 @@ async function resolveConnectedAccountId(toolkit, userId, apiKey) {
   )
   if (!res.ok) throw new Error(`Composio connected_accounts lookup failed: ${res.status}`)
   const data = await res.json()
-  const acct = (data.items || []).find(a =>
-    accountMatchesUser(a, userId) &&
-    normalizeToolkitSlug(a.toolkit?.slug || a.toolkit_slug || '') === normalizeToolkitSlug(toolkit)
-    && a.status === 'ACTIVE'
-  )
+  const acct = pickNewestActiveAccount(data.items, userId, toolkit, { excludeIds })
   if (!acct) throw new Error(
     `No active ${toolkit} connection for user ${userId}. Connect it in Settings → Accounts.`
   )
   _caIdCache.set(cacheKey, acct.id)
   return acct.id
+}
+
+function isStaleConnectedAccountError(message) {
+  return /no connected account found with id|connected account .* not found|invalid connected.?account/i.test(
+    composioErrorText(message),
+  )
 }
 
 async function getConnectedAccountDetail(toolkit, userId, apiKey) {
@@ -655,7 +723,10 @@ async function getConnectedAccountDetail(toolkit, userId, apiKey) {
   const res = await fetch(`${COMPOSIO_V3}/connected_accounts/${connectedAccountId}`, {
     headers: { 'x-api-key': apiKey },
   })
-  if (!res.ok) throw new Error(`Composio connected_account detail failed: ${res.status}`)
+  if (!res.ok) {
+    invalidateConnectedAccountCache(userId, toolkit)
+    throw new Error(`Composio connected_account detail failed: ${res.status}`)
+  }
   const data = await res.json()
   _caDetailCache.set(connectedAccountId, data)
   return data
@@ -722,7 +793,7 @@ export function composioEntityCandidates(...ids) {
 }
 
 function isComposioMissingConnectionError(message) {
-  return /no active .* connection|connect it in settings|connect it in settings → accounts/i.test(String(message || ''))
+  return /no active .* connection|connect it in settings|connect it in settings → accounts|no connected account found with id/i.test(String(message || ''))
 }
 
 /**
@@ -759,12 +830,12 @@ export async function getConnectedAccountApiKeyForEntities(connectorId, entityId
 }
 
 export function formatApolloConnectionError(err) {
-  const msg = String(err || '')
+  const msg = composioErrorText(err)
   if (/401|403|unauthorized|invalid api key/i.test(msg)) {
     return 'Apollo authorization failed. Open Settings → Integrations, disconnect Apollo, and reconnect with a valid master API key.'
   }
-  if (isComposioMissingConnectionError(msg)) {
-    return 'Apollo is not connected for this workspace. Connect it in Settings → Integrations.'
+  if (isStaleConnectedAccountError(msg) || isComposioMissingConnectionError(msg)) {
+    return 'Apollo connection is missing or stale. Open Settings → Integrations, disconnect Apollo, and reconnect.'
   }
   return msg || 'Apollo search failed'
 }
@@ -781,17 +852,48 @@ export async function executeComposioAction(actionSlug, inputParams = {}, userId
       if (hunterResult) return hunterResult
     }
 
-    const connectedAccountId = await resolveConnectedAccountId(toolkit, userId, apiKey)
+    const runOnce = async ({ bypassCache = false, excludeIds = [] } = {}) => {
+      const connectedAccountId = await resolveConnectedAccountId(toolkit, userId, apiKey, {
+        bypassCache,
+        excludeIds,
+      })
+      const res = await fetch(`${COMPOSIO_V3}/tools/execute/${actionSlug}`, {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connected_account_id: connectedAccountId,
+          user_id: userId,
+          arguments: inputParams,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        return {
+          error: composioErrorText(data?.error?.message || data?.error || data?.message || data),
+          connectedAccountId,
+        }
+      }
+      if (data.successful === false) {
+        return {
+          error: composioErrorText(data?.error || data?.data?.message || 'Action failed'),
+          raw: data,
+          connectedAccountId,
+        }
+      }
+      return { ok: true, result: data?.data ?? data, connectedAccountId }
+    }
 
-    const res = await fetch(`${COMPOSIO_V3}/tools/execute/${actionSlug}`, {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ connected_account_id: connectedAccountId, arguments: inputParams }),
-    })
-    const data = await res.json()
-    if (!res.ok) return { error: data?.error?.message || data?.message || JSON.stringify(data) }
-    if (data.successful === false) return { error: data?.error || data?.data?.message || 'Action failed', raw: data }
-    return { ok: true, result: data?.data ?? data }
+    let result = await runOnce({ bypassCache: false })
+    if (result.error && isStaleConnectedAccountError(result.error)) {
+      invalidateConnectedAccountCache(userId, toolkit)
+      // Drop the rejected ca_* id and try the next newest ACTIVE account
+      result = await runOnce({
+        bypassCache: true,
+        excludeIds: result.connectedAccountId ? [result.connectedAccountId] : [],
+      })
+    }
+    if (result.error) return { error: result.error, raw: result.raw }
+    return { ok: true, result: result.result }
   } catch (err) {
     return { error: err.message }
   }
@@ -852,11 +954,8 @@ export async function getConnectedAccountToken(connectorId, userId) {
     if (!res.ok) return { error: `Composio list accounts failed: ${res.status}` }
     const data = await res.json()
 
-    // Find the active account for this app
-    const acct = (data.items || []).find(a => {
-      const slug = a.toolkit?.slug || a.toolkit_slug || ''
-      return accountMatchesUser(a, userId) && normalizeToolkitSlug(slug) === normalizeToolkitSlug(appName) && a.status === 'ACTIVE'
-    })
+    // Find the newest active account for this app
+    const acct = pickNewestActiveAccount(data.items, userId, appName)
     if (!acct) return { error: `No active ${connectorId} connection for user ${userId}. Connect it in Settings → Accounts.` }
 
     // Fetch full account with credentials
@@ -890,10 +989,7 @@ export async function getConnectedAccountApiKey(connectorId, userId) {
     if (!res.ok) return { error: `Composio list accounts failed: ${res.status}` }
     const data = await res.json()
 
-    const acct = (data.items || []).find(a => {
-      const slug = a.toolkit?.slug || a.toolkit_slug || ''
-      return accountMatchesUser(a, userId) && normalizeToolkitSlug(slug) === normalizeToolkitSlug(appName) && a.status === 'ACTIVE'
-    })
+    const acct = pickNewestActiveAccount(data.items, userId, appName)
     if (!acct) return { error: `No active ${connectorId} connection for user ${userId}. Connect it in Settings → Accounts.` }
 
     const detailRes = await fetch(`${COMPOSIO_V3}/connected_accounts/${acct.id}`, {
