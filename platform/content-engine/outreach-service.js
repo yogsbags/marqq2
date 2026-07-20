@@ -11,6 +11,7 @@ import {
   executeComposioAction,
   executeComposioActionForEntities,
   formatApolloConnectionError,
+  getConnectedAccountApiKeyForEntities,
   upsertComposioTrigger,
 } from './mcp-router.js'
 import { MKGService } from './mkg-service.js'
@@ -536,6 +537,60 @@ export async function createOutreachRun({
     return Array.isArray(list) ? list : []
   }
 
+  const mapPeopleToLeads = (people) =>
+    people.slice(0, capped).map((person) => ({
+      id: person.id,
+      full_name: person.name || [person.first_name, person.last_name].filter(Boolean).join(' '),
+      first_name: person.first_name,
+      last_name: person.last_name,
+      designation: person.title || person.headline,
+      company: person.organization?.name || person.organization_name,
+      icp_industry: person.organization?.industry || person.industry,
+      email: person.email,
+      email_norm: person.email,
+      linkedin_url: person.linkedin_url,
+      city: person.city,
+      state: person.state,
+      seniority: person.seniority,
+    }))
+
+  const isApolloAuthError = (message) =>
+    /401|403|unauthorized|invalid api key|authorization failed|master api key/i.test(String(message || ''))
+
+  /**
+   * Composio's APOLLO_PEOPLE_SEARCH action has been observed to 403
+   * ("Authorization failed. Make sure you're using a master API key.") even when the
+   * connected account genuinely holds a master key — this looks like an issue in how
+   * Composio proxies this specific Apollo endpoint, not a bad credential. Fall back to
+   * calling Apollo directly with the same master key Composio already has on file.
+   */
+  const apolloPeopleSearchDirect = async (entityIds, args) => {
+    const connected = await getConnectedAccountApiKeyForEntities('apollo', entityIds)
+    const apiKey = connected?.api_key
+    if (!apiKey) return { error: connected?.error || 'No Apollo API key available' }
+    try {
+      const res = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          accept: 'application/json',
+        },
+        body: JSON.stringify(args),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const base = data?.error || data?.error_message || data?.message || `Apollo API failed: ${res.status}`
+        console.error(`[outreach] Apollo direct fallback ${res.status}:`, JSON.stringify(data).slice(0, 500))
+        return { error: base }
+      }
+      return { result: data }
+    } catch (err) {
+      return { error: err.message }
+    }
+  }
+
   // Composio Apollo toolkit: APOLLO_PEOPLE_SEARCH (try workspace + company entity IDs)
   const composioEntityIds = [workspaceId, companyId].filter(Boolean)
   let composioSearch = await executeComposioActionForEntities(
@@ -559,22 +614,24 @@ export async function createOutreachRun({
   if (!composioSearch.error) {
     const people = unwrapApolloPeople(composioSearch.result)
     if (people.length) {
-      leads = people.slice(0, capped).map((person) => ({
-        id: person.id,
-        full_name: person.name || [person.first_name, person.last_name].filter(Boolean).join(' '),
-        first_name: person.first_name,
-        last_name: person.last_name,
-        designation: person.title || person.headline,
-        company: person.organization?.name || person.organization_name,
-        icp_industry: person.organization?.industry || person.industry,
-        email: person.email,
-        email_norm: person.email,
-        linkedin_url: person.linkedin_url,
-        city: person.city,
-        state: person.state,
-        seniority: person.seniority,
-      }))
+      leads = mapPeopleToLeads(people)
       source = 'apollo_people_search'
+    }
+  }
+
+  // Composio proxy failed on an auth-shaped error — retry once against Apollo directly
+  // using the same connected master key before giving up.
+  if (!leads.length && composioSearch.error && isApolloAuthError(composioSearch.error)) {
+    console.error('[outreach] Composio Apollo search failed, trying direct API fallback:', composioSearch.error)
+    const direct = await apolloPeopleSearchDirect(composioEntityIds, buildPeopleSearchArgs('full'))
+    if (direct.error) {
+      console.error('[outreach] Apollo direct fallback also failed:', direct.error)
+    } else {
+      const people = unwrapApolloPeople(direct.result)
+      if (people.length) {
+        leads = mapPeopleToLeads(people)
+        source = 'apollo_people_search_direct'
+      }
     }
   }
 
