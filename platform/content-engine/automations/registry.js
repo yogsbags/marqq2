@@ -825,8 +825,12 @@ const directApiHandlers = {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const base = data?.error || data?.error_message || data?.message || `Apollo API failed: ${res.status}`;
+        // Log the raw Apollo response so auth failures can be diagnosed (plan/scope
+        // restriction vs stale key vs wrong endpoint) instead of only ever seeing the
+        // generic "reconnect" message surfaced to the user.
+        console.error(`[apollo_find_leads] ${res.status} from ${url}:`, JSON.stringify(data).slice(0, 500));
         if (res.status === 401 || res.status === 403) {
-          throw new Error(formatApolloConnectionError(base));
+          throw new Error(`${formatApolloConnectionError(base)} (Apollo said: ${String(base).slice(0, 200)})`);
         }
         throw new Error(base);
       }
@@ -876,7 +880,7 @@ const directApiHandlers = {
       const qKeywords = industries.join(' ');
       if (qKeywords) peopleParams.set('q_keywords', qKeywords);
 
-      const peopleSearch = await fetchApollo(`https://api.apollo.io/api/v1/mixed_people/api_search?${peopleParams.toString()}`, {
+      const peopleSearch = await fetchApollo(`https://api.apollo.io/api/v1/mixed_people/search?${peopleParams.toString()}`, {
         method: 'POST',
       });
       const peopleIds = (peopleSearch.people || []).map((person) => person.id).filter(Boolean).slice(0, limit);
@@ -897,8 +901,10 @@ const directApiHandlers = {
           leads: people.map(mapApolloPersonToLead).filter((lead) => lead.company || lead.full_name),
         };
       }
-    } catch {
-      // Fall through to account search.
+    } catch (err) {
+      // Fall through to account search, but keep the reason visible server-side —
+      // silently swallowing it made "still fails after reconnect" reports impossible to diagnose.
+      console.error('[apollo_find_leads] people search failed, falling back to account search:', err.message);
     }
 
     const accountQueries = industries.length

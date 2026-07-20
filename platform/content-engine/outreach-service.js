@@ -580,6 +580,10 @@ export async function createOutreachRun({
 
   if (!leads.length) {
     if (composioSearch.error) {
+      // Log the raw Composio/Apollo error - formatApolloConnectionError() collapses
+      // everything into a generic "reconnect" message for the UI, which makes
+      // "still fails after reconnecting with a valid key" reports impossible to diagnose.
+      console.error('[outreach] Apollo people search failed:', composioSearch.error)
       throw new Error(formatApolloConnectionError(composioSearch.error))
     }
     throw new Error('No prospects matched your filters in Apollo. Try broader titles or location.')
