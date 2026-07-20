@@ -568,6 +568,11 @@ export async function createOutreachRun({
     const connected = await getConnectedAccountApiKeyForEntities('apollo', entityIds)
     const apiKey = connected?.api_key
     if (!apiKey) return { error: connected?.error || 'No Apollo API key available' }
+    // Fingerprint only (never the raw key) so we can confirm the direct fallback is
+    // using the same credential Composio has stored — helps tell "wrong/stale key on
+    // file" apart from "Apollo itself is rejecting this key for another reason".
+    const fp = apiKey.length > 8 ? `${apiKey.slice(0, 2)}***${apiKey.slice(-4)} (len ${apiKey.length})` : `(len ${apiKey.length})`
+    console.error('[outreach] Apollo direct fallback using key fingerprint:', fp, 'account_id:', connected?.account_id)
     try {
       const res = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
         method: 'POST',

@@ -974,6 +974,12 @@ export async function getConnectedAccountToken(connectorId, userId) {
   }
 }
 
+function maskSecret(value) {
+  const str = String(value || '')
+  if (str.length <= 8) return str ? `${str[0]}***(${str.length})` : ''
+  return `${str.slice(0, 2)}***${str.slice(-4)} (len ${str.length})`
+}
+
 export async function getConnectedAccountApiKey(connectorId, userId) {
   const apiKey = process.env.COMPOSIO_API_KEY
   if (!apiKey) return { error: 'COMPOSIO_API_KEY not configured' }
@@ -999,6 +1005,20 @@ export async function getConnectedAccountApiKey(connectorId, userId) {
     const detail = await detailRes.json()
 
     const genericApiKey = readGenericApiKey(detail)
+    if (connectorId === 'apollo') {
+      // Diagnostic only — never logs the actual secret value, just where (if anywhere)
+      // Composio stored a credential and a masked fingerprint to compare against the
+      // key shown in Apollo's own dashboard.
+      console.error('[getConnectedAccountApiKey][apollo]', {
+        accountId: acct.id,
+        status: acct.status,
+        updatedAt: acct.updated_at || acct.created_at || null,
+        dataKeys: detail?.data && typeof detail.data === 'object' ? Object.keys(detail.data) : null,
+        stateValKeys: detail?.state?.val && typeof detail.state.val === 'object' ? Object.keys(detail.state.val) : null,
+        paramsKeys: detail?.params && typeof detail.params === 'object' ? Object.keys(detail.params) : null,
+        resolvedKeyFingerprint: genericApiKey ? maskSecret(genericApiKey) : null,
+      })
+    }
     if (!genericApiKey) return { error: `No API key found for ${connectorId} — account may need reconnection` }
 
     return { api_key: genericApiKey, account_id: acct.id }
