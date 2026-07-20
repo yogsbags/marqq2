@@ -115,6 +115,48 @@ function ensureFavicon() {
   link.href = BRAND.faviconSrc;
 }
 
+// ── Generic module deep-linking (#m=<moduleId>) ─────────────────────────────
+// Company Intelligence pages already round-trip through #ci=/#company-intel:.
+// Every other module (Lead Intelligence, Video Gen, Settings, etc.) had no URL
+// representation at all, so a hard reload — e.g. the "New version available"
+// banner, or a plain browser refresh — always fell back to Home. Mirror the
+// same #ci= pattern generically so any module survives a reload.
+function moduleIdFromGenericHash(hash?: string): string | null {
+  const raw = hash ?? (typeof window !== 'undefined' ? window.location.hash : '');
+  const value = raw.startsWith('#') ? raw.slice(1) : raw;
+  if (!value.startsWith('m=')) return null;
+  try {
+    return decodeURIComponent(value.slice(2)) || null;
+  } catch {
+    return value.slice(2) || null;
+  }
+}
+
+function syncModuleHash(moduleId: string | null) {
+  if (typeof window === 'undefined') return;
+  const base = window.location.pathname + window.location.search;
+
+  if (!moduleId || moduleId === 'home') {
+    if (window.location.hash) window.history.replaceState(null, '', base);
+    return;
+  }
+
+  if (isCiTaskChannel(moduleId)) {
+    const pageId = pageIdFromCiChannel(moduleId);
+    if (!pageId) return;
+    const nextHash = `#ci=${pageId}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, '', `${base}${nextHash}`);
+    }
+    return;
+  }
+
+  const nextHash = `#m=${encodeURIComponent(moduleId)}`;
+  if (window.location.hash !== nextHash) {
+    window.history.replaceState(null, '', `${base}${nextHash}`);
+  }
+}
+
 type AuthPathMode = 'login' | 'signup';
 
 function getAuthPathMode(pathname = window.location.pathname): AuthPathMode | null {
@@ -160,7 +202,9 @@ function AuthScreen({ initialMode = 'login' }: { initialMode?: AuthPathMode }) {
 
 function Dashboard() {
   const { activeWorkspace } = useWorkspace();
-  const [selectedModule, setSelectedModule] = useState<string | null>(() => moduleIdFromCiHash());
+  const [selectedModule, setSelectedModule] = useState<string | null>(
+    () => moduleIdFromCiHash() || moduleIdFromGenericHash(),
+  );
   const [autoStartModule, setAutoStartModule] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     return loadConversationsLocal(activeWorkspace?.id, 'veena-dm');
@@ -181,12 +225,6 @@ function Dashboard() {
   }, [activeWorkspace?.id]);
 
   const handleModuleSelect = (moduleId: string | null) => {
-    if (
-      (moduleId === null || moduleId === 'home') &&
-      (window.location.hash.startsWith('#ci=') || window.location.hash.startsWith('#company-intel'))
-    ) {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    }
     if (moduleId !== 'veena-dm' && moduleId !== 'chat-sessions') {
       setActiveConversationId(null);
     }
@@ -197,6 +235,10 @@ function Dashboard() {
       setAutoStartModule(true);
       window.history.replaceState(null, '', window.location.pathname);
     }
+    // Keep the URL hash in sync with the selected module so a hard reload (e.g. the
+    // "New version available" update banner) restores the same view instead of
+    // falling back to Home.
+    syncModuleHash(moduleId);
     // Pin as a dynamic channel whenever a module is opened
     if (moduleId && activeWorkspace?.id) {
       const updated = pinChannel(activeWorkspace.id, moduleId);
@@ -214,18 +256,27 @@ function Dashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id]);
 
-  // Restore Company Intelligence task channels from their deep-link hash after
-  // refresh, and follow browser hash navigation without mounting legacy #main.
+  // Restore the current module from its deep-link hash on browser hash navigation
+  // (back/forward, manual edits) — Company Intelligence pages use #ci=/#company-intel:,
+  // every other module uses the generic #m=<moduleId> scheme.
   useEffect(() => {
-    const restoreCiRoute = () => {
-      const moduleId = moduleIdFromCiHash();
-      if (!moduleId) return;
-      setAutoStartModule(false);
-      setSelectedModule(moduleId);
-      updateDocumentTitle(moduleId);
+    const restoreRoute = () => {
+      const ciModuleId = moduleIdFromCiHash();
+      if (ciModuleId) {
+        setAutoStartModule(false);
+        setSelectedModule(ciModuleId);
+        updateDocumentTitle(ciModuleId);
+        return;
+      }
+      const genericModuleId = moduleIdFromGenericHash();
+      if (genericModuleId) {
+        setAutoStartModule(false);
+        setSelectedModule(genericModuleId);
+        updateDocumentTitle(genericModuleId);
+      }
     };
-    window.addEventListener('hashchange', restoreCiRoute);
-    return () => window.removeEventListener('hashchange', restoreCiRoute);
+    window.addEventListener('hashchange', restoreRoute);
+    return () => window.removeEventListener('hashchange', restoreRoute);
   }, []);
 
   // Reset auto-start after module change
