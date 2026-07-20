@@ -563,6 +563,10 @@ export async function createOutreachRun({
    * connected account genuinely holds a master key — this looks like an issue in how
    * Composio proxies this specific Apollo endpoint, not a bad credential. Fall back to
    * calling Apollo directly with the same master key Composio already has on file.
+   *
+   * Per Apollo's official OpenAPI spec (docs.apollo.io/reference/people-api-search):
+   * POST https://api.apollo.io/api/v1/mixed_people/api_search — all filters are QUERY
+   * params (person_titles[], person_locations[], etc.), not a JSON body.
    */
   const apolloPeopleSearchDirect = async (entityIds, args) => {
     const connected = await getConnectedAccountApiKeyForEntities('apollo', entityIds)
@@ -574,7 +578,16 @@ export async function createOutreachRun({
     const fp = apiKey.length > 8 ? `${apiKey.slice(0, 2)}***${apiKey.slice(-4)} (len ${apiKey.length})` : `(len ${apiKey.length})`
     console.error('[outreach] Apollo direct fallback using key fingerprint:', fp, 'account_id:', connected?.account_id)
     try {
-      const res = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
+      const qs = new URLSearchParams()
+      for (const [key, value] of Object.entries(args || {})) {
+        if (value == null) continue
+        if (Array.isArray(value)) {
+          for (const item of value) qs.append(`${key}[]`, String(item))
+        } else {
+          qs.set(key, String(value))
+        }
+      }
+      const res = await fetch(`https://api.apollo.io/api/v1/mixed_people/api_search?${qs.toString()}`, {
         method: 'POST',
         headers: {
           'x-api-key': apiKey,
@@ -582,7 +595,6 @@ export async function createOutreachRun({
           'Cache-Control': 'no-cache',
           accept: 'application/json',
         },
-        body: JSON.stringify(args),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {

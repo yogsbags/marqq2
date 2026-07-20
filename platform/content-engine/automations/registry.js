@@ -880,7 +880,7 @@ const directApiHandlers = {
       const qKeywords = industries.join(' ');
       if (qKeywords) peopleParams.set('q_keywords', qKeywords);
 
-      const peopleSearch = await fetchApollo(`https://api.apollo.io/api/v1/mixed_people/search?${peopleParams.toString()}`, {
+      const peopleSearch = await fetchApollo(`https://api.apollo.io/api/v1/mixed_people/api_search?${peopleParams.toString()}`, {
         method: 'POST',
       });
       const peopleIds = (peopleSearch.people || []).map((person) => person.id).filter(Boolean).slice(0, limit);
