@@ -49,7 +49,32 @@ function sectionAnswersComplete(
   questions: GtmInterviewQuestion[],
   answers: Record<string, GtmSectionAnswer>
 ) {
-  return questions.every((q) => Boolean(answers[q.id]?.value || answers[q.id]?.label));
+  return questions.every((q) => {
+    const a = answers[q.id];
+    if (!a) return false;
+    if (Array.isArray(a.values) && a.values.length > 0) return true;
+    return Boolean(String(a.value || '').trim() || String(a.label || '').trim());
+  });
+}
+
+function parseSelectedValues(answer?: GtmSectionAnswer | null): string[] {
+  if (!answer) return [];
+  if (Array.isArray(answer.values) && answer.values.length) return answer.values.map(String);
+  const raw = String(answer.value || '').trim();
+  if (!raw) return [];
+  if (raw.includes('||')) return raw.split('||').map((s) => s.trim()).filter(Boolean);
+  return [raw];
+}
+
+function joinMultiAnswer(values: string[], labels: string[]): GtmSectionAnswer {
+  const cleanValues = values.map((v) => String(v || '').trim()).filter(Boolean);
+  const cleanLabels = labels.map((l) => String(l || '').trim()).filter(Boolean);
+  return {
+    value: cleanValues.join('||'),
+    label: cleanLabels.join(' · '),
+    values: cleanValues,
+    labels: cleanLabels,
+  };
 }
 
 interface GtmModuleWizardProps {
@@ -78,6 +103,7 @@ export function GtmModuleWizard({
   const [answers, setAnswers] = useState<Record<string, GtmSectionAnswer>>({});
   const [questionIndex, setQuestionIndex] = useState(0);
   const [customText, setCustomText] = useState('');
+  const [multiSelected, setMultiSelected] = useState<Array<{ value: string; label: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [chat, setChat] = useState<ChatLine[]>([
     {
@@ -133,6 +159,7 @@ export function GtmModuleWizard({
         setAnswers(seeded);
         setQuestionIndex(0);
         setCustomText('');
+        setMultiSelected([]);
         setPhase('interview');
         pushChat({
           role: 'assistant',
@@ -145,6 +172,20 @@ export function GtmModuleWizard({
             type: 'text',
             text: data.questions[0].question,
           });
+          const first = data.questions[0];
+          if (first.type === 'multi_select' && first.selectedValue) {
+            const values = String(first.selectedValue).split('||').map((s) => s.trim()).filter(Boolean);
+            const labels = String(first.selectedLabel || first.selectedValue)
+              .split(' · ')
+              .map((s) => s.trim())
+              .filter(Boolean);
+            setMultiSelected(
+              values.map((value, i) => ({
+                value,
+                label: labels[i] || value,
+              })),
+            );
+          }
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to load questions');
@@ -327,7 +368,17 @@ export function GtmModuleWizard({
         text: 'Context ready. Let’s lock your GTM module profile section by section.',
       });
 
-      const order = ['module', 'offer', 'audience', 'problem', 'positioning', 'goals'];
+      const order = [
+        'module',
+        'offer',
+        'audience',
+        'problem',
+        'positioning',
+        'distribution',
+        'content',
+        'leads',
+        'goals',
+      ];
       const next =
         readyProgress?.currentSectionId && readyProgress.currentSectionId !== 'execute'
           ? readyProgress.currentSectionId
@@ -372,23 +423,58 @@ export function GtmModuleWizard({
 
   const selectOption = async (q: GtmInterviewQuestion, value: string, label: string) => {
     if (!module || !sectionId || busy) return;
+
+    if (q.type === 'multi_select') {
+      setMultiSelected((prev) => {
+        if (prev.some((item) => item.value === value)) {
+          return prev.filter((item) => item.value !== value);
+        }
+        return [...prev, { value, label }];
+      });
+      return;
+    }
+
+    advanceAfterAnswer(q, { value, label });
+  };
+
+  const advanceAfterAnswer = (q: GtmInterviewQuestion, answer: GtmSectionAnswer) => {
     const nextAnswers = {
       ...answers,
-      [q.id]: { value, label },
+      [q.id]: answer,
     };
     setAnswers(nextAnswers);
-    pushChat({ role: 'user', type: 'text', text: label });
+    pushChat({ role: 'user', type: 'text', text: answer.label });
 
     if (questionIndex < questions.length - 1) {
       const nextIdx = questionIndex + 1;
+      const nextQ = questions[nextIdx];
       setQuestionIndex(nextIdx);
       setCustomText('');
+      if (nextQ.type === 'multi_select' && nextAnswers[nextQ.id]) {
+        const draft = nextAnswers[nextQ.id];
+        const values = parseSelectedValues(draft);
+        const labels = Array.isArray(draft.labels) && draft.labels.length
+          ? draft.labels
+          : String(draft.label || '')
+              .split(' · ')
+              .map((s) => s.trim())
+              .filter(Boolean);
+        setMultiSelected(
+          values.map((value, i) => ({
+            value,
+            label: labels[i] || (nextQ.options || []).find((opt) => opt.value === value)?.label || value,
+          })),
+        );
+      } else {
+        setMultiSelected([]);
+      }
       pushChat({
         role: 'assistant',
         type: 'text',
-        text: questions[nextIdx].question,
+        text: nextQ.question,
       });
     } else {
+      setMultiSelected([]);
       pushChat({
         role: 'assistant',
         type: 'system',
@@ -397,9 +483,31 @@ export function GtmModuleWizard({
     }
   };
 
+  const submitMulti = async () => {
+    if (!currentQuestion || currentQuestion.type !== 'multi_select' || !multiSelected.length) return;
+    const answer = joinMultiAnswer(
+      multiSelected.map((item) => item.value),
+      multiSelected.map((item) => item.label),
+    );
+    advanceAfterAnswer(currentQuestion, answer);
+  };
+
   const submitCustom = async () => {
     if (!currentQuestion || !customText.trim()) return;
-    await selectOption(currentQuestion, customText.trim(), customText.trim());
+    const text = customText.trim();
+
+    if (currentQuestion.type === 'multi_select') {
+      const next = [...multiSelected.filter((item) => item.value !== text), { value: text, label: text }];
+      const answer = joinMultiAnswer(
+        next.map((item) => item.value),
+        next.map((item) => item.label),
+      );
+      setMultiSelected(next);
+      advanceAfterAnswer(currentQuestion, answer);
+      return;
+    }
+
+    advanceAfterAnswer(currentQuestion, { value: text, label: text });
   };
 
   const handleLock = async () => {
@@ -614,12 +722,23 @@ export function GtmModuleWizard({
             <div>
               <p className="text-sm font-medium">
                 {sectionTitle} · Q{questionIndex + 1}/{questions.length}
+                {currentQuestion.type === 'multi_select' ? (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">Multi-select</span>
+                ) : null}
               </p>
-              <p className="text-sm text-muted-foreground">{currentQuestion.helperText}</p>
+              <p className="text-sm text-muted-foreground">
+                {currentQuestion.helperText ||
+                  (currentQuestion.type === 'multi_select'
+                    ? 'Select all that apply, or type your own.'
+                    : 'Pick an option, or type your own.')}
+              </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {(currentQuestion.options || []).slice(0, 4).map((opt) => {
-                const selected = answers[currentQuestion.id]?.value === opt.value;
+                const selected =
+                  currentQuestion.type === 'multi_select'
+                    ? multiSelected.some((item) => item.value === opt.value)
+                    : answers[currentQuestion.id]?.value === opt.value;
                 return (
                   <Button
                     key={opt.value}
@@ -641,24 +760,43 @@ export function GtmModuleWizard({
                 );
               })}
             </div>
-            {currentQuestion.allowCustomAnswer !== false && (
-              <div className="flex gap-2">
-                <Input
-                  value={customText}
-                  onChange={(e) => setCustomText(e.target.value)}
-                  placeholder="Other — type your own"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      void submitCustom();
-                    }
-                  }}
-                />
-                <Button type="button" variant="secondary" disabled={busy || !customText.trim()} onClick={() => void submitCustom()}>
-                  Use
-                </Button>
-              </div>
-            )}
+            {currentQuestion.type === 'multi_select' && multiSelected.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Selected: {multiSelected.map((item) => item.label).join(' · ')}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <Input
+                value={customText}
+                onChange={(e) => setCustomText(e.target.value)}
+                placeholder="Type your own"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void submitCustom();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy || !customText.trim()}
+                onClick={() => void submitCustom()}
+              >
+                {currentQuestion.type === 'multi_select' ? 'Add & continue' : 'Use'}
+              </Button>
+            </div>
+            {currentQuestion.type === 'multi_select' ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={busy || multiSelected.length === 0}
+                onClick={() => void submitMulti()}
+              >
+                Continue with selected
+              </Button>
+            ) : null}
             <Button
               type="button"
               className="w-full"

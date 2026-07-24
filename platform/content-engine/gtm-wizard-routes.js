@@ -21,6 +21,8 @@ export const GTM_INTERVIEW_SECTIONS = [
         id: "module_type",
         question: "What are you building a go-to-market plan for?",
         helperText: "This scopes every later answer to one offer line.",
+        type: "single_select",
+        allowCustomAnswer: true,
         fixedOptions: [
           { value: "product", label: "Product", recommended: true },
           { value: "service", label: "Service" },
@@ -31,7 +33,8 @@ export const GTM_INTERVIEW_SECTIONS = [
       {
         id: "module_name",
         question: "What should we call this module?",
-        helperText: "Pick a clear name your team will recognize.",
+        helperText: "Pick a clear name your team will recognize — or type your own.",
+        type: "single_select",
         allowCustomAnswer: true,
       },
     ],
@@ -39,20 +42,26 @@ export const GTM_INTERVIEW_SECTIONS = [
   {
     id: "offer",
     title: "Offer",
-    description: "What it is and how it makes money.",
+    description: "What it is, how it makes money, and how you price it.",
     questions: [
       {
         id: "category",
         question: "Which category best describes this offer?",
         helperText: "How a buyer would search for you on a shelf.",
+        type: "single_select",
+        allowCustomAnswer: true,
       },
       {
         id: "one_liner",
         question: "Which one-liner best describes what it does?",
+        type: "single_select",
+        allowCustomAnswer: true,
       },
       {
         id: "business_model",
         question: "What is the primary business model?",
+        type: "single_select",
+        allowCustomAnswer: true,
         fixedOptions: [
           { value: "saas_subscription", label: "SaaS / subscription", recommended: true },
           { value: "one_time", label: "One-time / project fee" },
@@ -60,24 +69,59 @@ export const GTM_INTERVIEW_SECTIONS = [
           { value: "usage", label: "Usage-based / credits" },
         ],
       },
+      {
+        id: "pricing_strategy",
+        question: "What is your pricing strategy?",
+        helperText: "How you package and charge — select all that apply.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "value_based", label: "Value-based pricing", recommended: true },
+          { value: "tiered_plans", label: "Tiered plans (Good / Better / Best)" },
+          { value: "freemium_trial", label: "Freemium or free trial" },
+          { value: "custom_enterprise", label: "Custom / enterprise quotes" },
+        ],
+      },
     ],
   },
   {
     id: "audience",
     title: "Audience",
-    description: "Who buys and why they care.",
+    description: "Who buys, why they care, and when you need them.",
     questions: [
       {
         id: "icp",
         question: "Who is the ideal customer for this module?",
+        helperText: "Select all that apply if you sell to more than one ICP.",
+        type: "multi_select",
+        allowCustomAnswer: true,
       },
       {
         id: "persona",
         question: "Who is the primary decision-maker or champion?",
+        helperText: "You can select multiple stakeholders.",
+        type: "multi_select",
+        allowCustomAnswer: true,
       },
       {
         id: "jtbd",
         question: "What job are they hiring this offer to do?",
+        helperText: "Select every job that is truly common — or type your own.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+      },
+      {
+        id: "target_timeline",
+        question: "What timeline are you targeting for this audience?",
+        helperText: "When do you need pipeline or adoption from this target?",
+        type: "single_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "0_30d", label: "Next 30 days", recommended: true },
+          { value: "30_90d", label: "30–90 days" },
+          { value: "90_180d", label: "This half (90–180 days)" },
+          { value: "6_12m", label: "6–12 month horizon" },
+        ],
       },
     ],
   },
@@ -89,33 +133,187 @@ export const GTM_INTERVIEW_SECTIONS = [
       {
         id: "core_pain",
         question: "What is the core pain before they find you?",
+        type: "single_select",
+        allowCustomAnswer: true,
       },
       {
         id: "status_quo",
         question: "What do they use or do today instead?",
+        helperText: "Select all common alternatives.",
+        type: "multi_select",
+        allowCustomAnswer: true,
       },
       {
         id: "cost_of_inaction",
         question: "What does inaction cost them most?",
+        type: "single_select",
+        allowCustomAnswer: true,
       },
     ],
   },
   {
     id: "positioning",
     title: "Positioning",
-    description: "Why you win.",
+    description: "Why you win — statement, pitch, and proof.",
     questions: [
       {
         id: "differentiation",
         question: "What is your sharpest point of difference?",
+        type: "single_select",
+        allowCustomAnswer: true,
+      },
+      {
+        id: "positioning_statement",
+        question: "Which positioning statement fits best?",
+        helperText: "For [target] who [need], [product] is [category] that [benefit].",
+        type: "single_select",
+        allowCustomAnswer: true,
+      },
+      {
+        id: "elevator_pitch",
+        question: "Which elevator pitch should agents lead with?",
+        helperText: "A 20–30 second spoken pitch — or type your own.",
+        type: "single_select",
+        allowCustomAnswer: true,
       },
       {
         id: "competitors",
         question: "Who do buyers compare you against most often?",
+        helperText: "Select every competitor or alternative that comes up regularly.",
+        type: "multi_select",
+        allowCustomAnswer: true,
       },
       {
         id: "proof",
         question: "What proof best earns trust in the first conversation?",
+        helperText: "Select all proof points you can use.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+      },
+    ],
+  },
+  {
+    id: "distribution",
+    title: "Distribution",
+    description: "How you reach buyers and what assets you already have.",
+    questions: [
+      {
+        id: "distribution_strategy",
+        question: "What is your primary distribution strategy?",
+        helperText: "Select all routes you will use to put the offer in front of buyers.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "direct_sales", label: "Direct sales / outbound", recommended: true },
+          { value: "partner_channel", label: "Partners / resellers / affiliates" },
+          { value: "product_led", label: "Product-led / self-serve" },
+          { value: "marketplace_platforms", label: "Marketplaces / platforms" },
+        ],
+      },
+      {
+        id: "marketing_assets",
+        question: "Which marketing assets do you already have?",
+        helperText: "Select what exists today — gaps become agent tasks.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "website_landing", label: "Website / landing pages", recommended: true },
+          { value: "case_studies_deck", label: "Case studies / sales deck" },
+          { value: "demo_video", label: "Demo / product video" },
+          { value: "thin_assets", label: "Thin or outdated assets only" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "content",
+    title: "Content & Social",
+    description: "How you educate, prove, and show up publicly.",
+    questions: [
+      {
+        id: "content_strategy",
+        question: "What should content strategy prioritize?",
+        helperText: "Select all that matter for the next cycle.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "seo_thought_leadership", label: "SEO / thought leadership", recommended: true },
+          { value: "product_education", label: "Product education / how-tos" },
+          { value: "case_studies_proof", label: "Case studies / social proof" },
+          { value: "demand_capture", label: "Demand-capture landing content" },
+        ],
+      },
+      {
+        id: "social_media_strategy",
+        question: "What is your social media strategy?",
+        helperText: "Where and how you show up — select all that apply.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "linkedin_b2b", label: "LinkedIn-first B2B", recommended: true },
+          { value: "community_groups", label: "Community / groups / forums" },
+          { value: "short_form_video", label: "Short-form video (Reels / Shorts)" },
+          { value: "light_social", label: "Light presence — support other channels" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "leads",
+    title: "Lead Ops",
+    description: "How leads are managed, scored, qualified, and followed up.",
+    questions: [
+      {
+        id: "lead_mgmt_process",
+        question: "How do you manage leads today?",
+        helperText: "Select the process that matches reality — or type your own.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "crm_pipeline", label: "CRM pipeline with stages", recommended: true },
+          { value: "spreadsheet_inbox", label: "Spreadsheet / shared inbox" },
+          { value: "agency_handoff", label: "Agency or SDR handoff" },
+          { value: "ad_hoc", label: "Ad hoc / founder-managed" },
+        ],
+      },
+      {
+        id: "lead_scoring",
+        question: "How should leads be scored?",
+        helperText: "What signals make a lead hot?",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "fit_intent", label: "ICP fit + buying intent", recommended: true },
+          { value: "engagement_behavior", label: "Engagement / content behavior" },
+          { value: "firmographic", label: "Firmographics (size, industry, geo)" },
+          { value: "manual_sdr", label: "Manual SDR judgment only" },
+        ],
+      },
+      {
+        id: "tat_outreach_segment",
+        question: "What TAT / outreach segment should we prioritize first?",
+        helperText: "Turnaround focus for outbound — who gets contacted first.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "hot_inbound_24h", label: "Hot inbound — respond in 24h", recommended: true },
+          { value: "warm_mql_48h", label: "Warm MQLs — 48h outreach" },
+          { value: "cold_icp_weekly", label: "Cold ICP — weekly sequences" },
+          { value: "expansion_accounts", label: "Expansion / existing accounts" },
+        ],
+      },
+      {
+        id: "lead_qualification",
+        question: "What is your lead qualification process?",
+        helperText: "How a lead becomes sales-ready.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "bant_meddic", label: "BANT / MEDDIC-style discovery", recommended: true },
+          { value: "demo_request", label: "Demo / meeting booked = qualified" },
+          { value: "score_threshold", label: "Score threshold then human review" },
+          { value: "founder_call", label: "Founder / AE gut-check call" },
+        ],
       },
     ],
   },
@@ -127,6 +325,9 @@ export const GTM_INTERVIEW_SECTIONS = [
       {
         id: "priority_90d",
         question: "What is the #1 priority for the next 90 days?",
+        helperText: "Select one or more priorities if they are equally urgent.",
+        type: "multi_select",
+        allowCustomAnswer: true,
         fixedOptions: [
           { value: "leads", label: "Generate qualified leads", recommended: true },
           { value: "awareness", label: "Build brand awareness" },
@@ -137,6 +338,9 @@ export const GTM_INTERVIEW_SECTIONS = [
       {
         id: "channel_bet",
         question: "Which channel should lead first?",
+        helperText: "Select the channels you want to lead with.",
+        type: "multi_select",
+        allowCustomAnswer: true,
         fixedOptions: [
           { value: "content_seo", label: "Content / SEO" },
           { value: "paid", label: "Paid acquisition" },
@@ -147,6 +351,8 @@ export const GTM_INTERVIEW_SECTIONS = [
       {
         id: "budget_band",
         question: "What is the approximate marketing budget for 90 days?",
+        type: "single_select",
+        allowCustomAnswer: true,
         fixedOptions: [
           { value: "under_5l", label: "Under ₹5L / $6k" },
           { value: "5_20l", label: "₹5–20L / $6–25k", recommended: true },
@@ -350,6 +556,44 @@ function fallbackOptions(question, sourceContext, profile) {
       { value: "Founder expertise / domain credibility", label: "Founder expertise / domain credibility" },
       { value: "Transparent workflow outputs customers can review", label: "Transparent workflow outputs customers can review" },
     ],
+    positioning_statement: [
+      {
+        value: `For ${icp} who need faster GTM execution, ${company} is an AI marketing OS that ships campaigns without an agency.`,
+        label: `For ${icp} who need faster GTM execution, ${company} is an AI marketing OS that ships campaigns without an agency.`,
+        recommended: true,
+      },
+      {
+        value: positioning.slice(0, 160),
+        label: positioning.slice(0, 160),
+      },
+      {
+        value: `${company} is the autonomous GTM layer for ${industry} teams that outgrew spreadsheets and retainers.`,
+        label: `${company} is the autonomous GTM layer for ${industry} teams that outgrew spreadsheets and retainers.`,
+      },
+      {
+        value: `The only marketing platform that remembers your company context and compounds outcomes over time.`,
+        label: `The only marketing platform that remembers your company context and compounds outcomes over time.`,
+      },
+    ],
+    elevator_pitch: [
+      {
+        value: `${company} helps ${icp} run GTM with AI agents so they get pipeline without hiring a full marketing team.`,
+        label: `${company} helps ${icp} run GTM with AI agents so they get pipeline without hiring a full marketing team.`,
+        recommended: true,
+      },
+      {
+        value: `We replace fragmented tools and agency retainers with one multi-agent marketing OS built around your brand DNA.`,
+        label: `We replace fragmented tools and agency retainers with one multi-agent marketing OS built around your brand DNA.`,
+      },
+      {
+        value: `In 30 seconds: upload your context, lock your GTM answers, and agents brief, create, and outreach for you.`,
+        label: `In 30 seconds: upload your context, lock your GTM answers, and agents brief, create, and outreach for you.`,
+      },
+      {
+        value: `Think of us as an always-on marketing team that learns your ICP and improves every campaign.`,
+        label: `Think of us as an always-on marketing team that learns your ICP and improves every campaign.`,
+      },
+    ],
   };
 
   const picked = banks[question.id];
@@ -431,6 +675,15 @@ async function syncModuleContextToAgents(deps, moduleRow) {
       profile.goals?.priority_90d,
       profile.goals?.channel_bet,
       profile.offer?.one_liner,
+      profile.audience?.target_timeline,
+      profile.offer?.pricing_strategy,
+      profile.positioning?.positioning_statement,
+      profile.positioning?.elevator_pitch,
+      profile.distribution?.distribution_strategy,
+      profile.content?.content_strategy,
+      profile.content?.social_media_strategy,
+      profile.leads?.lead_qualification,
+      profile.leads?.tat_outreach_segment,
     ]
       .filter(Boolean)
       .join(" | "),
@@ -451,6 +704,18 @@ async function syncModuleContextToAgents(deps, moduleRow) {
 **Website**: ${fields.website_url || "—"}
 **Industry**: ${fields.industry || "—"}
 **Target ICP**: ${fields.icp || "—"}
+**Target timeline**: ${profile.audience?.target_timeline || "—"}
+**Pricing strategy**: ${profile.offer?.pricing_strategy || "—"}
+**Positioning**: ${profile.positioning?.positioning_statement || "—"}
+**Elevator pitch**: ${profile.positioning?.elevator_pitch || "—"}
+**Distribution**: ${profile.distribution?.distribution_strategy || "—"}
+**Marketing assets**: ${profile.distribution?.marketing_assets || "—"}
+**Content strategy**: ${profile.content?.content_strategy || "—"}
+**Social strategy**: ${profile.content?.social_media_strategy || "—"}
+**Lead mgmt**: ${profile.leads?.lead_mgmt_process || "—"}
+**Lead scoring**: ${profile.leads?.lead_scoring || "—"}
+**TAT / outreach segment**: ${profile.leads?.tat_outreach_segment || "—"}
+**Lead qualification**: ${profile.leads?.lead_qualification || "—"}
 **Competitors**: ${fields.competitors || "—"}
 **Primary Goal**: ${fields.primary_goal || "—"}
 **Key Goals**: ${fields.goals || "—"}
@@ -1034,9 +1299,10 @@ export function registerGtmWizardRoutes(app, deps) {
           id: q.id,
           question: q.question,
           helperText: q.helperText || "",
-          type: "single_select",
+          type: q.type === "multi_select" ? "multi_select" : "single_select",
           options,
-          allowCustomAnswer: Boolean(q.allowCustomAnswer || !q.fixedOptions),
+          // Always offer a free-text escape hatch — fixed option lists included.
+          allowCustomAnswer: true,
           selectedValue: draftAnswers[q.id]?.value ?? null,
           selectedLabel: draftAnswers[q.id]?.label ?? null,
         });
@@ -1319,6 +1585,10 @@ export function registerGtmWizardRoutes(app, deps) {
             profile.module?.name,
             profile.offer?.one_liner,
             profile.audience?.icp,
+            profile.audience?.target_timeline,
+            profile.positioning?.elevator_pitch || profile.positioning?.positioning_statement,
+            profile.distribution?.distribution_strategy,
+            profile.leads?.tat_outreach_segment,
             profile.goals?.priority_90d,
           ]
             .filter(Boolean)

@@ -32,6 +32,7 @@ export function useOnboarding(onComplete: () => void) {
   const [brandDnaError, setBrandDnaError] = useState<string | null>(null);
   const prepStartedForUrlRef = useRef<string | null>(null);
   const brandDnaFetchKeyRef = useRef<string | null>(null);
+  const brandDnaReadyRef = useRef(false);
 
   const currentStep = STEPS[stepIdx];
   const canAdvance = currentStep?.fields.every(f => f.optional || !!formData[f.key]?.trim()) !== false;
@@ -95,7 +96,7 @@ export function useOnboarding(onComplete: () => void) {
     }
 
     const key = `${normalizeWebsiteUrl(websiteUrl)}|${data.company.trim()}|${data.industry.trim()}|${data.icp.trim()}`;
-    if (!force && brandDnaFetchKeyRef.current === key && brandDna) return;
+    if (!force && brandDnaFetchKeyRef.current === key && brandDnaReadyRef.current) return;
 
     brandDnaFetchKeyRef.current = key;
     setBrandDnaLoading(true);
@@ -118,13 +119,19 @@ export function useOnboarding(onComplete: () => void) {
       }
       const dna = json.brandDna as BrandDna;
       if (!dna?.companyName) throw new Error('Brand DNA response was empty');
-      setBrandDna(dna);
+      setBrandDna((prev) => ({
+        ...dna,
+        knowledgeBaseFiles: prev?.knowledgeBaseFiles || dna.knowledgeBaseFiles || [],
+        voiceNotes: prev?.voiceNotes || dna.voiceNotes || [],
+      }));
+      brandDnaReadyRef.current = true;
       if (json.partial) {
         setBrandDnaError('Fetched partial Brand DNA from your site. Review and edit before continuing.');
       }
     } catch (err) {
       brandDnaFetchKeyRef.current = null;
-      setBrandDna({
+      brandDnaReadyRef.current = true;
+      setBrandDna((prev) => ({
         companyName: data.company.trim() || 'Your Company',
         websiteUrl: normalizeWebsiteUrl(websiteUrl),
         logoUrl: null,
@@ -133,12 +140,14 @@ export function useOnboarding(onComplete: () => void) {
         colors: ['#0f3d2e', '#f0e9d8', '#faf7f0'],
         brandTagline: '',
         toneOfVoice: '',
-      });
+        knowledgeBaseFiles: prev?.knowledgeBaseFiles || [],
+        voiceNotes: prev?.voiceNotes || [],
+      }));
       setBrandDnaError(err instanceof Error ? err.message : 'Could not fetch Brand DNA. You can edit manually.');
     } finally {
       setBrandDnaLoading(false);
     }
-  }, [brandDna]);
+  }, []);
 
   const enterBrandDnaReview = useCallback((data: FormData) => {
     setPhase('review');

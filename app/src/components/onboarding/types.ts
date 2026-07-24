@@ -2,6 +2,25 @@ export type Phase = 'welcome' | 'form' | 'review' | 'activate' | 'done';
 
 export type PrimaryGoal = 'leads' | 'conversion' | 'content' | 'market' | 'budget';
 
+export interface BrandDnaKnowledgeFile {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  createdAt: string;
+  category?: string;
+  url?: string;
+}
+
+export interface BrandDnaVoiceNote {
+  id: string;
+  transcript: string;
+  audioFileId?: string;
+  audioUrl?: string;
+  transcriptFileId?: string;
+  createdAt: string;
+}
+
 export interface BrandDna {
   companyName: string;
   websiteUrl: string;
@@ -11,6 +30,10 @@ export interface BrandDna {
   colors: string[];
   brandTagline: string;
   toneOfVoice: string;
+  /** Optional uploads from onboarding Brand DNA review */
+  knowledgeBaseFiles?: BrandDnaKnowledgeFile[];
+  /** Voice briefs recorded during Brand DNA step */
+  voiceNotes?: BrandDnaVoiceNote[];
 }
 
 export interface FormData {

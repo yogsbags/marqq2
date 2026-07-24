@@ -4554,7 +4554,15 @@ app.post("/api/agents/context", async (req, res) => {
 
   const dna = brandDna && typeof brandDna === "object" ? brandDna : null;
   const dnaBlock = dna
-    ? `\n\n## Brand DNA\n**Tagline**: ${dna.brandTagline || "—"}\n**Summary**: ${dna.businessSummary || "—"}\n**Tone of Voice**: ${dna.toneOfVoice || "—"}\n**Fonts**: ${Array.isArray(dna.fonts) ? dna.fonts.join(", ") : "—"}\n**Colors**: ${Array.isArray(dna.colors) ? dna.colors.join(", ") : "—"}\n**Logo**: ${dna.logoUrl || "—"}\n`
+    ? `\n\n## Brand DNA\n**Tagline**: ${dna.brandTagline || "—"}\n**Summary**: ${dna.businessSummary || "—"}\n**Tone of Voice**: ${dna.toneOfVoice || "—"}\n**Fonts**: ${Array.isArray(dna.fonts) ? dna.fonts.join(", ") : "—"}\n**Colors**: ${Array.isArray(dna.colors) ? dna.colors.join(", ") : "—"}\n**Logo**: ${dna.logoUrl || "—"}\n**Voice notes**: ${
+        Array.isArray(dna.voiceNotes) && dna.voiceNotes.length
+          ? dna.voiceNotes.map((n, i) => `\n### Voice note ${i + 1}\n${n.transcript || "—"}`).join("\n")
+          : "—"
+      }\n**Knowledge files**: ${
+        Array.isArray(dna.knowledgeBaseFiles) && dna.knowledgeBaseFiles.length
+          ? dna.knowledgeBaseFiles.map((f) => f.name).join(", ")
+          : "—"
+      }\n`
     : "";
 
   // 2. Write to filesystem (legacy cache — user-scoped fallback)
@@ -4688,6 +4696,229 @@ app.post("/api/brand-dna", async (req, res) => {
   } catch (err) {
     console.error("[brand-dna] generation failed:", err?.message || err);
     return res.json({ brandDna: fallback, signals, partial: true });
+  }
+});
+
+// ── Brand DNA onboarding uploads (workspace-scoped knowledge + logo) ──────────
+const BRAND_DNA_KB_DIR = join(CTX_DIR, "brand-kb");
+const BRAND_DNA_ALLOWED_EXT = new Set([
+  ".pdf",
+  ".pptx",
+  ".ppt",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".svg",
+  ".txt",
+  ".md",
+  ".markdown",
+  ".webm",
+  ".wav",
+  ".mp3",
+  ".m4a",
+  ".ogg",
+]);
+const BRAND_DNA_MAX_BYTES = 15 * 1024 * 1024;
+
+function brandDnaWorkspaceDir(workspaceId) {
+  return join(BRAND_DNA_KB_DIR, String(workspaceId || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+}
+
+function brandDnaManifestPath(workspaceId) {
+  return join(brandDnaWorkspaceDir(workspaceId), "manifest.json");
+}
+
+async function readBrandDnaManifest(workspaceId) {
+  try {
+    const raw = await readFile(brandDnaManifestPath(workspaceId), "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeBrandDnaManifest(workspaceId, entries) {
+  const dir = brandDnaWorkspaceDir(workspaceId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(brandDnaManifestPath(workspaceId), JSON.stringify(entries, null, 2), "utf-8");
+}
+
+function brandDnaFileExt(name = "") {
+  const match = String(name).toLowerCase().match(/(\.[a-z0-9]+)$/);
+  return match ? match[1] : "";
+}
+
+function isAllowedBrandDnaUpload(name, mime = "") {
+  const ext = brandDnaFileExt(name);
+  if (BRAND_DNA_ALLOWED_EXT.has(ext)) return true;
+  const m = String(mime || "").toLowerCase();
+  return (
+    m.startsWith("image/") ||
+    m.startsWith("audio/") ||
+    m === "application/pdf" ||
+    m.includes("presentation") ||
+    m.includes("powerpoint") ||
+    m === "text/plain" ||
+    m === "text/markdown"
+  );
+}
+
+app.get("/api/brand-dna/knowledge-base", async (req, res) => {
+  const workspaceId = String(req.query.workspaceId || "").trim();
+  if (!workspaceId) return res.status(400).json({ error: "workspaceId is required" });
+  const files = await readBrandDnaManifest(workspaceId);
+  return res.json({
+    files: files
+      .filter((f) => f?.category !== "logo")
+      .sort((a, b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""))),
+  });
+});
+
+app.post("/api/brand-dna/knowledge-base", async (req, res) => {
+  const workspaceId = String(req.body?.workspaceId || "").trim();
+  const filesIn = Array.isArray(req.body?.files) ? req.body.files : [req.body].filter(Boolean);
+  if (!workspaceId) return res.status(400).json({ error: "workspaceId is required" });
+  if (!filesIn.length) return res.status(400).json({ error: "files required" });
+
+  try {
+    const existing = await readBrandDnaManifest(workspaceId);
+    const created = [];
+    for (const item of filesIn) {
+      const name = String(item?.name || "").trim();
+      const base64 = String(item?.base64 || "").trim();
+      const mime = String(item?.mime || "application/octet-stream");
+      const size = Number(item?.size) || 0;
+      if (!name || !base64) continue;
+      if (!isAllowedBrandDnaUpload(name, mime)) {
+        return res.status(400).json({
+          error: `Unsupported file type for ${name}. Use pdf, pptx, images, audio, txt, or md.`,
+        });
+      }
+      if (size > BRAND_DNA_MAX_BYTES) {
+        return res.status(400).json({ error: `${name} exceeds 15MB limit` });
+      }
+      const id = randomUUID();
+      const safeName = sanitizeKnowledgeBaseFilename(name);
+      const dir = brandDnaWorkspaceDir(workspaceId);
+      await mkdir(dir, { recursive: true });
+      const filePath = join(dir, `${id}-${safeName}`);
+      await writeFile(filePath, Buffer.from(base64, "base64"));
+      const category = String(item?.category || "").trim() || (
+        String(mime).startsWith("audio/") || /\.(webm|wav|mp3|m4a|ogg)$/i.test(safeName)
+          ? "voice_note"
+          : "brand_knowledge"
+      );
+      const file = {
+        id,
+        category,
+        name: safeName,
+        mime,
+        size,
+        createdAt: new Date().toISOString(),
+        path: filePath,
+        url: `/api/brand-dna/assets/${encodeURIComponent(workspaceId)}/${encodeURIComponent(id)}`,
+        transcript: typeof item?.transcript === "string" ? item.transcript : undefined,
+      };
+      existing.unshift(file);
+      created.push({
+        id: file.id,
+        name: file.name,
+        mime: file.mime,
+        size: file.size,
+        createdAt: file.createdAt,
+        category: file.category,
+        url: file.url,
+        transcript: file.transcript,
+      });
+    }
+    await writeBrandDnaManifest(workspaceId, existing);
+    return res.json({ files: created });
+  } catch (err) {
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+app.post("/api/brand-dna/logo", async (req, res) => {
+  const workspaceId = String(req.body?.workspaceId || "").trim();
+  const name = String(req.body?.name || "logo.png").trim();
+  const base64 = String(req.body?.base64 || "").trim();
+  const mime = String(req.body?.mime || "image/png");
+  const size = Number(req.body?.size) || 0;
+  if (!workspaceId) return res.status(400).json({ error: "workspaceId is required" });
+  if (!base64) return res.status(400).json({ error: "base64 is required" });
+  if (!String(mime).startsWith("image/") && !isAllowedBrandDnaUpload(name, mime)) {
+    return res.status(400).json({ error: "Logo must be an image file" });
+  }
+  if (size > BRAND_DNA_MAX_BYTES) {
+    return res.status(400).json({ error: "Logo exceeds 15MB limit" });
+  }
+
+  try {
+    const id = randomUUID();
+    const safeName = sanitizeKnowledgeBaseFilename(name || "logo.png");
+    const dir = brandDnaWorkspaceDir(workspaceId);
+    await mkdir(dir, { recursive: true });
+    const filePath = join(dir, `${id}-${safeName}`);
+    await writeFile(filePath, Buffer.from(base64, "base64"));
+    const url = `/api/brand-dna/assets/${encodeURIComponent(workspaceId)}/${encodeURIComponent(id)}`;
+    const existing = await readBrandDnaManifest(workspaceId);
+    const file = {
+      id,
+      category: "logo",
+      name: safeName,
+      mime,
+      size,
+      createdAt: new Date().toISOString(),
+      path: filePath,
+      url,
+    };
+    const next = [file, ...existing.filter((f) => f?.category !== "logo")];
+    await writeBrandDnaManifest(workspaceId, next);
+    return res.json({
+      logoUrl: url,
+      file: { id, name: safeName, mime, size, createdAt: file.createdAt, url },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+app.get("/api/brand-dna/assets/:workspaceId/:fileId", async (req, res) => {
+  const workspaceId = String(req.params.workspaceId || "").trim();
+  const fileId = String(req.params.fileId || "").trim();
+  if (!workspaceId || !fileId) return res.status(400).json({ error: "workspaceId and fileId required" });
+  const files = await readBrandDnaManifest(workspaceId);
+  const file = files.find((f) => f?.id === fileId);
+  if (!file?.path) return res.status(404).json({ error: "File not found" });
+  try {
+    const buf = await readFile(file.path);
+    res.setHeader("Content-Type", file.mime || "application/octet-stream");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    return res.send(buf);
+  } catch {
+    return res.status(404).json({ error: "File missing on disk" });
+  }
+});
+
+app.delete("/api/brand-dna/knowledge-base/:fileId", async (req, res) => {
+  const workspaceId = String(req.query.workspaceId || req.body?.workspaceId || "").trim();
+  const fileId = String(req.params.fileId || "").trim();
+  if (!workspaceId || !fileId) return res.status(400).json({ error: "workspaceId and fileId required" });
+  const files = await readBrandDnaManifest(workspaceId);
+  const target = files.find((f) => f?.id === fileId);
+  if (!target) return res.status(404).json({ error: "File not found" });
+  try {
+    if (target.path) await unlink(target.path).catch(() => {});
+    await writeBrandDnaManifest(
+      workspaceId,
+      files.filter((f) => f?.id !== fileId),
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: String(err?.message || err) });
   }
 });
 

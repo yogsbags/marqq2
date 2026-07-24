@@ -80,11 +80,17 @@ export type GtmInterviewSectionId =
   | 'audience'
   | 'problem'
   | 'positioning'
+  | 'distribution'
+  | 'content'
+  | 'leads'
   | 'goals';
 
 export interface GtmSectionAnswer {
   value: string;
   label: string;
+  /** Present when the question was answered as multi-select */
+  values?: string[];
+  labels?: string[];
 }
 
 export interface GtmSectionStateEntry {
@@ -99,6 +105,9 @@ export interface GtmModuleProfile {
   audience?: Record<string, string>;
   problem?: Record<string, string>;
   positioning?: Record<string, string>;
+  distribution?: Record<string, string>;
+  content?: Record<string, string>;
+  leads?: Record<string, string>;
   goals?: Record<string, string>;
   locked_sections?: string[];
   inferences?: {

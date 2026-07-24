@@ -1,4 +1,5 @@
 import { useOnboarding } from '../../hooks/useOnboarding';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { ActivationStep } from './ActivationStep';
 import { AgentGrid } from './AgentGrid';
 import { BrandDnaStep } from './BrandDnaStep';
@@ -7,6 +8,7 @@ import { FormStep } from './FormStep';
 import { WelcomeStep } from './WelcomeStep';
 
 export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
+  const { activeWorkspace } = useWorkspace();
   const {
     phase, setPhase, stepIdx, formData, updateField, activatedAgents,
     activatingAgent, currentStep, canAdvance, handleNext, handleBack,
@@ -55,6 +57,7 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
               brandDna={brandDna}
               loading={brandDnaLoading}
               error={brandDnaError}
+              workspaceId={activeWorkspace?.id}
               onChange={(next) => setBrandDna(next)}
               onConfirm={handleActivate}
               onBack={handleBack}
