@@ -45,7 +45,7 @@ export function ConnectorGateCard({
 
   const shown = (connectorIds?.length ? connectorIds : missingConnectorIds || [])
     .filter(Boolean)
-    .slice(0, 6)
+    .slice(0, 10)
 
   const handleConnect = async (connectorId: string) => {
     if (!workspaceId) return
@@ -127,8 +127,8 @@ export function ConnectorGateCard({
       </div>
       <p className={cn('text-sm mb-3', hardGate ? 'text-zinc-300' : 'text-foreground')}>
         {hardGate
-          ? `${taskLabel} needs at least one connected account before draft or send. Connect one:`
-          : `${taskLabel} can use crawl + GTM context now. Connect an account for live enrichment:`}
+          ? `${taskLabel} needs the accounts below before you continue. Connect each required one here on this brief:`
+          : `${taskLabel} — connect any missing accounts here. Optional ones improve enrichment; required launch apps unlock Go Live later.`}
       </p>
       <div className="space-y-2">
         {shown.map((id) => {

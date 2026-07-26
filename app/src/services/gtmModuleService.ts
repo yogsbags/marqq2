@@ -174,10 +174,13 @@ export async function executeGtmTask(
   taskId: string
 ): Promise<{
   ok: boolean;
+  kind?: 'agent' | 'document';
   task: GtmExecuteOption;
-  agentTarget: AgentTarget;
+  agentTarget: AgentTarget | null;
   module: GtmModule;
-  deployContext: {
+  strategy?: import('@/types/gtm').GtmStrategyDocument;
+  markdown?: string;
+  deployContext?: {
     sectionId: string;
     sectionTitle: string;
     summary: string;

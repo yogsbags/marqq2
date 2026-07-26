@@ -380,7 +380,7 @@ function buildItemAction(
     }
     return {
       label: 'Launch Outreach',
-      agentName: 'arjun',
+      agentName: 'sam',
       taskPrefix: `Cohort • ${name}`,
       sectionId: `cohort-outreach-${slug}`,
       sectionTitle: `Launch Outreach · ${name}`,
@@ -392,13 +392,13 @@ function buildItemAction(
       ].filter(Boolean),
       taskRequest: [
         companyName ? `Company: ${companyName}.` : null,
-        `Prepare and schedule B2B outreach for this Apollo-searchable cohort: ${name}.`,
+        `Prepare and schedule B2B outreach for this lead-data-searchable cohort: ${name}.`,
         `Definition: ${String(item.definition || '')}.`,
         `Messaging angle: ${String(item.messagingAngle || '')}.`,
         `Priority: ${String(item.priority ?? index + 1)}.`,
-        `Apollo target industries: ${asStringArray(item.apolloTargetIndustries || item.apollo_target_industries).join(', ') || 'derive only from business/professional buyer context'}.`,
-        `Apollo buyer titles: ${asStringArray(item.apolloBuyerTitles || item.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
-        'Create outreach and distribution tasks for the taskboard and prepare the first launch step. Use Apollo only for companies/professional decision makers; never for consumers, patients, demographics, or sensitive traits.'
+        `Target industries: ${asStringArray(item.apolloTargetIndustries || item.apollo_target_industries).join(', ') || 'derive only from business/professional buyer context'}.`,
+        `Buyer titles: ${asStringArray(item.apolloBuyerTitles || item.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
+        'Create outreach and distribution tasks for the taskboard and prepare the first launch step. Use Apollo or Hunter only for companies/professional decision makers; never for consumers, patients, demographics, or sensitive traits.'
       ].filter(Boolean).join(' '),
       marketingContext: { module: 'icps', cohort: item, icps: data },
       navigateModuleId: 'lead-outreach',
@@ -409,11 +409,12 @@ function buildItemAction(
           `Definition: ${String(item.definition || '')}.`,
           `Messaging angle: ${String(item.messagingAngle || '')}.`,
           `Priority: ${String(item.priority ?? index + 1)}.`,
-          `Apollo target industries: ${asStringArray(item.apolloTargetIndustries || item.apollo_target_industries).join(', ') || 'not provided'}.`,
-          `Apollo buyer titles: ${asStringArray(item.apolloBuyerTitles || item.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
-          'Build the outreach sequence arc, personalization logic, first touch, and follow-ups only for B2B/professional buyers. Do not use Apollo for consumer traits.',
+          `Target industries: ${asStringArray(item.apolloTargetIndustries || item.apollo_target_industries).join(', ') || 'not provided'}.`,
+          `Buyer titles: ${asStringArray(item.apolloBuyerTitles || item.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
+          'Build the outreach sequence arc, personalization logic, first touch, and follow-ups only for B2B/professional buyers. Do not use lead-data providers for consumer traits.',
         ].filter(Boolean).join(' '),
         channel: 'email',
+        contact_channels: 'email',
         target: 'decision',
         goal: 'reply',
         delivery: 'draft',

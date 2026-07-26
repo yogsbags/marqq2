@@ -23,6 +23,7 @@ import { AgentRunPanel } from '@/components/agent/AgentRunPanel'
 import { OfferSelector, type Offer } from '@/components/agent/OfferSelector'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
+import { EmailClientPreview, WhatsAppDmPreview, OutcomeGoLiveCta } from '@/components/outcome-previews'
 import * as XLSX from 'xlsx'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -246,11 +247,11 @@ function inferFiltersFromMkg(mkg: MkgRecord | null) {
 function deriveLeadSourceStrategy({
   preset,
   filters,
-  hasApolloConnected,
+  hasLeadDataProvider,
 }: {
   preset?: LeadIntakePreset
   filters: ICPFilters
-  hasApolloConnected: boolean
+  hasLeadDataProvider: boolean
 }): LeadSourceStrategy {
   if (preset?.leadType === 'existing') {
     return {
@@ -261,11 +262,11 @@ function deriveLeadSourceStrategy({
   }
 
   const needsLinkedInLeads = filters.channel === 'linkedin' || filters.has_linkedin
-  if (needsLinkedInLeads && hasApolloConnected) {
+  if (needsLinkedInLeads && hasLeadDataProvider) {
     return {
       mode: 'linkedin_apollo',
-      title: 'Apollo people search',
-      description: 'LinkedIn outreach needs person-level Apollo results with profile data, so Apollo becomes the required source for this run.',
+      title: 'Lead-data people search',
+      description: 'LinkedIn outreach needs person-level results with profile data, so Apollo/Hunter becomes the required source for this run.',
     }
   }
 
@@ -690,14 +691,14 @@ function LeadTable({
 
 function ICPFetchTab({
   companyId,
-  hasApolloConnected,
+  hasLeadDataProvider,
   mkg,
   onAdoptLeads,
   onNavigate,
   preset,
 }: {
   companyId: string
-  hasApolloConnected: boolean
+  hasLeadDataProvider: boolean
   mkg: MkgRecord | null
   onAdoptLeads: (leads: Lead[], source: string, stage: WorkflowStageKey) => void
   onNavigate: (tab: LeadTabKey) => void
@@ -709,7 +710,7 @@ function ICPFetchTab({
   const [fetching, setFetching] = useState(false)
   const [result, setResult] = useState<FetchResult | null>(null)
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<string[]>([])
-  const sourceStrategy = deriveLeadSourceStrategy({ preset, filters, hasApolloConnected })
+  const sourceStrategy = deriveLeadSourceStrategy({ preset, filters, hasLeadDataProvider })
 
   useEffect(() => {
     setFilters(applyLeadFetchPreset(preset, mkg))
@@ -741,14 +742,14 @@ function ICPFetchTab({
     setFetching(true); setResult(null)
     try {
       const needsLinkedInLeads = sourceStrategy.mode === 'linkedin_apollo'
-      const shouldUseApollo = hasApolloConnected && sourceStrategy.mode === 'linkedin_apollo'
-      if (needsLinkedInLeads && !shouldUseApollo) {
-        toast.error('Connect Apollo to fetch LinkedIn-ready leads. The internal leads database does not include LinkedIn prospects.')
+      const shouldUseLeadProvider = hasLeadDataProvider && sourceStrategy.mode === 'linkedin_apollo'
+      if (needsLinkedInLeads && !shouldUseLeadProvider) {
+        toast.error('Connect Apollo or Hunter to fetch LinkedIn-ready leads. The internal leads database does not include LinkedIn prospects.')
         return
       }
 
-      if (needsLinkedInLeads && shouldUseApollo) {
-        const apolloData = await apiAutomation('apollo_find_leads', {
+      if (needsLinkedInLeads && shouldUseLeadProvider) {
+        const leadData = await apiAutomation('find_leads', {
           country: filters.country,
           industries: filters.industries,
           seniorities: filters.seniorities,
@@ -758,21 +759,21 @@ function ICPFetchTab({
           limit: filters.limit,
         }, companyId)
 
-        if (apolloData?.status === 'completed' && Array.isArray(apolloData?.leads) && apolloData.leads.length > 0) {
-          const apolloLeads = apolloData.leads as Lead[]
+        if (leadData?.status === 'completed' && Array.isArray(leadData?.leads) && leadData.leads.length > 0) {
+          const providerLeads = leadData.leads as Lead[]
           if (needsLinkedInLeads) {
-            const linkedinReadyLeads = apolloLeads.filter((lead) => Boolean(lead.full_name && lead.linkedin_url))
-            if (apolloData.source !== 'apollo_people_search' || linkedinReadyLeads.length === 0) {
-              toast.error('Apollo did not return LinkedIn-ready people. Internal DB fallback was skipped because it does not include LinkedIn prospects.')
+            const linkedinReadyLeads = providerLeads.filter((lead) => Boolean(lead.full_name && lead.linkedin_url))
+            if (linkedinReadyLeads.length === 0) {
+              toast.error('Lead provider did not return LinkedIn-ready people. Internal DB fallback was skipped because it does not include LinkedIn prospects.')
               return
             }
           }
 
-          const sourceLabel = apolloData.source === 'apollo_people_search' ? 'Apollo people search' : 'Apollo account search'
+          const sourceLabel = leadData.source || leadData.provider || 'lead data search'
           const nextResult: FetchResult = {
-            count: Number(apolloData.count || apolloLeads.length),
+            count: Number(leadData.count || providerLeads.length),
             table_used: sourceLabel,
-            leads: apolloLeads,
+            leads: providerLeads,
           }
           setResult(nextResult)
           setSelectedLeadKeys([])
@@ -781,18 +782,18 @@ function ICPFetchTab({
           return
         }
 
-        if (apolloData?.status === 'error') {
+        if (leadData?.status === 'error') {
           if (needsLinkedInLeads) {
-            toast.error('Apollo search could not complete. Internal DB fallback was skipped because it does not include LinkedIn prospects.')
+            toast.error('Lead search could not complete. Internal DB fallback was skipped because it does not include LinkedIn prospects.')
             return
           }
-          toast.info('Apollo search could not complete. Falling back to leads database.')
+          toast.info('Lead search could not complete. Falling back to leads database.')
         } else {
           if (needsLinkedInLeads) {
-            toast.error('Apollo returned no LinkedIn-ready leads. Internal DB fallback was skipped because it does not include LinkedIn prospects.')
+            toast.error('Lead provider returned no LinkedIn-ready leads. Internal DB fallback was skipped because it does not include LinkedIn prospects.')
             return
           }
-          toast.info('Apollo returned no matching leads. Falling back to leads database.')
+          toast.info('Lead provider returned no matching leads. Falling back to leads database.')
         }
       }
 
@@ -1137,15 +1138,15 @@ function EnrichTab({
       }
 
       if (data.matched === 0) {
-        // Fallback to Apollo
-        toast.info(`Not found in leads DB (${data.unmatched} unmatched) — trying Apollo fallback…`)
+        // Fallback to lead-data provider (Apollo / Hunter)
+        toast.info(`Not found in leads DB (${data.unmatched} unmatched) — trying lead-data enrichment…`)
         try {
-          const apolloRes = await apiAutomation('apollo_lead_enrich', {
+          const enrichRes = await apiAutomation('enrich_lead', {
             [enrichMode === 'email' ? 'email' : 'phone']: values[0],
           }, companyId)
-          toast.success(`Apollo enriched: ${apolloRes?.person?.name || 'record found'}`)
+          toast.success(`Enriched via ${enrichRes?.provider || 'lead data'}: ${enrichRes?.person?.name || 'record found'}`)
         } catch {
-          toast.warning('Apollo fallback also returned no results')
+          toast.warning('Lead-data enrichment also returned no results')
         }
       } else {
         toast.success(`Enriched ${data.matched} / ${values.length} records from leads DB`)
@@ -1226,7 +1227,7 @@ function EnrichTab({
 
             <Button className="h-9 w-full text-xs shadow-sm" onClick={handleEnrich} disabled={enriching}>
               {enriching ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Brain className="h-3 w-3 mr-1" />}
-              Enrich — Leads DB → Apollo Fallback
+              Enrich — Leads DB → Apollo/Hunter
             </Button>
           </CardContent>
         </Card>
@@ -1750,11 +1751,11 @@ function OutreachTab({
     } finally { setLaunching(false) }
   }
 
-  const handleLaunch = () => {
-    if (channel === 'email') handleEmailOutreach()
-    else if (channel === 'linkedin') handleLinkedInOutreach()
-    else if (channel === 'voicebot') handleVoicebotOutreach()
-    else handleWhatsAppOutreach()
+  const handleLaunch = async () => {
+    if (channel === 'email') await handleEmailOutreach()
+    else if (channel === 'linkedin') await handleLinkedInOutreach()
+    else if (channel === 'voicebot') await handleVoicebotOutreach()
+    else await handleWhatsAppOutreach()
   }
 
   return (
@@ -1912,14 +1913,25 @@ function OutreachTab({
             </div>
 
             {channel === 'email' && (
-              <>
-                <div className="space-y-1"><Label className="text-xs">From Email</Label>
-                  <Input className="h-8 text-xs" placeholder="you@yourdomain.com" value={senderEmail} onChange={e => setSenderEmail(e.target.value)} />
-                </div>
-                <div className="space-y-1"><Label className="text-xs">Subject</Label>
-                  <Input className="h-8 text-xs" placeholder="Quick question, {{first_name}}" value={subject} onChange={e => { setSubject(e.target.value); setCopyApproved(false); setDraftSource('manual') }} />
-                </div>
-              </>
+              <EmailClientPreview
+                from={senderEmail || senderAccounts[0]?.email || 'you@yourbrand.com'}
+                to={leads[0]?.email || leads[0]?.email_norm || `{{email}} · ${leads.length} recipients`}
+                subject={subject}
+                body={body}
+                editable
+                onSubjectChange={(v) => { setSubject(v); setCopyApproved(false); setDraftSource('manual') }}
+                onBodyChange={(v) => { setBody(v); setCopyApproved(false); setDraftSource('manual') }}
+                onFromChange={setSenderEmail}
+              />
+            )}
+
+            {channel === 'whatsapp' && (
+              <WhatsAppDmPreview
+                contactName={leads[0]?.full_name || 'Prospect'}
+                message={body}
+                editable
+                onMessageChange={(v) => { setBody(v); setCopyApproved(false); setDraftSource('manual') }}
+              />
             )}
 
             {channel === 'linkedin' && (
@@ -1937,27 +1949,21 @@ function OutreachTab({
               </div>
             )}
 
+            {(channel === 'linkedin' || channel === 'voicebot') && (
             <div className="space-y-1"><Label className="text-xs">
-              {channel === 'email'
-                ? 'Email Body'
-                : channel === 'linkedin'
+              {channel === 'linkedin'
                   ? `Connection Message (use {{first_name}}, {{company}})`
-                  : channel === 'voicebot'
-                    ? 'Voicebot Opening Line'
-                    : 'WhatsApp Message'}
+                  : 'Voicebot Opening Line'}
             </Label>
               <textarea
                 className="w-full text-xs border rounded p-2 h-28 resize-none bg-background"
-                placeholder={channel === 'email'
-                  ? 'Hi {{first_name}}, saw your work at {{company}}...'
-                  : channel === 'linkedin'
+                placeholder={channel === 'linkedin'
                     ? 'Hi {{first_name}}, impressed by what you are building at {{company}}...'
-                    : channel === 'voicebot'
-                      ? `Hi {{first_name}}, this is ${workspaceName} calling because {{company}} may be a fit for our outreach automation workflows...`
-                    : 'Hi {{first_name}}, reaching out because {{company}} looks like a strong fit...'}
+                      : `Hi {{first_name}}, this is ${workspaceName} calling because {{company}} may be a fit for our outreach automation workflows...`}
                 value={body} onChange={e => { setBody(e.target.value); setCopyApproved(false); setDraftSource('manual') }}
               />
             </div>
+            )}
 
             {channel === 'email' && (
               <div className="space-y-1">
@@ -1997,6 +2003,15 @@ function OutreachTab({
               <div className="space-y-1"><Label className="text-xs">Daily Limit: {dailyLimit}</Label>
                 <Slider min={10} max={200} step={10} value={[dailyLimit]} onValueChange={([v]) => setDailyLimit(v)} />
               </div>
+            )}
+
+            {(channel === 'email' || channel === 'whatsapp') && (
+              <OutcomeGoLiveCta
+                kind={channel === 'email' ? 'email' : 'whatsapp'}
+                workspaceId={companyId}
+                goLiveDisabled={launching || !leads.length || !copyApproved || !isCopyReady}
+                onGoLive={() => handleLaunch()}
+              />
             )}
 
             <Button className="h-9 w-full text-xs shadow-sm" onClick={handleLaunch} disabled={launching || !leads.length || !copyApproved || !isCopyReady}>
@@ -2941,7 +2956,7 @@ export function LeadIntelligenceFlow({ autoStart = false, initialTab, initialLea
         <div role="tabpanel" hidden={tab !== 'fetch'} className={tab === 'fetch' ? 'mt-2' : 'hidden'}>
           <ICPFetchTab
             companyId={companyId}
-            hasApolloConnected={connectedConnectorIds.includes('apollo')}
+            hasLeadDataProvider={connectedConnectorIds.includes('apollo') || connectedConnectorIds.includes('hunter')}
             mkg={mkg}
             onAdoptLeads={adoptLeads}
             onNavigate={setTab}

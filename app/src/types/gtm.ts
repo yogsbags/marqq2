@@ -33,6 +33,7 @@ export type AgentTarget =
   | 'company_intel_channel_strategy'
   | 'company_intel_social_calendar'
   | 'company_intel_lead_magnets'
+  | 'company_intel_marketing_ideas'
   | 'lead_intelligence'
   | 'budget_optimization'
   | 'performance_scorecard'
@@ -45,6 +46,27 @@ export interface GtmStrategySection {
   bullets: string[];
   recommendedAgentTarget: AgentTarget;
   deployLabel?: string;
+}
+
+/** Full GTM strategy document (post-lock wizard option) */
+export interface GtmStrategyDocSection {
+  id: string;
+  title: string;
+  channel: string;
+  summary: string;
+  bullets: string[];
+  body: string;
+}
+
+export interface GtmStrategyDocument {
+  title: string;
+  executiveSummary: string;
+  generatedAt?: string;
+  moduleId?: string;
+  moduleName?: string;
+  sections: GtmStrategyDocSection[];
+  nextSteps: string[];
+  model?: string | null;
 }
 
 export interface GtmStrategyResponse {
@@ -167,7 +189,8 @@ export interface GtmExecuteOption {
   id: string;
   title: string;
   description: string;
-  agentTarget: AgentTarget;
+  agentTarget: AgentTarget | null;
+  kind?: 'agent' | 'document';
   recommended?: boolean;
   contextSummary?: string;
 }

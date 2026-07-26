@@ -5,10 +5,10 @@
  * Each handler returns a plain result object stored as artifact data.
  *
  * Handlers:
- *   generateSocialImage   — Gemini Flash image gen + imgbb CDN
+ *   generateSocialImage   — Gemini 3.1 Flash-Lite Image → imgbb (Cloudinary fallback)
  *   generateEmailHtml     — Groq LLM → full inline-styled HTML email
- *   generateFacelessVideo — Gemini Veo 3.1 async operation
- *   generateAvatarVideo   — HeyGen v2 API
+ *   generateFacelessVideo — Gemini Omni Flash → Cloudinary (Veo fallback path also → Cloudinary)
+ *   generateAvatarVideo   — HeyGen v2 API → Cloudinary when polled
  *   createSeoArticle      — Groq LLM → full HTML blog post with SEO meta
  */
 
@@ -37,6 +37,19 @@ async function uploadToCloudinary(source, { folder = 'ai-content', resourceType 
     console.warn('[cloudinary] Upload failed:', e.message);
     return null;
   }
+}
+
+/**
+ * Upload raw base64 (no data: prefix) to Cloudinary. Fallback host for Gemini images.
+ */
+async function uploadBase64ToCloudinary(base64, {
+  mimeType = 'image/png',
+  folder = 'ai-images',
+  resourceType = 'image',
+} = {}) {
+  if (!base64 || !process.env.CLOUDINARY_URL) return null;
+  const dataUri = `data:${mimeType};base64,${base64}`;
+  return uploadToCloudinary(dataUri, { folder, resourceType });
 }
 
 // ── Fetch Helper ──────────────────────────────────────────────────────────────
@@ -146,8 +159,8 @@ function resolveHeyGenVoiceSelection(voices, requestedVoiceId, fallbackVoiceId) 
 // ── Gemini Flash Image Generation ────────────────────────────────────────────
 
 /**
- * params: { prompt, aspect_ratio, platform, brand_context, style }
- * Uses GEMINI_IMAGE_MODEL env var (default: gemini-3.1-flash-preview-image-generation)
+ * params: { prompt, aspect_ratio, platform, brand_context, style, headline?, primary_text? }
+ * Uses GEMINI_IMAGE_MODEL env var (default: gemini-3.1-flash-lite-image — Nano Banana 2 Lite)
  */
 export async function generateSocialImage(params, companyId) {
   const {
@@ -156,6 +169,8 @@ export async function generateSocialImage(params, companyId) {
     platform = 'instagram',
     brand_context = '',
     style = 'professional, clean, modern, minimalist',
+    headline = '',
+    primary_text = '',
   } = params;
 
   if (!prompt) return { status: 'error', error: 'prompt is required' };
@@ -163,25 +178,41 @@ export async function generateSocialImage(params, companyId) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return { status: 'error', error: 'GEMINI_API_KEY not configured' };
 
-  const model = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
+  const model = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-lite-image';
 
   const fullPrompt = [
     prompt,
     brand_context ? `Brand context: ${brand_context}` : null,
+    headline ? `Ad headline context (do not render as large on-image text unless asked): ${headline}` : null,
+    primary_text ? `Ad primary text context: ${primary_text}` : null,
     `Style: ${style}`,
-    `Optimised for ${platform}, aspect ratio ${aspect_ratio}.`,
-    'No text overlays unless explicitly requested.',
+    `Optimised for paid/social ads on ${platform}, aspect ratio ${aspect_ratio}.`,
+    'Leave clean negative space for optional ad copy overlays.',
+    'No watermarks. No unreadable micro-text. No logos unless brand context provides one.',
   ].filter(Boolean).join(' ');
 
   let base64Data, mimeType;
   try {
     const { GoogleGenAI } = await import('@google/genai');
     const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model,
-      contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
-      config: { responseModalities: ['IMAGE', 'TEXT'] },
-    });
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model,
+        contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+        config: {
+          responseModalities: ['IMAGE', 'TEXT'],
+          imageConfig: { aspectRatio: aspect_ratio },
+        },
+      });
+    } catch {
+      // Some model revisions reject imageConfig — retry without it
+      response = await ai.models.generateContent({
+        model,
+        contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+        config: { responseModalities: ['IMAGE', 'TEXT'] },
+      });
+    }
 
     const imagePart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
     if (!imagePart?.inlineData?.data) {
@@ -193,20 +224,32 @@ export async function generateSocialImage(params, companyId) {
     return { status: 'error', error: `Gemini image error: ${e.message}` };
   }
 
-  // Upload base64 to imgbb for a permanent CDN URL
-  const cdnUrl = await uploadBase64ToImgbb(base64Data);
-
-  // Fallback: embed as data URI if imgbb not configured
-  const imageUrl = cdnUrl ?? `data:${mimeType};base64,${base64Data.slice(0, 100)}…`;
+  // Host on imgbb (primary). Fall back to Cloudinary if imgbb is unavailable.
+  const imgbbUrl = await uploadBase64ToImgbb(base64Data);
+  const cloudinaryUrl = imgbbUrl
+    ? null
+    : await uploadBase64ToCloudinary(base64Data, {
+        mimeType,
+        folder: 'ai-images',
+        resourceType: 'image',
+      });
+  const cdnUrl = imgbbUrl || cloudinaryUrl;
 
   return {
-    status: 'success',
-    image_url: cdnUrl ?? null,
+    status: cdnUrl ? 'success' : 'error',
+    image_url: cdnUrl,
     cdn_url: cdnUrl,
+    cloudinary_url: cloudinaryUrl,
+    host: imgbbUrl ? 'imgbb' : cloudinaryUrl ? 'cloudinary' : null,
+    mime_type: mimeType,
     platform,
     aspect_ratio,
     prompt_used: fullPrompt,
     model,
+    company_id: companyId ?? null,
+    error: cdnUrl
+      ? undefined
+      : 'Gemini produced an image but hosting failed. Set IMGBB_API_KEY (preferred) or CLOUDINARY_URL.',
   };
 }
 
@@ -311,12 +354,12 @@ STRICT requirements:
   };
 }
 
-// ── Gemini Veo 3.1 Faceless Video ────────────────────────────────────────────
+// ── Gemini Omni Flash / Veo Faceless Video ───────────────────────────────────
 
 /**
- * params: { prompt, duration, aspect_ratio, style }
- * Starts a Veo 3.1 operation and returns immediately with the operation name.
- * Uses GEMINI_VIDEO_MODEL env var (default: veo-3.1-generate-preview)
+ * params: { prompt, duration, aspect_ratio, style, image_url?, image_base64?, mime_type? }
+ * Default model: gemini-omni-flash-preview via Interactions API (sync video bytes).
+ * Set GEMINI_VIDEO_MODEL=veo-3.1-generate-preview to use legacy async Veo path.
  */
 export async function generateFacelessVideo(params, companyId) {
   const {
@@ -324,6 +367,9 @@ export async function generateFacelessVideo(params, companyId) {
     duration = 8,
     aspect_ratio = '16:9',
     style = 'cinematic, high quality, professional',
+    image_url = '',
+    image_base64 = '',
+    mime_type = 'image/jpeg',
   } = params;
 
   if (!prompt) return { status: 'error', error: 'prompt is required' };
@@ -331,37 +377,138 @@ export async function generateFacelessVideo(params, companyId) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return { status: 'error', error: 'GEMINI_API_KEY not configured' };
 
-  const model = process.env.GEMINI_VIDEO_MODEL || 'veo-3.1-generate-preview';
-  const fullPrompt = `${prompt}. Visual style: ${style}.`;
+  const model = process.env.GEMINI_VIDEO_MODEL || 'gemini-omni-flash-preview';
+  const ratio = aspect_ratio === '9:16' ? '9:16' : '16:9';
+  const clippedDuration = Math.min(Math.max(Number(duration) || 8, 3), 10);
+  const fullPrompt = [
+    prompt,
+    `Visual style: ${style}.`,
+    `Duration about ${clippedDuration} seconds.`,
+    'Paid-ad ready: clear subject, readable motion, no watermarks, no tiny unreadable text overlays.',
+  ].join(' ');
 
-  let operationName;
-  try {
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey });
-    const operation = await ai.models.generateVideos({
+  // Legacy Veo async path when explicitly configured
+  if (String(model).toLowerCase().includes('veo')) {
+    let operationName;
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+      const operation = await ai.models.generateVideos({
+        model,
+        prompt: fullPrompt,
+        config: {
+          aspectRatio: ratio,
+          durationSeconds: Math.min(clippedDuration, 8),
+          resolution: '720p',
+          personGeneration: 'allow_all',
+        },
+      });
+      operationName = operation.name;
+    } catch (e) {
+      return { status: 'error', error: `Veo video error: ${e.message}` };
+    }
+
+    return {
+      status: 'queued',
+      operation_name: operationName,
       model,
       prompt: fullPrompt,
-      config: {
-        aspectRatio: aspect_ratio,
-        durationSeconds: Math.min(duration, 8),
-        resolution: '720p',
-        personGeneration: 'allow_all',
-      },
-    });
-    operationName = operation.name;
-  } catch (e) {
-    return { status: 'error', error: `Veo 3.1 error: ${e.message}` };
+      duration: clippedDuration,
+      aspect_ratio: ratio,
+      message: 'Veo video is generating. Poll /api/automations/video-poll with operation_name.',
+    };
   }
 
-  return {
-    status: 'queued',
-    operation_name: operationName,
-    model,
-    prompt: fullPrompt,
-    duration,
-    aspect_ratio,
-    message: 'Veo 3.1 video is generating. Use operation_name to poll status via Gemini API.',
-  };
+  // Default: Gemini Omni Flash via Interactions API
+  try {
+    const { GoogleGenAI } = await import('@google/genai');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const { writeFile, unlink } = await import('fs/promises');
+
+    const ai = new GoogleGenAI({ apiKey });
+
+    let referenceBase64 = image_base64;
+    if (!referenceBase64 && image_url && /^https?:\/\//i.test(image_url)) {
+      try {
+        const raw = await fetch(image_url);
+        if (raw.ok) {
+          const buf = Buffer.from(await raw.arrayBuffer());
+          referenceBase64 = buf.toString('base64');
+        }
+      } catch { /* optional reference */ }
+    }
+
+    const input = referenceBase64
+      ? [
+          { type: 'image', data: referenceBase64, mime_type: mime_type || 'image/jpeg' },
+          {
+            type: 'text',
+            text: `${fullPrompt} Animate this reference image into a short ad video while preserving the subject.`,
+          },
+        ]
+      : fullPrompt;
+
+    const interaction = await ai.interactions.create({
+      model,
+      input,
+      response_format: {
+        type: 'video',
+        aspect_ratio: ratio,
+      },
+    });
+
+    const videoData =
+      interaction?.output_video?.data ||
+      (Array.isArray(interaction?.steps)
+        ? interaction.steps
+            .flatMap((s) => (Array.isArray(s?.content) ? s.content : []))
+            .find((c) => c?.type === 'video' && c?.data)?.data
+        : null);
+
+    if (!videoData) {
+      return {
+        status: 'error',
+        error: 'Omni Flash returned no video data',
+        interaction_id: interaction?.id || null,
+        raw_status: interaction?.status || null,
+      };
+    }
+
+    const tmpPath = join(tmpdir(), `omni-${Date.now()}.mp4`);
+    await writeFile(tmpPath, Buffer.from(videoData, 'base64'));
+    const cloudinaryUrl = await uploadToCloudinary(tmpPath, { folder: 'ai-videos', resourceType: 'video' });
+    unlink(tmpPath).catch(() => {});
+
+    if (!cloudinaryUrl) {
+      return {
+        status: 'error',
+        error: 'Gemini Omni Flash produced a video but Cloudinary upload failed. Set CLOUDINARY_URL.',
+        interaction_id: interaction?.id || null,
+        model,
+        prompt: fullPrompt,
+        duration: clippedDuration,
+        aspect_ratio: ratio,
+      };
+    }
+
+    return {
+      status: 'completed',
+      video_url: cloudinaryUrl,
+      cloudinary_url: cloudinaryUrl,
+      host: 'cloudinary',
+      interaction_id: interaction?.id || null,
+      model,
+      prompt: fullPrompt,
+      duration: clippedDuration,
+      aspect_ratio: ratio,
+      image_to_video: Boolean(referenceBase64),
+      company_id: companyId ?? null,
+      message: 'Ad video generated with Gemini Omni Flash and hosted on Cloudinary.',
+    };
+  } catch (e) {
+    return { status: 'error', error: `Omni Flash video error: ${e.message}` };
+  }
 }
 
 // ── Video Polling + Cloudinary Upload ─────────────────────────────────────────
@@ -407,10 +554,19 @@ export async function pollVeoOperation(operationName) {
     // Clean up tmp file (non-blocking)
     import('fs').then(fs => fs.unlink(tmpPath, () => {})).catch(() => {});
 
+    if (!cloudinaryUrl) {
+      return {
+        status: 'error',
+        error: 'Veo video ready but Cloudinary upload failed. Set CLOUDINARY_URL.',
+        operation_name: operationName,
+      };
+    }
+
     return {
       status: 'completed',
-      video_url: cloudinaryUrl ?? tmpPath,
+      video_url: cloudinaryUrl,
       cloudinary_url: cloudinaryUrl,
+      host: 'cloudinary',
       operation_name: operationName,
     };
   } catch (e) {

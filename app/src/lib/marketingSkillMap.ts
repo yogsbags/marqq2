@@ -78,6 +78,13 @@ export const CI_PAGE_SKILLS: Record<CompanyIntelPageId, SkillPack> = {
     requiredConnectors: [],
     optionalConnectors: ['ga4', 'gsc', 'hubspot'],
   },
+  marketing_ideas: {
+    agentName: 'neel',
+    // Primary skill only on the UI badge — generation loads full pack via artifactMarketingSkills
+    marketingSkills: ['marketing-ideas'],
+    requiredConnectors: [],
+    optionalConnectors: ['ga4', 'gsc', 'meta_ads', 'google_ads'],
+  },
   marketing_strategy: {
     agentName: 'neel',
     marketingSkills: ['marketing-ideas', 'launch-strategy', 'product-marketing-context'],
@@ -149,10 +156,12 @@ export const AGENT_TARGET_SKILLS: Record<AgentTarget, SkillPack> = {
   company_intel_channel_strategy: CI_PAGE_SKILLS.channel_strategy,
   company_intel_social_calendar: CI_PAGE_SKILLS.social_calendar,
   company_intel_lead_magnets: CI_PAGE_SKILLS.lead_magnets,
+  company_intel_marketing_ideas: CI_PAGE_SKILLS.marketing_ideas,
   lead_intelligence: {
     agentName: 'arjun',
     marketingSkills: ['cold-email', 'revops', 'form-cro', 'signup-flow-cro'],
-    requiredConnectors: ['apollo'],
+    // At least one lead-data provider (Apollo or Hunter) — soft pool in workflowRequirements
+    requiredConnectors: ['apollo', 'hunter'],
     optionalConnectors: ['instantly', 'hubspot', 'salesforce', 'gmail'],
   },
   budget_optimization: {
@@ -181,7 +190,7 @@ export const MODULE_SKILLS: Record<string, SkillPack> = {
     agentName: 'sam',
     marketingSkills: ['cold-email', 'copywriting', 'email-sequence'],
     requiredConnectors: ['instantly'],
-    optionalConnectors: ['apollo', 'gmail', 'hubspot'],
+    optionalConnectors: ['apollo', 'hunter', 'gmail', 'hubspot'],
   },
   'budget-optimization': AGENT_TARGET_SKILLS.budget_optimization,
   'performance-scorecard': AGENT_TARGET_SKILLS.performance_scorecard,

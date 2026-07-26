@@ -598,11 +598,16 @@ export async function executeTool(toolCall, userId) {
 // Uses Composio v3 API: POST /api/v3/tools/execute/{tool_slug}
 // Resolves connected_account_id from userId + toolkit before executing.
 
-// ACTION_TOOLKIT_MAP — maps Composio action prefix to toolkit slug
+// ACTION_TOOLKIT_MAP — maps Composio action prefix to toolkit slug.
+// Longer prefixes (LINKEDIN_ADS) must win over shorter ones (LINKEDIN).
 const ACTION_TOOLKIT_MAP = {
   GOOGLEADS:           'googleads',
+  GOOGLE_ADS:          'googleads',
   FACEBOOKADS:         'metaads',
+  FACEBOOK_ADS:        'metaads',
   METAADS:             'metaads',
+  LINKEDIN_ADS:        'linkedinads',
+  LINKEDINADS:         'linkedinads',
   LINKEDIN:            'linkedin',
   HUBSPOT:             'hubspot',
   SLACK:               'slack',
@@ -612,7 +617,9 @@ const ACTION_TOOLKIT_MAP = {
   GOOGLEDOCS:          'googledocs',
   GOOGLECALENDAR:      'googlecalendar',
   YOUTUBE:             'youtube',
+  GOOGLE_ANALYTICS:    'google_analytics',
   GOOGLEANALYTICS:     'google_analytics',
+  GOOGLE_SEARCH_CONSOLE: 'google_search_console',
   GOOGLESEARCHCONSOLE: 'google_search_console',
   SEMRUSH:             'semrush',
   AHREFS:              'ahrefs',
@@ -626,9 +633,16 @@ const ACTION_TOOLKIT_MAP = {
   APOLLO:              'apollo',
 }
 
+const ACTION_TOOLKIT_PREFIXES = Object.keys(ACTION_TOOLKIT_MAP).sort((a, b) => b.length - a.length)
+
 function toolkitForAction(actionSlug) {
-  const prefix = actionSlug.split('_')[0].toUpperCase()
-  return ACTION_TOOLKIT_MAP[prefix] || prefix.toLowerCase()
+  const upper = String(actionSlug || '').toUpperCase()
+  for (const prefix of ACTION_TOOLKIT_PREFIXES) {
+    if (upper === prefix || upper.startsWith(`${prefix}_`)) {
+      return ACTION_TOOLKIT_MAP[prefix]
+    }
+  }
+  return upper.split('_')[0].toLowerCase()
 }
 
 // Cache: userId+toolkit → connected_account_id (in-process, lives as long as server)

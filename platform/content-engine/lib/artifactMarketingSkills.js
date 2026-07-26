@@ -1,11 +1,15 @@
 /**
- * Maps Company Intel / GTM artifact types + module task ids → Corey Haines marketing skills.
+ * Maps Company Intel / GTM artifact types + module task ids → marketing skills.
  * Skills: platform/crewai/skill-library/marketingskills/skills/<id>/SKILL.md
+ * (+ optional skills/<id>/references/*.md, e.g. ads-meta Meta audit catalog)
+ *
+ * Packs mix Corey Haines strategy skills with Claude Ads / Nouriva platform skills
+ * (ads-meta, ads-plan, ads-create, …).
  *
  * Every generate path should resolve at least one skill via this map (or DEFAULT_SKILL_PACK).
  */
 
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -61,8 +65,8 @@ export const ARTIFACT_MARKETING_SKILLS = {
     secondary: ["copywriting"],
   },
   channel_strategy: {
-    primary: ["paid-ads", "launch-strategy"],
-    secondary: ["analytics-tracking"],
+    primary: ["ads-meta", "paid-ads", "launch-strategy"],
+    secondary: ["ads-plan", "analytics-tracking"],
   },
   social_calendar: {
     primary: ["social-content"],
@@ -73,7 +77,7 @@ export const ARTIFACT_MARKETING_SKILLS = {
     secondary: ["copywriting", "page-cro"],
   },
   lookalike_audiences: {
-    primary: ["paid-ads"],
+    primary: ["ads-meta", "paid-ads"],
     secondary: ["analytics-tracking"],
   },
   marketing_strategy: {
@@ -88,6 +92,20 @@ export const ARTIFACT_MARKETING_SKILLS = {
     primary: ["marketing-ideas"],
     secondary: ["launch-strategy"],
   },
+  marketing_ideas: {
+    // Authoritative: Corey Haines marketing-ideas skill + full 139-idea catalog in references/
+    primary: ["marketing-ideas"],
+    secondary: [
+      "product-marketing-context",
+      "launch-strategy",
+      "programmatic-seo",
+      "competitor-alternatives",
+      "free-tool-strategy",
+      "referral-program",
+      "email-sequence",
+      "ad-creative",
+    ],
+  },
   // Non-JSON / connector-led pages — still mapped so agent assists use skills
   overview: {
     primary: ["product-marketing-context", "site-architecture"],
@@ -98,8 +116,12 @@ export const ARTIFACT_MARKETING_SKILLS = {
     secondary: ["competitor-alternatives"],
   },
   ads_intel: {
-    primary: ["paid-ads", "ad-creative"],
-    secondary: ["analytics-tracking"],
+    primary: ["ads-meta", "ads-creative", "ad-creative"],
+    secondary: ["paid-ads", "analytics-tracking"],
+  },
+  campaign_brief: {
+    primary: ["ads-meta", "ads-plan", "ad-creative"],
+    secondary: ["ads-create", "copywriting", "launch-strategy"],
   },
 };
 
@@ -115,12 +137,12 @@ export const MODULE_MARKETING_SKILLS = {
     secondary: ["form-cro", "signup-flow-cro"],
   },
   "budget-optimization": {
-    primary: ["paid-ads", "analytics-tracking"],
-    secondary: ["ab-test-setup"],
+    primary: ["ads-meta", "paid-ads", "analytics-tracking"],
+    secondary: ["ads-budget", "ab-test-setup"],
   },
   budget_optimization: {
-    primary: ["paid-ads", "analytics-tracking"],
-    secondary: ["ab-test-setup"],
+    primary: ["ads-meta", "paid-ads", "analytics-tracking"],
+    secondary: ["ads-budget", "ab-test-setup"],
   },
   "performance-scorecard": {
     primary: ["analytics-tracking", "revops"],
@@ -167,8 +189,8 @@ export const MODULE_MARKETING_SKILLS = {
     secondary: ["content-strategy"],
   },
   campaign_brief: {
-    primary: ["paid-ads", "ad-creative"],
-    secondary: ["copywriting", "launch-strategy"],
+    primary: ["ads-meta", "ads-plan", "ad-creative"],
+    secondary: ["ads-create", "copywriting", "launch-strategy"],
   },
   social_monitor: {
     primary: ["social-content", "community-marketing"],
@@ -185,11 +207,81 @@ export const MODULE_MARKETING_SKILLS = {
   icp_build: {
     primary: ["product-marketing-context", "customer-research"],
   },
+  // Lead Outreach module + ICP → Launch Outreach deploy task_type
+  "lead-outreach": {
+    primary: ["cold-email"],
+    secondary: ["email-sequence", "copywriting"],
+  },
+  lead_outreach: {
+    primary: ["cold-email"],
+    secondary: ["email-sequence", "copywriting"],
+  },
+  // Paid Ads module + ICP cohort → Create Paid Ads deploy / Zara runs
+  // ads-meta = Claude Ads / Nouriva Meta deep playbook (Andromeda, Pixel/CAPI, creative diversity)
+  "paid-ads": {
+    primary: ["ads-meta", "paid-ads", "launch-strategy"],
+    secondary: ["ads-plan", "ads-budget", "ad-creative", "analytics-tracking"],
+  },
+  paid_ads: {
+    primary: ["ads-meta", "paid-ads", "launch-strategy"],
+    secondary: ["ads-plan", "ads-budget", "ad-creative", "analytics-tracking"],
+  },
+  paid_ads_strategy: {
+    primary: ["ads-meta", "paid-ads", "launch-strategy"],
+    secondary: ["ads-plan", "ads-budget", "ad-creative", "analytics-tracking"],
+  },
+  paid_ads_copy: {
+    primary: ["ads-create", "ads-creative", "ad-creative"],
+    secondary: ["ads-meta", "copywriting", "marketing-psychology"],
+  },
+  "ad-creative": {
+    primary: ["ads-create", "ads-creative", "ad-creative"],
+    secondary: ["ads-meta", "copywriting", "marketing-psychology"],
+  },
+};
+
+/**
+ * Per-channel skill packs for Lead Outreach draft copy
+ * (email / LinkedIn DM / WhatsApp DM / voicebot opening).
+ * @type {Record<string, SkillPack>}
+ */
+export const OUTREACH_CHANNEL_MARKETING_SKILLS = {
+  email: {
+    primary: ["cold-email"],
+    secondary: ["email-sequence", "copywriting"],
+  },
+  linkedin_dm: {
+    primary: ["social-content", "copywriting"],
+    secondary: ["cold-email", "marketing-psychology"],
+  },
+  linkedin: {
+    primary: ["social-content", "copywriting"],
+    secondary: ["cold-email", "marketing-psychology"],
+  },
+  whatsapp_dm: {
+    primary: ["copywriting", "marketing-psychology"],
+    secondary: ["cold-email"],
+  },
+  whatsapp: {
+    primary: ["copywriting", "marketing-psychology"],
+    secondary: ["cold-email"],
+  },
+  voicebot_script: {
+    primary: ["sales-enablement", "copywriting"],
+    secondary: ["marketing-psychology"],
+  },
+  voicebot: {
+    primary: ["sales-enablement", "copywriting"],
+    secondary: ["marketing-psychology"],
+  },
 };
 
 const skillCache = new Map();
-const PRIMARY_MAX_CHARS = 14_000;
+const PRIMARY_MAX_CHARS = 16_000;
 const SECONDARY_MAX_CHARS = 4_000;
+const REFERENCE_MAX_CHARS = 6_000;
+/** marketing-ideas depends on the full 139-idea catalog in references/ */
+const MARKETING_IDEAS_REFERENCE_MAX_CHARS = 14_500;
 
 async function readSkillMarkdown(skillId) {
   const key = String(skillId || "").trim();
@@ -197,7 +289,34 @@ async function readSkillMarkdown(skillId) {
   if (skillCache.has(key)) return skillCache.get(key);
 
   try {
-    const raw = (await readFile(join(MARKETINGSKILLS_DIR, key, "SKILL.md"), "utf-8")).trim();
+    let raw = (await readFile(join(MARKETINGSKILLS_DIR, key, "SKILL.md"), "utf-8")).trim();
+
+    // Optional bundled references/ (e.g. ads-meta/references/meta-audit.md,
+    // marketing-ideas/references/ideas-by-category.md)
+    try {
+      const refsDir = join(MARKETINGSKILLS_DIR, key, "references");
+      const files = (await readdir(refsDir))
+        .filter((name) => name.toLowerCase().endsWith(".md"))
+        .sort();
+      // Prefer the ideas catalog first for marketing-ideas
+      const ordered =
+        key === "marketing-ideas"
+          ? [
+              ...files.filter((f) => f.includes("ideas-by-category")),
+              ...files.filter((f) => !f.includes("ideas-by-category")),
+            ]
+          : files;
+      const refBudget =
+        key === "marketing-ideas" ? MARKETING_IDEAS_REFERENCE_MAX_CHARS : REFERENCE_MAX_CHARS;
+      for (const file of ordered) {
+        const refBody = (await readFile(join(refsDir, file), "utf-8")).trim();
+        if (!refBody) continue;
+        raw += `\n\n### Skill reference: ${file}\n${truncateSkill(refBody, refBudget)}`;
+      }
+    } catch {
+      /* no references dir — fine */
+    }
+
     skillCache.set(key, raw);
     return raw;
   } catch {
@@ -225,6 +344,16 @@ export function resolveSkillPack(taskKey) {
     MODULE_MARKETING_SKILLS[key] ||
     DEFAULT_SKILL_PACK
   );
+}
+
+/**
+ * Skill pack for a single outreach channel draft (email, linkedin_dm, …).
+ * @param {string} copyType
+ * @returns {SkillPack}
+ */
+export function resolveOutreachChannelSkillPack(copyType) {
+  const key = String(copyType || "email").trim().toLowerCase();
+  return OUTREACH_CHANNEL_MARKETING_SKILLS[key] || OUTREACH_CHANNEL_MARKETING_SKILLS.email;
 }
 
 /**
@@ -280,6 +409,22 @@ export async function loadMarketingSkillsForArtifact(artifactType) {
  */
 export async function loadMarketingSkillsForTask(taskKey) {
   return buildSkillBlock(resolveSkillPack(taskKey));
+}
+
+/**
+ * Skills for one Lead Outreach channel draft (injected into that channel's system prompt).
+ * @param {string} copyType email | linkedin_dm | whatsapp_dm | voicebot_script
+ */
+export async function loadMarketingSkillsForOutreachChannel(copyType) {
+  return buildSkillBlock(resolveOutreachChannelSkillPack(copyType));
+}
+
+/** Flat skill id list for a channel (primary then secondary). */
+export function listOutreachChannelSkillIds(copyType) {
+  const pack = resolveOutreachChannelSkillPack(copyType);
+  return Array.from(
+    new Set([...(pack.primary || []), ...(pack.secondary || [])].filter(Boolean)),
+  );
 }
 
 /**

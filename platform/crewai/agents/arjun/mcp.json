@@ -1,6 +1,6 @@
 {
-  "connectors": ["apollo", "hunter", "hubspot", "salesforce", "zoho_crm", "gmail", "outlook", "instantly", "ga4"],
+  "connectors": ["apollo", "hunter", "hubspot", "salesforce", "zoho_crm", "gmail", "outlook", "instantly", "heyreach", "linkedin", "whatsapp", "ga4"],
   "permissions": "read-write",
-  "description": "Arjun owns funnel and lead operations across CRM, inbox, Instantly sequences, and conversion signals.",
+  "description": "Arjun owns funnel and lead operations across CRM, inbox, Instantly sequences, native LinkedIn + HeyReach outreach, WhatsApp outreach, and conversion signals.",
   "recipes": {}
 }

@@ -196,13 +196,19 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
         awareness: 'build awareness',
       }
       const channelLabelMap: Record<string, string> = {
+        facebook: 'Facebook',
+        instagram: 'Instagram',
+        facebook_instagram: 'FB + Instagram',
+        meta: 'FB + Instagram',
         google: 'Google Ads',
-        meta: 'Meta Ads',
         linkedin: 'LinkedIn Ads',
       }
       const connectorMap: Record<string, string[]> = {
-        google: ['google_ads', 'ga4'],
+        facebook: ['meta_ads', 'ga4'],
+        instagram: ['meta_ads', 'ga4'],
+        facebook_instagram: ['meta_ads', 'ga4'],
         meta: ['meta_ads', 'ga4'],
+        google: ['google_ads', 'ga4'],
         linkedin: ['linkedin_ads', 'ga4'],
       }
 
@@ -370,15 +376,31 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
     }
 
     if (goal.moduleId === 'lead-outreach') {
-      const channel = goalAnswers.outreach_channel || 'multi'
+      const contactChannels = goalAnswers.outreach_contact_channels || goalAnswers.outreach_channel || 'email'
       const target = goalAnswers.outreach_target || 'decision'
       const outreachGoal = goalAnswers.outreach_goal || 'meeting'
 
-      const channelLabelMap: Record<string, string> = {
-        email: 'email-first outbound',
-        linkedin: 'LinkedIn-first outreach',
-        multi: 'multitouch outreach across email and LinkedIn',
-      }
+      const channelSet = new Set(
+        String(contactChannels)
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean),
+      )
+      const channel =
+        channelSet.has('linkedin') && !channelSet.has('email') && !channelSet.has('phone')
+          ? 'linkedin'
+          : channelSet.has('email') && !channelSet.has('linkedin') && !channelSet.has('phone')
+            ? 'email'
+            : 'multi'
+
+      const contactLabel = [
+        channelSet.has('email') ? 'verified email' : null,
+        channelSet.has('phone') ? 'phone' : null,
+        channelSet.has('linkedin') ? 'LinkedIn' : null,
+      ]
+        .filter(Boolean)
+        .join(' + ')
+
       const targetLabelMap: Record<string, string> = {
         decision: 'decision makers',
         champions: 'internal champions',
@@ -390,10 +412,11 @@ export function HomeView({ onModuleSelect, onOpenChat }: HomeViewProps) {
         qualification: 'qualify interest faster',
       }
 
+      params.contact_channels = String(contactChannels)
       params.outreach_channel = channel
       params.outreach_target = target
       params.outreach_goal = outreachGoal
-      params.question = `Build a ${channelLabelMap[channel] || 'prospecting motion'} for ${targetLabelMap[target] || 'the selected prospects'} that should ${goalLabelMap[outreachGoal] || 'hit the main outreach outcome'}. Return the sequence arc, the personalization logic, and the first outreach messages we should send.`
+      params.question = `Build outreach for ${targetLabelMap[target] || 'the selected prospects'} using ${contactLabel || 'available contact data'} that should ${goalLabelMap[outreachGoal] || 'hit the main outreach outcome'}. Return the sequence arc, the personalization logic, and the first outreach messages we should send.`
       return params
     }
 

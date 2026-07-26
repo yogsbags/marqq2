@@ -13,7 +13,7 @@ export interface WorkflowFormOption {
 export interface WorkflowFormField {
   id: string;
   label: string;
-  type: 'text' | 'select';
+  type: 'text' | 'select' | 'multi_select';
   options?: WorkflowFormOption[];
   placeholder?: string;
   required?: boolean;

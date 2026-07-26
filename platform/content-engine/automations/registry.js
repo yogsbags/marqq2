@@ -22,6 +22,8 @@ import {
   formatApolloConnectionError,
 } from '../mcp-router.js';
 import { routeLeads, routingSummary, groupByChannel, explainRouting } from './channelRouter.js';
+import { getPreferredMetaAdAccountId, getPreferredGoogleAdsCustomerId } from '../connector-preferences.js';
+import { enrichLead as enrichLeadProvider, findLeads as findLeadsProvider } from '../lead-data-providers.js';
 import {
   generateSocialImage,
   generateEmailHtml,
@@ -29,6 +31,9 @@ import {
   generateAvatarVideo,
   createSeoArticle,
 } from './handlers/contentCreation.js';
+import { managePaidAdsLoop, enrollPaidAdsLoop } from './handlers/managePaidAdsLoop.js';
+
+export { enrollPaidAdsLoop };
 
 export const REGISTRY = [
   {
@@ -105,7 +110,7 @@ export const REGISTRY = [
       date_range: "e.g. last_7d or last_30d",
     },
     returns: "{ campaigns: [...], adsets: [...], ads: [...] }",
-    which_agents_can_invoke: ["isha", "maya", "arjun"],
+    which_agents_can_invoke: ["isha", "maya", "arjun", "zara"],
     requires_credential: "meta_ads",
   },
   {
@@ -149,8 +154,23 @@ export const REGISTRY = [
       campaign_id: "Optional — fetch a specific campaign by ID",
     },
     returns: "{ campaigns: [...], customer_lists: [...] }",
-    which_agents_can_invoke: ["isha", "arjun"],
+    which_agents_can_invoke: ["isha", "arjun", "zara"],
     requires_credential: "google_ads",
+  },
+  {
+    id: "linkedin_ads_fetch",
+    name: "Fetch LinkedIn Ads Performance",
+    description: "Pulls LinkedIn Ads accounts, campaigns, and analytics via Composio LinkedIn Ads toolkit",
+    category: "paid_media",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      ad_account_id: "Optional — LinkedIn sponsored account ID (numeric)",
+      date_range: "e.g. last_7d or last_30d",
+    },
+    returns: "{ accounts: [...], campaigns: [...], analytics: [...] }",
+    which_agents_can_invoke: ["zara", "isha", "arjun", "maya"],
+    requires_credential: "linkedin_ads",
   },
   {
     id: "route_leads",
@@ -177,7 +197,7 @@ export const REGISTRY = [
       message_template: "Connection request message (max 300 chars, supports {{first_name}}, {{company}})",
     },
     returns: "{ list_id, campaign_id, leads_added }",
-    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    which_agents_can_invoke: ["sam", "arjun", "kiran", "neel"],
     requires_credential: "heyreach",
   },
   {
@@ -208,7 +228,7 @@ export const REGISTRY = [
       keyword: "Optional campaign name filter",
     },
     returns: "{ campaigns: [...], count }",
-    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    which_agents_can_invoke: ["sam", "arjun", "kiran", "neel"],
     requires_credential: "heyreach",
   },
   {
@@ -222,7 +242,7 @@ export const REGISTRY = [
       limit: "Max conversations to fetch (default 5)",
     },
     returns: "{ conversations: [...], count }",
-    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    which_agents_can_invoke: ["sam", "arjun", "kiran", "neel"],
     requires_credential: "heyreach",
   },
   {
@@ -295,9 +315,27 @@ export const REGISTRY = [
       register_webhook: "Register Marqq Instantly webhook for replies (default true when PUBLIC_BASE_URL set)",
       create_interested_subsequence: "Create interested-lead subsequence from follow-up copy (default true when sequence_emails has 2+)",
       activate: "Activate campaign after create (default false — draft mode)",
+      enrich_leads: "After adding leads, run Instantly SuperSearch/AI enrichment on the campaign (default false)",
+      enrich_mode: "'supersearch' (default) | 'ai' — which Instantly enrichment to create/run",
     },
-    returns: "{ campaign_id, campaign_name, leads_added, sender_accounts, webhook, subsequence, message }",
-    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    returns: "{ campaign_id, campaign_name, leads_added, sender_accounts, webhook, subsequence, enrichment, message }",
+    which_agents_can_invoke: ["sam", "arjun", "kiran", "neel"],
+    requires_credential: "instantly",
+  },
+  {
+    id: "instantly_enrich_resource",
+    name: "Instantly Enrich Campaign/List",
+    description: "Creates and runs Instantly SuperSearch or AI enrichment on an existing campaign or lead list (email verify, profile, company, funding, etc.).",
+    category: "outreach",
+    trigger_type: "direct_api",
+    params_schema: {
+      resource_id: "Instantly campaign_id or list_id",
+      resource_type: "'campaign' (default) | 'list'",
+      enrich_mode: "'supersearch' (default) | 'ai'",
+      run: "Trigger enrichment run after create (default true)",
+    },
+    returns: "{ enrichment_id, create, settings, run, status }",
+    which_agents_can_invoke: ["sam", "arjun", "kiran", "neel"],
     requires_credential: "instantly",
   },
   {
@@ -495,7 +533,7 @@ export const REGISTRY = [
       leads: "Array of { phone, first_name, last_name, full_name, company }",
     },
     returns: "{ campaign_name, sent_count, failed_count, phone_number_id, results }",
-    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    which_agents_can_invoke: ["sam", "arjun", "kiran", "neel"],
     requires_credential: "whatsapp",
   },
   {
@@ -516,9 +554,53 @@ export const REGISTRY = [
     requires_credential: null,
   },
   {
+    id: "find_leads",
+    name: "Find Leads",
+    description: "Provider-agnostic B2B prospect search. Uses the workspace's preferred lead-data connector (Apollo people/account search, or Hunter domain/company discovery). Pass provider to force one.",
+    category: "lead_data",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      provider: "Optional: apollo | hunter (auto-resolves from connected + preference)",
+      country: "ISO country code (e.g. IN, US)",
+      industries: "Optional array of industry names",
+      seniorities: "Optional array of seniority names",
+      designation_keywords: "Optional comma-separated title keywords",
+      titles: "Optional array of buyer titles (alias of designation_keywords)",
+      domains: "Optional company domains — preferred path for Hunter",
+      companies: "Optional company names — Hunter domain search fallback",
+      cities: "Optional comma-separated cities",
+      states: "Optional comma-separated states",
+      limit: "Max rows to return (max 100, default 100)",
+    },
+    returns: "{ leads: [...], provider, source, count: number }",
+    which_agents_can_invoke: ["arjun", "neel", "sam"],
+    requires_credential: null,
+  },
+  {
+    id: "enrich_lead",
+    name: "Enrich Lead",
+    description: "Provider-agnostic contact enrichment via Apollo or Hunter (email match / email finder).",
+    category: "lead_data",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      provider: "Optional: apollo | hunter",
+      email: "Lead email address",
+      domain: "Company domain (optional)",
+      full_name: "Full name for Hunter email finder",
+      first_name: "First name",
+      last_name: "Last name",
+      company: "Company name (optional)",
+    },
+    returns: "{ person: {...}, organization: {...}, provider, source }",
+    which_agents_can_invoke: ["arjun", "neel", "sam", "kiran"],
+    requires_credential: null,
+  },
+  {
     id: "apollo_lead_enrich",
     name: "Apollo Lead Enrichment",
-    description: "Enriches lead records with firmographic and contact data via Apollo API",
+    description: "Legacy alias — prefers Apollo when connected; otherwise falls through to enrich_lead.",
     category: "lead_data",
     trigger_type: "direct_api",
     endpoint: "APOLLO_API_URL",
@@ -527,13 +609,13 @@ export const REGISTRY = [
       domain: "Company domain (optional)",
     },
     returns: "{ person: {...}, organization: {...} }",
-    which_agents_can_invoke: ["neel", "sam", "kiran"],
+    which_agents_can_invoke: ["neel", "sam", "kiran", "arjun"],
     requires_credential: null,
   },
   {
     id: "apollo_find_leads",
     name: "Apollo Lead Search",
-    description: "Uses Apollo prospecting tools to find people first, then falls back to account discovery when people search is unavailable or returns no matches.",
+    description: "Legacy alias for find_leads with provider=apollo when Apollo is connected; otherwise uses any connected lead-data provider.",
     category: "lead_data",
     trigger_type: "direct_api",
     endpoint: null,
@@ -546,9 +628,9 @@ export const REGISTRY = [
       states: "Optional comma-separated states",
       limit: "Max rows to return (max 100, default 100)",
     },
-    returns: "{ leads: [...], source: 'apollo_people_search'|'apollo_search_accounts', count: number }",
+    returns: "{ leads: [...], source, provider, count: number }",
     which_agents_can_invoke: ["arjun"],
-    requires_credential: "apollo",
+    requires_credential: null,
   },
   {
     id: "create_meta_campaign",
@@ -572,26 +654,71 @@ export const REGISTRY = [
       status: "ACTIVE | PAUSED (default: PAUSED — review before going live)",
     },
     returns: "{ campaign_id, adset_id, creative_id, ad_id, status, preview_url }",
-    which_agents_can_invoke: ["isha", "maya", "arjun", "tara"],
+    which_agents_can_invoke: ["zara", "isha", "maya", "arjun", "tara"],
     requires_credential: "meta_ads",
+  },
+  {
+    id: "create_google_ads_campaign",
+    name: "Create Google Ads Campaign",
+    description: "Creates a PAUSED Google Ads Search campaign scaffold via Composio: Campaign Budget → Campaign → Ad Group → Responsive Search Ad. Review in Google Ads before enabling.",
+    category: "paid_media",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      customer_id: "Optional Google Ads customer ID (digits). Uses workspace preference / connection default if omitted.",
+      campaign_name: "Campaign name (required)",
+      daily_budget: "Daily budget in major currency units or Meta-style minor units (required)",
+      headline: "Primary RSA headline (required)",
+      primary_text: "RSA description / body (required)",
+      link_url: "Final URL (required)",
+      status: "PAUSED | ENABLED (default: PAUSED)",
+      advertising_channel_type: "SEARCH | DISPLAY (default: SEARCH)",
+    },
+    returns: "{ customer_id, budget_resource_name, campaign_resource_name, ad_group_resource_name, ad_resource_name, status }",
+    which_agents_can_invoke: ["zara", "isha", "maya", "arjun", "tara"],
+    requires_credential: "google_ads",
+  },
+  {
+    id: "create_linkedin_ads_campaign",
+    name: "Create LinkedIn Ads Campaign",
+    description: "Creates a PAUSED LinkedIn Ads campaign via Marketing API (campaign group + campaign). Uses connected LinkedIn Ads OAuth token. Creative attach is left for Campaign Manager review.",
+    category: "paid_media",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      ad_account_id: "Optional LinkedIn sponsored account ID. Auto-discovered via SEARCH_AD_ACCOUNTS if omitted.",
+      campaign_name: "Campaign name (required)",
+      daily_budget: "Daily budget in major currency units (required)",
+      currency_code: "ISO currency e.g. USD | INR (default: USD)",
+      objective: "LEAD_GENERATION | WEBSITE_VISITS | BRAND_AWARENESS | WEBSITE_CONVERSIONS",
+      headline: "Optional — stored in notes for creative setup",
+      primary_text: "Optional — stored in notes for creative setup",
+      link_url: "Optional destination URL noted on the campaign result",
+      status: "PAUSED | DRAFT | ACTIVE (default: PAUSED)",
+    },
+    returns: "{ ad_account_id, campaign_group_id, campaign_id, status, campaign_manager_url }",
+    which_agents_can_invoke: ["zara", "isha", "maya", "arjun", "tara"],
+    requires_credential: "linkedin_ads",
   },
   // ── Content Creation Automations (Riya + Maya) ─────────────────────────────
   {
     id: "generate_social_image",
-    name: "Generate Social Media Image",
-    description: "Generates a brand-consistent social media image using Gemini Flash image generation (gemini-3.1-flash-image-preview) and uploads to imgbb CDN for a permanent URL. Supports 1:1, 16:9, 9:16, 4:5 aspect ratios for different platforms.",
+    name: "Generate Social / Ad Image",
+    description: "Generates a brand-consistent image via Gemini 3.1 Flash-Lite Image (gemini-3.1-flash-lite-image), uploads to imgbb CDN (Cloudinary fallback), and returns a permanent URL. Supports 1:1, 16:9, 9:16, 4:5 for paid ads and social.",
     category: "content_creation",
     trigger_type: "direct_api",
     endpoint: null,
     params_schema: {
       prompt: "What to depict in the image (required)",
       aspect_ratio: "1:1 | 16:9 | 9:16 | 4:5 (default: 1:1)",
-      platform: "instagram | linkedin | twitter | facebook | youtube (default: instagram)",
+      platform: "instagram | linkedin | facebook | google | twitter | youtube (default: instagram)",
       brand_context: "Brand colors, style, or guidelines to guide generation",
       style: "Visual style description (default: professional, clean, modern, minimalist)",
+      headline: "Optional ad headline context (kept off-image unless prompt asks)",
+      primary_text: "Optional ad primary text context",
     },
-    returns: "{ image_url, cdn_url, platform, aspect_ratio, dimensions, prompt_used, revised_prompt }",
-    which_agents_can_invoke: ["riya", "zara", "kiran"],
+    returns: "{ image_url, cdn_url, cloudinary_url, host, platform, aspect_ratio, prompt_used, model }",
+    which_agents_can_invoke: ["riya", "maya", "zara", "sam", "kiran"],
     requires_credential: null,
   },
   {
@@ -615,19 +742,21 @@ export const REGISTRY = [
   },
   {
     id: "generate_faceless_video",
-    name: "Generate Faceless Video",
-    description: "Generates a faceless AI video using Google Veo 3.1 (veo-3.1-generate-preview). Returns the operation_name immediately — poll Gemini operations API for the final video. Best for explainer videos, product demos, and b-roll without a spokesperson.",
+    name: "Generate Ad / Faceless Video",
+    description: "Generates a short ad-ready video with Gemini Omni Flash (gemini-omni-flash-preview) via the Interactions API, then hosts the MP4 on Cloudinary (folder ai-videos). Supports text-to-video and image-to-video. Set GEMINI_VIDEO_MODEL=veo-3.1-generate-preview for legacy async Veo (also polled → Cloudinary).",
     category: "content_creation",
     trigger_type: "direct_api",
     endpoint: null,
     params_schema: {
       prompt: "Scene description for the video (required)",
-      duration: "Duration in seconds, max 8 (default: 8)",
-      aspect_ratio: "16:9 | 9:16 | 1:1 (default: 16:9)",
-      style: "Visual style, e.g. cinematic, documentary, animated (default: cinematic)",
+      duration: "Duration in seconds, 3–10 (default: 8)",
+      aspect_ratio: "16:9 | 9:16 (default: 16:9)",
+      style: "Visual style, e.g. cinematic, documentary, UGC (default: cinematic)",
+      image_url: "Optional reference image URL to animate (image-to-video)",
+      image_base64: "Optional reference image base64 (image-to-video)",
     },
-    returns: "{ status: 'queued', request_id, check_url, model, prompt, duration, aspect_ratio }",
-    which_agents_can_invoke: ["riya", "zara"],
+    returns: "{ status, video_url, cloudinary_url, model, prompt, duration, aspect_ratio }",
+    which_agents_can_invoke: ["riya", "maya", "zara", "sam"],
     requires_credential: null,
   },
   {
@@ -668,6 +797,31 @@ export const REGISTRY = [
     requires_credential: null,
   },
   {
+    id: "manage_paid_ads_loop",
+    name: "Paid Ads Closed Loop",
+    description:
+      "Post-launch optimizer aligned to paid-ads + ads-budget + ads-creative + ab-test-setup: paces vs GTM goal, 3x Kill Rule / 20% scale with 3d cooldown, Meta fatigue (freq>5), distinct-angle A/B variants with hypotheses, winning creative/cohort only after min sample. Auto-enrolled on create; cron every 6h.",
+    category: "paid_media",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      enrolled: "Array of enrolled campaigns { campaign_id, adset_id, channel, link_url, headline, ... }",
+      campaign_id: "Optional one-shot campaign to process",
+      quantified_target: "Override GTM goal e.g. '500 leads'",
+      timeline_target: "Override GTM timeline e.g. '90 days' or ISO date",
+      auto_optimize: "Pause/scale (default true)",
+      auto_refresh_creatives: "Fatigue → new variants (default true)",
+      dry_run: "Report only when true",
+      roas_threshold_pause: "Pause ads below this ROAS (default 1.0)",
+      roas_threshold_scale: "Scale ad sets above this ROAS (default 3.0)",
+      budget_scale_factor: "Budget multiplier for winners (default 1.25)",
+    },
+    returns:
+      "{ goals, campaigns: [{ pacing, fatigue, winning_creative, winning_cohort, new_variants, actions }], report }",
+    which_agents_can_invoke: ["zara", "isha", "maya", "arjun"],
+    requires_credential: "meta_ads",
+  },
+  {
     id: "optimize_meta_roas",
     name: "Meta Ads ROAS Optimizer",
     description: "Monitors Meta Ads performance and automatically optimizes for best ROAS. Pauses ads below the ROAS threshold, scales daily budget on winning ad sets, and generates an optimization report. Set as a scheduled automation (e.g. every 6 hours) for autonomous management.",
@@ -692,7 +846,7 @@ export const REGISTRY = [
 
 /**
  * creativeFatigueCheck — internal function
- * Flags ads with high frequency AND CTR below 80% of average.
+ * ads-creative aligned: frequency >5 prospecting OR CTR <80% of avg with ≥1k impressions.
  */
 function creativeFatigueCheck(params) {
   const ads = Array.isArray(params?.ads) ? params.ads : [];
@@ -702,16 +856,22 @@ function creativeFatigueCheck(params) {
     ctr: ad.impressions > 0 ? ad.clicks / ad.impressions : 0,
   }));
 
+  const withImpressions = adsWithCtr.filter((a) => (a.impressions || 0) >= 100);
   const averageCtr =
-    adsWithCtr.length > 0
-      ? adsWithCtr.reduce((sum, ad) => sum + ad.ctr, 0) / adsWithCtr.length
-      : 0;
+    withImpressions.length > 0
+      ? withImpressions.reduce((sum, ad) => sum + ad.ctr, 0) / withImpressions.length
+      : adsWithCtr.length > 0
+        ? adsWithCtr.reduce((sum, ad) => sum + ad.ctr, 0) / adsWithCtr.length
+        : 0;
 
   const fatigued_ads = [];
   const healthy_ads = [];
 
   for (const ad of adsWithCtr) {
-    if (ad.frequency > 3 && ad.ctr < averageCtr * 0.8) {
+    const freq = Number(ad.frequency || 0);
+    const lowCtr =
+      (ad.impressions || 0) >= 1000 && averageCtr > 0 && ad.ctr < averageCtr * 0.8;
+    if (freq > 5 || lowCtr) {
       fatigued_ads.push(ad);
     } else {
       healthy_ads.push(ad);
@@ -724,10 +884,10 @@ function creativeFatigueCheck(params) {
     summary = `All ${total} ads appear healthy.`;
   } else {
     const names = fatigued_ads.map((a) => a.name).join(", ");
-    summary = `${fatigued_ads.length} of ${total} ads are fatigued (high frequency, low CTR). Recommend refreshing: ${names}.`;
+    summary = `${fatigued_ads.length} of ${total} ads are fatigued (freq>5 and/or CTR<80% of peers). Recommend refreshing: ${names}.`;
   }
 
-  return { fatigued_ads, healthy_ads, summary };
+  return { fatigued_ads, healthy_ads, summary, average_ctr: averageCtr };
 }
 
 /**
@@ -918,202 +1078,21 @@ const directApiHandlers = {
     return { status: 'completed', ads };
   },
 
-  async apollo_lead_enrich(params) {
-    const apiKey = process.env.APOLLO_API_KEY;
-    if (!apiKey) {
-      return { status: 'simulated', message: 'APOLLO_API_KEY not configured', person: null, organization: null };
-    }
-    let fetchFn;
-    try { fetchFn = fetch; } catch { fetchFn = null; }
-    if (!fetchFn) {
-      const mod = await import('node-fetch').catch(() => null);
-      fetchFn = mod?.default || null;
-    }
-    if (!fetchFn) return { status: 'error', error: 'fetch not available', person: null, organization: null };
+  async find_leads(params, companyId) {
+    return findLeadsProvider(params || {}, companyId, [companyId]);
+  },
 
-    const res = await fetchFn('https://api.apollo.io/v1/people/match', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        email: params.email || null,
-        domain: params.domain || null,
-        reveal_personal_emails: false,
-      }),
-    });
-    const data = await res.json();
-    if (data.error) return { status: 'error', error: data.error, person: null, organization: null };
-    return {
-      status: 'completed',
-      person: data.person || null,
-      organization: data.organization || null,
-    };
+  async enrich_lead(params, companyId) {
+    return enrichLeadProvider(params || {}, companyId, [companyId]);
+  },
+
+  async apollo_lead_enrich(params, companyId) {
+    return enrichLeadProvider({ ...(params || {}), provider: 'apollo' }, companyId, [companyId]);
   },
 
   async apollo_find_leads(params, companyId) {
-    const connectedApollo = await getConnectedAccountApiKeyForEntities('apollo', [companyId]);
-    const apolloApiKey = connectedApollo.api_key || null;
-    if (!apolloApiKey) {
-      return {
-        status: 'error',
-        error: formatApolloConnectionError(connectedApollo.error || 'Apollo API key not available'),
-        leads: [],
-        count: 0,
-      };
-    }
-
-    const countryMap = { IN: 'India', US: 'United States' };
-    const country = countryMap[String(params.country || 'IN').toUpperCase()] || String(params.country || 'India');
-    const industries = Array.isArray(params.industries) ? params.industries.map((entry) => String(entry).replace(/_/g, ' ')).filter(Boolean) : [];
-    const seniorities = Array.isArray(params.seniorities) ? params.seniorities.map((entry) => String(entry).replace(/_/g, ' ').toLowerCase()) : [];
-    const titleKeywords = String(params.designation_keywords || '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    const cities = String(params.cities || '').split(',').map((entry) => entry.trim()).filter(Boolean);
-    const states = String(params.states || '').split(',').map((entry) => entry.trim()).filter(Boolean);
-    const limit = Math.min(Math.max(Number(params.limit) || 100, 1), 100);
-
-    const fetchApollo = async (url, options = {}) => {
-      const res = await fetch(url, {
-        ...options,
-        headers: {
-          'x-api-key': apolloApiKey,
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-          accept: 'application/json',
-          ...(options.headers || {}),
-        },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const base = data?.error || data?.error_message || data?.message || `Apollo API failed: ${res.status}`;
-        // Log the raw Apollo response so auth failures can be diagnosed (plan/scope
-        // restriction vs stale key vs wrong endpoint) instead of only ever seeing the
-        // generic "reconnect" message surfaced to the user.
-        console.error(`[apollo_find_leads] ${res.status} from ${url}:`, JSON.stringify(data).slice(0, 500));
-        if (res.status === 401 || res.status === 403) {
-          throw new Error(`${formatApolloConnectionError(base)} (Apollo said: ${String(base).slice(0, 200)})`);
-        }
-        throw new Error(base);
-      }
-      return data;
-    };
-
-    const mapApolloPersonToLead = (person) => ({
-      full_name: person.name || [person.first_name, person.last_name].filter(Boolean).join(' '),
-      designation: person.title || person.headline || '—',
-      company: person.employment_history?.find?.((job) => job.current)?.organization_name || person.organization_name || '—',
-      city: person.city || '',
-      state: person.state || '',
-      icp_industry: person.organization?.industry || '',
-      seniority: person.seniority ? String(person.seniority).toUpperCase() : '',
-      phone_e164: person.phone_number || person.phone || '',
-      email: person.email || '',
-      email_norm: person.email || '',
-      has_linkedin: Boolean(person.linkedin_url),
-      linkedin_url: person.linkedin_url || '',
-      quality: person.email ? 4 : 3,
-    });
-
-    const mapApolloAccountToLead = (account) => ({
-      full_name: '',
-      designation: 'Target Account',
-      company: account.name || '—',
-      city: account.city || account.organization_city || '',
-      state: account.state || account.organization_state || '',
-      icp_industry: account.industry || '',
-      seniority: 'ACCOUNT',
-      phone_e164: account.phone || account.primary_phone?.sanitized_number || '',
-      email: '',
-      email_norm: '',
-      has_linkedin: Boolean(account.linkedin_url),
-      linkedin_url: account.linkedin_url || '',
-      quality: 3,
-      website_url: account.website_url || '',
-      domain: account.primary_domain || account.domain || '',
-    });
-
-    try {
-      const peopleParams = new URLSearchParams({ per_page: String(limit) });
-      const peopleTitles = titleKeywords.slice(0, 8);
-      for (const title of peopleTitles) peopleParams.append('person_titles[]', title);
-      const personLocations = [...cities, ...states, country].slice(0, 5);
-      for (const location of personLocations) peopleParams.append('person_locations[]', location);
-      const qKeywords = industries.join(' ');
-      if (qKeywords) peopleParams.set('q_keywords', qKeywords);
-
-      const peopleSearch = await fetchApollo(`https://api.apollo.io/api/v1/mixed_people/api_search?${peopleParams.toString()}`, {
-        method: 'POST',
-      });
-      const peopleIds = (peopleSearch.people || []).map((person) => person.id).filter(Boolean).slice(0, limit);
-      if (peopleIds.length > 0) {
-        const enrichData = await fetchApollo('https://api.apollo.io/api/v1/people/bulk_match', {
-          method: 'POST',
-          body: JSON.stringify({
-            details: peopleIds.map((id) => ({ id })),
-            reveal_personal_emails: false,
-            reveal_phone_number: false,
-          }),
-        });
-        const people = enrichData.matches || [];
-        return {
-          status: 'completed',
-          source: 'apollo_people_search',
-          count: people.length,
-          leads: people.map(mapApolloPersonToLead).filter((lead) => lead.company || lead.full_name),
-        };
-      }
-    } catch (err) {
-      // Fall through to account search, but keep the reason visible server-side —
-      // silently swallowing it made "still fails after reconnect" reports impossible to diagnose.
-      console.error('[apollo_find_leads] people search failed, falling back to account search:', err.message);
-    }
-
-    const accountQueries = industries.length
-      ? industries
-      : [titleKeywords[0], states[0], cities[0], country].filter(Boolean);
-
-    try {
-      const accountMap = new Map();
-      for (const query of accountQueries) {
-        if (accountMap.size >= limit) break;
-        const accountArgs = {
-          per_page: Math.max(1, Math.min(10, limit - accountMap.size)),
-          q_organization_name: query,
-        };
-        const accountData = await fetchApollo('https://api.apollo.io/api/v1/mixed_companies/search', {
-          method: 'POST',
-          body: JSON.stringify(accountArgs),
-        });
-        const accounts = accountData.accounts || [];
-        if (!Array.isArray(accounts) || accounts.length === 0) continue;
-        for (const account of accounts) {
-          const key = account.primary_domain || account.domain || account.name;
-          if (!key || accountMap.has(key)) continue;
-          accountMap.set(key, account);
-          if (accountMap.size >= limit) break;
-        }
-      }
-      const accounts = Array.from(accountMap.values());
-      if (accounts.length > 0) {
-        return {
-          status: 'completed',
-          source: 'apollo_search_accounts',
-          count: accounts.length,
-          leads: accounts.map(mapApolloAccountToLead).filter((lead) => lead.company),
-        };
-      }
-      return {
-        status: 'completed',
-        source: 'apollo_search_accounts',
-        count: 0,
-        leads: [],
-        message: 'Apollo returned no matching leads or accounts',
-      };
-    } catch (err) {
-      return { status: 'error', error: err.message, leads: [], count: 0 };
-    }
+    // Prefer Apollo when connected; resolveLeadDataProvider falls back to Hunter otherwise.
+    return findLeadsProvider({ ...(params || {}), provider: 'apollo' }, companyId, [companyId]);
   },
 
   // ── Google Ads — via Composio toolkit actions ─────────────────────────────
@@ -1155,6 +1134,165 @@ const directApiHandlers = {
     return { status: 'completed', ...results };
   },
 
+  async linkedin_ads_fetch(params, companyId) {
+    const notes = [];
+    const toArray = (value) => {
+      if (Array.isArray(value)) return value;
+      if (Array.isArray(value?.elements)) return value.elements;
+      if (Array.isArray(value?.data)) return value.data;
+      if (Array.isArray(value?.items)) return value.items;
+      if (Array.isArray(value?.results)) return value.results;
+      return [];
+    };
+
+    const accountsRes = await executeComposioAction(
+      'LINKEDIN_ADS_SEARCH_AD_ACCOUNTS',
+      { status: ['ACTIVE'], page_size: 25 },
+      companyId,
+    );
+    if (accountsRes.error) {
+      const raw = String(accountsRes.error || '');
+      if (/not connected|credentials|auth|token/i.test(raw)) {
+        return {
+          status: 'error',
+          error: 'LinkedIn Ads not connected. Connect in Settings → Accounts.',
+          accounts: [],
+          campaigns: [],
+          analytics: [],
+        };
+      }
+      return { status: 'error', error: accountsRes.error, accounts: [], campaigns: [], analytics: [] };
+    }
+
+    const accountsRaw = toArray(accountsRes.result);
+    const accounts = accountsRaw.map((row) => {
+      const id =
+        row?.id ||
+        row?.account_id ||
+        String(row?.account || row?.urn || '')
+          .split(':')
+          .pop();
+      return {
+        id: id ? String(id).replace(/^urn:li:sponsoredAccount:/, '') : null,
+        name: row?.name || row?.accountName || 'LinkedIn Ads account',
+        status: row?.status || row?.accountStatus || null,
+        type: row?.type || null,
+        raw: row,
+      };
+    }).filter((a) => a.id);
+
+    const preferredAccountId = String(params.ad_account_id || params.account_id || '').replace(/\D/g, '');
+    const adAccountId = preferredAccountId || accounts[0]?.id || null;
+    if (!adAccountId) {
+      return {
+        status: 'completed',
+        accounts,
+        campaigns: [],
+        analytics: [],
+        notes: ['No LinkedIn Ads accounts found for this connection.'],
+      };
+    }
+
+    const campaignsRes = await executeComposioAction(
+      'LINKEDIN_ADS_SEARCH_CAMPAIGNS',
+      {
+        adAccountId: Number(adAccountId),
+        pageSize: 50,
+        q: 'search',
+      },
+      companyId,
+    );
+    if (campaignsRes.error) notes.push(`Campaigns: ${campaignsRes.error}`);
+    const campaignsRaw = campaignsRes.error ? [] : toArray(campaignsRes.result);
+    const campaigns = campaignsRaw.map((row) => {
+      const id =
+        row?.id ||
+        String(row?.campaign || row?.urn || '')
+          .split(':')
+          .pop();
+      return {
+        id: id ? String(id) : null,
+        name: row?.name || row?.campaignName || 'Untitled campaign',
+        status: row?.status || row?.campaignStatus || null,
+        type: row?.type || row?.campaignType || null,
+        daily_budget: row?.dailyBudget?.amount || row?.daily_budget || null,
+        total_budget: row?.totalBudget?.amount || row?.total_budget || null,
+        platform: 'LinkedIn',
+        raw: row,
+      };
+    });
+
+    const rangeKey = String(params.date_range || 'last_30d').toLowerCase();
+    const days = rangeKey.includes('7') ? 7 : rangeKey.includes('month') && !rangeKey.includes('last_') ? 30 : 30;
+    const end = new Date();
+    const start = new Date(Date.now() - days * 86_400_000);
+    const asLiDate = (d) => ({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
+
+    const analyticsRes = await executeComposioAction(
+      'LINKEDIN_ADS_GET_AD_ANALYTICS',
+      {
+        pivot: 'CAMPAIGN',
+        timeGranularity: 'ALL',
+        fields: 'impressions,clicks,costInLocalCurrency,externalWebsiteConversions,oneClickLeads',
+        accounts: [`urn:li:sponsoredAccount:${adAccountId}`],
+        dateRange: { start: asLiDate(start), end: asLiDate(end) },
+      },
+      companyId,
+    );
+    if (analyticsRes.error) notes.push(`Analytics: ${analyticsRes.error}`);
+    const analyticsRaw = analyticsRes.error ? [] : toArray(analyticsRes.result);
+    const analytics = analyticsRaw.map((row) => {
+      const spend = Number(row?.costInLocalCurrency || row?.costInUsd || row?.spend || 0);
+      const impressions = Number(row?.impressions || 0);
+      const clicks = Number(row?.clicks || 0);
+      const conversions = Number(
+        row?.externalWebsiteConversions || row?.oneClickLeads || row?.conversions || 0,
+      );
+      return {
+        campaign: row?.pivotValues?.[0] || row?.campaign || row?.name || null,
+        spend,
+        impressions,
+        clicks,
+        conversions,
+        ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+        platform: 'LinkedIn',
+        raw: row,
+      };
+    });
+
+    // Prefer analytics-backed campaign rows when available
+    const campaignRows = analytics.length
+      ? analytics.map((a) => ({
+          name: a.campaign || 'Campaign',
+          spend: a.spend,
+          impressions: a.impressions,
+          clicks: a.clicks,
+          conversions: a.conversions,
+          ctr: a.ctr,
+          platform: 'LinkedIn',
+        }))
+      : campaigns.map((c) => ({
+          name: c.name,
+          spend: Number(c.daily_budget || 0),
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          ctr: 0,
+          status: c.status,
+          platform: 'LinkedIn',
+        }));
+
+    return {
+      status: 'completed',
+      date_range: rangeKey,
+      ad_account_id: adAccountId,
+      accounts,
+      campaigns: campaignRows,
+      analytics,
+      notes,
+    };
+  },
+
   // ── Meta Ads — via Composio METAADS_* toolkit actions ────────────────────
   // Composio's metaads toolkit (53 actions) handles OAuth, token refresh,
   // and all Meta Marketing API calls. We use executeComposioAction throughout.
@@ -1175,15 +1313,30 @@ const directApiHandlers = {
     const { access_token } = tokenResult;
 
     if (!adAccountId) {
+      adAccountId = getPreferredMetaAdAccountId(companyId) || null;
+    }
+
+    if (!adAccountId) {
       const r = await fetch(
-        `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&access_token=${access_token}`
+        `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&limit=50&access_token=${access_token}`
       );
       const data = await r.json();
       if (data.error) throw new Error(`Meta adaccounts error: ${data.error.message}`);
       const accounts = data.data || [];
+      if (accounts.length > 1) {
+        const labels = accounts
+          .slice(0, 8)
+          .map((a) => `${a.name || a.id} (${a.id})`)
+          .join(', ');
+        throw new Error(
+          `Multiple Meta ad accounts found (${accounts.length}). Choose one in Settings → Accounts → Meta Ads${labels ? `: ${labels}` : ''}.`
+        );
+      }
       const active = accounts.find(a => a.account_status === 1) || accounts[0];
       if (!active?.id) throw new Error('No active Meta ad account found. Connect Meta Ads in Settings → Accounts.');
       adAccountId = active.id.startsWith('act_') ? active.id : `act_${active.id}`;
+    } else if (!String(adAccountId).startsWith('act_')) {
+      adAccountId = `act_${adAccountId}`;
     }
 
     if (!pageId) {
@@ -1227,7 +1380,30 @@ const directApiHandlers = {
     const optimizationGoal = optimizationGoalMap[objective] || 'LINK_CLICKS';
     const campaignStatus = params.status || 'PAUSED';
     const ctaType       = params.cta_type || 'LEARN_MORE';
-    const targeting     = params.targeting || { age_min: 18, age_max: 65, geo_locations: { countries: ['IN'] } };
+    const channel = String(params.channel || params.paid_channel || params.platform || '').toLowerCase();
+    const publisherPlatforms = (() => {
+      if (Array.isArray(params.publisher_platforms) && params.publisher_platforms.length) {
+        return params.publisher_platforms.map(String);
+      }
+      if (channel === 'facebook') return ['facebook'];
+      if (channel === 'instagram') return ['instagram'];
+      if (
+        channel === 'facebook_instagram' ||
+        channel === 'fb_instagram' ||
+        channel === 'meta' ||
+        channel === 'fb+insta'
+      ) {
+        return ['facebook', 'instagram'];
+      }
+      return null; // Advantage+ / automatic placements when unspecified
+    })();
+    const targeting = {
+      age_min: 18,
+      age_max: 65,
+      geo_locations: { countries: ['IN'] },
+      ...(params.targeting && typeof params.targeting === 'object' ? params.targeting : {}),
+      ...(publisherPlatforms ? { publisher_platforms: publisherPlatforms } : {}),
+    };
     const GRAPH = 'https://graph.facebook.com/v19.0';
 
     // 1. Create Campaign (direct Graph API — Composio schema validation is outdated for objectives)
@@ -1312,6 +1488,42 @@ const directApiHandlers = {
     if (c4d.error) return { status: 'error', error: `Ad: ${c4d.error.message}`, step: 'ad', campaign_id: campaignId, adset_id: adsetId, creative_id: creativeId };
     const adId = c4d.id;
 
+    let loop_enrollment = null;
+    if (params.skip_loop_enrollment !== true && params.skip_loop_enrollment !== 'true') {
+      try {
+        loop_enrollment = await enrollPaidAdsLoop(companyId, {
+          campaign_id: campaignId,
+          adset_id: adsetId,
+          creative_id: creativeId,
+          ad_id: adId,
+          ad_account_id: adAccountId,
+          page_id: pageId,
+          channel: channel || 'meta',
+          campaign_name: params.campaign_name,
+          link_url: params.link_url,
+          headline: params.headline,
+          primary_text: params.primary_text,
+          image_url: params.image_url || null,
+          cta_type: ctaType,
+          ads_status: campaignStatus,
+          objective,
+        }, {
+          quantified_target: params.quantified_target,
+          timeline_target: params.timeline_target,
+          objective,
+          dry_run: params.loop_dry_run === true,
+          agentName: 'zara',
+        });
+      } catch (enrollErr) {
+        console.warn('[create_meta_campaign] loop enroll failed:', enrollErr.message);
+        loop_enrollment = { ok: false, error: enrollErr.message };
+      }
+    }
+
+    const enrollNote = loop_enrollment?.ok
+      ? ` Closed loop enrolled (every 6h) → next run ${loop_enrollment.next_run}.`
+      : '';
+
     return {
       status: 'completed',
       campaign_id: campaignId,
@@ -1322,10 +1534,416 @@ const directApiHandlers = {
       page_id: pageId,
       objective,
       campaign_status: campaignStatus,
-      message: campaignStatus === 'PAUSED'
+      message: (campaignStatus === 'PAUSED'
         ? 'Campaign created and paused. Review in Meta Ads Manager, then set to ACTIVE when ready.'
-        : 'Campaign created and ACTIVE — spending has begun.',
+        : 'Campaign created and ACTIVE — spending has begun.') + enrollNote,
+      loop_enrollment,
     };
+  },
+  async create_google_ads_campaign(params, companyId) {
+    if (!params.campaign_name) return { status: 'error', error: 'campaign_name is required' };
+    if (!params.headline) return { status: 'error', error: 'headline is required' };
+    if (!params.primary_text) return { status: 'error', error: 'primary_text is required' };
+    if (!params.link_url) return { status: 'error', error: 'link_url is required' };
+
+    const budgetMicros = (() => {
+      const n = Number(params.daily_budget ?? params.budget);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      if (n >= 1_000_000) return Math.round(n);
+      if (n < 1000) return Math.round(n * 1_000_000);
+      return Math.round((n / 100) * 1_000_000);
+    })();
+    if (!budgetMicros) return { status: 'error', error: 'daily_budget is required (e.g. 500 for ₹500/day)' };
+
+    let customerId = String(params.customer_id || params.google_ads_customer_id || getPreferredGoogleAdsCustomerId(companyId) || '')
+      .replace(/[-\s]/g, '');
+    if (!customerId) {
+      const listed = await executeComposioAction('GOOGLEADS_LIST_ACCESSIBLE_CUSTOMERS', {}, companyId);
+      if (listed.error) return { status: 'error', error: listed.error, step: 'customer' };
+      const rows = listed.result?.resource_names || listed.result?.customers || listed.result || [];
+      const first = Array.isArray(rows) ? rows[0] : null;
+      const raw = typeof first === 'string' ? first : first?.resource_name || first?.id || '';
+      customerId = String(raw).replace(/[^\d]/g, '');
+    }
+    if (!customerId) {
+      return { status: 'error', error: 'No Google Ads customer_id found. Pick one in Settings → Accounts.', step: 'customer' };
+    }
+
+    const status = String(params.status || 'PAUSED').toUpperCase() === 'ENABLED' ? 'ENABLED' : 'PAUSED';
+    const channelType = String(params.advertising_channel_type || 'SEARCH').toUpperCase() === 'DISPLAY'
+      ? 'DISPLAY'
+      : 'SEARCH';
+    const base = { customer_id: customerId, partial_failure: false, response_content_type: 'MUTABLE_RESOURCE' };
+
+    const extractResourceName = (payload) => {
+      const r = payload?.result ?? payload;
+      const results = r?.results || r?.result?.results || [];
+      if (Array.isArray(results) && results[0]) {
+        const row = results[0];
+        return (
+          row.resource_name ||
+          row.campaign_budget?.resource_name ||
+          row.campaignBudget?.resource_name ||
+          row.campaign?.resource_name ||
+          row.ad_group?.resource_name ||
+          row.adGroup?.resource_name ||
+          row.ad_group_ad?.resource_name ||
+          row.adGroupAd?.resource_name ||
+          null
+        );
+      }
+      if (typeof r?.resource_name === 'string') return r.resource_name;
+      const str = JSON.stringify(r || {});
+      const m = str.match(/customers\/\d+\/(?:campaignBudgets|campaigns|adGroups|adGroupAds)\/[\w~-]+/);
+      return m ? m[0] : null;
+    };
+
+    const budgetRes = await executeComposioAction('GOOGLEADS_MUTATE_CAMPAIGN_BUDGETS', {
+      ...base,
+      operations: [{
+        create: {
+          name: `${params.campaign_name} Budget`,
+          amount_micros: budgetMicros,
+          delivery_method: 'STANDARD',
+          explicitly_shared: false,
+        },
+      }],
+    }, companyId);
+    if (budgetRes.error) return { status: 'error', error: budgetRes.error, step: 'budget', raw: budgetRes.raw };
+    const budgetResourceName = extractResourceName(budgetRes);
+    if (!budgetResourceName) {
+      return { status: 'error', error: 'Budget created but resource name missing from Composio response', step: 'budget', raw: budgetRes.result };
+    }
+
+    const campaignRes = await executeComposioAction('GOOGLEADS_MUTATE_CAMPAIGNS', {
+      ...base,
+      operations: [{
+        create: {
+          name: params.campaign_name,
+          status,
+          advertising_channel_type: channelType,
+          campaign_budget: budgetResourceName,
+          contains_eu_political_advertising: 'DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING',
+          network_settings: channelType === 'SEARCH'
+            ? {
+                target_google_search: true,
+                target_search_network: true,
+                target_content_network: false,
+                target_partner_search_network: false,
+              }
+            : undefined,
+        },
+      }],
+    }, companyId);
+    if (campaignRes.error) {
+      return { status: 'error', error: campaignRes.error, step: 'campaign', budget_resource_name: budgetResourceName, raw: campaignRes.raw };
+    }
+    const campaignResourceName = extractResourceName(campaignRes);
+    if (!campaignResourceName) {
+      return { status: 'error', error: 'Campaign created but resource name missing', step: 'campaign', budget_resource_name: budgetResourceName, raw: campaignRes.result };
+    }
+
+    const adGroupRes = await executeComposioAction('GOOGLEADS_MUTATE_AD_GROUPS', {
+      ...base,
+      operations: [{
+        create: {
+          name: `${params.campaign_name} — Ad Group`,
+          campaign: campaignResourceName,
+          status,
+          type: channelType === 'SEARCH' ? 'SEARCH_STANDARD' : 'DISPLAY_STANDARD',
+          cpc_bid_micros: Math.max(Math.round(budgetMicros * 0.05), 10_000),
+        },
+      }],
+    }, companyId);
+    if (adGroupRes.error) {
+      return {
+        status: 'error',
+        error: adGroupRes.error,
+        step: 'ad_group',
+        budget_resource_name: budgetResourceName,
+        campaign_resource_name: campaignResourceName,
+        raw: adGroupRes.raw,
+      };
+    }
+    const adGroupResourceName = extractResourceName(adGroupRes);
+
+    let adResourceName = null;
+    let adNote = null;
+    if (adGroupResourceName && channelType === 'SEARCH') {
+      const headlines = [
+        String(params.headline).slice(0, 30),
+        String(params.headline).slice(0, 28) || 'Learn more',
+        'Get started today',
+      ].filter(Boolean);
+      const descriptions = [
+        String(params.primary_text).slice(0, 90),
+        String(params.primary_text).slice(0, 88) || 'See how it works.',
+      ].filter(Boolean);
+
+      const adRes = await executeComposioAction('GOOGLEADS_MUTATE_AD_GROUP_ADS', {
+        ...base,
+        operations: [{
+          create: {
+            ad_group: adGroupResourceName,
+            status,
+            ad: {
+              final_urls: [params.link_url],
+              responsive_search_ad: {
+                headlines: headlines.slice(0, 3).map((text) => ({ text })),
+                descriptions: descriptions.slice(0, 2).map((text) => ({ text })),
+              },
+            },
+          },
+        }],
+      }, companyId);
+      if (adRes.error) {
+        adNote = `Campaign + ad group created; RSA failed: ${adRes.error}`;
+      } else {
+        adResourceName = extractResourceName(adRes);
+      }
+    }
+
+    const campaignId = String(campaignResourceName || '').split('/').pop() || null;
+
+    let loop_enrollment = null;
+    if (campaignId && params.skip_loop_enrollment !== true && params.skip_loop_enrollment !== 'true') {
+      try {
+        loop_enrollment = await enrollPaidAdsLoop(companyId, {
+          campaign_id: campaignId,
+          channel: 'google',
+          campaign_name: params.campaign_name,
+          link_url: params.link_url,
+          headline: params.headline,
+          primary_text: params.primary_text,
+          ads_status: status,
+          objective: params.objective || params.advertising_channel_type,
+        }, {
+          quantified_target: params.quantified_target,
+          timeline_target: params.timeline_target,
+          agentName: 'zara',
+        });
+      } catch (e) {
+        loop_enrollment = { ok: false, error: e.message };
+      }
+    }
+
+    return {
+      status: 'completed',
+      customer_id: customerId,
+      budget_resource_name: budgetResourceName,
+      campaign_resource_name: campaignResourceName,
+      campaign_id: campaignId,
+      ad_group_resource_name: adGroupResourceName,
+      ad_resource_name: adResourceName,
+      campaign_status: status,
+      ads_url: `https://ads.google.com/aw/campaigns?ocid=${customerId}`,
+      message: (adNote
+        || (status === 'PAUSED'
+          ? 'Google Ads campaign created and PAUSED. Review in Google Ads, then enable when ready.'
+          : 'Google Ads campaign created and ENABLED — spending may begin.'))
+        + (loop_enrollment?.ok ? ` Closed loop enrolled (monitor; Meta has full auto-actions).` : ''),
+      loop_enrollment,
+    };
+  },
+
+  async create_linkedin_ads_campaign(params, companyId) {
+    if (!params.campaign_name) return { status: 'error', error: 'campaign_name is required' };
+    const dailyMajor = (() => {
+      const n = Number(params.daily_budget ?? params.budget);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      if (n >= 1_000_000) return n / 1_000_000; // micros mistaken
+      if (n >= 1000 && n < 1_000_000) return n / 100; // Meta-style minor units
+      return n;
+    })();
+    if (!dailyMajor) return { status: 'error', error: 'daily_budget is required (e.g. 500 for ₹500/day)' };
+
+    const tokenResult = await getConnectedAccountToken('linkedin_ads', companyId);
+    if (tokenResult.error) return { status: 'error', error: tokenResult.error };
+    const accessToken = tokenResult.access_token;
+    const linkedinVersion = process.env.LINKEDIN_API_VERSION || '202501';
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-Restli-Protocol-Version': '2.0.0',
+      'Linkedin-Version': linkedinVersion,
+    };
+
+    let adAccountId = String(params.ad_account_id || '').replace(/\D/g, '');
+    if (!adAccountId) {
+      const accountsRes = await executeComposioAction(
+        'LINKEDIN_ADS_SEARCH_AD_ACCOUNTS',
+        { status: ['ACTIVE'], page_size: 25 },
+        companyId,
+      );
+      if (accountsRes.error) return { status: 'error', error: accountsRes.error, step: 'account' };
+      const rows = accountsRes.result?.elements || accountsRes.result?.data || accountsRes.result || [];
+      const list = Array.isArray(rows) ? rows : [];
+      const first = list[0];
+      adAccountId = String(first?.id || first?.account_id || '')
+        .replace(/^urn:li:sponsoredAccount:/, '')
+        .replace(/\D/g, '');
+    }
+    if (!adAccountId) {
+      return { status: 'error', error: 'No LinkedIn Ads account found. Connect LinkedIn Ads and ensure an active ad account exists.', step: 'account' };
+    }
+
+    const currencyCode = String(params.currency_code || params.currency || 'USD').toUpperCase();
+    const statusRaw = String(params.status || 'PAUSED').toUpperCase();
+    const campaignStatus = statusRaw === 'ACTIVE' ? 'ACTIVE' : statusRaw === 'DRAFT' ? 'DRAFT' : 'PAUSED';
+    const objectiveMap = {
+      OUTCOME_LEADS: 'LEAD_GENERATION',
+      LEADS: 'LEAD_GENERATION',
+      LEAD_GENERATION: 'LEAD_GENERATION',
+      OUTCOME_TRAFFIC: 'WEBSITE_VISITS',
+      TRAFFIC: 'WEBSITE_VISITS',
+      WEBSITE_VISITS: 'WEBSITE_VISITS',
+      OUTCOME_AWARENESS: 'BRAND_AWARENESS',
+      AWARENESS: 'BRAND_AWARENESS',
+      BRAND_AWARENESS: 'BRAND_AWARENESS',
+      OUTCOME_SALES: 'WEBSITE_CONVERSIONS',
+      SALES: 'WEBSITE_CONVERSIONS',
+      WEBSITE_CONVERSIONS: 'WEBSITE_CONVERSIONS',
+    };
+    const objectiveType = objectiveMap[String(params.objective || 'WEBSITE_VISITS').toUpperCase()] || 'WEBSITE_VISITS';
+    const accountUrn = `urn:li:sponsoredAccount:${adAccountId}`;
+    const startMs = Date.now() + 60_000;
+
+    // 1. Campaign group
+    const groupBody = {
+      account: accountUrn,
+      name: `${params.campaign_name} — Group`,
+      status: campaignStatus === 'ACTIVE' ? 'ACTIVE' : 'DRAFT',
+      runSchedule: { start: startMs },
+    };
+    const groupRes = await fetch(
+      `https://api.linkedin.com/rest/adAccounts/${adAccountId}/adCampaignGroups`,
+      { method: 'POST', headers, body: JSON.stringify(groupBody) },
+    );
+    const groupText = await groupRes.text();
+    let groupJson = {};
+    try { groupJson = groupText ? JSON.parse(groupText) : {}; } catch { /* empty */ }
+    if (!groupRes.ok) {
+      return {
+        status: 'error',
+        error: groupJson?.message || groupJson?.error || groupText.slice(0, 400) || `Campaign group failed (${groupRes.status})`,
+        step: 'campaign_group',
+        ad_account_id: adAccountId,
+      };
+    }
+    const campaignGroupId = String(
+      groupRes.headers.get('x-restli-id') ||
+      groupJson.id ||
+      '',
+    ).replace(/^urn:li:sponsoredCampaignGroup:/, '');
+    if (!campaignGroupId) {
+      return { status: 'error', error: 'Campaign group created but id missing', step: 'campaign_group', ad_account_id: adAccountId };
+    }
+
+    // 2. Campaign (PAUSED by default)
+    const campaignBody = {
+      account: accountUrn,
+      campaignGroup: `urn:li:sponsoredCampaignGroup:${campaignGroupId}`,
+      name: params.campaign_name,
+      objectiveType,
+      type: 'SPONSORED_UPDATES',
+      status: campaignStatus,
+      costType: 'CPC',
+      creativeSelection: 'OPTIMIZED',
+      audienceExpansionEnabled: false,
+      offsiteDeliveryEnabled: false,
+      dailyBudget: {
+        amount: Number(dailyMajor).toFixed(2),
+        currencyCode,
+      },
+      unitCost: {
+        amount: Math.max(Number(dailyMajor) * 0.05, 1).toFixed(2),
+        currencyCode,
+      },
+      locale: { country: 'US', language: 'en' },
+      runSchedule: { start: startMs },
+      targetingCriteria: params.targeting && typeof params.targeting === 'object'
+        ? params.targeting
+        : {
+            include: {
+              and: [
+                {
+                  or: {
+                    'urn:li:adTargetingFacet:locations': ['urn:li:geo:103644278'],
+                  },
+                },
+              ],
+            },
+          },
+    };
+
+    const campRes = await fetch(
+      `https://api.linkedin.com/rest/adAccounts/${adAccountId}/adCampaigns`,
+      { method: 'POST', headers, body: JSON.stringify(campaignBody) },
+    );
+    const campText = await campRes.text();
+    let campJson = {};
+    try { campJson = campText ? JSON.parse(campText) : {}; } catch { /* empty */ }
+    if (!campRes.ok) {
+      return {
+        status: 'error',
+        error: campJson?.message || campJson?.error || campText.slice(0, 400) || `Campaign failed (${campRes.status})`,
+        step: 'campaign',
+        ad_account_id: adAccountId,
+        campaign_group_id: campaignGroupId,
+      };
+    }
+    const campaignId = String(
+      campRes.headers.get('x-restli-id') ||
+      campJson.id ||
+      '',
+    ).replace(/^urn:li:sponsoredCampaign:/, '');
+
+    const managerUrl = `https://www.linkedin.com/campaignmanager/accounts/${adAccountId}/campaigns`;
+
+    let loop_enrollment = null;
+    if (campaignId && params.skip_loop_enrollment !== true && params.skip_loop_enrollment !== 'true') {
+      try {
+        loop_enrollment = await enrollPaidAdsLoop(companyId, {
+          campaign_id: campaignId,
+          ad_account_id: adAccountId,
+          channel: 'linkedin',
+          campaign_name: params.campaign_name,
+          link_url: params.link_url,
+          headline: params.headline,
+          primary_text: params.primary_text,
+          ads_status: campaignStatus,
+          objective: objectiveType,
+        }, {
+          quantified_target: params.quantified_target,
+          timeline_target: params.timeline_target,
+          agentName: 'zara',
+        });
+      } catch (e) {
+        loop_enrollment = { ok: false, error: e.message };
+      }
+    }
+
+    return {
+      status: 'completed',
+      ad_account_id: adAccountId,
+      campaign_group_id: campaignGroupId,
+      campaign_id: campaignId || null,
+      campaign_status: campaignStatus,
+      objective: objectiveType,
+      headline: params.headline || null,
+      primary_text: params.primary_text || null,
+      link_url: params.link_url || null,
+      campaign_manager_url: managerUrl,
+      message: (campaignStatus === 'PAUSED' || campaignStatus === 'DRAFT'
+        ? 'LinkedIn campaign created in PAUSED/DRAFT state. Attach creative in Campaign Manager, then activate.'
+        : 'LinkedIn campaign created and ACTIVE — spending may begin once creatives are approved.')
+        + (loop_enrollment?.ok ? ' Closed loop enrolled (monitor; Meta has full auto-actions).' : ''),
+      loop_enrollment,
+    };
+  },
+
+  async manage_paid_ads_loop(params, companyId, supabaseClient) {
+    return managePaidAdsLoop(params, companyId, supabaseClient);
   },
 
   async optimize_meta_roas(params, companyId) {
@@ -1606,12 +2224,24 @@ const directApiHandlers = {
       return { status: 'error', error: `HeyReach lead add failed: ${err.message}` };
     }
 
+    // Best-effort: register Marqq reply webhook so LinkedIn replies draft in inbox
+    let webhook = null;
+    try {
+      const { registerHeyReachReplyWebhook } = await import('../outreach-service.js');
+      webhook = await registerHeyReachReplyWebhook(companyId, {
+        webhookName: 'Marqq LI replies',
+      });
+    } catch (err) {
+      webhook = { status: 'error', error: err?.message || String(err) };
+    }
+
     return {
       status: 'completed',
       campaign_id: String(targetCampaign.id),
       campaign_name: targetCampaign.name || campaign_name,
       leads_in_list: validLeads.length,
       message_template,
+      webhook,
       campaigns_available: Array.isArray(campaigns) ? campaigns.length : 0,
       next_step: `Leads were added to the existing HeyReach campaign "${targetCampaign.name || campaign_name}". Review message steps in HeyReach before sending.`,
       leads_summary: validLeads.slice(0, 5).map(l => `${l.first_name} ${l.last_name} @ ${l.company} — ${l.linkedin_url}`),
@@ -1821,6 +2451,8 @@ const directApiHandlers = {
       register_webhook,
       create_interested_subsequence,
       activate = false,
+      enrich_leads = false,
+      enrich_mode = "supersearch",
     } = params;
 
     const sequenceEmails =
@@ -1989,6 +2621,20 @@ const directApiHandlers = {
       );
     }
 
+    // Optional Instantly SuperSearch / AI enrichment on the campaign after leads land
+    let enrichment = null;
+    if (campaignId && (enrich_leads || params.enrich)) {
+      enrichment = await directApiHandlers.instantly_enrich_resource(
+        {
+          resource_id: campaignId,
+          resource_type: "campaign",
+          enrich_mode,
+          run: true,
+        },
+        companyId
+      );
+    }
+
     let activation = null;
     if (activate && campaignId) {
       activation = await directApiHandlers.instantly_activate_campaign({ campaign_id: campaignId }, companyId);
@@ -2004,11 +2650,107 @@ const directApiHandlers = {
       email_list: emailList,
       webhook: webhook?.status === "completed" ? webhook : webhook,
       subsequence: subsequence?.status === "completed" ? subsequence : subsequence,
+      enrichment,
       activation,
       bulk_fallback: Boolean(bulkError),
       message: `Campaign "${name}" created with ${leadsAdded}/${validLeads.length} leads${
         emailList[0] ? ` via ${emailList[0]}` : ""
-      }`,
+      }${enrichment?.status === "completed" ? " · enrichment started" : ""}`,
+    };
+  },
+
+  /**
+   * Create + optionally run Instantly SuperSearch or AI enrichment on a campaign/list.
+   */
+  async instantly_enrich_resource(params, companyId) {
+    const resourceId = String(params.resource_id || params.campaign_id || params.list_id || "").trim();
+    if (!resourceId) {
+      return { status: "error", error: "resource_id (campaign or list) is required" };
+    }
+    const resourceType = String(params.resource_type || "campaign").toLowerCase() === "list" ? "list" : "campaign";
+    const mode = String(params.enrich_mode || params.mode || "supersearch").toLowerCase() === "ai"
+      ? "ai"
+      : "supersearch";
+    const shouldRun = params.run !== false;
+
+    const resourceKey = resourceType === "list" ? "list_id" : "campaign_id";
+    const createSlug =
+      mode === "ai" ? "INSTANTLY_CREATE_AI_ENRICHMENT" : "INSTANTLY_CREATE_SUPERSEARCH_ENRICHMENT";
+
+    const createRes = await executeComposioAction(
+      createSlug,
+      {
+        [resourceKey]: resourceId,
+        resource_id: resourceId,
+        resource_type: resourceType,
+      },
+      companyId
+    );
+    if (createRes.error) {
+      return {
+        status: "error",
+        error: `Instantly ${mode} enrichment create failed: ${createRes.error}`,
+        create: createRes,
+      };
+    }
+
+    const enrichmentId =
+      createRes.result?.id ||
+      createRes.result?.enrichment_id ||
+      createRes.result?.data?.id ||
+      null;
+
+    let settings = null;
+    if (mode === "supersearch") {
+      settings = await executeComposioAction(
+        "INSTANTLY_PATCH_SUPERSEARCH_ENRICHMENT_SETTINGS",
+        {
+          [resourceKey]: resourceId,
+          resource_id: resourceId,
+          enrichment_id: enrichmentId,
+          auto_update: true,
+          skip_leads_without_email: false,
+        },
+        companyId
+      );
+    }
+
+    let runResult = null;
+    if (shouldRun) {
+      runResult = await executeComposioAction(
+        "INSTANTLY_SUPERSEARCH_ENRICHMENT_RUN_POST",
+        {
+          [resourceKey]: resourceId,
+          resource_id: resourceId,
+          enrichment_id: enrichmentId,
+          run_for: params.run_for || "unenriched",
+        },
+        companyId
+      );
+    }
+
+    const statusRes = await executeComposioAction(
+      "INSTANTLY_GET_SUPERSEARCH_ENRICHMENT",
+      {
+        [resourceKey]: resourceId,
+        resource_id: resourceId,
+        enrichment_id: enrichmentId,
+      },
+      companyId
+    );
+
+    const runFailed = Boolean(runResult?.error);
+    return {
+      status: runFailed && !createRes.error ? "partial" : "completed",
+      enrichment_id: enrichmentId,
+      enrich_mode: mode,
+      resource_type: resourceType,
+      resource_id: resourceId,
+      create: createRes.result || null,
+      settings: settings?.error ? { error: settings.error } : settings?.result || null,
+      run: runResult?.error ? { error: runResult.error } : runResult?.result || null,
+      status_check: statusRes?.error ? { error: statusRes.error } : statusRes?.result || null,
+      message: `Instantly ${mode} enrichment ${shouldRun ? "created and run" : "created"} on ${resourceType} ${resourceId}`,
     };
   },
 
@@ -2513,6 +3255,8 @@ const directApiHandlers = {
       sent_count: sentCount,
       failed_count: failedCount,
       results,
+      inbound_webhook_hint:
+        'Point Meta WhatsApp webhook to PUBLIC_BASE_URL/api/webhooks/whatsapp (verify token: WHATSAPP_WEBHOOK_VERIFY_TOKEN)',
       message: `WhatsApp outreach processed for ${validLeads.length} leads`,
     };
   },
@@ -2725,7 +3469,13 @@ export async function executeAutomationTriggers(contract, companyId) {
       }
     }
 
-    collected.push({ automation_id: trigger.automation_id, status, result });
+    collected.push({
+      automation_id: trigger.automation_id,
+      status,
+      result,
+      // Flatten for callers that read campaign_id / error on the top-level row
+      ...(result && typeof result === 'object' ? result : {}),
+    });
   }
 
   return collected;

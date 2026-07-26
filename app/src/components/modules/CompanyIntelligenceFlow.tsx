@@ -22,6 +22,7 @@ import { ClientProfilingPage } from './company-intelligence/pages/ClientProfilin
 import { PartnerProfilingPage } from './company-intelligence/pages/PartnerProfilingPage'
 import { WebsiteAuditPage } from './company-intelligence/pages/WebsiteAuditPage'
 import { OpportunitiesPage } from './company-intelligence/pages/OpportunitiesPage'
+import { MarketingIdeasPage } from './company-intelligence/pages/MarketingIdeasPage'
 import { MarketingStrategyPage } from './company-intelligence/pages/MarketingStrategyPage'
 import { clearActiveCompanyContext, persistActiveCompanyContext } from '@/lib/agentContext'
 import { notifyCompanyIntelListUpdated } from '@/lib/companyIntelEvents'
@@ -107,6 +108,15 @@ function renderCiArtifactPage(pageId: CompanyIntelPageId, props: ArtifactPagePro
     case 'opportunities':
       return (
         <OpportunitiesPage
+          artifact={artifact}
+          companyId={companyId}
+          companyName={companyName}
+          websiteUrl={websiteUrl}
+        />
+      )
+    case 'marketing_ideas':
+      return (
+        <MarketingIdeasPage
           artifact={artifact}
           companyId={companyId}
           companyName={companyName}

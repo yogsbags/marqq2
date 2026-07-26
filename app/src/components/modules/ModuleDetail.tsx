@@ -109,6 +109,7 @@ type GoalPreset = {
   audienceBuyer?: string | null;
   audienceGoal?: string | null;
   outreachChannel?: string | null;
+  outreachContactChannels?: string | null;
   outreachTarget?: string | null;
   outreachGoal?: string | null;
   outreachDelivery?: string | null;
@@ -215,6 +216,7 @@ function parseGoalPresetFromHash(): GoalPreset {
     audienceBuyer: params.get('audience_buyer'),
     audienceGoal: params.get('audience_goal'),
     outreachChannel: params.get('outreach_channel'),
+    outreachContactChannels: params.get('contact_channels') || params.get('outreach_contact_channels'),
     outreachTarget: params.get('outreach_target'),
     outreachGoal: params.get('outreach_goal'),
     outreachDelivery: params.get('outreach_delivery'),
@@ -565,6 +567,7 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
       <LeadOutreachFlow
         initialQuestion={goalPreset.question ?? undefined}
         initialChannel={goalPreset.outreachChannel ?? undefined}
+        initialContactChannels={goalPreset.outreachContactChannels ?? undefined}
         initialTarget={goalPreset.outreachTarget ?? undefined}
         initialGoal={goalPreset.outreachGoal ?? undefined}
         initialDelivery={goalPreset.outreachDelivery ?? undefined}

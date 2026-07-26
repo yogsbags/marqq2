@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -6,7 +6,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { addIntegrationConnectedListener, connectComposioConnector, formatConnectorError } from '@/lib/composio';
 import { cn } from '@/lib/utils';
-import { BarChart2, Check, ChevronDown, Loader2, Search, X } from 'lucide-react';
+import { BarChart2, Check, ChevronDown, Loader2, Megaphone, Search, X } from 'lucide-react';
 
 type Connector = {
   id: string;
@@ -42,14 +42,14 @@ const CONNECTOR_META: Record<string, ConnectorMeta> = {
   meta_ads:        { category: 'Advertising & Acquisition', description: 'Connect Facebook & Instagram ad accounts.',                         logoBg: 'bg-[#0866FF]', logoLabel: 'M'   },
   linkedin_ads:    { category: 'Advertising & Acquisition', description: 'LinkedIn campaign performance for B2B funnels.',                    logoBg: 'bg-[#0A66C2]', logoLabel: 'IN'  },
   // CRM
-  apollo:          { category: 'CRM & Customer Data',       description: 'Prospect accounts and contacts from Apollo for lead generation.',        logoBg: 'bg-[#5B6CFF]', logoLabel: 'AP'  },
+  apollo:          { category: 'CRM & Customer Data',       description: 'B2B people/account search and enrichment (lead-data provider).',        logoBg: 'bg-[#5B6CFF]', logoLabel: 'AP'  },
   hubspot:         { category: 'CRM & Customer Data',       description: 'Contacts, deals, and marketing events from HubSpot.',               logoBg: 'bg-[#FF7A59]', logoLabel: 'HS'  },
   zoho_crm:        { category: 'CRM & Customer Data',       description: 'Deals, contacts, and accounts from Zoho CRM.',                      logoBg: 'bg-[#E71E63]', logoLabel: 'Z'   },
   salesforce:      { category: 'CRM & Customer Data',       description: 'Accounts, opportunities, and pipelines from Salesforce.',            logoBg: 'bg-[#00A1E0]', logoLabel: 'SF'  },
   // Email & Messaging
   gmail:           { category: 'Email & Messaging',         description: 'Read campaign threads and outreach (read-only).',                   logoBg: 'bg-[#EA4335]', logoLabel: 'G'   },
   outlook:         { category: 'Email & Messaging',         description: 'Outlook mailboxes for sales and marketing outreach.',               logoBg: 'bg-[#0078D4]', logoLabel: 'O'   },
-  hunter:          { category: 'Email & Messaging',         description: 'Find and verify professional email addresses with Hunter.',         logoBg: 'bg-[#FF6A3D]', logoLabel: 'HU'  },
+  hunter:          { category: 'CRM & Customer Data',       description: 'Find emails by domain/company — alternate lead-data provider to Apollo.', logoBg: 'bg-[#FF6A3D]', logoLabel: 'HU'  },
   mailchimp:       { category: 'Email & Messaging',         description: 'Email campaigns, audiences, and automations from Mailchimp.',       logoBg: 'bg-[#FFE01B]', logoLabel: 'MC'  },
   klaviyo:         { category: 'Email & Messaging',         description: 'Email & SMS flows, campaigns, and list metrics from Klaviyo.',      logoBg: 'bg-[#1A1A1A]', logoLabel: 'KL'  },
   sendgrid:        { category: 'Email & Messaging',         description: 'Transactional and marketing email stats from SendGrid.',            logoBg: 'bg-[#1A82E2]', logoLabel: 'SG'  },
@@ -131,86 +131,144 @@ function IntegrationLogo({ id, name }: { id: string; name: string }) {
   );
 }
 
-// ─── GA4 property picker helpers ─────────────────────────────────────────────
+// ─── Resource preference helpers (local cache + server sync) ─────────────────
 
-type GA4Property = { id: string; displayName: string; account: string; timeZone?: string };
+type ResourceOption = {
+  id: string
+  displayName: string
+  subtitle?: string
+}
 
 const GA4_PROPERTY_KEY = (wsId: string) => `marqq_ga4_property_${wsId}`;
+const META_AD_ACCOUNT_KEY = (wsId: string) => `marqq_meta_ad_account_${wsId}`;
+const GOOGLE_ADS_CUSTOMER_KEY = (wsId: string) => `marqq_google_ads_customer_${wsId}`;
+const GSC_SITE_KEY = (wsId: string) => `marqq_gsc_site_${wsId}`;
+
+function readLocal(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function writeLocal(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch {}
+}
 
 export function getGA4PropertyId(workspaceId: string): string | null {
-  try { return localStorage.getItem(GA4_PROPERTY_KEY(workspaceId)); } catch { return null; }
+  return readLocal(GA4_PROPERTY_KEY(workspaceId));
+}
+export function getMetaAdAccountId(workspaceId: string): string | null {
+  return readLocal(META_AD_ACCOUNT_KEY(workspaceId));
+}
+export function getGoogleAdsCustomerId(workspaceId: string): string | null {
+  return readLocal(GOOGLE_ADS_CUSTOMER_KEY(workspaceId));
+}
+export function getGscSiteUrl(workspaceId: string): string | null {
+  return readLocal(GSC_SITE_KEY(workspaceId));
 }
 
-function saveGA4PropertyId(workspaceId: string, propertyId: string) {
-  try { localStorage.setItem(GA4_PROPERTY_KEY(workspaceId), propertyId); } catch {}
+const LEAD_DATA_PROVIDER_KEY = (ws: string) => `marqq:lead_data_provider:${ws}`
+
+export function getLeadDataProvider(workspaceId: string): string | null {
+  return readLocal(LEAD_DATA_PROVIDER_KEY(workspaceId));
 }
 
-// ─── GA4 Property Modal ───────────────────────────────────────────────────────
+async function savePreference(
+  workspaceId: string,
+  localKey: string,
+  serverField: string,
+  value: string,
+) {
+  writeLocal(localKey, value);
+  try {
+    await fetch('/api/integrations/preferences', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ companyId: workspaceId, [serverField]: value }),
+    });
+  } catch {
+    // local cache still works offline; server sync best-effort
+  }
+}
 
-function GA4PropertyModal({
+type ResourcePickerConfig = {
+  title: string
+  description: string
+  accentClass: string
+  icon: ReactNode
+  fetchUrl: (workspaceId: string) => string
+  parseOptions: (data: any) => ResourceOption[]
+  localKey: (workspaceId: string) => string
+  serverField: string
+  getSaved: (workspaceId: string) => string | null
+  saveLabel: string
+  emptyMessage: string
+}
+
+function ResourcePickerModal({
   workspaceId,
+  config,
   onClose,
-}: { workspaceId: string; onClose: () => void }) {
-  const [properties, setProperties] = useState<GA4Property[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState<string | null>(null);
-  const [selected, setSelected]     = useState<string | null>(null);
-  const [saving, setSaving]         = useState(false);
-  const [open, setOpen]             = useState(false);
+}: {
+  workspaceId: string
+  config: ResourcePickerConfig
+  onClose: () => void
+}) {
+  const [options, setOptions] = useState<ResourceOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState(false);
 
-  const current = getGA4PropertyId(workspaceId);
+  const current = config.getSaved(workspaceId);
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/analytics/ga4/properties?companyId=${encodeURIComponent(workspaceId)}`)
+    fetch(config.fetchUrl(workspaceId))
       .then(r => r.json())
       .then(data => {
         if (data.error) throw new Error(data.error);
-        setProperties(data.properties || []);
-        // Pre-select current saved property
-        const saved = getGA4PropertyId(workspaceId);
+        const parsed = config.parseOptions(data);
+        setOptions(parsed);
+        const saved = config.getSaved(workspaceId) || data.preferred || null;
         if (saved) setSelected(saved);
-        else if (data.properties?.length === 1) setSelected(data.properties[0].id);
+        else if (parsed.length === 1) setSelected(parsed[0].id);
       })
-      .catch(e => setError(e.message || 'Failed to load properties'))
+      .catch(e => setError(e.message || 'Failed to load options'))
       .finally(() => setLoading(false));
-  }, [workspaceId]);
+  }, [workspaceId, config]);
 
-  function save() {
+  async function save() {
     if (!selected) return;
     setSaving(true);
-    saveGA4PropertyId(workspaceId, selected);
-    const prop = properties.find(p => p.id === selected);
-    toast.success(`GA4 property set to "${prop?.displayName || selected}"`);
+    await savePreference(workspaceId, config.localKey(workspaceId), config.serverField, selected);
+    const opt = options.find(o => o.id === selected);
+    toast.success(`${config.title.replace(/^Select\s+/i, '')} set to "${opt?.displayName || selected}"`);
     setSaving(false);
     onClose();
   }
 
-  const selectedProp = properties.find(p => p.id === selected);
+  const selectedOpt = options.find(o => o.id === selected);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-border/70 bg-background shadow-xl">
-        {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50">
-          <div className="h-8 w-8 rounded-lg bg-[#F9AB00]/15 flex items-center justify-center flex-shrink-0">
-            <BarChart2 className="h-4 w-4 text-[#F9AB00]" />
+          <div className={`h-8 w-8 rounded-lg ${config.accentClass} flex items-center justify-center flex-shrink-0`}>
+            {config.icon}
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-foreground">Select GA4 Property</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Choose which property to use for your Performance dashboard</p>
+            <p className="text-sm font-semibold text-foreground">{config.title}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{config.description}</p>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Body */}
         <div className="px-5 py-4 space-y-3">
           {loading && (
             <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground text-sm">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading properties…
+              Loading…
             </div>
           )}
           {!loading && error && (
@@ -218,60 +276,66 @@ function GA4PropertyModal({
               {error}
             </div>
           )}
-          {!loading && !error && properties.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-6">No GA4 properties found for this account.</p>
+          {!loading && !error && options.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-6">{config.emptyMessage}</p>
           )}
-          {!loading && !error && properties.length > 0 && (
+          {!loading && !error && options.length > 0 && (
             <>
-              {/* Custom dropdown */}
               <div className="relative">
                 <button
                   onClick={() => setOpen(o => !o)}
                   className="w-full flex items-center justify-between rounded-xl border border-border/60 bg-background px-3 py-2.5 text-sm hover:border-orange-400/60 transition-colors"
                 >
-                  <span className={cn('text-left flex-1', !selectedProp && 'text-muted-foreground')}>
-                    {selectedProp ? (
+                  <span className={cn('text-left flex-1', !selectedOpt && 'text-muted-foreground')}>
+                    {selectedOpt ? (
                       <span className="flex flex-col">
-                        <span className="font-medium text-foreground">{selectedProp.displayName}</span>
-                        <span className="text-[10px] text-muted-foreground">{selectedProp.account} · {selectedProp.id}</span>
+                        <span className="font-medium text-foreground">{selectedOpt.displayName}</span>
+                        {selectedOpt.subtitle && (
+                          <span className="text-[10px] text-muted-foreground">{selectedOpt.subtitle}</span>
+                        )}
                       </span>
-                    ) : 'Select a property…'}
+                    ) : 'Select…'}
                   </span>
                   <ChevronDown className={cn('h-4 w-4 text-muted-foreground ml-2 flex-shrink-0 transition-transform', open && 'rotate-180')} />
                 </button>
                 {open && (
                   <div className="absolute z-10 mt-1 w-full rounded-xl border border-border/60 bg-popover shadow-lg overflow-hidden max-h-52 overflow-y-auto">
-                    {properties.map(p => (
+                    {options.map(o => (
                       <button
-                        key={p.id}
-                        onClick={() => { setSelected(p.id); setOpen(false); }}
+                        key={o.id}
+                        onClick={() => { setSelected(o.id); setOpen(false); }}
                         className={cn(
                           'w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors',
-                          selected === p.id && 'bg-orange-50/60 dark:bg-orange-950/20',
+                          selected === o.id && 'bg-orange-50/60 dark:bg-orange-950/20',
                         )}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{p.displayName}</p>
-                          <p className="text-[10px] text-muted-foreground truncate">{p.account} · {p.id}</p>
+                          <p className="text-sm font-medium text-foreground truncate">{o.displayName}</p>
+                          {o.subtitle && (
+                            <p className="text-[10px] text-muted-foreground truncate">{o.subtitle}</p>
+                          )}
                         </div>
-                        {selected === p.id && <Check className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />}
+                        {selected === o.id && <Check className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
 
-              {/* Current saved property note */}
               {current && current !== selected && (
                 <p className="text-[11px] text-muted-foreground">
-                  Currently saved: <span className="font-medium text-foreground">{properties.find(p => p.id === current)?.displayName || current}</span>
+                  Currently saved: <span className="font-medium text-foreground">{options.find(o => o.id === current)?.displayName || current}</span>
+                </p>
+              )}
+              {options.length > 1 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {options.length} accounts found — pick which one Marqq should use.
                 </p>
               )}
             </>
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border/50">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button
@@ -281,13 +345,92 @@ function GA4PropertyModal({
             className="bg-orange-500 hover:bg-orange-600 text-white"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-            Save property
+            {config.saveLabel}
           </Button>
         </div>
       </div>
     </div>
   );
 }
+
+const GA4_PICKER: ResourcePickerConfig = {
+  title: 'Select GA4 Property',
+  description: 'Choose which property to use for your Performance dashboard',
+  accentClass: 'bg-[#F9AB00]/15',
+  icon: <BarChart2 className="h-4 w-4 text-[#F9AB00]" />,
+  fetchUrl: (ws) => `/api/analytics/ga4/properties?companyId=${encodeURIComponent(ws)}`,
+  parseOptions: (data) => (data.properties || []).map((p: any) => ({
+    id: p.id,
+    displayName: p.displayName || p.id,
+    subtitle: `${p.account || ''} · ${p.id}`.trim(),
+  })),
+  localKey: GA4_PROPERTY_KEY,
+  serverField: 'ga4_property_id',
+  getSaved: getGA4PropertyId,
+  saveLabel: 'Save property',
+  emptyMessage: 'No GA4 properties found for this account.',
+};
+
+const META_PICKER: ResourcePickerConfig = {
+  title: 'Select Meta Ad Account',
+  description: 'Choose which Facebook/Instagram ad account campaigns should use',
+  accentClass: 'bg-[#0866FF]/15',
+  icon: <Megaphone className="h-4 w-4 text-[#0866FF]" />,
+  fetchUrl: (ws) => `/api/analytics/meta-ads/accounts?companyId=${encodeURIComponent(ws)}`,
+  parseOptions: (data) => (data.accounts || []).map((a: any) => ({
+    id: a.id,
+    displayName: a.displayName || a.name || a.id,
+    subtitle: [a.currency, a.id].filter(Boolean).join(' · '),
+  })),
+  localKey: META_AD_ACCOUNT_KEY,
+  serverField: 'meta_ads_account_id',
+  getSaved: getMetaAdAccountId,
+  saveLabel: 'Save account',
+  emptyMessage: 'No Meta ad accounts found for this connection.',
+};
+
+const GOOGLE_ADS_PICKER: ResourcePickerConfig = {
+  title: 'Select Google Ads Account',
+  description: 'Choose which Google Ads customer account to use',
+  accentClass: 'bg-[#4285F4]/15',
+  icon: <Megaphone className="h-4 w-4 text-[#4285F4]" />,
+  fetchUrl: (ws) => `/api/analytics/google-ads/accounts?companyId=${encodeURIComponent(ws)}`,
+  parseOptions: (data) => (data.accounts || []).map((a: any) => ({
+    id: a.id,
+    displayName: a.displayName || a.id,
+    subtitle: a.id,
+  })),
+  localKey: GOOGLE_ADS_CUSTOMER_KEY,
+  serverField: 'google_ads_customer_id',
+  getSaved: getGoogleAdsCustomerId,
+  saveLabel: 'Save account',
+  emptyMessage: 'No Google Ads accounts found for this connection.',
+};
+
+const GSC_PICKER: ResourcePickerConfig = {
+  title: 'Select Search Console Site',
+  description: 'Choose which site property to use for SEO metrics',
+  accentClass: 'bg-[#34A853]/15',
+  icon: <Search className="h-4 w-4 text-[#34A853]" />,
+  fetchUrl: (ws) => `/api/analytics/gsc/sites?companyId=${encodeURIComponent(ws)}`,
+  parseOptions: (data) => (data.sites || data.accounts || []).map((s: any) => ({
+    id: s.id || s.siteUrl,
+    displayName: s.displayName || s.siteUrl || s.id,
+    subtitle: s.permissionLevel ? `Permission: ${s.permissionLevel}` : undefined,
+  })),
+  localKey: GSC_SITE_KEY,
+  serverField: 'gsc_site_url',
+  getSaved: getGscSiteUrl,
+  saveLabel: 'Save site',
+  emptyMessage: 'No Search Console sites found for this connection.',
+};
+
+const PICKER_BY_CONNECTOR: Record<string, ResourcePickerConfig> = {
+  ga4: GA4_PICKER,
+  meta_ads: META_PICKER,
+  google_ads: GOOGLE_ADS_PICKER,
+  gsc: GSC_PICKER,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -297,7 +440,8 @@ export function AccountsTab() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
-  const [ga4ModalOpen, setGa4ModalOpen] = useState(false);
+  const [pickerConnectorId, setPickerConnectorId] = useState<string | null>(null);
+  const [preferredLeadProvider, setPreferredLeadProvider] = useState<string | null>(null);
 
   // Composio connections are per workspace/company — each workspace is a separate entityId
   // so an agency user can have different Google Ads, Meta Ads etc. per client workspace
@@ -310,10 +454,58 @@ export function AccountsTab() {
       const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(entityId)}`);
       const json = await res.json();
       setConnectors(json?.connectors ?? []);
+      setPreferredLeadProvider(getLeadDataProvider(entityId) || json?.preferences?.lead_data_provider || null);
     } catch { setConnectors([]); } finally { setLoading(false); }
   }, [entityId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Prompt account selection for already-connected multi-account connectors
+  useEffect(() => {
+    if (!entityId || !connectors.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const c of connectors) {
+        if (!c.connected || !PICKER_BY_CONNECTOR[c.id]) continue;
+        const config = PICKER_BY_CONNECTOR[c.id];
+        if (config.getSaved(entityId)) continue;
+        try {
+          const res = await fetch(config.fetchUrl(entityId));
+          const data = await res.json();
+          if (cancelled || data.error) continue;
+          const options = config.parseOptions(data);
+          if (options.length === 1) {
+            await savePreference(entityId, config.localKey(entityId), config.serverField, options[0].id);
+          } else if (options.length > 1) {
+            setPickerConnectorId(c.id);
+            break; // one picker at a time
+          }
+        } catch { /* ignore */ }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [entityId, connectors]);
+
+  const maybeOpenResourcePicker = useCallback(async (connectorId: string, workspaceId: string) => {
+    const config = PICKER_BY_CONNECTOR[connectorId];
+    if (!config) return;
+    try {
+      const res = await fetch(config.fetchUrl(workspaceId));
+      const data = await res.json();
+      if (data.error) return;
+      const options = config.parseOptions(data);
+      if (options.length === 1) {
+        await savePreference(workspaceId, config.localKey(workspaceId), config.serverField, options[0].id);
+        toast.success(`${config.title.replace(/^Select\s+/i, '')} set to "${options[0].displayName}"`);
+        return;
+      }
+      if (options.length > 1) {
+        setPickerConnectorId(connectorId);
+      }
+    } catch {
+      // ignore — user can open picker manually
+    }
+  }, []);
 
   useEffect(() => {
     return addIntegrationConnectedListener(({ companyId, connectorId }) => {
@@ -321,10 +513,11 @@ export function AccountsTab() {
       setActionId(null)
       toast.success(`${connectorId ? CONNECTOR_META[connectorId]?.logoLabel || connectorId : 'Account'} connected successfully`)
       load()
-      // Auto-open property picker after GA4 connects
-      if (connectorId === 'ga4') setGa4ModalOpen(true)
+      if (connectorId && entityId) {
+        void maybeOpenResourcePicker(connectorId, entityId)
+      }
     })
-  }, [entityId, load]);
+  }, [entityId, load, maybeOpenResourcePicker]);
 
   const groupedConnectors = useMemo(() => {
     const buckets: Record<string, Connector[]> = {};
@@ -385,6 +578,13 @@ export function AccountsTab() {
     } catch (err: any) { toast.error(err?.message || 'Disconnect failed'); } finally { setActionId(null); }
   };
 
+  const pickerConfig = pickerConnectorId ? PICKER_BY_CONNECTOR[pickerConnectorId] : null;
+
+  const connectedLeadProviders = useMemo(
+    () => connectors.filter((c) => c.connected && (c.id === 'apollo' || c.id === 'hunter')).map((c) => c.id),
+    [connectors],
+  );
+
   return (
     <div className="space-y-5">
       <div className="rounded-[28px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.05] px-5 py-5 shadow-sm">
@@ -401,6 +601,37 @@ export function AccountsTab() {
           Create a workspace to connect integrations.
         </p>
       )}
+      {entityId && connectedLeadProviders.length > 1 && (
+        <div className="rounded-[24px] border border-border/70 bg-card/90 p-4 shadow-sm space-y-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Preferred lead data provider</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Used for ICP → outreach prospecting when more than one is connected. Apollo is better for
+              industry/title people search; Hunter is better for emails at known company domains.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {connectedLeadProviders.map((id) => {
+              const active = (preferredLeadProvider || connectedLeadProviders[0]) === id;
+              return (
+                <Button
+                  key={id}
+                  size="sm"
+                  variant={active ? 'default' : 'outline'}
+                  onClick={async () => {
+                    await savePreference(entityId, LEAD_DATA_PROVIDER_KEY(entityId), 'lead_data_provider', id);
+                    setPreferredLeadProvider(id);
+                    toast.success(`Lead data provider set to ${id === 'apollo' ? 'Apollo' : 'Hunter'}`);
+                  }}
+                >
+                  {id === 'apollo' ? 'Apollo' : 'Hunter'}
+                  {active ? ' · active' : ''}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : connectors.length === 0 ? (
@@ -416,6 +647,11 @@ export function AccountsTab() {
                 {group.items.map(c => {
                   const meta = CONNECTOR_META[c.id];
                   const description = meta?.description || c.notes;
+                  const hasPicker = Boolean(PICKER_BY_CONNECTOR[c.id]);
+                  const pickerLabel =
+                    c.id === 'ga4' ? 'Property' :
+                    c.id === 'gsc' ? 'Site' :
+                    'Account';
                   return (
                     <div
                       key={c.id}
@@ -447,14 +683,14 @@ export function AccountsTab() {
                         ) : (
                           <Badge variant="secondary">Not connected</Badge>
                         )}
-                        {c.connected && c.id === 'ga4' && (
+                        {c.connected && hasPicker && (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setGa4ModalOpen(true)}
-                            className="text-[#F9AB00] border-[#F9AB00]/40 hover:border-[#F9AB00]/70 hover:bg-[#F9AB00]/10"
+                            onClick={() => setPickerConnectorId(c.id)}
+                            className="text-orange-600 border-orange-400/40 hover:border-orange-500/70 hover:bg-orange-500/10"
                           >
-                            Property
+                            {pickerLabel}
                           </Button>
                         )}
                         {c.connected ? (
@@ -486,11 +722,11 @@ export function AccountsTab() {
         </div>
       )}
 
-      {/* GA4 property picker modal */}
-      {ga4ModalOpen && activeWorkspace?.id && (
-        <GA4PropertyModal
+      {pickerConfig && activeWorkspace?.id && (
+        <ResourcePickerModal
           workspaceId={activeWorkspace.id}
-          onClose={() => setGa4ModalOpen(false)}
+          config={pickerConfig}
+          onClose={() => setPickerConnectorId(null)}
         />
       )}
     </div>

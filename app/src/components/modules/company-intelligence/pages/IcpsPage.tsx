@@ -231,7 +231,7 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                       <div className="text-xs text-muted-foreground mt-2">Angle: {String(c.messagingAngle || '—')}</div>
                       <div className="mt-2 text-xs text-muted-foreground">
                         Channel fit: {marketType.toUpperCase()}
-                        {!isB2BOutreach ? ' · Apollo outreach disabled; use consumer acquisition channels.' : ' · Apollo outreach is available for business buyers.'}
+                        {!isB2BOutreach ? ' · B2B lead-data outreach disabled; use consumer acquisition channels.' : ' · Lead-data outreach (Apollo/Hunter) is available for business buyers.'}
                       </div>
                       {c.reason ? (
                         <div className="mt-1 text-xs text-muted-foreground">{String(c.reason)}</div>
@@ -240,7 +240,7 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                         {isB2BOutreach ? (
                           <CompanyIntelActionButton
                             label="Launch Outreach"
-                            agentName="arjun"
+                            agentName="sam"
                             companyId={companyId}
                             companyName={companyName}
                             websiteUrl={websiteUrl}
@@ -251,7 +251,7 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                               String(c.definition || '').trim(),
                               String(c.messagingAngle || '').trim() ? `Angle: ${String(c.messagingAngle)}` : '',
                               asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).length
-                                ? `Apollo industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ')}`
+                                ? `Target industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ')}`
                                 : '',
                               asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).length
                                 ? `Buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ')}`
@@ -261,26 +261,27 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                             taskPrefix={`B2B Cohort • ${cohortName}`}
                             taskRequest={[
                               companyName ? `Company: ${companyName}.` : null,
-                              `Prepare B2B outreach for this Apollo-searchable cohort: ${cohortName}.`,
+                              `Prepare B2B outreach for this lead-data-searchable cohort: ${cohortName}.`,
                               `Definition: ${String(c.definition || '')}.`,
                               `Messaging angle: ${String(c.messagingAngle || '')}.`,
-                              `Apollo target industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ') || 'derive from cohort only if business/professional buyer safe'}.`,
-                              `Apollo buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
-                              'Use Apollo only for companies/professional decision makers. Do not search for consumers, patients, demographics, or sensitive traits.'
+                              `Target industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ') || 'derive from cohort only if business/professional buyer safe'}.`,
+                              `Buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
+                              'Use connected lead-data providers (Apollo or Hunter) only for companies/professional decision makers. Do not search for consumers, patients, demographics, or sensitive traits.'
                             ].filter(Boolean).join(' ')}
                             marketingContext={{ module: 'icps', cohort: c, icps: data }}
                             navigateModuleId="lead-outreach"
                             moduleWorkflowParams={{
                               question: [
                                 companyName ? `Company: ${companyName}.` : null,
-                                `Launch B2B outreach for Apollo-searchable cohort: ${cohortName}.`,
+                                `Launch B2B outreach for lead-data-searchable cohort: ${cohortName}.`,
                                 `Definition: ${String(c.definition || '')}.`,
                                 `Messaging angle: ${String(c.messagingAngle || '')}.`,
-                                `Apollo target industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ') || 'not provided'}.`,
-                                `Apollo buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
-                                'Use Apollo only for businesses/professional buyers; never for consumer traits or health-condition users.',
+                                `Target industries: ${asStringArray(c.apolloTargetIndustries || c.apollo_target_industries).join(', ') || 'not provided'}.`,
+                                `Buyer titles: ${asStringArray(c.apolloBuyerTitles || c.apollo_buyer_titles).join(', ') || 'decision makers'}.`,
+                                'Use Apollo or Hunter only for businesses/professional buyers; never for consumer traits or health-condition users.',
                               ].filter(Boolean).join(' '),
                               channel: 'email',
+                              contact_channels: 'email',
                               target: 'decision',
                               goal: 'reply',
                               delivery: 'draft',
@@ -317,7 +318,7 @@ export function IcpsPage({ artifact, companyId, companyName, websiteUrl }: Props
                                 moduleWorkflowParams={{
                                   question: `Create paid ads for B2C cohort ${cohortName}. Angle: ${String(c.messagingAngle || '')}.`,
                                   objective: 'leads',
-                                  channel: 'meta',
+                                  channel: 'facebook_instagram',
                                 }}
                                 chatHandoff={false}
                                 successMessage={`Paid ads queued for ${cohortName}.`}

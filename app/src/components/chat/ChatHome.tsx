@@ -1052,7 +1052,7 @@ interface ChatHomeProps {
 const AGENT_REQUIRED_CONNECTORS: Record<string, string[]> = {
   maya:  ['gsc'],          // SEO / LLMO — needs Google Search Console or Ahrefs
   dev:   ['ga4'],          // Performance — needs GA4 or Google Ads
-  arjun: ['apollo'],       // Lead Intel — needs Apollo
+  arjun: ['apollo', 'hunter'], // Lead Intel — Apollo or Hunter
   kiran: ['hubspot'],      // Lifecycle — needs HubSpot
   zara:  ['google_ads'],   // Campaigns — needs Google Ads or Meta Ads
   sam:   [],               // Email copy can run without connectors; outreach adds Instantly below

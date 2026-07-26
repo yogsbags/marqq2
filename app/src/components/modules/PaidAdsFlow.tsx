@@ -9,6 +9,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { getMetaAdAccountId } from '@/components/settings/tabs/AccountsTab'
+import { MetaAdsManagerPreview, OutcomeGoLiveCta } from '@/components/outcome-previews'
+import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
+import { isConnectorActive } from '@/lib/connectorMeta'
 import { toast } from 'sonner'
 import {
   RefreshCw, TrendingUp, TrendingDown, Minus, Play, PauseCircle,
@@ -53,6 +57,8 @@ interface AutomationResult {
   roas_summary?: { avg_roas: number; total_spend: number; ads_analyzed: number }
   report?: string
   dry_run?: boolean
+  loop_enrollment?: { ok?: boolean; next_run?: string; enrolled_count?: number; error?: string }
+  goals?: { quantified_target?: string; timeline_target?: string; objective?: string }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -83,21 +89,163 @@ function formatPaidLabel(value?: string) {
     leads: 'Generate leads',
     traffic: 'Drive traffic',
     awareness: 'Build awareness',
+    facebook: 'Facebook',
+    instagram: 'Instagram',
+    facebook_instagram: 'FB + Instagram',
+    meta: 'FB + Instagram',
     google: 'Google Ads',
-    meta: 'Meta Ads',
     linkedin: 'LinkedIn Ads',
   }
   return labelMap[value] || value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase())
 }
 
 function buildPaidAdsPlanQuery(objective: string, channel: string, initialQuestion?: string) {
+  const channelLabel = formatPaidLabel(channel) || 'Google Ads'
+  const platformGoal = goalForPaidChannel(channel, objective)
+  const placementHint =
+    channel === 'facebook'
+      ? 'Focus placements on Facebook (feed, Stories, Audience Network as needed).'
+      : channel === 'instagram'
+        ? 'Focus placements on Instagram (feed, Reels, Stories).'
+        : channel === 'facebook_instagram' || channel === 'meta'
+          ? 'Plan for Facebook + Instagram together (Advantage+ placements or both publisher platforms).'
+          : channel === 'linkedin' || channel === 'linkedin_ads'
+            ? 'Plan for LinkedIn Ads (Sponsored Content / lead gen as fit).'
+            : 'Plan for Google Ads (Search / Performance Max as fit).'
+
+  const goalInstruction =
+    channel === 'linkedin' || channel === 'linkedin_ads'
+      ? `You MUST set a LinkedIn Ads objective. Prefer objective=${platformGoal} (LEAD_GENERATION|WEBSITE_VISITS|BRAND_AWARENESS|WEBSITE_CONVERSIONS).`
+      : channel === 'google' || channel === 'google_ads'
+        ? `You MUST set a Google Ads goal. Prefer advertising_channel_type=${platformGoal} (SEARCH for leads/traffic/sales, DISPLAY for awareness). Also echo objective as the business goal (${objective || 'leads'}).`
+        : `You MUST set a Meta campaign goal. Prefer objective=${platformGoal} unless the brief clearly requires a different OUTCOME_* value.`
+
   return [
     initialQuestion || `Build a paid ads plan to ${formatPaidLabel(objective)?.toLowerCase() || 'generate demand'}.`,
-    `Priority channel: ${formatPaidLabel(channel) || 'Google Ads'}.`,
+    `Priority channel: ${channelLabel}.`,
+    placementHint,
     `Primary objective: ${formatPaidLabel(objective) || 'Generate leads'}.`,
+    goalInstruction,
     'Return the campaign structure, audience direction, budget shape, KPI targets, risk areas, and the first launch or optimization moves to make next.',
+    'In artifact.data include: objective (platform-native), advertising_channel_type when Google, campaign_name, headline, primary_text, link_url, daily_budget, channel, cta_type when known.',
     'Keep the answer practical for an active paid media team. Avoid generic ad advice and make the plan channel-aware.',
   ].join('\n\n')
+}
+
+/** Map home/plan goals → Meta Marketing API OUTCOME_* objectives. */
+function goalToMetaObjective(value?: string): string {
+  const v = String(value || '').trim().toUpperCase().replace(/\s+/g, '_')
+  if (v.startsWith('OUTCOME_')) return v
+  const map: Record<string, string> = {
+    LEADS: 'OUTCOME_LEADS',
+    LEAD: 'OUTCOME_LEADS',
+    TRAFFIC: 'OUTCOME_TRAFFIC',
+    SALES: 'OUTCOME_SALES',
+    CONVERSIONS: 'OUTCOME_SALES',
+    CONVERSION: 'OUTCOME_SALES',
+    AWARENESS: 'OUTCOME_AWARENESS',
+    ENGAGEMENT: 'OUTCOME_ENGAGEMENT',
+    ENGAGE: 'OUTCOME_ENGAGEMENT',
+    WEBSITE_VISITS: 'OUTCOME_TRAFFIC',
+    LEAD_GENERATION: 'OUTCOME_LEADS',
+    WEBSITE_CONVERSIONS: 'OUTCOME_SALES',
+    BRAND_AWARENESS: 'OUTCOME_AWARENESS',
+    SEARCH: 'OUTCOME_TRAFFIC',
+    DISPLAY: 'OUTCOME_AWARENESS',
+  }
+  return map[v] || 'OUTCOME_TRAFFIC'
+}
+
+/** Map goals → LinkedIn Ads objectiveType. */
+function goalToLinkedInObjective(value?: string): string {
+  const v = String(value || '').trim().toUpperCase().replace(/\s+/g, '_')
+  const map: Record<string, string> = {
+    OUTCOME_LEADS: 'LEAD_GENERATION',
+    LEADS: 'LEAD_GENERATION',
+    LEAD: 'LEAD_GENERATION',
+    LEAD_GENERATION: 'LEAD_GENERATION',
+    OUTCOME_TRAFFIC: 'WEBSITE_VISITS',
+    TRAFFIC: 'WEBSITE_VISITS',
+    WEBSITE_VISITS: 'WEBSITE_VISITS',
+    OUTCOME_SALES: 'WEBSITE_CONVERSIONS',
+    SALES: 'WEBSITE_CONVERSIONS',
+    CONVERSIONS: 'WEBSITE_CONVERSIONS',
+    WEBSITE_CONVERSIONS: 'WEBSITE_CONVERSIONS',
+    OUTCOME_AWARENESS: 'BRAND_AWARENESS',
+    AWARENESS: 'BRAND_AWARENESS',
+    BRAND_AWARENESS: 'BRAND_AWARENESS',
+    OUTCOME_ENGAGEMENT: 'BRAND_AWARENESS',
+    ENGAGEMENT: 'BRAND_AWARENESS',
+  }
+  return map[v] || 'WEBSITE_VISITS'
+}
+
+/** Map goals → Google Ads advertising_channel_type (SEARCH | DISPLAY). */
+function goalToGoogleChannelType(value?: string): string {
+  const v = String(value || '').trim().toUpperCase().replace(/\s+/g, '_')
+  if (v === 'DISPLAY' || v === 'OUTCOME_AWARENESS' || v === 'AWARENESS' || v === 'BRAND_AWARENESS') {
+    return 'DISPLAY'
+  }
+  if (v === 'SEARCH' || v === 'PERFORMANCE_MAX' || v === 'PMAX') return 'SEARCH'
+  return 'SEARCH'
+}
+
+/** Platform-native goal string for Launch / Go Live / create APIs. */
+function goalForPaidChannel(channel?: string, value?: string): string {
+  const ch = String(channel || '').toLowerCase()
+  if (ch === 'linkedin' || ch === 'linkedin_ads') return goalToLinkedInObjective(value)
+  if (ch === 'google' || ch === 'google_ads') return goalToGoogleChannelType(value)
+  return goalToMetaObjective(value)
+}
+
+type LaunchDraft = Partial<{
+  campaign_name: string
+  objective: string
+  channel: string
+  daily_budget: string
+  headline: string
+  primary_text: string
+  link_url: string
+  cta_type: string
+  image_url: string
+  advertising_channel_type: string
+}>
+
+function launchDraftFromPlanArtifact(
+  artifact: Record<string, unknown>,
+  fallbacks: { objective?: string; channel?: string },
+): LaunchDraft {
+  const data = (artifact.data && typeof artifact.data === 'object'
+    ? artifact.data
+    : artifact) as Record<string, unknown>
+  const pick = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = data[k]
+      if (typeof v === 'string' && v.trim()) return v.trim()
+      if (typeof v === 'number' && Number.isFinite(v)) return String(v)
+    }
+    return undefined
+  }
+  const channel = pick('channel', 'paid_channel', 'platform') || fallbacks.channel
+  const objectiveRaw =
+    pick('objective', 'goal', 'campaign_objective', 'meta_objective', 'linkedin_objective') ||
+    fallbacks.objective
+  const googleType =
+    pick('advertising_channel_type', 'google_channel_type', 'channel_type') ||
+    (String(channel || '').includes('google') ? goalToGoogleChannelType(objectiveRaw) : undefined)
+
+  return {
+    campaign_name: pick('campaign_name', 'name', 'title'),
+    objective: goalForPaidChannel(channel, objectiveRaw),
+    channel,
+    daily_budget: pick('daily_budget', 'budget', 'daily_budget_rupees'),
+    headline: pick('headline', 'ad_headline', 'primary_headline'),
+    primary_text: pick('primary_text', 'ad_copy', 'copy', 'body'),
+    link_url: pick('link_url', 'destination_url', 'landing_page', 'url'),
+    cta_type: pick('cta_type', 'cta'),
+    image_url: pick('image_url', 'cdn_url', 'image'),
+    advertising_channel_type: googleType,
+  }
 }
 
 async function runAutomation(automationId: string, params: Record<string, unknown>, companyId: string): Promise<AutomationResult> {
@@ -116,17 +264,23 @@ function LivePerformanceTab({ companyId }: { companyId: string }) {
   const [dateRange, setDateRange] = useState('last_30d')
   const [metaData, setMetaData] = useState<AutomationResult | null>(null)
   const [googleData, setGoogleData] = useState<AutomationResult | null>(null)
+  const [linkedinData, setLinkedinData] = useState<AutomationResult | null>(null)
 
   const fetchAll = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
     try {
-      const [meta, google] = await Promise.all([
-        runAutomation('fetch_meta_ads', { date_range: dateRange }, companyId),
+      const [meta, google, linkedin] = await Promise.all([
+        runAutomation('fetch_meta_ads', {
+          date_range: dateRange,
+          ...(getMetaAdAccountId(companyId) ? { ad_account_id: getMetaAdAccountId(companyId) } : {}),
+        }, companyId),
         runAutomation('google_ads_fetch', { date_range: dateRange }, companyId),
+        runAutomation('linkedin_ads_fetch', { date_range: dateRange }, companyId),
       ])
       setMetaData(meta)
       setGoogleData(google)
+      setLinkedinData(linkedin)
     } catch (e) {
       toast.error('Failed to fetch ad performance data')
     } finally {
@@ -139,6 +293,7 @@ function LivePerformanceTab({ companyId }: { companyId: string }) {
   const allCampaigns: CampaignRow[] = [
     ...(metaData?.campaigns || []).map(c => ({ ...c, platform: 'Meta' })),
     ...(googleData?.campaigns || []).map(c => ({ ...c, platform: 'Google' })),
+    ...(linkedinData?.campaigns || []).map(c => ({ ...c, platform: 'LinkedIn' })),
   ]
 
   const totalSpend = allCampaigns.reduce((s, c) => s + (c.spend || 0), 0)
@@ -170,6 +325,7 @@ function LivePerformanceTab({ companyId }: { companyId: string }) {
         <div className="flex gap-2 ml-auto">
           <PlatformBadge label="Meta" result={metaData} />
           <PlatformBadge label="Google" result={googleData} />
+          <PlatformBadge label="LinkedIn" result={linkedinData} />
         </div>
       </div>
 
@@ -186,14 +342,14 @@ function LivePerformanceTab({ companyId }: { companyId: string }) {
       {/* Campaign table */}
       {loading ? (
         <div className="flex items-center justify-center h-32 text-muted-foreground gap-2">
-          <Loader2 className="h-4 w-4 animate-spin" /> Fetching live data from Meta &amp; Google…
+          <Loader2 className="h-4 w-4 animate-spin" /> Fetching live data from Meta, Google &amp; LinkedIn…
         </div>
       ) : allCampaigns.length === 0 ? (
         <EmptyState
           title="No campaign data"
           subtitle={
-            metaData?.error || googleData?.error
-              ? `${metaData?.error || ''} ${googleData?.error || ''}`.trim()
+            metaData?.error || googleData?.error || linkedinData?.error
+              ? `${metaData?.error || ''} ${googleData?.error || ''} ${linkedinData?.error || ''}`.trim()
               : `No campaigns found for ${dateRange}. Create a campaign or check your account connections.`
           }
         />
@@ -257,17 +413,109 @@ function KpiCard({ label, value, icon }: { label: string; value: string; icon: R
   )
 }
 
+function connectorsForPaidChannel(channel: string): string[] {
+  const c = String(channel || '').toLowerCase()
+  if (['facebook', 'instagram', 'facebook_instagram', 'meta', 'fb+insta', 'fb_instagram'].includes(c)) {
+    return ['meta_ads', 'ga4']
+  }
+  if (c === 'linkedin' || c === 'linkedin_ads') return ['linkedin_ads', 'ga4']
+  return ['google_ads', 'ga4']
+}
+
+function usePaidChannelConnectors(companyId: string, channel?: string) {
+  const [connectedIds, setConnectedIds] = useState<string[]>([])
+  const [loading, setLoading] = useState(Boolean(companyId))
+  const required = useMemo(() => connectorsForPaidChannel(channel || 'google'), [channel])
+  const primary = required[0]
+
+  const refresh = useCallback(async () => {
+    if (!companyId) {
+      setConnectedIds([])
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
+      const json = res.ok ? await res.json().catch(() => ({})) : {}
+      const ids = (json?.connectors ?? [])
+        .filter((c: { id?: string; connected?: boolean; status?: string }) => isConnectorActive(c))
+        .map((c: { id: string }) => c.id)
+      setConnectedIds(ids)
+    } catch {
+      setConnectedIds([])
+    } finally {
+      setLoading(false)
+    }
+  }, [companyId])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const connectedSet = new Set(connectedIds)
+  const missing = required.filter((id) => !connectedSet.has(id))
+  const primaryMissing = primary ? !connectedSet.has(primary) : false
+
+  return {
+    connectedIds,
+    required,
+    primary,
+    missing,
+    primaryMissing,
+    loading,
+    refresh,
+  }
+}
+
+function PaidChannelConnectorPrompt({
+  companyId,
+  channel,
+  hardGate = false,
+  taskLabel,
+}: {
+  companyId: string
+  channel?: string
+  hardGate?: boolean
+  taskLabel: string
+}) {
+  const { connectedIds, required, primaryMissing, missing, refresh } = usePaidChannelConnectors(companyId, channel)
+  if (!companyId || (!primaryMissing && missing.length === 0)) return null
+
+  return (
+    <ConnectorGateCard
+      connectorIds={required}
+      connectedConnectorIds={connectedIds}
+      taskLabel={taskLabel}
+      workspaceId={companyId}
+      hardGate={hardGate}
+      onConnected={() => {
+        void refresh()
+        toast.success('Account connected')
+      }}
+      className="mb-4"
+    />
+  )
+}
+
 function PaidAdsPlanTab({
+  companyId,
   initialQuestion,
   initialObjective,
   initialChannel,
+  onPlanReady,
+  onGoToLaunch,
 }: {
+  companyId: string
   initialQuestion?: string
   initialObjective?: string
   initialChannel?: string
+  onPlanReady?: (draft: LaunchDraft) => void
+  onGoToLaunch?: () => void
 }) {
   const objective = initialObjective || 'leads'
   const channel = initialChannel || 'google'
+  const [planObjective, setPlanObjective] = useState(() => goalForPaidChannel(channel, objective))
 
   const agents = useMemo(
     () => [
@@ -278,13 +526,37 @@ function PaidAdsPlanTab({
         defaultQuery: buildPaidAdsPlanQuery(objective, channel, initialQuestion),
         placeholder: 'Describe the offer, budget pressure, market, or launch context Zara should factor into the plan.',
         tags: ['paid-ads', 'plan', 'budget'],
+        connectors: connectorsForPaidChannel(channel),
+        paidChannel: channel,
       },
     ],
     [channel, initialObjective, initialQuestion, objective]
   )
 
+  const handleArtifactReady = useCallback((_agent: string, artifact: Record<string, unknown>) => {
+    const draft = launchDraftFromPlanArtifact(artifact, { objective, channel })
+    if (draft.objective) setPlanObjective(draft.objective)
+    onPlanReady?.(draft)
+    toast.success(`Plan goal set: ${draft.objective || planObjective} — carried into Launch`)
+  }, [channel, objective, onPlanReady, planObjective])
+
   const preAgentContent = (
     <div className="space-y-5">
+      <PaidChannelConnectorPrompt
+        companyId={companyId}
+        channel={channel}
+        hardGate={false}
+        taskLabel={`${formatPaidLabel(channel)} planning & live data`}
+      />
+      <div className="rounded-[1rem] border border-orange-200/70 bg-orange-50/60 px-4 py-3 text-sm dark:border-orange-900/40 dark:bg-orange-950/20">
+        <span className="text-muted-foreground">Campaign goal for Launch: </span>
+        <span className="font-medium text-foreground">{planObjective}</span>
+        {onGoToLaunch ? (
+          <Button type="button" variant="link" className="h-auto px-2 text-orange-700 dark:text-orange-300" onClick={onGoToLaunch}>
+            Open Launch →
+          </Button>
+        ) : null}
+      </div>
       <section className="grid gap-4 lg:grid-cols-[1.02fr_0.98fr]">
         <Card className="rounded-[2rem] border-orange-200/70 bg-gradient-to-br from-orange-50/90 via-background to-amber-50/50 text-foreground shadow-[0_28px_80px_-34px_rgba(154,52,18,0.14)] dark:border-orange-900/70 dark:from-zinc-950 dark:via-zinc-950 dark:to-orange-950/40 dark:text-orange-50 dark:shadow-[0_28px_80px_-34px_rgba(124,45,18,0.46)]">
           <CardContent className="space-y-6 p-5 lg:p-6">
@@ -380,13 +652,14 @@ function PaidAdsPlanTab({
       resourceContextHint="Optional. Use this when the paid plan should follow an exact campaign brief, landing page, or media plan."
       buildResourceContext={(value) => `Use this exact campaign brief, landing page, or media plan if needed: ${value}`}
       resourceContextPlacement="primary"
+      onArtifactReady={handleArtifactReady}
     />
   )
 }
 
 // ── Tab: Create Campaign ──────────────────────────────────────────────────────
 
-const OBJECTIVES = [
+const META_OBJECTIVES = [
   { value: 'OUTCOME_TRAFFIC',     label: 'Traffic — Drive website visits' },
   { value: 'OUTCOME_LEADS',       label: 'Leads — Collect lead form submissions' },
   { value: 'OUTCOME_SALES',       label: 'Sales — Drive conversions & purchases' },
@@ -394,11 +667,30 @@ const OBJECTIVES = [
   { value: 'OUTCOME_ENGAGEMENT',  label: 'Engagement — Post likes, comments, shares' },
 ]
 
+const LINKEDIN_OBJECTIVES = [
+  { value: 'WEBSITE_VISITS',      label: 'Website visits — Drive traffic' },
+  { value: 'LEAD_GENERATION',     label: 'Lead generation — Collect leads' },
+  { value: 'WEBSITE_CONVERSIONS', label: 'Website conversions — Drive sales' },
+  { value: 'BRAND_AWARENESS',     label: 'Brand awareness — Reach professionals' },
+]
+
+const GOOGLE_OBJECTIVES = [
+  { value: 'SEARCH',  label: 'Search — High-intent clicks & conversions' },
+  { value: 'DISPLAY', label: 'Display — Awareness & reach' },
+]
+
+function objectivesForChannel(channel: string) {
+  if (channel === 'linkedin') return LINKEDIN_OBJECTIVES
+  if (channel === 'google') return GOOGLE_OBJECTIVES
+  return META_OBJECTIVES
+}
+
 const CTAS = ['LEARN_MORE', 'SIGN_UP', 'SHOP_NOW', 'CONTACT_US', 'BOOK_NOW', 'GET_QUOTE', 'DOWNLOAD']
 
 interface CreateForm {
   campaign_name: string
   objective: string
+  channel: string
   daily_budget: string
   headline: string
   primary_text: string
@@ -408,10 +700,49 @@ interface CreateForm {
   status: 'PAUSED' | 'ACTIVE'
 }
 
-function CreateCampaignTab({ companyId }: { companyId: string }) {
+const META_CHANNEL_OPTIONS = [
+  { value: 'facebook', label: 'Facebook' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'facebook_instagram', label: 'FB + Instagram' },
+]
+
+function normalizeCreateChannel(value?: string) {
+  const v = String(value || '').toLowerCase()
+  if (v === 'facebook' || v === 'instagram' || v === 'facebook_instagram') return v
+  if (v === 'meta' || v === 'fb+insta' || v === 'fb_instagram') return 'facebook_instagram'
+  if (v === 'google' || v === 'google_ads') return 'google'
+  if (v === 'linkedin' || v === 'linkedin_ads') return 'linkedin'
+  return 'facebook_instagram'
+}
+
+function paidCreateConnector(channel: string) {
+  if (channel === 'google') return 'google_ads'
+  if (channel === 'linkedin') return 'linkedin_ads'
+  return 'meta_ads'
+}
+
+function paidCreateAutomationId(channel: string) {
+  if (channel === 'google') return 'create_google_ads_campaign'
+  if (channel === 'linkedin') return 'create_linkedin_ads_campaign'
+  return 'create_meta_campaign'
+}
+
+function CreateCampaignTab({
+  companyId,
+  initialChannel,
+  initialObjective,
+  draft,
+}: {
+  companyId: string
+  initialChannel?: string
+  initialObjective?: string
+  draft?: LaunchDraft | null
+}) {
+  const initial = normalizeCreateChannel(draft?.channel || initialChannel)
   const [form, setForm] = useState<CreateForm>({
     campaign_name: '',
-    objective: 'OUTCOME_TRAFFIC',
+    objective: goalForPaidChannel(initial, initialObjective),
+    channel: initial,
     daily_budget: '',
     headline: '',
     primary_text: '',
@@ -422,9 +753,52 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
   })
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AutomationResult | null>(null)
+  const channel = normalizeCreateChannel(form.channel)
+  const isMeta = channel !== 'google' && channel !== 'linkedin'
+  const preferredConnector = paidCreateConnector(channel)
+  const objectiveOptions = objectivesForChannel(channel)
+
+  useEffect(() => {
+    if (!draft) return
+    setForm((f) => ({
+      ...f,
+      ...(draft.campaign_name ? { campaign_name: draft.campaign_name } : {}),
+      ...(draft.objective || draft.advertising_channel_type
+        ? {
+            objective: goalForPaidChannel(
+              draft.channel || f.channel,
+              draft.advertising_channel_type || draft.objective,
+            ),
+          }
+        : {}),
+      ...(draft.channel ? { channel: normalizeCreateChannel(draft.channel) } : {}),
+      ...(draft.daily_budget ? { daily_budget: draft.daily_budget } : {}),
+      ...(draft.headline ? { headline: draft.headline } : {}),
+      ...(draft.primary_text ? { primary_text: draft.primary_text } : {}),
+      ...(draft.link_url ? { link_url: draft.link_url } : {}),
+      ...(draft.cta_type ? { cta_type: draft.cta_type.toUpperCase().replace(/\s+/g, '_') } : {}),
+      ...(draft.image_url ? { image_url: draft.image_url } : {}),
+    }))
+  }, [draft])
+
+  useEffect(() => {
+    if (draft?.objective || draft?.advertising_channel_type) return
+    if (!initialObjective) return
+    setForm((f) => ({ ...f, objective: goalForPaidChannel(f.channel, initialObjective) }))
+  }, [draft?.advertising_channel_type, draft?.objective, initialObjective])
 
   function set(k: keyof CreateForm, v: string) {
-    setForm(f => ({ ...f, [k]: v }))
+    setForm((f) => {
+      if (k === 'channel') {
+        const nextChannel = normalizeCreateChannel(v)
+        return {
+          ...f,
+          channel: nextChannel,
+          objective: goalForPaidChannel(nextChannel, f.objective || initialObjective),
+        }
+      }
+      return { ...f, [k]: v }
+    })
   }
 
   async function handleCreate() {
@@ -437,21 +811,47 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
     setLoading(true)
     setResult(null)
     try {
+      const automationId = paidCreateAutomationId(channel)
       const params: Record<string, unknown> = {
         campaign_name: form.campaign_name,
         objective: form.objective,
-        daily_budget: Math.round(Number(form.daily_budget) * 100), // rupees → paise
+        channel,
+        daily_budget: isMeta
+          ? Math.round(Number(form.daily_budget) * 100)
+          : Number(form.daily_budget),
         headline: form.headline,
         primary_text: form.primary_text,
         link_url: form.link_url,
-        cta_type: form.cta_type,
         status: form.status,
       }
-      if (form.image_url) params.image_url = form.image_url
-      const res = await runAutomation('create_meta_campaign', params, companyId)
+      if (isMeta) {
+        params.objective = goalToMetaObjective(form.objective)
+        params.cta_type = form.cta_type
+        if (form.image_url) params.image_url = form.image_url
+        const preferredMeta = getMetaAdAccountId(companyId)
+        if (preferredMeta) params.ad_account_id = preferredMeta
+      }
+      if (channel === 'linkedin') {
+        params.objective = goalToLinkedInObjective(form.objective)
+        params.currency_code = 'USD'
+        params.status = form.status === 'ACTIVE' ? 'ACTIVE' : 'PAUSED'
+      }
+      if (channel === 'google') {
+        params.status = form.status === 'ACTIVE' ? 'ENABLED' : 'PAUSED'
+        params.advertising_channel_type = goalToGoogleChannelType(form.objective)
+        params.objective = form.objective
+      }
+
+      const res = await runAutomation(automationId, params, companyId)
       setResult(res)
       if (res.status === 'completed') {
-        toast.success('Campaign created in Meta Ads!')
+        toast.success(
+          channel === 'google'
+            ? 'Campaign created in Google Ads (PAUSED)'
+            : channel === 'linkedin'
+              ? 'Campaign created in LinkedIn Ads (PAUSED)'
+              : 'Campaign created in Meta Ads!',
+        )
       } else {
         toast.error(res.error || 'Campaign creation failed')
       }
@@ -464,8 +864,18 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
 
   return (
     <div className="space-y-5">
+      <PaidChannelConnectorPrompt
+        companyId={companyId}
+        channel={channel}
+        hardGate
+        taskLabel={`Launch on ${formatPaidLabel(channel)}`}
+      />
       <p className="text-sm text-muted-foreground">
-        Creates a full Meta Ads campaign — Campaign → Ad Set → Creative → Ad — in PAUSED state for review.
+        {channel === 'google'
+          ? 'Creates a PAUSED Google Ads Search scaffold — Budget → Campaign → Ad Group → RSA — for review before enable.'
+          : channel === 'linkedin'
+            ? 'Creates a PAUSED LinkedIn campaign group + campaign. Attach creative in Campaign Manager before activating.'
+            : 'Creates a full Meta Ads campaign — Campaign → Ad Set → Creative → Ad — in PAUSED state for review.'}
       </p>
 
       <div className="grid grid-cols-2 gap-4">
@@ -480,15 +890,41 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
           />
         </div>
 
-        {/* Objective */}
+        {/* Channel / placements */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Objective <span className="text-red-400">*</span></Label>
-          <Select value={form.objective} onValueChange={v => set('objective', v)}>
+          <Label className="text-xs">Channel <span className="text-red-400">*</span></Label>
+          <Select value={form.channel} onValueChange={v => set('channel', v)}>
             <SelectTrigger className="h-9 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {OBJECTIVES.map(o => (
+              {META_CHANNEL_OPTIONS.map(o => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+              <SelectItem value="google">Google Ads</SelectItem>
+              <SelectItem value="linkedin">LinkedIn Ads</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Objective / goal */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">
+            {channel === 'google' ? 'Campaign type' : 'Objective'} <span className="text-red-400">*</span>
+          </Label>
+          <Select
+            value={
+              objectiveOptions.some((o) => o.value === form.objective)
+                ? form.objective
+                : objectiveOptions[0]?.value
+            }
+            onValueChange={v => set('objective', v)}
+          >
+            <SelectTrigger className="h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {objectiveOptions.map(o => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
               ))}
             </SelectContent>
@@ -516,23 +952,32 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
           <Input
             value={form.headline}
             onChange={e => set('headline', e.target.value)}
-            placeholder="Under 40 characters"
-            maxLength={40}
+            placeholder={channel === 'google' ? 'Under 30 characters (RSA)' : 'Under 40 characters'}
+            maxLength={channel === 'google' ? 30 : 40}
             className="h-9"
           />
-          <p className="text-xs text-muted-foreground">{form.headline.length}/40</p>
+          <p className="text-xs text-muted-foreground">{form.headline.length}/{channel === 'google' ? 30 : 40}</p>
         </div>
 
-        {/* CTA */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Call to Action</Label>
-          <Select value={form.cta_type} onValueChange={v => set('cta_type', v)}>
-            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {CTAS.map(c => <SelectItem key={c} value={c}>{c.replace(/_/g, ' ')}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* CTA — Meta only */}
+        {isMeta ? (
+          <div className="space-y-1.5">
+            <Label className="text-xs">Call to Action</Label>
+            <Select value={form.cta_type} onValueChange={v => set('cta_type', v)}>
+              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {CTAS.map(c => <SelectItem key={c} value={c}>{c.replace(/_/g, ' ')}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <Label className="text-xs">Platform</Label>
+            <div className="h-9 flex items-center text-sm text-muted-foreground">
+              {channel === 'google' ? 'Google Ads Search' : 'LinkedIn Sponsored Content'}
+            </div>
+          </div>
+        )}
 
         {/* Primary text */}
         <div className="col-span-2 space-y-1.5">
@@ -540,7 +985,7 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
           <Textarea
             value={form.primary_text}
             onChange={e => set('primary_text', e.target.value)}
-            placeholder="Under 125 characters for best performance"
+            placeholder={channel === 'google' ? 'RSA description (under 90 chars)' : 'Under 125 characters for best performance'}
             rows={2}
             className="text-sm resize-none"
           />
@@ -558,16 +1003,20 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
           />
         </div>
 
-        {/* Image URL */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Image URL <span className="text-muted-foreground">(optional)</span></Label>
-          <Input
-            value={form.image_url}
-            onChange={e => set('image_url', e.target.value)}
-            placeholder="https://... hosted image"
-            className="h-9"
-          />
-        </div>
+        {/* Image URL — Meta only */}
+        {isMeta ? (
+          <div className="space-y-1.5">
+            <Label className="text-xs">Image URL <span className="text-muted-foreground">(optional)</span></Label>
+            <Input
+              value={form.image_url}
+              onChange={e => set('image_url', e.target.value)}
+              placeholder="https://... hosted image"
+              className="h-9"
+            />
+          </div>
+        ) : (
+          <div />
+        )}
 
         {/* Status */}
         <div className="col-span-2 flex items-center gap-3">
@@ -592,8 +1041,74 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
         </div>
       </div>
 
-      <Button onClick={handleCreate} disabled={loading || !companyId} className="gap-2">
-        {loading ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><Play className="h-4 w-4" />Create Campaign</>}
+      {isMeta && (
+        <MetaAdsManagerPreview
+          campaignName={form.campaign_name || 'Untitled campaign'}
+          objective={form.objective}
+          dailyBudget={form.daily_budget || undefined}
+          headline={form.headline}
+          primaryText={form.primary_text}
+          linkUrl={form.link_url}
+          ctaType={form.cta_type}
+          imageUrl={form.image_url || undefined}
+          status={form.status}
+        />
+      )}
+
+      <OutcomeGoLiveCta
+        kind="paid_ads"
+        workspaceId={companyId}
+        companyId={companyId}
+        preferredConnector={preferredConnector}
+        requiredAnyOf={[preferredConnector]}
+        liveActionLabel={
+          channel === 'google'
+            ? 'Create paused Google campaign'
+            : channel === 'linkedin'
+              ? 'Create paused LinkedIn campaign'
+              : 'Create paused Meta campaign'
+        }
+        goLiveDisabled={
+          loading ||
+          !form.campaign_name ||
+          !form.daily_budget ||
+          !form.headline ||
+          !form.primary_text ||
+          !form.link_url
+        }
+        payload={{
+          campaign_name: form.campaign_name,
+          objective:
+            channel === 'linkedin'
+              ? goalToLinkedInObjective(form.objective)
+              : channel === 'google'
+                ? form.objective
+                : goalToMetaObjective(form.objective),
+          advertising_channel_type:
+            channel === 'google' ? goalToGoogleChannelType(form.objective) : undefined,
+          channel,
+          paid_channel: channel,
+          daily_budget: form.daily_budget,
+          headline: form.headline,
+          primary_text: form.primary_text,
+          link_url: form.link_url,
+          cta_type: form.cta_type,
+          image_url: form.image_url || undefined,
+          status: form.status,
+          ad_account_id: isMeta ? (getMetaAdAccountId(companyId) || undefined) : undefined,
+        }}
+      />
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 gap-1.5 text-xs text-muted-foreground"
+        onClick={() => void handleCreate()}
+        disabled={loading || !companyId}
+      >
+        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+        Create via automation API
       </Button>
 
       {/* Result */}
@@ -606,12 +1121,26 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
                   <CheckCircle2 className="h-4 w-4" /> Campaign created successfully
                 </div>
                 <p className="text-xs text-muted-foreground">{result.message}</p>
+                {result.loop_enrollment?.ok && (
+                  <p className="text-xs text-emerald-400/90">
+                    Closed loop enrolled · next run {result.loop_enrollment.next_run
+                      ? new Date(result.loop_enrollment.next_run).toLocaleString()
+                      : 'scheduled'} · {result.loop_enrollment.enrolled_count ?? 1} campaign(s)
+                  </p>
+                )}
+                {result.loop_enrollment && result.loop_enrollment.ok === false && (
+                  <p className="text-xs text-amber-400/90">
+                    Loop enroll skipped: {result.loop_enrollment.error || 'unknown'}
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   {[
                     ['Campaign ID', result.campaign_id],
                     ['Ad Set ID', result.adset_id],
                     ['Creative ID', result.creative_id],
                     ['Ad ID', result.ad_id],
+                    ['Customer ID', (result as AutomationResult & { customer_id?: string }).customer_id],
+                    ['Campaign Group', (result as AutomationResult & { campaign_group_id?: string }).campaign_group_id],
                   ].map(([label, val]) => val && (
                     <div key={label} className="text-xs">
                       <span className="text-muted-foreground">{label}: </span>
@@ -619,14 +1148,36 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
                     </div>
                   ))}
                 </div>
-                <a
-                  href={`https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${result.ad_account_id?.replace('act_', '')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
-                >
-                  Open in Meta Ads Manager →
-                </a>
+                {isMeta && result.ad_account_id && (
+                  <a
+                    href={`https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${String(result.ad_account_id).replace('act_', '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                  >
+                    Open in Meta Ads Manager →
+                  </a>
+                )}
+                {channel === 'google' && (
+                  <a
+                    href={(result as AutomationResult & { ads_url?: string }).ads_url || 'https://ads.google.com/'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                  >
+                    Open in Google Ads →
+                  </a>
+                )}
+                {channel === 'linkedin' && (
+                  <a
+                    href={(result as AutomationResult & { campaign_manager_url?: string }).campaign_manager_url || 'https://www.linkedin.com/campaignmanager/'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                  >
+                    Open in LinkedIn Campaign Manager →
+                  </a>
+                )}
               </>
             ) : (
               <div className="flex items-start gap-2 text-red-400 text-sm">
@@ -644,7 +1195,221 @@ function CreateCampaignTab({ companyId }: { companyId: string }) {
   )
 }
 
-// ── Tab: ROAS Optimizer ───────────────────────────────────────────────────────
+// ── Tab: Campaign Closed Loop ─────────────────────────────────────────────────
+
+function CampaignLoopTab({ companyId }: { companyId: string }) {
+  const [loading, setLoading] = useState(false)
+  const [statusLoading, setStatusLoading] = useState(false)
+  const [dryRun, setDryRun] = useState(true)
+  const [loopStatus, setLoopStatus] = useState<{
+    enrolled?: Array<Record<string, unknown>>
+    last_report?: { at?: string; campaigns?: Array<Record<string, unknown>> }
+    quantified_target?: string
+    timeline_target?: string
+    next_run?: string
+    cron?: string
+    active?: boolean
+  } | null>(null)
+  const [result, setResult] = useState<AutomationResult | null>(null)
+
+  const loadStatus = useCallback(async () => {
+    if (!companyId) return
+    setStatusLoading(true)
+    try {
+      const res = await fetch(`/api/automations/scheduled?company_id=${encodeURIComponent(companyId)}&automation_id=manage_paid_ads_loop`)
+      const data = await res.json()
+      const row = data?.row || data?.rows?.[0] || null
+      if (row) {
+        setLoopStatus({
+          enrolled: row.params?.enrolled || [],
+          last_report: row.params?.last_report || null,
+          quantified_target: row.params?.quantified_target,
+          timeline_target: row.params?.timeline_target,
+          next_run: row.next_run,
+          cron: row.cron,
+          active: row.active,
+        })
+      } else {
+        setLoopStatus({ enrolled: [] })
+      }
+    } catch {
+      setLoopStatus(null)
+    } finally {
+      setStatusLoading(false)
+    }
+  }, [companyId])
+
+  useEffect(() => {
+    void loadStatus()
+  }, [loadStatus])
+
+  async function runLoop() {
+    if (!companyId) { toast.error('No workspace selected'); return }
+    setLoading(true)
+    setResult(null)
+    try {
+      const res = await runAutomation('manage_paid_ads_loop', {
+        dry_run: dryRun,
+        ...(getMetaAdAccountId(companyId) ? { ad_account_id: getMetaAdAccountId(companyId) } : {}),
+      }, companyId)
+      setResult(res)
+      if (res.status === 'completed') {
+        toast.success(dryRun ? 'Loop dry run complete' : `Loop done — ${res.actions_taken ?? 0} actions`)
+        void loadStatus()
+      } else {
+        toast.error(res.error || 'Loop failed')
+      }
+    } catch {
+      toast.error('Request failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const enrolled = loopStatus?.enrolled || []
+  const lastCampaigns = loopStatus?.last_report?.campaigns || []
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted-foreground">
+        After Go Live, campaigns auto-enroll here. Every 6 hours the loop paces vs your GTM quantified goal,
+        pauses losers, scales winners, refreshes fatigued creatives with new angles, and names winning creative + cohort.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => void loadStatus()} disabled={statusLoading} className="gap-1.5">
+          {statusLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Refresh status
+        </Button>
+        <button
+          type="button"
+          onClick={() => setDryRun((d) => !d)}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+            dryRun
+              ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+              : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+          }`}
+        >
+          {dryRun ? 'Dry Run — report only' : 'Live — will pause, scale & create variants'}
+        </button>
+        <Button onClick={() => void runLoop()} disabled={loading || !companyId} className="gap-2">
+          {loading
+            ? <><Loader2 className="h-4 w-4 animate-spin" />Running…</>
+            : <><Zap className="h-4 w-4" />{dryRun ? 'Run Loop (dry)' : 'Run Loop Now'}</>}
+        </Button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <KpiCard
+          label="Enrolled"
+          value={String(enrolled.length)}
+          icon={<Megaphone className="h-4 w-4" />}
+        />
+        <KpiCard
+          label="Goal"
+          value={loopStatus?.quantified_target ? String(loopStatus.quantified_target).slice(0, 28) : 'From GTM'}
+          icon={<Target className="h-4 w-4" />}
+        />
+        <KpiCard
+          label="Next run"
+          value={loopStatus?.next_run ? new Date(loopStatus.next_run).toLocaleString() : '—'}
+          icon={<Radar className="h-4 w-4" />}
+        />
+      </div>
+
+      {loopStatus?.timeline_target && (
+        <p className="text-xs text-muted-foreground">Timeline: {loopStatus.timeline_target} · Cron: {loopStatus.cron || '0 */6 * * *'}</p>
+      )}
+
+      {enrolled.length > 0 && (
+        <Card className="border-border/60">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-sm">Enrolled campaigns</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3 space-y-1">
+            {enrolled.map((e, i) => (
+              <div key={String(e.campaign_id || i)} className="flex items-center justify-between text-xs py-1 border-b border-border/30 last:border-0 gap-2">
+                <span className="truncate">{String(e.campaign_name || e.campaign_id)}</span>
+                <Badge variant="outline" className="shrink-0 text-[10px]">{String(e.channel || 'meta')}</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {lastCampaigns.length > 0 && (
+        <Card className="border-border/60">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-sm">Last loop report {loopStatus?.last_report?.at ? `· ${new Date(loopStatus.last_report.at).toLocaleString()}` : ''}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3 space-y-3">
+            {lastCampaigns.map((c, i) => {
+              const pacing = c.pacing as { status?: string; achieved?: number; target?: number; days_left?: number } | undefined
+              const win = c.winning_creative as { name?: string; roas?: number; ctr?: number } | undefined
+              const cohort = c.winning_cohort as { cohort?: string; recommendation?: string } | undefined
+              return (
+                <div key={String(c.campaign_id || i)} className="text-xs space-y-1 border-b border-border/30 last:border-0 pb-2">
+                  <div className="font-medium">{String(c.campaign_id)}</div>
+                  {pacing && (
+                    <div className="text-muted-foreground">
+                      Pace: <span className="text-foreground">{pacing.status}</span>
+                      {pacing.target != null && <> · {pacing.achieved}/{pacing.target}</>}
+                      {pacing.days_left != null && <> · {pacing.days_left}d left</>}
+                    </div>
+                  )}
+                  {win?.name && (
+                    <div className="text-muted-foreground">
+                      Winning creative: <span className="text-foreground">{win.name}</span>
+                      {win.roas != null && <> · ROAS {win.roas}</>}
+                      {win.ctr != null && <> · CTR {win.ctr}%</>}
+                    </div>
+                  )}
+                  {cohort?.cohort && (
+                    <div className="text-muted-foreground">
+                      Winning cohort (age): <span className="text-foreground">{cohort.cohort}</span>
+                    </div>
+                  )}
+                  {Array.isArray(c.actions) && c.actions.length > 0 && (
+                    <div className="text-muted-foreground">Actions: {(c.actions as string[]).join('; ')}</div>
+                  )}
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {result && result.status === 'completed' && (
+        <Card className="border-emerald-500/20 bg-emerald-500/5">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-sm flex items-center gap-2 text-emerald-400">
+              <CheckCircle2 className="h-4 w-4" />
+              Loop {result.dry_run ? 'dry run' : 'live'} — {result.actions_taken ?? 0} actions
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            {result.report && (
+              <pre className="text-[11px] whitespace-pre-wrap text-muted-foreground font-mono max-h-64 overflow-auto">{result.report}</pre>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {result && result.status === 'error' && (
+        <div className="text-sm text-red-400 flex items-center gap-2">
+          <AlertCircle className="h-4 w-4" /> {result.error || 'Loop failed'}
+        </div>
+      )}
+
+      {enrolled.length === 0 && !statusLoading && (
+        <p className="text-xs text-muted-foreground">
+          No campaigns enrolled yet. Create a campaign in Launch — it auto-enrolls into this loop using your GTM Goals target + timeline.
+        </p>
+      )}
+    </div>
+  )
+}
+
 
 function ROASOptimizerTab({ companyId }: { companyId: string }) {
   const [loading, setLoading] = useState(false)
@@ -666,6 +1431,7 @@ function ROASOptimizerTab({ companyId }: { companyId: string }) {
         roas_threshold_scale: Number(scaleThreshold),
         budget_scale_factor: Number(scaleFactor),
         dry_run: dryRun,
+        ...(getMetaAdAccountId(companyId) ? { ad_account_id: getMetaAdAccountId(companyId) } : {}),
       }, companyId)
       setResult(res)
       if (res.status === 'completed') {
@@ -878,6 +1644,42 @@ const AGENT_TABS = [
       },
     ],
   },
+  {
+    id: 'image',
+    label: 'Ad Image',
+    title: 'Paid Ads — Ad Image',
+    description: 'Generate paid-ad images with Gemini 3.1 Flash-Lite Image (gemini-3.1-flash-lite-image).',
+    agents: [
+      {
+        name: 'maya',
+        label: 'Maya — Generate Ad Image',
+        taskType: 'generate_image',
+        outputMode: 'image' as const,
+        defaultQuery:
+          'Generate a high-converting paid ad image. Platform: [Meta feed 1:1 / Stories 9:16 / LinkedIn 1.91:1 / Google Display]. Offer: [product]. Visual: [scene]. Brand cues: [colors/style]. Leave clean negative space for headline overlays. Return generate_social_image automation trigger.',
+        placeholder: 'Platform, aspect ratio, offer, visual scene, brand colors',
+        tags: ['paid-ads', 'image', 'gemini-flash-lite'],
+      },
+    ],
+  },
+  {
+    id: 'video',
+    label: 'Ad Video',
+    title: 'Paid Ads — Ad Video',
+    description: 'Generate short ad videos with Gemini Omni Flash (gemini-omni-flash-preview).',
+    agents: [
+      {
+        name: 'maya',
+        label: 'Maya — Generate Ad Video',
+        taskType: 'generate_video',
+        outputMode: 'video' as const,
+        defaultQuery:
+          'Generate an 8-second paid ad video (16:9 or 9:16). Hook in first 1–2 seconds, clear product/subject, cinematic but platform-native. Offer: [product]. Audience: [ICP]. If an image URL exists, animate it via image-to-video. Return generate_faceless_video automation trigger.',
+        placeholder: 'Aspect ratio, offer, scene motion, optional reference image URL',
+        tags: ['paid-ads', 'video', 'omni-flash'],
+      },
+    ],
+  },
 ]
 
 // ── Root component ───────────────────────────────────────────────────────────
@@ -908,10 +1710,26 @@ export function PaidAdsFlow({
   const companyId = activeWorkspace?.id ?? ''
   const objectiveLabel = formatPaidLabel(initialObjective || 'leads')
   const channelLabel = formatPaidLabel(initialChannel || 'google')
+  const [launchDraft, setLaunchDraft] = useState<LaunchDraft | null>(() =>
+    initialObjective || initialChannel
+      ? {
+          objective: goalForPaidChannel(initialChannel || 'google', initialObjective || 'leads'),
+          channel: initialChannel,
+          advertising_channel_type:
+            String(initialChannel || '').includes('google')
+              ? goalToGoogleChannelType(initialObjective || 'leads')
+              : undefined,
+        }
+      : null,
+  )
 
   useEffect(() => {
     setActiveTab(normalizeInitialTab(isGuidedLaunch ? 'plan' : initialTab))
   }, [initialTab, isGuidedLaunch])
+
+  const handlePlanReady = useCallback((draft: LaunchDraft) => {
+    setLaunchDraft((prev) => ({ ...(prev || {}), ...draft }))
+  }, [])
 
   return (
     <div className="space-y-5">
@@ -931,6 +1749,12 @@ export function PaidAdsFlow({
             </div>
             <div className="flex flex-wrap gap-2">
               <div className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-sm"><span className="text-muted-foreground">Objective:</span> <span className="font-medium text-foreground">{objectiveLabel}</span></div>
+              {launchDraft?.objective ? (
+                <div className="rounded-full border border-orange-200/80 bg-orange-50/80 px-3 py-1.5 text-sm dark:border-orange-900/40 dark:bg-orange-950/20">
+                  <span className="text-muted-foreground">Launch goal:</span>{' '}
+                  <span className="font-medium text-foreground">{launchDraft.objective}</span>
+                </div>
+              ) : null}
               <div className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-sm"><span className="text-muted-foreground">Channel:</span> <span className="font-medium text-foreground">{channelLabel}</span></div>
               <div className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-sm"><span className="text-muted-foreground">Flow:</span> <span className="font-medium text-foreground">Plan → Launch → Optimize</span></div>
             </div>
@@ -982,9 +1806,12 @@ export function PaidAdsFlow({
 
         <TabsContent value="plan" className="mt-4">
           <PaidAdsPlanTab
+            companyId={companyId}
             initialQuestion={initialQuestion}
             initialObjective={initialObjective}
             initialChannel={initialChannel}
+            onPlanReady={handlePlanReady}
+            onGoToLaunch={() => setActiveTab('launch')}
           />
         </TabsContent>
 
@@ -1010,11 +1837,34 @@ export function PaidAdsFlow({
 
             <Card className="rounded-[1.5rem] border-border/70 bg-background/90">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Create Meta Ads Campaign</CardTitle>
-                <CardDescription>Launch a full campaign in Meta Ads Manager — Campaign → Ad Set → Creative → Ad.</CardDescription>
+                <CardTitle className="text-base">
+                  {(() => {
+                    const ch = normalizeCreateChannel(initialChannel)
+                    if (ch === 'google') return 'Create Google Ads Campaign'
+                    if (ch === 'linkedin') return 'Create LinkedIn Ads Campaign'
+                    return 'Create Meta Ads Campaign'
+                  })()}
+                </CardTitle>
+                <CardDescription>
+                  {(() => {
+                    const ch = normalizeCreateChannel(initialChannel)
+                    if (ch === 'google') {
+                      return 'Go Live creates a PAUSED Search scaffold — Budget → Campaign → Ad Group → RSA — for review in Google Ads.'
+                    }
+                    if (ch === 'linkedin') {
+                      return 'Go Live creates a PAUSED campaign group + campaign. Attach creative in Campaign Manager before activating.'
+                    }
+                    return 'Launch a full campaign in Meta Ads Manager — Campaign → Ad Set → Creative → Ad.'
+                  })()}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <CreateCampaignTab companyId={companyId} />
+                <CreateCampaignTab
+                  companyId={companyId}
+                  initialChannel={initialChannel}
+                  initialObjective={initialObjective}
+                  draft={launchDraft}
+                />
               </CardContent>
             </Card>
           </div>
@@ -1022,6 +1872,12 @@ export function PaidAdsFlow({
 
         <TabsContent value="optimize" className="mt-4">
           <div className="space-y-4">
+            <PaidChannelConnectorPrompt
+              companyId={companyId}
+              channel={initialChannel}
+              hardGate={false}
+              taskLabel={`${formatPaidLabel(initialChannel || 'google')} live performance`}
+            />
             <Card className="rounded-[1.5rem] border-border/70 bg-background/90">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Live Ad Performance</CardTitle>
@@ -1029,6 +1885,19 @@ export function PaidAdsFlow({
               </CardHeader>
               <CardContent>
                 <LivePerformanceTab companyId={companyId} />
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-[1.5rem] border-border/70 bg-background/90">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Goal-paced Closed Loop</CardTitle>
+                <CardDescription>
+                    Auto-enrolled on create. Uses paid-ads / ads-budget / ads-creative / ab-test-setup rules:
+                    20% scale + 3d cooldown, 3× CPA kill, freq&gt;5 fatigue, distinct-angle A/B with hypotheses.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CampaignLoopTab companyId={companyId} />
               </CardContent>
             </Card>
 

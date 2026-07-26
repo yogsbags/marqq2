@@ -594,6 +594,28 @@ function buildArtifactSpec(type, companyName, context) {
           'Be terse: titles under 8 words, descriptions under 18 words, expectedImpact under 14 words, each next step under 12 words, each risk and mitigation under 16 words, and each weekly activity under 10 words.'
         ].join(' '),
       };
+    case 'marketing_ideas':
+      return {
+        temperature: 0.35,
+        maxCompletionTokens: 3200,
+        systemPrompt: [
+          'You are executing the marketing-ideas skill (Corey Haines / marketingskills library).',
+          'The skill playbook and the full 139-idea catalog are injected below as Required marketing skill playbook — treat that as authoritative.',
+          ...sharedRules,
+          'Process (from marketing-ideas SKILL.md):',
+          '1) Infer product, audience, stage, budget, and goal from company/GTM context (do not invent a different business).',
+          '2) Select 3-5 MOST relevant ideas from the 139-idea catalog (references/ideas-by-category.md) — not generic LLM brainstorms.',
+          '3) For each, follow the skill output format: Idea name, Why it fits, How to start (2-3 steps), Expected outcome, Resources needed.',
+          '4) Prefer stage/budget guidance in the skill (pre-launch / early / growth / scale; free / low / medium / high budget).',
+          '5) Use Related Skills only as supporting context (programmatic-seo, competitor-alternatives, email-sequence, free-tool-strategy, referral-program).',
+          'Output JSON shape: { "scores": { "fitScore": number, "actionability": number, "channelDiversity": number }, "summary": string, "stageFit": "pre-launch"|"early"|"growth"|"scale", "budgetBand": "free"|"low"|"medium"|"high", "ideas": [{ "ideaNumber": number, "name": string, "category": string, "priority": "high"|"medium"|"low", "whyItFits": string, "hooks": string[], "angles": string[], "howToStart": string[], "expectedOutcome": string, "resources": string, "outcomeModule": "paid-ads"|"social-media"|"email-sequence"|"lead-outreach"|"lead-magnets"|"content-strategy"|"partners"|"ab-test"|"user-engagement"|"programmatic-seo"|"referral" }], "hooksToTest": [{ "hook": string, "why": string }], "anglesToTest": [{ "angle": string, "framework": "PAS"|"BAB"|"social_proof"|"feature_benefit"|"direct_response", "hypothesis": string }] }.',
+          'CRITICAL: every ideas[].ideaNumber MUST be an integer 1-139 that exists in the skill catalog. name should match that catalog idea (e.g. #15 Engineering as Marketing).',
+          'Return exactly 3 to 5 ideas (skill default), not a laundry list. Diversify categories only when they fit this company.',
+          'Also return hooksToTest (≥4) and anglesToTest (≥3 with ab-test hypotheses) derived from the chosen catalog ideas for creative testing.',
+          'Map outcomeModule to the Marqq path that executes that idea (e.g. #31 Google Ads → paid-ads, #4 Programmatic SEO → content-strategy, #93 Viral Loops → referral/user-engagement, #15 free tool → lead-magnets).',
+          'Be concrete and grounded in the company profile; no generic chatbot/AI filler.',
+        ].join(' '),
+      };
     case 'icps':
       return {
         temperature: 0.2,
@@ -1647,6 +1669,8 @@ export function normalizeArtifact(type, raw) {
       return normalizeWebsiteAudit(raw);
     case 'opportunities':
       return normalizeOpportunities(raw);
+    case 'marketing_ideas':
+      return raw && typeof raw === 'object' ? raw : { ideas: [] };
     case 'icps':
       return normalizeIcps(raw);
     case 'client_profiling':
@@ -1902,6 +1926,39 @@ function buildGeminiArtifactSchema(type) {
           focus: schemaString(),
           keyActivities: schemaStringArray(2, 4),
         }), 4, 4),
+      });
+    case 'marketing_ideas':
+      return schemaObject({
+        scores: schemaObject({
+          fitScore: schemaInteger(),
+          actionability: schemaInteger(),
+          channelDiversity: schemaInteger(),
+        }),
+        summary: schemaString(),
+        stageFit: schemaString(),
+        budgetBand: schemaString(),
+        ideas: schemaArray(schemaObject({
+          ideaNumber: schemaInteger(),
+          name: schemaString(),
+          category: schemaString(),
+          priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+          whyItFits: schemaString(),
+          hooks: schemaStringArray(1, 4),
+          angles: schemaStringArray(1, 3),
+          howToStart: schemaStringArray(2, 3),
+          expectedOutcome: schemaString(),
+          resources: schemaString(),
+          outcomeModule: schemaString(),
+        }), 3, 5),
+        hooksToTest: schemaArray(schemaObject({
+          hook: schemaString(),
+          why: schemaString(),
+        }), 4, 8),
+        anglesToTest: schemaArray(schemaObject({
+          angle: schemaString(),
+          framework: schemaString(),
+          hypothesis: schemaString(),
+        }), 3, 6),
       });
     case 'icps':
       return schemaObject({

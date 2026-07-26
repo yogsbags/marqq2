@@ -39,6 +39,10 @@ export interface AgentConfig {
   badge?: string      // optional badge color class
   placeholder?: string  // textarea hint text shown before user types
   tags?: string[]       // extra Langfuse trace tags for this agent run
+  /** Prefer these connectors when injecting Composio tools (e.g. paid channel). */
+  connectors?: string[]
+  /** Paid-ads channel hint for backend tool scoping. */
+  paidChannel?: string
   /** draft = save in connector tools; live = allow send/activate tools */
   deliveryMode?: 'draft' | 'live'
   /** Forces the backend contract to emit the matching asset automation trigger. */
@@ -65,6 +69,8 @@ interface AgentModuleShellProps {
   secondaryAgentsCollapsed?: boolean
   secondaryAgentsTitle?: string
   enableReportActions?: boolean
+  /** Called when an agent run finishes with an artifact (e.g. carry plan → Launch). */
+  onArtifactReady?: (agent: string, artifact: Record<string, unknown>) => void
 }
 
 function SingleAgentCard({
@@ -82,6 +88,7 @@ function SingleAgentCard({
   buildResourceContext,
   enableReportActions,
   moduleTitle,
+  onArtifactReady,
 }: {
   cfg: AgentConfig
   moduleId?: string
@@ -97,6 +104,7 @@ function SingleAgentCard({
   buildResourceContext?: (value: string, agent: AgentConfig) => string
   enableReportActions?: boolean
   moduleTitle: string
+  onArtifactReady?: (agent: string, artifact: Record<string, unknown>) => void
 }) {
   const [query, setQuery] = useState(cfg.defaultQuery)
   const [analyticsData, setAnalyticsData] = useState<AnalyticsResult | null>(null)
@@ -125,6 +133,14 @@ function SingleAgentCard({
   const agentRun = useAgentRun(undefined, persistenceKey)
   const isIdle = !agentRun.streaming && !agentRun.text && !agentRun.artifact && !agentRun.error
   const autoRunTriggeredRef = useRef(false)
+  const lastArtifactRef = useRef<Record<string, unknown> | null>(null)
+
+  useEffect(() => {
+    if (agentRun.streaming || !agentRun.artifact || !onArtifactReady) return
+    if (lastArtifactRef.current === agentRun.artifact) return
+    lastArtifactRef.current = agentRun.artifact
+    onArtifactReady(cfg.name, agentRun.artifact)
+  }, [agentRun.artifact, agentRun.streaming, cfg.name, onArtifactReady])
 
   const buildFinalQuery = (baseQuery: string) => {
     const parts = [baseQuery]
@@ -140,7 +156,7 @@ function SingleAgentCard({
   useEffect(() => {
     if (!shouldAutoRun || autoRunTriggeredRef.current) return
     autoRunTriggeredRef.current = true
-    void agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode, cfg.outputMode)
+    void agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode, cfg.outputMode, cfg.connectors, cfg.paidChannel)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoRun])
 
@@ -207,7 +223,7 @@ function SingleAgentCard({
           <Button
             size="sm"
             disabled={Boolean(disabledReason) || agentRun.streaming || !query.trim()}
-            onClick={() => agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode, cfg.outputMode)}
+            onClick={() => agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode, cfg.outputMode, cfg.connectors, cfg.paidChannel)}
             className="h-auto min-h-9 max-w-full whitespace-normal text-left leading-5 gap-1"
             title={disabledReason || undefined}
           >
@@ -266,6 +282,7 @@ export function AgentModuleShell({
   secondaryAgentsCollapsed = false,
   secondaryAgentsTitle = 'Next steps',
   enableReportActions = false,
+  onArtifactReady,
 }: AgentModuleShellProps) {
   const { activeWorkspace } = useWorkspace()
   const companyId = activeWorkspace?.id ?? ''
@@ -457,6 +474,7 @@ export function AgentModuleShell({
             buildResourceContext={buildResourceContext}
             enableReportActions={enableReportActions}
             moduleTitle={title}
+            onArtifactReady={onArtifactReady}
           />
         ) : null}
         {agents.length > 1 ? (
@@ -490,6 +508,7 @@ export function AgentModuleShell({
                       buildResourceContext={buildResourceContext}
                       enableReportActions={enableReportActions}
                       moduleTitle={title}
+                      onArtifactReady={onArtifactReady}
                     />
                   ))}
                 </div>
@@ -513,6 +532,7 @@ export function AgentModuleShell({
                 buildResourceContext={buildResourceContext}
                 enableReportActions={enableReportActions}
                 moduleTitle={title}
+                onArtifactReady={onArtifactReady}
               />
             ))
           )

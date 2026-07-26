@@ -347,8 +347,10 @@ export function getGoalIntakeConfig(goal: GoalTarget): GoalIntakeConfig {
             id: 'channel',
             prompt: 'Which channel should we prioritize?',
             options: [
+              { id: 'facebook', label: 'Facebook', description: 'Feed, Stories, and Facebook placements.' },
+              { id: 'instagram', label: 'Instagram', description: 'Feed, Reels, and Stories placements.' },
+              { id: 'facebook_instagram', label: 'FB + Instagram', description: 'Run across Facebook and Instagram together.' },
               { id: 'google', label: 'Google Ads', description: 'Intent-led search and demand capture.' },
-              { id: 'meta', label: 'Meta Ads', description: 'Paid social and creative testing.' },
               { id: 'linkedin', label: 'LinkedIn Ads', description: 'B2B audience targeting and lead gen.' },
             ],
           },
@@ -374,9 +376,11 @@ export function getGoalIntakeConfig(goal: GoalTarget): GoalIntakeConfig {
             id: 'platform',
             prompt: 'Where will this run?',
             options: [
-              { id: 'google', label: 'Google', description: 'Search and performance-driven copy.' },
-              { id: 'meta', label: 'Meta', description: 'Social-first creative messaging.' },
-              { id: 'linkedin', label: 'LinkedIn', description: 'B2B audience-focused creative.' },
+              { id: 'facebook', label: 'Facebook', description: 'Facebook feed and Stories creative.' },
+              { id: 'instagram', label: 'Instagram', description: 'Feed, Reels, and Stories creative.' },
+              { id: 'facebook_instagram', label: 'FB + Instagram', description: 'Creative that works across both.' },
+              { id: 'google', label: 'Google Ads', description: 'Search and performance-driven copy.' },
+              { id: 'linkedin', label: 'LinkedIn Ads', description: 'B2B audience-focused creative.' },
             ],
           },
         ],
@@ -895,12 +899,13 @@ export function getGoalIntakeConfig(goal: GoalTarget): GoalIntakeConfig {
         intro: 'I will open Outreach with the right prospecting brief already framed, so you start from a real outreach motion instead of a blank sales prompt.',
         questions: [
           {
-            id: 'outreach_channel',
-            prompt: 'Which outreach motion matters most?',
+            id: 'outreach_contact_channels',
+            prompt: 'What contact data should we fetch for each prospect?',
             options: [
-              { id: 'email', label: 'Email-first', description: 'Prioritize outbound email sequences and follow-ups.' },
-              { id: 'linkedin', label: 'LinkedIn-first', description: 'Prioritize social-first outreach and connection messages.' },
-              { id: 'multi', label: 'Multitouch', description: 'Combine LinkedIn and email into one coordinated sequence.' },
+              { id: 'email', label: 'Verified email', description: 'Only Apollo contacts with verified work email.' },
+              { id: 'email,linkedin', label: 'Email + LinkedIn', description: 'Verified email and a LinkedIn profile URL.' },
+              { id: 'email,phone,linkedin', label: 'Email + phone + LinkedIn', description: 'Require verified email, verified phone (direct dial), and LinkedIn.' },
+              { id: 'linkedin', label: 'LinkedIn only', description: 'Require a LinkedIn profile URL (no email filter).' },
             ],
           },
           {

@@ -9,8 +9,9 @@ import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { AGENTS } from '@/components/onboarding/constants';
-import { getGA4PropertyId } from '@/components/settings/tabs/AccountsTab';
+import { getGA4PropertyId, getMetaAdAccountId, getGoogleAdsCustomerId, getGscSiteUrl } from '@/components/settings/tabs/AccountsTab';
 import { loadLibraryArtifacts, type LibraryArtifactRow } from '@/lib/persistence';
+import { CONNECTOR_DISPLAY, isConnectorActive } from '@/lib/connectorMeta';
 
 // ── Collapsible section wrapper ───────────────────────────────────────────────
 
@@ -65,7 +66,10 @@ function MetricsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => v
     if (!activeWorkspace?.id || loaded) return;
     const wsId = activeWorkspace.id;
     const ga4Prop = getGA4PropertyId(wsId) || '';
-    const dashUrl = `/api/analytics/dashboard?period=30d&companyId=${encodeURIComponent(wsId)}${ga4Prop ? `&ga4PropertyId=${encodeURIComponent(ga4Prop)}` : ''}`;
+    const metaAcct = getMetaAdAccountId(wsId) || '';
+    const googleCust = getGoogleAdsCustomerId(wsId) || '';
+    const gscSite = getGscSiteUrl(wsId) || '';
+    const dashUrl = `/api/analytics/dashboard?period=30d&companyId=${encodeURIComponent(wsId)}${ga4Prop ? `&ga4PropertyId=${encodeURIComponent(ga4Prop)}` : ''}${metaAcct ? `&metaAdsAccount=${encodeURIComponent(metaAcct)}` : ''}${googleCust ? `&googleAdsCustomer=${encodeURIComponent(googleCust)}` : ''}${gscSite ? `&gscSiteUrl=${encodeURIComponent(gscSite)}` : ''}`;
     fetch(dashUrl)
       .then(r => r.ok ? r.json() : null)
       .then((data: { connected?: boolean; connectedSources?: Array<{id:string;name:string}>; kpis?: Array<{label:string;value:string;delta:string;trend:string;sub?:string}> } | null) => {
@@ -160,6 +164,95 @@ const SOCIAL_CHANNEL_MAP: Record<string, SocialChannelConfig> = {
 };
 
 type ConnectedChannel = SocialChannelConfig & { id: string; posts: number };
+
+// ── Connected connectors dropdown ─────────────────────────────────────────────
+
+function ConnectorsDropdownSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
+  const { activeWorkspace } = useWorkspace();
+  const [open, setOpen] = useState(false);
+  const [connectors, setConnectors] = useState<Array<{ id: string; name: string }>>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!activeWorkspace?.id || loaded) return;
+    fetch(`/api/integrations?companyId=${encodeURIComponent(activeWorkspace.id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { connectors?: Array<{ id: string; name?: string; connected?: boolean; status?: string }> } | null) => {
+        setLoaded(true);
+        const active = (data?.connectors ?? [])
+          .filter((c) => isConnectorActive(c))
+          .map((c) => ({
+            id: c.id,
+            name: CONNECTOR_DISPLAY[c.id]?.label || c.name || c.id,
+          }));
+        setConnectors(active);
+      })
+      .catch(() => setLoaded(true));
+  }, [activeWorkspace?.id, loaded]);
+
+  return (
+    <Section
+      title="Connectors"
+      defaultOpen={true}
+      action={
+        <button
+          type="button"
+          onClick={() => onModuleSelect?.('integrations')}
+          className="text-[10px] text-orange-500 hover:underline"
+        >
+          Manage
+        </button>
+      }
+    >
+      <div className="px-3 pb-1">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center justify-between rounded-lg border border-border/60 bg-background px-2.5 py-2 text-left hover:border-orange-400/50 transition-colors"
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <PlugZap className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+            <span className="text-xs font-medium truncate">
+              {connectors.length ? `${connectors.length} connected` : 'No connectors yet'}
+            </span>
+          </span>
+          {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+        </button>
+
+        {open && (
+          <div className="mt-1.5 max-h-48 overflow-y-auto rounded-lg border border-border/50 bg-muted/20">
+            {connectors.length === 0 ? (
+              <p className="px-2.5 py-3 text-[11px] text-muted-foreground text-center">
+                Connect accounts in Settings to make artifacts live.
+              </p>
+            ) : (
+              connectors.map((c) => {
+                const meta = CONNECTOR_DISPLAY[c.id];
+                return (
+                  <div
+                    key={c.id}
+                    className="flex items-center gap-2 border-b border-border/40 px-2.5 py-1.5 last:border-0"
+                  >
+                    <span
+                      className={cn(
+                        'flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white',
+                        meta?.bg || 'bg-zinc-600'
+                      )}
+                    >
+                      {(meta?.label || c.name).slice(0, 2).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-xs">{c.name}</span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
 
 // ── Channels / Autopilot section ──────────────────────────────────────────────
 
@@ -517,6 +610,7 @@ export function RightPanel({ className, onModuleSelect }: RightPanelProps) {
       {/* Scrollable sections */}
       <ScrollArea className="flex-1">
         <MetricsSection onModuleSelect={onModuleSelect} />
+        <ConnectorsDropdownSection onModuleSelect={onModuleSelect} />
         <ChannelsSection onModuleSelect={onModuleSelect} />
         <TasksSection onModuleSelect={onModuleSelect} />
         <BrandKBSection onModuleSelect={onModuleSelect} />

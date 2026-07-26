@@ -183,30 +183,44 @@ class PaidAdsAgent {
 
     // ── Status mode: fetch live campaign data ─────────────────────────────────
     const { startDate, endDate } = todayRange();
+    const gaql = [
+      'SELECT campaign.id, campaign.name, campaign.status,',
+      'metrics.cost_micros, metrics.clicks, metrics.impressions,',
+      'metrics.conversions, metrics.conversions_value,',
+      'campaign_budget.amount_micros',
+      'FROM campaign',
+      `WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'`,
+      'ORDER BY metrics.cost_micros DESC',
+      'LIMIT 50',
+    ].join(' ');
 
-    const [googleResult, metaResult] = await Promise.all([
-      executeComposioTool(entityId, 'googleads', 'GOOGLEADS_LIST_CAMPAIGNS', {
-        start_date: startDate,
-        end_date: endDate,
-        fields: [
-          'campaign.id', 'campaign.name', 'campaign.status',
-          'metrics.cost_micros', 'metrics.clicks', 'metrics.impressions',
-          'metrics.conversions', 'metrics.conversions_value',
-          'campaign_budget.amount_micros',
-        ].join(','),
+    const end = new Date(endDate);
+    const start = new Date(startDate);
+    const asLiDate = (d) => ({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
+
+    const [googleResult, metaResult, linkedinResult] = await Promise.all([
+      executeComposioTool(entityId, 'googleads', 'GOOGLEADS_SEARCH_STREAM_GAQL', {
+        query: gaql,
       }, apiKey),
-      executeComposioTool(entityId, 'facebook', 'FACEBOOK_GET_AD_INSIGHTS', {
+      executeComposioTool(entityId, 'metaads', 'METAADS_GET_INSIGHTS', {
         level: 'campaign',
-        time_range: JSON.stringify({ since: startDate, until: endDate }),
-        fields: 'campaign_id,campaign_name,spend,clicks,impressions,actions,action_values,effective_status,daily_budget',
+        date_preset: 'last_30d',
+        fields: ['campaign_id', 'campaign_name', 'spend', 'clicks', 'impressions', 'actions', 'action_values'],
+      }, apiKey),
+      executeComposioTool(entityId, 'linkedinads', 'LINKEDIN_ADS_GET_AD_ANALYTICS', {
+        pivot: 'CAMPAIGN',
+        timeGranularity: 'ALL',
+        fields: 'impressions,clicks,costInLocalCurrency,externalWebsiteConversions',
+        dateRange: { start: asLiDate(start), end: asLiDate(end) },
       }, apiKey),
     ]);
 
     const googleOk = googleResult.successful;
     const metaOk = metaResult.successful;
+    const linkedinOk = linkedinResult.successful;
 
-    if (!googleOk && !metaOk) {
-      return this._connectorError(['google_ads', 'meta_ads']);
+    if (!googleOk && !metaOk && !linkedinOk) {
+      return this._connectorError(['google_ads', 'meta_ads', 'linkedin_ads']);
     }
 
     const googleCampaigns = googleOk
@@ -221,7 +235,33 @@ class PaidAdsAgent {
           .map(normaliseMetaCampaign)
       : [];
 
-    const all = [...googleCampaigns, ...metaCampaigns];
+    const linkedinRows = linkedinOk
+      ? (Array.isArray(linkedinResult.data) ? linkedinResult.data
+          : linkedinResult.data?.elements || linkedinResult.data?.data || [])
+      : [];
+    const linkedinCampaigns = linkedinRows.map((row) => {
+      const spend = parseFloat(row.costInLocalCurrency || row.spend || 0);
+      const clicks = parseInt(row.clicks || 0, 10);
+      const impressions = parseInt(row.impressions || 0, 10);
+      const conversions = parseFloat(row.externalWebsiteConversions || 0);
+      return {
+        id: row.pivotValues?.[0] || null,
+        name: row.pivotValues?.[0] || row.campaign || 'LinkedIn campaign',
+        platform: 'LinkedIn Ads',
+        status: 'ACTIVE',
+        spend,
+        budget: 0,
+        spendPacePct: null,
+        clicks,
+        impressions,
+        ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+        cpc: clicks > 0 ? spend / clicks : 0,
+        conversions,
+        roas: 0,
+      };
+    });
+
+    const all = [...googleCampaigns, ...metaCampaigns, ...linkedinCampaigns];
     if (all.length === 0) return this._error('No campaign data found for the past 30 days.');
 
     // ── Aggregate ─────────────────────────────────────────────────────────────
@@ -239,7 +279,7 @@ class PaidAdsAgent {
 
     // ── Findings ──────────────────────────────────────────────────────────────
     const findings = [
-      `${all.length} campaigns active across ${[googleOk && 'Google Ads', metaOk && 'Meta Ads'].filter(Boolean).join(' and ')}.`,
+      `${all.length} campaigns active across ${[googleOk && 'Google Ads', metaOk && 'Meta Ads', linkedinOk && 'LinkedIn Ads'].filter(Boolean).join(' and ')}.`,
       `Total spend (last 30 days): $${totalSpend.toFixed(0)} | Clicks: ${totalClicks.toLocaleString()} | Conversions: ${totalConversions.toFixed(0)}`,
       allAlerts.length > 0
         ? `${allAlerts.length} alert${allAlerts.length > 1 ? 's' : ''} detected: ${criticalAlerts.length} critical, ${highAlerts.length} high severity.`
@@ -262,7 +302,7 @@ class PaidAdsAgent {
       agent: PaidAdsAgent.id,
       crew: 'paid-ads',
       confidence: all.length >= 3 ? 0.88 : 0.72,
-      connectors_used: [googleOk && 'google_ads', metaOk && 'meta_ads'].filter(Boolean),
+      connectors_used: [googleOk && 'google_ads', metaOk && 'meta_ads', linkedinOk && 'linkedin_ads'].filter(Boolean),
       artifact: {
         type: 'execution_tracker',
         status: criticalAlerts.length > 0 ? 'action_required' : allAlerts.length > 0 ? 'warnings' : 'healthy',

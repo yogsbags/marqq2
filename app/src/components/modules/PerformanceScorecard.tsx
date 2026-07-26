@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { cn } from '@/lib/utils'
-import { getGA4PropertyId } from '@/components/settings/tabs/AccountsTab'
+import { getGA4PropertyId, getMetaAdAccountId, getGoogleAdsCustomerId, getGscSiteUrl } from '@/components/settings/tabs/AccountsTab'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   TrendingUp, TrendingDown, Minus,
@@ -14,6 +14,19 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   BarChart, Bar,
 } from 'recharts'
+
+function buildAnalyticsDashboardUrl(wsId: string, period: string) {
+  const ga4Prop = getGA4PropertyId(wsId) || ''
+  const metaAcct = getMetaAdAccountId(wsId) || ''
+  const googleCust = getGoogleAdsCustomerId(wsId) || ''
+  const gscSite = getGscSiteUrl(wsId) || ''
+  let url = `/api/analytics/dashboard?period=${period}&companyId=${encodeURIComponent(wsId)}`
+  if (ga4Prop) url += `&ga4PropertyId=${encodeURIComponent(ga4Prop)}`
+  if (metaAcct) url += `&metaAdsAccount=${encodeURIComponent(metaAcct)}`
+  if (googleCust) url += `&googleAdsCustomer=${encodeURIComponent(googleCust)}`
+  if (gscSite) url += `&gscSiteUrl=${encodeURIComponent(gscSite)}`
+  return url
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -410,9 +423,8 @@ export function PerformanceScorecard({ onModuleSelect }: PerformanceScorecardPro
     async function load() {
       try {
         const wsId = activeWorkspace?.id
-        const ga4Prop = wsId ? (getGA4PropertyId(wsId) || '') : ''
         const url = wsId
-          ? `/api/analytics/dashboard?period=${period}&companyId=${encodeURIComponent(wsId)}${ga4Prop ? `&ga4PropertyId=${encodeURIComponent(ga4Prop)}` : ''}`
+          ? buildAnalyticsDashboardUrl(wsId, period)
           : `/api/analytics/dashboard?period=${period}`
         const resp = await fetch(url)
         if (!resp.ok) return
@@ -431,9 +443,8 @@ export function PerformanceScorecard({ onModuleSelect }: PerformanceScorecardPro
     setRefreshing(true)
     try {
       const wsId = activeWorkspace?.id
-      const ga4Prop = wsId ? (getGA4PropertyId(wsId) || '') : ''
       const url = wsId
-        ? `/api/analytics/dashboard?period=${period}&companyId=${encodeURIComponent(wsId)}${ga4Prop ? `&ga4PropertyId=${encodeURIComponent(ga4Prop)}` : ''}`
+        ? buildAnalyticsDashboardUrl(wsId, period)
         : `/api/analytics/dashboard?period=${period}`
       const resp = await fetch(url)
       if (resp.ok) {

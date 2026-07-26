@@ -69,21 +69,30 @@ import { detectCompanyAnomalies } from "./anomaly-detector.js";
 import { canAccessModule, requiredPlanForModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers, computeNextRun } from "./automations/registry.js";
-import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector } from "./mcp-router.js";
+import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector, getConnectedAccountToken } from "./mcp-router.js";
 import {
   createOutreachRun,
   getOutreachRun,
   streamProspectCopy,
   saveProspectGmailDraft,
-  updateProspectCopy,
   suggestAptSendTime,
   hydrateOutreachStore,
   processDueOutreachSends,
   processGmailReplyPolls,
   recordOutreachReply,
   handleComposioGmailTrigger,
+  handleHeyReachReplyWebhook,
+  handleWhatsAppInboundWebhook,
+  registerHeyReachReplyWebhook,
   getWorkspaceOutreachSummary,
   sendProspectImmediately,
+  launchOutreachGoLive,
+  updateOutreachProspect,
+  removeOutreachProspect,
+  streamProspectCopyRevision,
+  updateOutreachReplyDraft,
+  rejectOutreachReplyDraft,
+  approveOutreachReply,
 } from "./outreach-service.js";
 import { getLLMModel, LLM_PROVIDER, LLM_MODEL, inferProviderForModel, isClaudeProvider, isGroqProvider } from "./llm-client.js";
 import { registerGtmWizardRoutes } from "./gtm-wizard-routes.js";
@@ -93,6 +102,14 @@ import {
   resolveDeploymentNextRun,
 } from "./lib/humanSchedule.js";
 import { loadMarketingSkillsForTask } from "./lib/artifactMarketingSkills.js";
+import {
+  getConnectorPreferences,
+  setConnectorPreferences,
+  getPreferredMetaAdAccountId,
+  getPreferredGoogleAdsCustomerId,
+  getPreferredGa4PropertyId,
+  getPreferredGscSiteUrl,
+} from "./connector-preferences.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IS_MAIN_MODULE = process.argv[1]
@@ -150,6 +167,7 @@ const VALID_AGENTS = new Set([
 const ARTIFACT_AGENT_MAP = {
   competitor_intelligence: { agent: "isha",  taskType: "competitor_intelligence" },
   opportunities:           { agent: "isha",  taskType: "opportunities_analysis" },
+  marketing_ideas:         { agent: "neel",  taskType: "marketing_ideas" },
   icps:                    { agent: "neel",  taskType: "icp_definition" },
   marketing_strategy:      { agent: "neel",  taskType: "marketing_strategy" },
   positioning_messaging:   { agent: "neel",  taskType: "positioning_messaging" },
@@ -205,6 +223,8 @@ function isThinArtifact(type, data) {
       );
     case "opportunities":
       return arr(data.quickWins).length === 0 && arr(data.opportunities).length === 0;
+    case "marketing_ideas":
+      return arr(data.ideas).length === 0;
     case "competitor_intelligence":
       return arr(data.topCompetitors).length === 0;
     case "lead_magnets":
@@ -274,6 +294,7 @@ function buildAgentQueryForArtifact(type, companyName, inputs) {
     competitor_intelligence: `${ctx}Scan for competitor moves, narrative shifts, pricing changes, and market threats. Identify top 3-5 direct competitors and surface actionable competitive intelligence. Return your full analysis plus a structured competitor_intelligence artifact.`,
     website_audit:           `${ctx}Audit the company website for offer clarity, CTA effectiveness, messaging quality, and conversion blockers. Return your findings plus a structured website_audit artifact.`,
     opportunities:           `${ctx}Identify the top market opportunities, demand gaps, and near-term growth vectors. Return your analysis plus a structured opportunities artifact.`,
+    marketing_ideas:         `${ctx}Execute the marketing-ideas skill. Select 3-5 ideas from the 139-idea catalog (cite ideaNumber). For each: name, whyItFits, howToStart (2-3 steps), expectedOutcome, resources, hooks, angles, outcomeModule. Also return hooksToTest[] and anglesToTest[]. Return a structured marketing_ideas artifact.`,
     client_profiling:        `${ctx}Profile the company's likely client base — who they serve, use cases, buying behaviour, and success patterns. Return a structured client_profiling artifact.`,
     partner_profiling:       `${ctx}Identify partner, integration, and channel ecosystem opportunities. Return a structured partner_profiling artifact.`,
     icps:                    `${ctx}Define 2-4 Ideal Customer Profiles for campaign activation. Return ONLY this JSON shape in artifact.data (no alternate keys): { "scores": { "segmentFit": number, "targetingClarity": number, "activationReadiness": number }, "icps": [{ "name": string, "who": string, "hook": string, "channels": string[], "qualifiers": string[], "disqualifiers": string[] }], "cohorts": [{ "name": string, "priority": number, "definition": string, "messagingAngle": string, "marketType": "b2c" | "b2b" | "mixed", "recommendedChannels": string[], "blockedChannels": string[], "reason": string, "apolloTargetIndustries": string[], "apolloBuyerTitles": string[] }], "notes": string[] }. Each ICP MUST include a concrete hook, 2-4 channels, 3-6 qualifiers, and 2-4 disqualifiers. Also return 3-6 cohorts with messagingAngle and marketType. If a cohort describes consumers, patients, users, demographic traits, or sensitive health traits, set marketType="b2c", include consumer channels like paid_ads/social_posts/seo_article/creator_partnerships, and put apollo_outreach in blockedChannels. Only set marketType="b2b" and recommend apollo_outreach when the cohort itself describes businesses or professional buyers searchable in Apollo. Do not return positioning_angle / target_segment / channel_priorities / 90_day_plan for this task.`,
@@ -1087,6 +1108,7 @@ function buildAgentRunGuardrails(name, taskType) {
       "When writing email sequences: write the COMPLETE email body — never use bracket placeholders like [Case Study Link], [desirable outcome], [Date], [Client Name]. If you need to reference a client story, write a generic narrative like 'A prop-tech founder we worked with...' without naming a real company.",
       "Do not invent specific metrics in email copy (e.g. 'boost accuracy by 40%', 'reduce time by 6 months'). Use benefit language instead: 'faster valuation cycles', 'better-fit leads', 'less manual work'.",
       "When the task is a proposal template: your artifact.data MUST use the proposal schema — do NOT use strategy_overview/phases. Required fields: proposal_title (string), executive_summary (string), problem_statement (string), our_approach (string), deliverables (array), pricing_tiers (array of {name, price_signal, whats_included}), next_steps (string).",
+      "Default delivery is draft: prepare Instantly campaigns/leads, Gmail drafts, LinkedIn/HeyReach/WhatsApp copy. Do NOT call live publish/send tools (LinkedIn CREATE_*, HeyReach ADD_LEADS, WhatsApp SEND_*, Instantly ACTIVATE) unless delivery_mode is live.",
     ],
     zara: [
       "CRITICAL: Always write readable prose BEFORE the contract block explaining your channel and campaign logic. Example: 'Based on the company's positioning and ICP, here are the recommended channels for the next 90 days and why:' — then your channel breakdown.",
@@ -1111,7 +1133,7 @@ function buildAgentRunGuardrails(name, taskType) {
       "If verified performance data is missing, respond with 'Missing outcome verification dataset' and list the required inputs.",
       "Do not score prediction accuracy without real observed metrics.",
       "When including tasks_created entries, every entry MUST have all required fields populated: task_type (e.g. 'lead_qualification', 'outreach_email', 'campaign_analysis'), agent_name (e.g. 'sam', 'dev', 'kiran'), description, and priority. Never leave task_type or agent_name blank or null.",
-      "When Composio tools are available, call them in sequence for the job (search/enrich → CRM check → Instantly/Gmail draft). Prefer tool results over invented contact lists. Do not claim live sends unless a send tool succeeded.",
+      "When Composio tools are available, call them in sequence for the job (search/enrich → CRM check → Instantly/Gmail draft; LinkedIn GET_* for profile context). Prefer tool results over invented contact lists. Do not claim live sends unless a send/publish tool succeeded and delivery_mode is live.",
     ],
     isha: [
       "Prefer crisp bullet points over long narrative explanation.",
@@ -1126,6 +1148,7 @@ function buildAgentRunGuardrails(name, taskType) {
       "Do not write posts formatted as client case studies or testimonials (e.g. 'a Series A founder told us...', '₹40L pipeline in 6 weeks', '8 demos booked') — these are false testimonials and will damage credibility.",
       "Post hooks must be opinion-led, question-led, or observation-led — not results-led with invented numbers.",
       "Do not fabricate client success stories or proof points that are not present in the company context.",
+      "Default delivery is draft: write LinkedIn/social copy in the artifact. Call LINKEDIN_CREATE_* / publish tools only when delivery_mode is live or the user explicitly clicks Go Live.",
     ],
     neel: [
       "Avoid long reasoning preambles.",
@@ -1178,11 +1201,15 @@ function buildAgentRunGuardrails(name, taskType) {
       "Ground profiles in connected analytics/CRM tools before guessing segment volumes.",
     ],
     lead_outreach: [
+      "You are Sam executing outreach. Follow the cold-email skill for first-touch copy and follow-up arcs.",
       "Execute outreach prep with tools in order: Instantly LIST_ACCOUNTS → CREATE_CAMPAIGN (sequences+schedule) → ADD_LEADS_BULK → CREATE_WEBHOOK → optional CREATE_SUBSEQUENCE → ACTIVATE only when delivery_mode is live.",
-      "Default delivery is draft-in-tool: create Instantly campaigns/leads and Gmail drafts. Only live-send / ACTIVATE when delivery_mode is live / user explicitly asks to push live.",
+      "When Instantly enrichment tools are available, after ADD_LEADS_BULK you may CREATE_SUPERSEARCH_ENRICHMENT or CREATE_AI_ENRICHMENT on the campaign/list, PATCH settings if needed, then SUPERSEARCH_ENRICHMENT_RUN_POST, and GET_SUPERSEARCH_ENRICHMENT to check status — enrich before ACTIVATE.",
+      "For LinkedIn: use native LinkedIn GET_* tools for profile/company context when connected; draft DM/post copy in the artifact. Use HeyReach list/campaign reads in draft; HEYREACH_ADD_LEADS_TO_LIST_V2 and LinkedIn CREATE_* only when delivery_mode is live.",
+      "For WhatsApp: draft the DM body in the artifact; WHATSAPP_SEND_* only when delivery_mode is live.",
+      "Default delivery is draft-in-tool: create Instantly campaigns/leads and Gmail drafts; keep LinkedIn/WhatsApp as prepared copy. Only live-send / ACTIVATE / publish when delivery_mode is live / user explicitly clicks Go Live.",
       "Prefer INSTANTLY_ADD_LEADS_BULK over per-lead CREATE_LEAD. Prefer Instantly sender email_list from LIST_ACCOUNTS — never invent sender addresses.",
-      "Never use Apollo to search for consumer traits, private individuals, patient cohorts, health conditions, demographics, or other sensitive personal attributes. Apollo outreach is only valid for B2B/company/professional-buyer cohorts.",
-      "If the input cohort is B2C, consumer, patient, user, or demographic-based, state that outreach/Apollo is the wrong acquisition channel and recommend paid ads, content, social, creators, communities, SEO, or landing pages instead.",
+      "Prospect with connected lead-data providers (Apollo or Hunter). Never search for consumer traits, private individuals, patient cohorts, health conditions, demographics, or other sensitive personal attributes. Lead-data outreach is only valid for B2B/company/professional-buyer cohorts.",
+      "If the input cohort is B2C, consumer, patient, user, or demographic-based, state that outreach/lead-data is the wrong acquisition channel and recommend paid ads, content, social, creators, communities, SEO, or landing pages instead.",
     ],
     scheduled_deployment: [
       "Walk Upcoming Tasks in numbered order. Call the tool that matches each step when connected; otherwise note the gap and continue with drafts from context.",
@@ -1217,6 +1244,11 @@ function buildAgentRunGuardrails(name, taskType) {
       '{ "scores": { "growthPotential": number, "quickWinReadiness": number, "executionClarity": number }, "summary": string, "quickWins": [{ "title": string, "priority": string, "description": string, "expectedImpact": string, "timeToValue": string }], "opportunities": [{ "title": string, "category": string, "priority": string, "effort": string, "expectedImpact": string, "nextSteps": string[] }], "risksAndMitigations": [{ "risk": string, "mitigation": string }], "90DayPlan": [{ "week": number, "focus": string, "keyActivities": string[] }] }',
       "Include at least 3 quickWins and 3 opportunities with concrete nextSteps.",
     ],
+    marketing_ideas: [
+      "CRITICAL: Execute the marketing-ideas skill. Select from the injected 139-idea catalog only — cite ideaNumber 1-139.",
+      '{ "scores": { "fitScore": number, "actionability": number, "channelDiversity": number }, "summary": string, "stageFit": string, "budgetBand": string, "ideas": [{ "ideaNumber": number, "name": string, "category": string, "priority": "high"|"medium"|"low", "whyItFits": string, "hooks": string[], "angles": string[], "howToStart": string[], "expectedOutcome": string, "resources": string, "outcomeModule": string }], "hooksToTest": [{ "hook": string, "why": string }], "anglesToTest": [{ "angle": string, "framework": string, "hypothesis": string }] }',
+      "Return 3-5 catalog ideas (skill default). Each needs ideaNumber, whyItFits, howToStart (2-3), expectedOutcome, resources. Include hooksToTest ≥4 and anglesToTest ≥3.",
+    ],
     lead_magnets: [
       "CRITICAL: Return leadMagnets as an ARRAY (not a singular lead_magnet object).",
       '{ "scores": { "offerStrength": number, "conversionReadiness": number, "nurtureReadiness": number }, "leadMagnets": [{ "name": string, "format": string, "promise": string, "outline": string[], "landingPageCopy": { "headline": string, "subheadline": string, "bullets": string[], "cta": string }, "followUpSequence": [{ "day": number, "subject": string, "goal": string }] }], "notes": string[] }',
@@ -1240,14 +1272,31 @@ function buildAgentRunGuardrails(name, taskType) {
       '{ "scores": { "seedQuality": number, "targetingDepth": number, "launchReadiness": number }, "seedAudiences": string[], "lookalikes": [{ "platform": string, "targeting": string[], "exclusions": string[], "creativeHooks": string[], "measurementPlan": string[] }], "notes": string[] }',
     ],
     generate_image: [
-      "Use native image generation first for the first draft or concept asset.",
-      "Prefer the generate_social_image automation before using Canva tools, even if Canva is connected.",
+      "Use native Gemini image generation first for the first draft or concept asset.",
+      "Prefer the generate_social_image automation (gemini-3.1-flash-lite-image) before using Canva tools, even if Canva is connected.",
+      "Craft prompts with subject, composition, lighting, brand cues, aspect ratio, and clean negative space for ad copy overlays.",
       "Use Canva only as a secondary tool for design import, resize, autofill, export, template-based production, or packaging the native draft into channel-ready assets.",
     ],
     generate_video: [
-      "Use native video generation first for the first draft or concept asset.",
-      "Prefer the generate_faceless_video automation before using Veo tools, even if Veo is connected.",
-      "Use Veo tools only as a secondary path for direct operation handling, polling, download, or explicit toolkit-level control after the native generation path has been chosen.",
+      "Use native Gemini Omni Flash video generation first for the first draft or concept asset.",
+      "Prefer the generate_faceless_video automation (gemini-omni-flash-preview) before using Veo toolkit tools.",
+      "For image-to-video, pass params.image_url from a prior generate_social_image result when chaining creatives.",
+      "Use Veo tools only as a secondary path when GEMINI_VIDEO_MODEL is set to a Veo model or the user explicitly requests Veo.",
+    ],
+    ad_creative: [
+      "Produce platform-spec-compliant creative concepts (Meta / Google / LinkedIn character limits).",
+      "When the user asks for generated visuals, include generate_social_image and/or generate_faceless_video in automation_triggers.",
+      "Image model: gemini-3.1-flash-lite-image. Video model: gemini-omni-flash-preview.",
+    ],
+    paid_ads_strategy: [
+      "You MUST choose and return a campaign goal/objective — do not leave it implied.",
+      "Match the goal to the priority channel:",
+      "• Meta (facebook/instagram): objective = OUTCOME_TRAFFIC | OUTCOME_LEADS | OUTCOME_SALES | OUTCOME_AWARENESS | OUTCOME_ENGAGEMENT",
+      "• LinkedIn Ads: objective = WEBSITE_VISITS | LEAD_GENERATION | WEBSITE_CONVERSIONS | BRAND_AWARENESS",
+      "• Google Ads: advertising_channel_type = SEARCH | DISPLAY (SEARCH for leads/traffic/sales; DISPLAY for awareness); also set objective to the same value",
+      "Map business goals: leads→LEAD_GENERATION/OUTCOME_LEADS/SEARCH, traffic→WEBSITE_VISITS/OUTCOME_TRAFFIC/SEARCH, sales→WEBSITE_CONVERSIONS/OUTCOME_SALES/SEARCH, awareness→BRAND_AWARENESS/OUTCOME_AWARENESS/DISPLAY.",
+      "Also include launch-ready fields when known: campaign_name, headline, primary_text, link_url, daily_budget (major currency units), channel, cta_type, image_url.",
+      "State the chosen platform-native objective explicitly in prose so Launch can carry it into create_*_campaign / Go Live.",
     ],
     marketing_report: [
       "If Google Docs or Google Drive tools are available in this run, use them to create or store the report before finishing.",
@@ -1284,9 +1333,22 @@ const LIVE_SEND_TOOLS = new Set([
   "OUTLOOK_SEND_EMAIL", "OUTLOOK_SEND_DRAFT",
   "SLACK_SENDS_A_MESSAGE", "SLACK_SEND_MESSAGE",
   "WHATSAPP_SEND_MESSAGE",
+  "WHATSAPP_SEND_TEMPLATE_MESSAGE",
   "HUBSPOT_CREATE_ENGAGEMENT",
   "INSTANTLY_ACTIVATE_CAMPAIGN",
   "INSTANTLY_RESUME_SUBSEQUENCE",
+  "INSTANTLY_REPLY_TO_AN_EMAIL",
+  "INSTANTLY_UPDATE_LEAD_INTEREST_STATUS",
+  "HEYREACH_ADD_LEADS_TO_LIST_V2",
+  "HEYREACH_SEND_MESSAGE",
+  "HEYREACH_INBOX_SEND_MESSAGE",
+  "LINKEDIN_CREATE_ARTICLE_OR_URL_SHARE",
+  "LINKEDIN_CREATE_COMMENT_ON_POST",
+  "LINKEDIN_CREATE_LINKED_IN_POST",
+  "LINKEDIN_CREATE_TEXT_POST",
+  "LINKEDIN_DELETE_LINKED_IN_POST",
+  "LINKEDIN_DELETE_POST",
+  "LINKEDIN_DELETE_UGC_POST",
   "LEMLIST_SEND_EMAIL",
 ]);
 
@@ -1329,6 +1391,38 @@ function filterComposioToolsForTaskType(taskType, tools, deliveryMode = "draft")
     if (LIVE_SEND_TOOLS.has(toolName) && !allowLiveSend) return false;
     return true;
   });
+}
+
+/** Map paid channel / preferred connectors → connector ids used for tool injection. */
+function resolvePreferredConnectorIds({ connectors, paid_channel, channel } = {}) {
+  const fromList = [];
+  if (Array.isArray(connectors)) {
+    for (const id of connectors) {
+      if (typeof id === "string" && id.trim()) fromList.push(id.trim());
+    }
+  } else if (typeof connectors === "string" && connectors.trim()) {
+    for (const id of connectors.split(/[,\s]+/)) {
+      if (id.trim()) fromList.push(id.trim());
+    }
+  }
+  if (fromList.length) return [...new Set(fromList)];
+
+  const ch = String(paid_channel || channel || "").toLowerCase().trim();
+  if (!ch) return [];
+  if (["facebook", "instagram", "facebook_instagram", "meta", "fb+insta", "fb_instagram"].includes(ch)) {
+    return ["meta_ads", "ga4"];
+  }
+  if (ch === "google" || ch === "google_ads") return ["google_ads", "ga4"];
+  if (ch === "linkedin" || ch === "linkedin_ads") return ["linkedin_ads", "ga4"];
+  return [];
+}
+
+function intersectConnectorIds(allowedConnectorIds, preferredConnectorIds) {
+  if (!preferredConnectorIds?.length) return allowedConnectorIds;
+  const preferred = new Set(preferredConnectorIds);
+  const intersected = allowedConnectorIds.filter((id) => preferred.has(id));
+  // Keep non-ad read connectors (ga4/sheets) if preferred included them; otherwise fall back
+  return intersected.length ? intersected : allowedConnectorIds;
 }
 
 const AGENT_PROFILES = {
@@ -5697,7 +5791,7 @@ app.get("/api/agents/:name/memory", async (req, res) => {
 
 app.post("/api/agents/:name/plan", async (req, res) => {
   const { name } = req.params;
-  const { task, marketingContext } = req.body || {};
+  const { task, marketingContext, taskType, moduleId } = req.body || {};
 
   if (!VALID_AGENTS.has(name)) {
     return res.status(404).json({ error: "Unknown agent" });
@@ -5716,6 +5810,14 @@ app.post("/api/agents/:name/plan", async (req, res) => {
         executes: [],
       },
       marketingContext || null,
+      {
+        taskType:
+          (typeof taskType === "string" && taskType.trim()) ||
+          (typeof moduleId === "string" && moduleId.trim()) ||
+          (typeof marketingContext?.taskType === "string" && marketingContext.taskType.trim()) ||
+          (typeof marketingContext?.moduleId === "string" && marketingContext.moduleId.trim()) ||
+          "",
+      },
     );
     res.json(plan);
   } catch (error) {
@@ -5855,14 +5957,18 @@ Replace ALL placeholder values with your actual outputs.
 
 ## Available Paid Media Automations
 - fetch_meta_ads: Read Meta Ads performance (campaigns, spend, CTR, ROAS) — params: { ad_account_id?, date_range? }
-- create_meta_campaign: Create a full Meta Ads campaign (Campaign→AdSet→Creative→Ad) — params: { campaign_name, objective, daily_budget, targeting, headline, primary_text, link_url, cta_type?, status? }
+- create_meta_campaign: Create a full Meta Ads campaign (Campaign→AdSet→Creative→Ad) — params: { campaign_name, objective, daily_budget, targeting, headline, primary_text, link_url, cta_type?, status?, channel? }
+- create_google_ads_campaign: Create a PAUSED Google Ads Search campaign (Budget→Campaign→Ad Group→RSA) — params: { campaign_name, daily_budget, headline, primary_text, link_url, customer_id?, status? }
+- create_linkedin_ads_campaign: Create a PAUSED LinkedIn Ads campaign (Campaign Group→Campaign) — params: { campaign_name, daily_budget, headline?, primary_text?, link_url?, ad_account_id?, currency_code?, objective?, status? }
 - optimize_meta_roas: Pause low-ROAS ads and scale winning ad sets — params: { roas_threshold_pause?, roas_threshold_scale?, budget_scale_factor?, date_range?, dry_run? }. Set as scheduled_automation every 6h for autonomous ROAS management.
+- manage_paid_ads_loop: Post-launch closed loop (goal pacing + fatigue → A/B creatives + winning creative/cohort). Auto-enrolled on create_meta_campaign / Google / LinkedIn create. Schedule cron "0 */6 * * *". Params: { dry_run?, auto_optimize?, auto_refresh_creatives?, quantified_target?, timeline_target? }.
 - google_ads_fetch: Read Google Ads campaigns — params: { campaign_name?, campaign_id? }
+- linkedin_ads_fetch: Read LinkedIn Ads accounts, campaigns, and analytics — params: { ad_account_id?, date_range? }
 
 ## Available Content Creation Automations (Riya + Maya)
-- generate_social_image: Gemini Flash image (gemini-3.1-flash-image-preview) -> imgbb CDN. params: { prompt, aspect_ratio (1:1|16:9|9:16|4:5), platform, brand_context?, style? }. Returns: { image_url, cdn_url, platform }
+- generate_social_image: Gemini Flash-Lite Image (gemini-3.1-flash-lite-image) -> imgbb CDN (Cloudinary fallback). params: { prompt, aspect_ratio (1:1|16:9|9:16|4:5), platform, brand_context?, style?, headline?, primary_text? }. Returns: { image_url, cdn_url, host }
 - generate_email_html: Full inline-CSS HTML email newsletter. params: { subject, content, tone?, brand_name?, primary_color?, sections? }. Returns: { html, subject, preview_text }
-- generate_faceless_video: Google Veo 3.1 video (async). params: { prompt, duration?, aspect_ratio?, style? }. Returns: { status:queued, operation_name }
+- generate_faceless_video: Gemini Omni Flash (gemini-omni-flash-preview) -> Cloudinary CDN. params: { prompt, duration?, aspect_ratio?, style?, image_url? }. Returns: { status, video_url, cloudinary_url, host }
 - generate_avatar_video: HeyGen spokesperson video (async). params: { script, avatar_id?, voice_id?, background_color?, width?, height? }. Returns: { status:processing, video_id, check_url }
 - create_seo_article: Full HTML blog post with SEO meta. params: { keyword, topic?, word_count_target?, target_audience?, brand_context? }. Returns: { html, title, meta_description, slug, word_count }
 `;
@@ -6718,7 +6824,7 @@ After your COMPLETE response, append the following block EXACTLY at the very END
           if (connectedAllowedApps.length > 0) {
             composioTools = await getComposioTools(companyId, composioApiKey, {
               toolkits: connectedAllowedApps,
-              limit: 10,
+              limit: 100,
             });
           }
         } catch {
@@ -6926,6 +7032,9 @@ app.post("/api/agents/:name/run", async (req, res) => {
     tags: clientTags,
     conversation_history,
     input_attachments,
+    connectors,
+    paid_channel,
+    channel,
   } = req.body;
   const workspaceId = typeof req.headers["x-workspace-id"] === "string"
     ? req.headers["x-workspace-id"].trim()
@@ -7289,7 +7398,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
       ? `\n\n## Delivery Mode\ndelivery_mode: ${deliveryModeResolved}\n${
           deliveryModeResolved === "live"
             ? "Push live via connected send tools when appropriate. Confirm in prose that live send tools were used."
-            : "Save as draft in connected tools (Gmail drafts, Instantly sequences/campaigns). Do NOT call live send tools."
+            : "Save as draft in connected tools (Gmail drafts, Instantly sequences/campaigns without ACTIVATE, LinkedIn/HeyReach/WhatsApp copy prepared but not published/sent). Do NOT call live send/publish tools (Gmail/Outlook SEND, Instantly ACTIVATE, HeyReach ADD_LEADS, LinkedIn CREATE_*, WhatsApp SEND_*)."
         }\n`
       : "";
   const inferOutputModeFromTaskType = (taskType) => {
@@ -7305,9 +7414,9 @@ app.post("/api/agents/:name/run", async (req, res) => {
     : inferOutputModeFromTaskType(task_type);
   const outputModeInstructions = {
     image:
-      "Return a visual concept in artifact.data and include exactly one automation_triggers entry with automation_id generate_social_image. Fill params.prompt with the final image prompt, params.aspect_ratio with 1:1, 4:5, 9:16, or 16:9, and params.platform when known.",
+      "Return a visual concept in artifact.data and include exactly one automation_triggers entry with automation_id generate_social_image. Fill params.prompt with the final image prompt for gemini-3.1-flash-lite-image, params.aspect_ratio with 1:1, 4:5, 9:16, or 16:9, and params.platform when known.",
     video:
-      "Return a video brief/script in artifact.data and include exactly one automation_triggers entry with automation_id generate_faceless_video. Fill params.prompt with the final production prompt, params.duration when known, params.aspect_ratio when known, and params.style when useful.",
+      "Return a video brief/script in artifact.data and include exactly one automation_triggers entry with automation_id generate_faceless_video. Fill params.prompt with the final production prompt for gemini-omni-flash-preview, params.duration (3–10), params.aspect_ratio (16:9|9:16), and params.style when useful. If an image URL already exists, pass params.image_url for image-to-video.",
     avatar_video:
       "Return a spokesperson video script in artifact.data and include exactly one automation_triggers entry with automation_id generate_avatar_video. Fill params.script with the final spoken script and include avatar_id or voice_id only if the user provided exact IDs.",
     email_html:
@@ -7386,14 +7495,18 @@ Replace ALL placeholder values with your actual outputs.
 
 ## Available Paid Media Automations
 - fetch_meta_ads: Read Meta Ads performance (campaigns, spend, CTR, ROAS) — params: { ad_account_id?, date_range? }
-- create_meta_campaign: Create a full Meta Ads campaign (Campaign→AdSet→Creative→Ad) — params: { campaign_name, objective, daily_budget, targeting, headline, primary_text, link_url, cta_type?, status? }
+- create_meta_campaign: Create a full Meta Ads campaign (Campaign→AdSet→Creative→Ad) — params: { campaign_name, objective, daily_budget, targeting, headline, primary_text, link_url, cta_type?, status?, channel? }
+- create_google_ads_campaign: Create a PAUSED Google Ads Search campaign (Budget→Campaign→Ad Group→RSA) — params: { campaign_name, daily_budget, headline, primary_text, link_url, customer_id?, status? }
+- create_linkedin_ads_campaign: Create a PAUSED LinkedIn Ads campaign (Campaign Group→Campaign) — params: { campaign_name, daily_budget, headline?, primary_text?, link_url?, ad_account_id?, currency_code?, objective?, status? }
 - optimize_meta_roas: Pause low-ROAS ads and scale winning ad sets — params: { roas_threshold_pause?, roas_threshold_scale?, budget_scale_factor?, date_range?, dry_run? }. Set as scheduled_automation every 6h for autonomous ROAS management.
+- manage_paid_ads_loop: Post-launch closed loop (goal pacing + fatigue → A/B creatives + winning creative/cohort). Auto-enrolled on create_meta_campaign / Google / LinkedIn create. Schedule cron "0 */6 * * *". Params: { dry_run?, auto_optimize?, auto_refresh_creatives?, quantified_target?, timeline_target? }.
 - google_ads_fetch: Read Google Ads campaigns — params: { campaign_name?, campaign_id? }
+- linkedin_ads_fetch: Read LinkedIn Ads accounts, campaigns, and analytics — params: { ad_account_id?, date_range? }
 
 ## Available Content Creation Automations (Riya + Maya)
-- generate_social_image: Gemini Flash image (gemini-3.1-flash-image-preview) -> imgbb CDN. params: { prompt, aspect_ratio (1:1|16:9|9:16|4:5), platform, brand_context?, style? }. Returns: { image_url, cdn_url, platform }
+- generate_social_image: Gemini Flash-Lite Image (gemini-3.1-flash-lite-image) -> imgbb CDN (Cloudinary fallback). params: { prompt, aspect_ratio (1:1|16:9|9:16|4:5), platform, brand_context?, style?, headline?, primary_text? }. Returns: { image_url, cdn_url, host }
 - generate_email_html: Full inline-CSS HTML email newsletter. params: { subject, content, tone?, brand_name?, primary_color?, sections? }. Returns: { html, subject, preview_text }
-- generate_faceless_video: Google Veo 3.1 video (async). params: { prompt, duration?, aspect_ratio?, style? }. Returns: { status:queued, operation_name }
+- generate_faceless_video: Gemini Omni Flash (gemini-omni-flash-preview) -> Cloudinary CDN. params: { prompt, duration?, aspect_ratio?, style?, image_url? }. Returns: { status, video_url, cloudinary_url, host }
 - generate_avatar_video: HeyGen spokesperson video (async). params: { script, avatar_id?, voice_id?, background_color?, width?, height? }. Returns: { status:processing, video_id, check_url }
 - create_seo_article: Full HTML blog post with SEO meta. params: { keyword, topic?, word_count_target?, target_audience?, brand_context? }. Returns: { html, title, meta_description, slug, word_count }
 `;
@@ -7504,12 +7617,20 @@ Replace ALL placeholder values with your actual outputs.
     // Prefer workspaceId (from x-workspace-id header) as the entity; fall back to companyId.
     const composioEntityId = workspaceId || companyId || "default";
     let composioTools = [];
-    const allowedConnectorIds = getAgentConnectors(name);
-    const allowedApps = getAgentConnectorApps(name);
+    const agentConnectorIds = getAgentConnectors(name);
+    const agentApps = getAgentConnectorApps(name);
+    const connectorAppMap = Object.fromEntries(
+      agentConnectorIds.map((connectorId, index) => [connectorId, agentApps[index]])
+    );
+    const scopedConnectorIds = intersectConnectorIds(
+      agentConnectorIds,
+      resolvePreferredConnectorIds({ connectors, paid_channel, channel }),
+    );
+    const scopedApps = scopedConnectorIds.map((id) => connectorAppMap[id]).filter(Boolean);
     const allowSecondaryCreativeTools =
       name === 'riya' && (
-        (task_type === 'generate_image' && allowedConnectorIds.includes('canva')) ||
-        (task_type === 'generate_video' && allowedConnectorIds.includes('veo'))
+        (task_type === 'generate_image' && scopedConnectorIds.includes('canva')) ||
+        (task_type === 'generate_video' && scopedConnectorIds.includes('veo'))
       );
     // Agents that declare "permissions": "read" in mcp.json (e.g. Veena, Maya, Dev, Priya)
     // should ALWAYS get their read-only connectors (GA4, GSC, Sheets) injected, even when
@@ -7519,20 +7640,17 @@ Replace ALL placeholder values with your actual outputs.
     const skipComposioForTaskType =
       (!isReadOnlyAgent && CONTENT_GEN_TASK_TYPES.has(task_type) && !allowSecondaryCreativeTools) ||
       (name === 'isha' && task_type === 'daily_market_scan');
-    const connectorAppMap = Object.fromEntries(
-      allowedConnectorIds.map((connectorId, index) => [connectorId, allowedApps[index]])
-    );
     // Connections are registered against the workspace entity (x-workspace-id), not MKG company_id.
     const connectorLookupId = composioEntityId;
-    if (composioApiKey && !completed && !skipComposioForTaskType && connectorLookupId && allowedApps.length > 0) {
+    if (composioApiKey && !completed && !skipComposioForTaskType && connectorLookupId && scopedApps.length > 0) {
       try {
         const connectorStates = await getConnectors(connectorLookupId);
         const connectedAllowedIds = new Set(
           connectorStates
-            .filter((connector) => connector.connected && allowedConnectorIds.includes(connector.id))
+            .filter((connector) => connector.connected && scopedConnectorIds.includes(connector.id))
             .map((connector) => connector.id)
         );
-        const connectedAllowedApps = allowedConnectorIds
+        const connectedAllowedApps = scopedConnectorIds
           .filter((connectorId) => connectedAllowedIds.has(connectorId))
           .map((connectorId) => connectorAppMap[connectorId])
           .filter(Boolean);
@@ -7540,7 +7658,7 @@ Replace ALL placeholder values with your actual outputs.
         if (connectedAllowedApps.length > 0) {
           composioTools = await getComposioTools(composioEntityId, composioApiKey, {
             toolkits: connectedAllowedApps,
-            limit: 40,
+            limit: 100,
           });
           composioTools = filterComposioToolsForTaskType(
             task_type,
@@ -7779,6 +7897,32 @@ app.get('/api/automations/runs', async (req, res) => {
   }
 });
 
+// GET /api/automations/scheduled — inspect scheduled_automations for a company
+app.get('/api/automations/scheduled', async (req, res) => {
+  try {
+    const companyId = String(req.query.company_id || '').trim();
+    const automationId = String(req.query.automation_id || '').trim();
+    if (!companyId) return res.status(400).json({ error: 'company_id required' });
+    const client = supabaseForServerData();
+    if (!client) return res.status(503).json({ error: 'Database unavailable' });
+    let q = client
+      .from('scheduled_automations')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('updated_at', { ascending: false });
+    if (automationId) q = q.eq('automation_id', automationId);
+    const { data, error } = await q.limit(20);
+    if (error) throw error;
+    const rows = data || [];
+    res.json({
+      rows,
+      row: automationId ? rows[0] || null : rows[0] || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/automations/execute — direct test/manual execution of any automation
 app.post('/api/automations/execute', async (req, res) => {
   const { automation_id, params = {}, company_id } = req.body || {};
@@ -7820,12 +7964,20 @@ app.post('/api/outreach/runs', async (req, res) => {
           .map((s) => s.trim())
           .filter(Boolean);
 
+    const contactChannels = Array.isArray(body.contact_channels)
+      ? body.contact_channels.map((v) => String(v || '').trim().toLowerCase()).filter(Boolean)
+      : String(body.contact_channels || body.contactChannels || '')
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+
     const run = await createOutreachRun({
       workspaceId: workspaceId || companyId,
       companyId,
       companyName: String(body.companyName || body.company_name || '').trim(),
       question: String(body.question || '').trim(),
       channel: String(body.channel || 'email').trim(),
+      contactChannels,
       target: String(body.target || 'decision').trim(),
       goal: String(body.goal || 'reply').trim(),
       industries,
@@ -7838,6 +7990,7 @@ app.post('/api/outreach/runs', async (req, res) => {
       runId: run.id,
       count: run.prospects.length,
       source: run.source,
+      provider: run.provider || null,
       prospects: run.prospects,
       suggested_send_at: suggestAptSendTime({
         timezoneOffsetMinutes: Number(body.timezoneOffsetMinutes) || 330,
@@ -7879,16 +8032,51 @@ app.post('/api/outreach/runs/:runId/prospects/:prospectId/copy', async (req, res
   return res.end();
 });
 
-app.patch('/api/outreach/runs/:runId/prospects/:prospectId', (req, res) => {
+app.patch('/api/outreach/runs/:runId/prospects/:prospectId', async (req, res) => {
   try {
-    const prospect = updateProspectCopy(req.params.runId, req.params.prospectId, {
-      subject: req.body?.subject,
-      body: req.body?.body,
-    });
+    await hydrateOutreachStore();
+    const prospect = updateOutreachProspect(req.params.runId, req.params.prospectId, req.body || {});
     return res.json({ prospect });
+  } catch (err) {
+    const status = /locked/i.test(err.message || '') ? 409 : 404;
+    return res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/outreach/runs/:runId/prospects/:prospectId', async (req, res) => {
+  try {
+    await hydrateOutreachStore();
+    const result = removeOutreachProspect(req.params.runId, req.params.prospectId);
+    return res.json(result);
   } catch (err) {
     return res.status(404).json({ error: err.message });
   }
+});
+
+app.post('/api/outreach/runs/:runId/prospects/:prospectId/revise', async (req, res) => {
+  const run = getOutreachRun(req.params.runId);
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  try {
+    await streamProspectCopyRevision({
+      runId: req.params.runId,
+      prospectId: req.params.prospectId,
+      copyType: req.body?.copy_type || req.body?.copyType || 'email',
+      instruction: req.body?.instruction || req.body?.prompt || '',
+      groqClient: groq,
+      res,
+    });
+  } catch (err) {
+    console.error('[outreach/revise]', err);
+    res.write(`data: ${JSON.stringify({ error: err.message || 'Revision failed' })}\n\n`);
+    res.write('data: [DONE]\n\n');
+  }
+  return res.end();
 });
 
 app.post('/api/outreach/runs/:runId/prospects/:prospectId/gmail-draft', async (req, res) => {
@@ -7931,6 +8119,62 @@ app.post('/api/outreach/runs/:runId/prospects/:prospectId/send-now', async (req,
   } catch (err) {
     console.error('[outreach/send-now]', err);
     return res.status(500).json({ error: err.message || 'Send failed' });
+  }
+});
+
+app.post('/api/outreach/runs/:runId/go-live', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const prospectIds = Array.isArray(body.prospectIds)
+      ? body.prospectIds
+      : (body.prospectId ? [body.prospectId] : null);
+    const activate = body.activate === true || body.delivery === 'live';
+    const result = await launchOutreachGoLive({
+      runId: req.params.runId,
+      prospectIds,
+      activate,
+      channelCopiesOverride: body.channel_copies || body.channelCopies || null,
+      companyId: body.companyId || body.company_id || null,
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error('[outreach/go-live]', err);
+    return res.status(500).json({ error: err.message || 'Go live failed' });
+  }
+});
+
+/** Edit AI auto-reply draft (still draft — does not send) */
+app.patch('/api/outreach/runs/:runId/replies/:replyId', async (req, res) => {
+  try {
+    const reply = await updateOutreachReplyDraft(req.params.runId, req.params.replyId, req.body || {});
+    return res.json({ reply });
+  } catch (err) {
+    const status = /not found/i.test(err.message || '') ? 404 : 400;
+    return res.status(status).json({ error: err.message || 'Failed to update reply draft' });
+  }
+});
+
+/** Explicit approve → update Instantly interest + send live reply */
+app.post('/api/outreach/runs/:runId/replies/:replyId/approve', async (req, res) => {
+  try {
+    const result = await approveOutreachReply(req.params.runId, req.params.replyId, {
+      send: req.body?.send !== false,
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error('[outreach/reply-approve]', err);
+    return res.status(500).json({ error: err.message || 'Approve failed' });
+  }
+});
+
+/** Dismiss auto-reply draft without sending */
+app.post('/api/outreach/runs/:runId/replies/:replyId/reject', async (req, res) => {
+  try {
+    const reply = await rejectOutreachReplyDraft(req.params.runId, req.params.replyId);
+    return res.json({ reply });
+  } catch (err) {
+    const status = /not found/i.test(err.message || '') ? 404 : 400;
+    return res.status(status).json({ error: err.message || 'Reject failed' });
   }
 });
 
@@ -8092,6 +8336,66 @@ app.post('/api/webhooks/instantly', express.json({ limit: '1mb' }), async (req, 
   } catch (err) {
     console.error('[instantly/webhook]', err);
     return res.status(500).json({ error: err.message || 'Instantly webhook failed' });
+  }
+});
+
+/** HeyReach reply webhook → classify + draft (approve to send) */
+app.post('/api/webhooks/heyreach', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const secret = process.env.HEYREACH_WEBHOOK_SECRET || process.env.OUTREACH_WEBHOOK_SECRET;
+    if (secret) {
+      const provided =
+        req.get('x-heyreach-secret') ||
+        req.get('x-outreach-secret') ||
+        req.get('x-webhook-secret') ||
+        req.query.secret ||
+        '';
+      if (provided && String(provided) !== String(secret)) {
+        return res.status(401).json({ error: 'Invalid webhook secret' });
+      }
+    }
+    const result = await handleHeyReachReplyWebhook(req.body || {});
+    return res.json(result);
+  } catch (err) {
+    console.error('[heyreach/webhook]', err);
+    return res.status(500).json({ error: err.message || 'HeyReach webhook failed' });
+  }
+});
+
+/**
+ * WhatsApp Cloud API webhook.
+ * GET — Meta subscription verification
+ * POST — inbound messages → classify + draft
+ */
+app.get('/api/webhooks/whatsapp', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  const expected =
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ||
+    process.env.OUTREACH_WEBHOOK_SECRET ||
+    process.env.COMPOSIO_WEBHOOK_SECRET ||
+    '';
+
+  if (mode === 'subscribe' && expected && String(token) === String(expected)) {
+    return res.status(200).send(String(challenge || ''));
+  }
+  if (mode === 'subscribe' && !expected) {
+    // Dev convenience when no verify token configured
+    return res.status(200).send(String(challenge || ''));
+  }
+  return res.status(403).json({ error: 'WhatsApp webhook verification failed' });
+});
+
+app.post('/api/webhooks/whatsapp', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    // Always ACK quickly for Meta; process inbound text messages
+    const result = await handleWhatsAppInboundWebhook(req.body || {});
+    return res.json(result);
+  } catch (err) {
+    console.error('[whatsapp/webhook]', err);
+    // Still 200 so Meta does not disable the webhook on transient errors
+    return res.status(200).json({ error: err.message || 'WhatsApp webhook failed' });
   }
 });
 
@@ -9165,8 +9469,14 @@ function extractJsonObject(text) {
   return text.slice(start, end + 1);
 }
 
-async function generateAgentTaskPlan(agentName, task, profile, marketingContext = null) {
+async function generateAgentTaskPlan(agentName, task, profile, marketingContext = null, options = {}) {
   let lastError = null;
+  const taskSkillKey = String(options?.taskType || "").trim();
+  const [agentSkillsBlock, taskSkillsBlock] = await Promise.all([
+    loadAgentSkillsBlock(agentName, AGENTS_DIR).catch(() => ""),
+    taskSkillKey ? loadMarketingSkillsForTask(taskSkillKey).catch(() => "") : Promise.resolve(""),
+  ]);
+  const skillsGuidance = [agentSkillsBlock, taskSkillsBlock].filter(Boolean).join("\n\n");
 
   const messages = [
     {
@@ -9190,7 +9500,10 @@ Rules:
 - Use only these horizon values: "day", "week", "month".
 - Avoid generic planning filler like "review strategy" unless tied to a concrete deliverable.
 - The executionPrompt should tell the agent to execute the approved plan, not re-plan it.
-- No markdown. JSON only.`,
+- Ground tasks in the agent's role and the marketing skill playbooks below when present (e.g. cold-email for outreach, revops for lead scoring).
+- Prefer skill-aligned deliverables (subject lines, first-touch copy, sequence arcs, ICP filters) over generic "research" steps.
+- No markdown. JSON only.
+${skillsGuidance ? `\n${skillsGuidance}` : ""}`,
     },
     {
       role: "user",
@@ -9200,6 +9513,7 @@ Rules:
         agentPersonality: profile.personality,
         agentCapabilities: profile.executes,
         userTask: task,
+        taskType: taskSkillKey || null,
         marketingContext,
       }),
     },
@@ -10522,7 +10836,7 @@ app.get("/api/analytics/ga4/properties", async (req, res) => {
       } catch { /* skip failing account */ }
     }
 
-    res.json({ properties });
+    res.json({ properties, preferred: getPreferredGa4PropertyId(companyId) || null, needsSelection: properties.length > 1 && !getPreferredGa4PropertyId(companyId) });
   } catch (err) {
     console.error("[ga4/properties]", err.message);
     res.status(500).json({ error: err.message });
@@ -10540,10 +10854,13 @@ app.get("/api/analytics/gsc/sites", async (req, res) => {
     const result = await runComposioAction(accountId, "GOOGLESEARCHCONSOLE_LIST_SITES", {}, apiKey);
     const rawSites = result?.siteEntry || result?.data?.siteEntry || result?.sites || [];
     const sites = rawSites.map(s => ({
+      id: s.siteUrl || s.site_url || s,
       siteUrl: s.siteUrl || s.site_url || s,
+      displayName: s.siteUrl || s.site_url || String(s),
       permissionLevel: s.permissionLevel || s.permission_level || "unknown",
     })).filter(s => s.siteUrl);
-    res.json({ sites });
+    const preferred = getPreferredGscSiteUrl(companyId);
+    res.json({ sites, accounts: sites, preferred: preferred || null, needsSelection: sites.length > 1 && !preferred });
   } catch (err) {
     console.error("[gsc/sites]", err.message);
     res.status(500).json({ error: err.message });
@@ -10564,7 +10881,8 @@ app.get("/api/analytics/google-ads/accounts", async (req, res) => {
       const id = typeof r === "string" ? r.replace("customers/", "") : String(r);
       return { id, displayName: `Account ${id}` };
     });
-    res.json({ accounts });
+    const preferred = getPreferredGoogleAdsCustomerId(companyId);
+    res.json({ accounts, preferred: preferred || null, needsSelection: accounts.length > 1 && !preferred });
   } catch (err) {
     console.error("[google-ads/accounts]", err.message);
     res.status(500).json({ error: err.message });
@@ -10578,17 +10896,74 @@ app.get("/api/analytics/meta-ads/accounts", async (req, res) => {
   if (!companyId || !apiKey) return res.status(400).json({ error: "companyId and COMPOSIO_API_KEY required" });
 
   try {
-    const accountId = await resolveAnalyticsAccountId(companyId, "meta_ads", apiKey);
-    const result = await runComposioAction(accountId, "FACEBOOKADS_GET_AD_ACCOUNTS", {}, apiKey);
-    const raw = result?.data || result?.accounts || result?.ad_accounts || [];
-    const accounts = raw.map(a => ({
-      id: a.id || a.account_id || String(a),
-      displayName: a.name || a.account_name || `Ad Account ${a.id || a}`,
-      currency: a.currency || null,
-    })).filter(a => a.id);
-    res.json({ accounts });
+    let accounts = [];
+    try {
+      const accountId = await resolveAnalyticsAccountId(companyId, "meta_ads", apiKey);
+      const result = await runComposioAction(accountId, "FACEBOOKADS_GET_AD_ACCOUNTS", {}, apiKey);
+      const raw = result?.data || result?.accounts || result?.ad_accounts || [];
+      accounts = raw.map(a => ({
+        id: String(a.id || a.account_id || a).startsWith("act_")
+          ? String(a.id || a.account_id || a)
+          : `act_${a.id || a.account_id || a}`,
+        displayName: a.name || a.account_name || `Ad Account ${a.id || a}`,
+        currency: a.currency || null,
+        status: a.account_status ?? a.status ?? null,
+      })).filter(a => a.id && a.id !== "act_");
+    } catch (composioErr) {
+      console.warn("[meta-ads/accounts] Composio list failed, trying Graph API:", composioErr.message);
+    }
+
+    // Fallback: direct Graph API (same path as Meta automations)
+    if (!accounts.length) {
+      const tokenResult = await getConnectedAccountToken("meta_ads", companyId);
+      if (tokenResult.error) throw new Error(tokenResult.error);
+      const r = await fetch(
+        `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status,currency&limit=50&access_token=${tokenResult.access_token}`
+      );
+      const data = await r.json();
+      if (data.error) throw new Error(data.error.message);
+      accounts = (data.data || []).map(a => ({
+        id: String(a.id || "").startsWith("act_") ? String(a.id) : `act_${a.id}`,
+        displayName: a.name || `Ad Account ${a.id}`,
+        currency: a.currency || null,
+        status: a.account_status ?? null,
+      })).filter(a => a.id && a.id !== "act_");
+    }
+
+    const preferred = getPreferredMetaAdAccountId(companyId);
+    res.json({ accounts, preferred: preferred || null, needsSelection: accounts.length > 1 && !preferred });
   } catch (err) {
     console.error("[meta-ads/accounts]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/integrations/preferences?companyId=X
+app.get("/api/integrations/preferences", (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  if (!companyId) return res.status(400).json({ error: "companyId required" });
+  res.json({ preferences: getConnectorPreferences(companyId) });
+});
+
+// POST /api/integrations/preferences  { companyId, ...prefs }
+app.post("/api/integrations/preferences", (req, res) => {
+  const companyId = String(req.body?.companyId || "").trim();
+  if (!companyId) return res.status(400).json({ error: "companyId required" });
+  const allowed = [
+    "meta_ads_account_id",
+    "google_ads_customer_id",
+    "ga4_property_id",
+    "gsc_site_url",
+    "lead_data_provider",
+  ];
+  const patch = {};
+  for (const key of allowed) {
+    if (req.body?.[key] !== undefined) patch[key] = String(req.body[key]).trim();
+  }
+  try {
+    const preferences = setConnectorPreferences(companyId, patch);
+    res.json({ ok: true, preferences });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -10914,11 +11289,13 @@ async function fetchMetaAdsData(entityId, apiKey, period, adAccountId = null) {
 app.get("/api/analytics/dashboard", async (req, res) => {
   const period            = String(req.query.period || "30d");
   const companyId         = req.query.companyId || req.query.workspaceId || null;
-  const ga4PropertyId     = req.query.ga4PropertyId     ? String(req.query.ga4PropertyId)     : null;
-  const gscSiteUrl        = req.query.gscSiteUrl        ? String(req.query.gscSiteUrl)        : null;
-  const googleAdsCustomer = req.query.googleAdsCustomer ? String(req.query.googleAdsCustomer) : null;
-  const metaAdsAccount    = req.query.metaAdsAccount    ? String(req.query.metaAdsAccount)    : null;
   const apiKey            = process.env.COMPOSIO_API_KEY || null;
+  // Query params win; fall back to saved workspace preferences when omitted
+  const savedPrefs        = companyId ? getConnectorPreferences(companyId) : {};
+  const ga4PropertyId     = req.query.ga4PropertyId     ? String(req.query.ga4PropertyId)     : (savedPrefs.ga4_property_id || null);
+  const gscSiteUrl        = req.query.gscSiteUrl        ? String(req.query.gscSiteUrl)        : (savedPrefs.gsc_site_url || null);
+  const googleAdsCustomer = req.query.googleAdsCustomer ? String(req.query.googleAdsCustomer) : (savedPrefs.google_ads_customer_id || null);
+  const metaAdsAccount    = req.query.metaAdsAccount    ? String(req.query.metaAdsAccount)    : (savedPrefs.meta_ads_account_id || null);
 
   // 1. Check which analytics connectors are connected
   const ANALYTICS_IDS = ["ga4", "gsc", "google_ads", "meta_ads", "linkedin_ads"];
@@ -12188,6 +12565,37 @@ app.patch("/api/mkg/:companyId", async (req, res) => {
     }
     console.error("PATCH /api/mkg error:", err);
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /api/outcomes/go-live ─────────────────────────────────────────────
+// User-click only. Publishes/sends an outcome artifact via the matching
+// Composio connector tool. Never auto-invoked from agent generation.
+app.post("/api/outcomes/go-live", async (req, res) => {
+  try {
+    const { kind, workspaceId, companyId, preferredConnector, payload } = req.body || {};
+    if (!kind || typeof kind !== "string") {
+      return res.status(400).json({ error: "kind is required" });
+    }
+    const entity = workspaceId || companyId || req.headers["x-workspace-id"];
+    if (!entity) {
+      return res.status(400).json({ error: "workspaceId is required" });
+    }
+    const { executeOutcomeGoLive } = await import("./outcome-go-live.js");
+    const result = await executeOutcomeGoLive({
+      kind,
+      workspaceId: workspaceId || entity,
+      companyId: companyId || undefined,
+      preferredConnector,
+      payload: payload && typeof payload === "object" ? payload : {},
+    });
+    if (!result.ok) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error("[outcomes/go-live]", err);
+    res.status(500).json({ error: String(err.message || err) });
   }
 });
 

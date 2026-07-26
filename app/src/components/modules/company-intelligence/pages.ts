@@ -5,6 +5,7 @@ export type CompanyIntelPageId =
   | 'ads_intel'
   | 'website_audit'
   | 'opportunities'
+  | 'marketing_ideas'
   | 'client_profiling'
   | 'partner_profiling'
   | 'icps'
@@ -29,6 +30,7 @@ export const COMPANY_INTEL_PAGES: Array<{ id: CompanyIntelPageId; title: string;
   { id: 'ads_intel', title: 'Ads Intelligence' },
   { id: 'website_audit', title: 'Website Audit', artifactType: 'website_audit' },
   { id: 'opportunities', title: 'Opportunities', artifactType: 'opportunities' },
+  { id: 'marketing_ideas', title: 'Marketing Ideas', artifactType: 'marketing_ideas' },
   { id: 'marketing_strategy', title: 'Marketing Strategy', artifactType: 'marketing_strategy' },
   { id: 'positioning_messaging', title: 'Positioning & Messaging', artifactType: 'positioning_messaging' },
   { id: 'pricing_intelligence', title: 'Pricing Intelligence', artifactType: 'pricing_intelligence' },

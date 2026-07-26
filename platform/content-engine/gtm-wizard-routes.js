@@ -320,12 +320,12 @@ export const GTM_INTERVIEW_SECTIONS = [
   {
     id: "goals",
     title: "Goals",
-    description: "What success looks like in the next 90 days.",
+    description: "Define the objective, put a number on it, then set the timeline.",
     questions: [
       {
         id: "priority_90d",
-        question: "What is the #1 priority for the next 90 days?",
-        helperText: "Select one or more priorities if they are equally urgent.",
+        question: "What is the primary marketing objective?",
+        helperText: "Pick the outcome you are optimizing for — numbers and timeline come next.",
         type: "multi_select",
         allowCustomAnswer: true,
         fixedOptions: [
@@ -333,6 +333,34 @@ export const GTM_INTERVIEW_SECTIONS = [
           { value: "awareness", label: "Build brand awareness" },
           { value: "conversion", label: "Improve conversion rates" },
           { value: "retention", label: "Retain and expand customers" },
+        ],
+      },
+      {
+        id: "quantified_target",
+        question: "What quantified target defines success?",
+        helperText: "Put a number on the objective (volume, rate, or revenue). Type a custom target if none fit.",
+        type: "single_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "50_qualified_leads", label: "50 qualified leads", recommended: true },
+          { value: "200_qualified_leads", label: "200 qualified leads" },
+          { value: "20_pct_conversion_lift", label: "20% conversion-rate lift" },
+          { value: "3x_roas", label: "3× ROAS / payback" },
+          { value: "10k_pipeline", label: "₹10L / $12k pipeline influence" },
+          { value: "100k_reach", label: "100k reach / impressions" },
+        ],
+      },
+      {
+        id: "timeline_target",
+        question: "By when should that target be hit?",
+        helperText: "Set the deadline after the number is clear.",
+        type: "single_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "30d", label: "30 days" },
+          { value: "60d", label: "60 days" },
+          { value: "90d", label: "90 days", recommended: true },
+          { value: "2_quarters", label: "This half / 2 quarters" },
         ],
       },
       {
@@ -350,7 +378,7 @@ export const GTM_INTERVIEW_SECTIONS = [
       },
       {
         id: "budget_band",
-        question: "What is the approximate marketing budget for 90 days?",
+        question: "What is the approximate marketing budget for that timeline?",
         type: "single_select",
         allowCustomAnswer: true,
         fixedOptions: [
@@ -368,36 +396,418 @@ export const GTM_SECTION_ORDER = GTM_INTERVIEW_SECTIONS.map((s) => s.id);
 
 export const EXECUTE_TASK_CATALOG = [
   {
+    id: "gtm_strategy_doc",
+    title: "Generate GTM strategy document",
+    description: "Full strategy report from your locked profile — view by section, export PDF/Doc, or open in Google Docs.",
+    agentTarget: null,
+    kind: "document",
+  },
+  {
+    id: "marketing_ideas",
+    title: "Marketing ideas",
+    description: "Stage-fit growth plays with hooks, angles, and CTAs into Paid Ads, Social, Content, Email, and more.",
+    agentTarget: "company_intel_marketing_ideas",
+    kind: "agent",
+  },
+  {
     id: "icp_brief",
     title: "Build ICP brief",
     description: "Turn locked audience answers into a usable ICP card.",
     agentTarget: "company_intel_icp",
+    kind: "agent",
   },
   {
     id: "competitors",
     title: "Competitor landscape",
     description: "Map alternatives and where you win/lose.",
     agentTarget: "company_intel_competitors",
+    kind: "agent",
   },
   {
     id: "channel_plan",
     title: "90-day channel plan",
     description: "Rank channels and draft the first campaign idea.",
     agentTarget: "company_intel_channel_strategy",
+    kind: "agent",
   },
   {
     id: "content_messaging",
     title: "Content & messaging starter",
     description: "Outline content pillars and core message angles.",
     agentTarget: "company_intel_content_strategy",
+    kind: "agent",
   },
   {
     id: "lead_magnet",
     title: "Lead magnet outline",
     description: "Propose a lead magnet matched to ICP pains.",
     agentTarget: "company_intel_lead_magnets",
+    kind: "agent",
   },
 ];
+
+const STRATEGY_SECTION_DEFS = [
+  { id: "executive_summary", title: "Executive summary", channel: "#executive-summary" },
+  { id: "positioning_icp", title: "Positioning & ICP", channel: "#positioning-icp" },
+  { id: "offer_pricing", title: "Offer & pricing", channel: "#offer-pricing" },
+  { id: "channels", title: "Channels & distribution", channel: "#channels" },
+  { id: "content_messaging", title: "Content & messaging", channel: "#content-messaging" },
+  { id: "demand_leads", title: "Demand & lead engine", channel: "#demand-leads" },
+  { id: "roadmap_90d", title: "90-day roadmap", channel: "#90-day-roadmap" },
+  { id: "kpis", title: "KPIs & measurement", channel: "#kpis" },
+  { id: "risks", title: "Risks & assumptions", channel: "#risks" },
+];
+
+function profileLabel(profile, path) {
+  const [section, key] = String(path).split(".");
+  const val = profile?.[section]?.[key];
+  return val ? String(val) : "";
+}
+
+/**
+ * Map business objective → how CPM / CAC / CLTV participate in the goal.
+ * Awareness leans on CPM/reach; demand leans on CAC; economics lean on CLTV ceiling.
+ */
+function kpiFrameworkForGoal(objectiveRaw, quantified, timeline, budgetBand) {
+  const o = String(objectiveRaw || "").toLowerCase();
+  const target = quantified || "the quantified target";
+  const byWhen = timeline ? ` by ${timeline}` : "";
+  const budgetNote = budgetBand ? ` Budget band: ${budgetBand}.` : "";
+
+  if (/aware|reach|brand|display|impression|cpm/.test(o) || /reach|impression/i.test(String(quantified || ""))) {
+    return {
+      bullets: [
+        `Success = hit ${target}${byWhen}`,
+        "Primary efficiency: CPM (cost per 1,000 impressions) — lower CPM stretches reach toward the target",
+        "Volume leading: impressions / reach / frequency — must compound to the awareness number",
+        "Bridge to demand: CTR → landing visits → assisted pipeline (awareness is not CAC yet)",
+        "CLTV role: sets how much paid reach is worth once a conversion path exists (max allowable CAC later)",
+        "Do not optimize CAC as the north star while the objective is awareness",
+      ],
+      body: `For awareness goals, CPM is the spend-efficiency lever that makes ${target} reachable${byWhen}.${budgetNote} Track CPM + reach weekly; introduce CAC only after a conversion event is instrumented. CLTV informs the eventual CAC ceiling, not the awareness KPI itself.`,
+    };
+  }
+
+  if (/retain|expansion|churn|ltv|cltv/.test(o)) {
+    return {
+      bullets: [
+        `Success = hit ${target}${byWhen}`,
+        "Primary: CLTV / LTV (and churn / expansion rate) — retention value is the goal",
+        "CAC role: secondary — protect payback on any reactivation or win-back spend (CAC < CLTV / target payback)",
+        "CPM role: only for reactivation ads — cheap reach that does not lift CLTV is wasted",
+        "Leading: activation rate, repeat purchase / expansion, NPS or support load",
+      ],
+      body: `For retention/expansion, CLTV is the goal metric. CAC must stay below CLTV with an explicit payback window; CPM only matters on paid reactivation as an upstream efficiency input.`,
+    };
+  }
+
+  // Default: leads / conversion / sales / paid acquisition
+  return {
+    bullets: [
+      `Success = hit ${target}${byWhen}`,
+      "Primary: CAC (or CPL for lead goals) — total acquisition spend ÷ qualified acquisitions",
+      "CLTV ceiling: max CAC ≈ CLTV ÷ payback periods (e.g. CLTV ₹30k, 3-month payback → CAC ≤ ₹10k)",
+      "CPM role: upstream efficiency — rising CPM without CTR/CVR gains inflates CAC and threatens the target",
+      "Funnel bridge: CPM → CPC → CPL/CAC → revenue; diagnose which step breaks first",
+      "Lagging: ROAS / payback vs CLTV; stop scaling if CAC approaches the CLTV ceiling",
+    ],
+    body: `For lead/conversion goals, ${target}${byWhen} is the volume outcome; CAC is the unit-economics constraint that decides if that volume is healthy. Use CLTV to set the max allowable CAC. Treat CPM as a leading efficiency metric — it does not replace CAC, but unexplained CPM spikes usually explain CAC spikes.${budgetNote}`,
+  };
+}
+
+function buildDeterministicStrategy(moduleRow) {
+  const profile = moduleRow.profile || {};
+  const name = moduleRow.name || profile.module?.name || "Module";
+  const oneLiner = profileLabel(profile, "offer.one_liner") || profileLabel(profile, "positioning.elevator_pitch");
+  const icp = profileLabel(profile, "audience.icp");
+  const priority = profileLabel(profile, "goals.priority_90d");
+  const quantified = profileLabel(profile, "goals.quantified_target");
+  const timeline = profileLabel(profile, "goals.timeline_target");
+  const channel = profileLabel(profile, "goals.channel_bet") || profileLabel(profile, "distribution.distribution_strategy");
+  const positioning =
+    profileLabel(profile, "positioning.positioning_statement") ||
+    profileLabel(profile, "positioning.elevator_pitch");
+
+  const sections = STRATEGY_SECTION_DEFS.map((def) => {
+    const base = {
+      id: def.id,
+      title: def.title,
+      channel: def.channel,
+      summary: "",
+      bullets: [],
+      body: "",
+    };
+    switch (def.id) {
+      case "executive_summary":
+        return {
+          ...base,
+          summary: `${name}: ${oneLiner || "GTM plan from locked interview."}`,
+          bullets: [
+            icp && `ICP: ${icp}`,
+            priority && `Objective: ${priority}`,
+            quantified && `Target: ${quantified}`,
+            timeline && `By: ${timeline}`,
+            channel && `Lead channel: ${channel}`,
+          ].filter(Boolean),
+          body: `This GTM strategy is derived from the locked module interview for ${name}. Use each channel below for a deeper cut of the plan.`,
+        };
+      case "positioning_icp":
+        return {
+          ...base,
+          summary: positioning || "Positioning from locked interview answers.",
+          bullets: [
+            profileLabel(profile, "audience.persona") && `Persona: ${profileLabel(profile, "audience.persona")}`,
+            profileLabel(profile, "audience.jtbd") && `JTBD: ${profileLabel(profile, "audience.jtbd")}`,
+            profileLabel(profile, "problem.primary_pain") && `Pain: ${profileLabel(profile, "problem.primary_pain")}`,
+          ].filter(Boolean),
+          body: positioning || "Refine positioning in Company Intel → ICPs.",
+        };
+      case "offer_pricing":
+        return {
+          ...base,
+          summary: profileLabel(profile, "offer.category") || "Offer definition",
+          bullets: [
+            profileLabel(profile, "offer.business_model") && `Model: ${profileLabel(profile, "offer.business_model")}`,
+            profileLabel(profile, "offer.pricing_strategy") && `Pricing: ${profileLabel(profile, "offer.pricing_strategy")}`,
+            oneLiner && `One-liner: ${oneLiner}`,
+          ].filter(Boolean),
+          body: oneLiner || "Offer details locked in the Offer section.",
+        };
+      case "channels":
+        return {
+          ...base,
+          summary: channel || "Channel plan from goals / distribution.",
+          bullets: [
+            profileLabel(profile, "distribution.distribution_strategy"),
+            profileLabel(profile, "distribution.assets"),
+          ].filter(Boolean),
+          body: "Concentrate on one primary channel for 90 days, with one supporting motion.",
+        };
+      case "content_messaging":
+        return {
+          ...base,
+          summary: profileLabel(profile, "content.content_strategy") || "Content & social plan",
+          bullets: [
+            profileLabel(profile, "positioning.elevator_pitch"),
+            profileLabel(profile, "content.content_strategy"),
+          ].filter(Boolean),
+          body: "Translate positioning into weekly content pillars and reusable hooks.",
+        };
+      case "demand_leads":
+        return {
+          ...base,
+          summary: quantified
+            ? `Lead engine to deliver ${quantified}${timeline ? ` by ${timeline}` : ""}`
+            : profileLabel(profile, "leads.lead_management") || "Lead engine",
+          bullets: [
+            quantified && `Capacity plan toward ${quantified}`,
+            profileLabel(profile, "leads.scoring"),
+            profileLabel(profile, "leads.tat_outreach_segment"),
+            profileLabel(profile, "leads.qualification"),
+          ].filter(Boolean),
+          body: quantified
+            ? `Design scoring, TAT, and outreach so pipeline volume can reach ${quantified}${timeline ? ` within ${timeline}` : ""}. Score → route → outreach with Instantly / LinkedIn / WhatsApp once connectors are live.`
+            : "Score → route → outreach with Instantly / LinkedIn / WhatsApp once connectors are live.",
+        };
+      case "roadmap_90d":
+        return {
+          ...base,
+          summary: [priority, quantified].filter(Boolean).join(" → ") || "Execution roadmap",
+          bullets: [
+            quantified && `Target: ${quantified}`,
+            timeline && `Deadline: ${timeline}`,
+            "Phase 1: message-market proof and ICP activation",
+            "Phase 2: concentrate primary channel + creative tests",
+            "Phase 3: scale what works; cut what does not",
+          ].filter(Boolean),
+          body: `Objective: ${priority || "Set from Goals section"}. Quantified target: ${quantified || "TBD"}. Timeline: ${timeline || profileLabel(profile, "audience.target_timeline") || "TBD"}.`,
+        };
+      case "kpis": {
+        const metricMap = kpiFrameworkForGoal(priority, quantified, timeline, profileLabel(profile, "goals.budget_band"));
+        return {
+          ...base,
+          summary: quantified
+            ? `Primary KPI: ${quantified}${timeline ? ` by ${timeline}` : ""}`
+            : "Measurement system for this GTM",
+          bullets: metricMap.bullets,
+          body: metricMap.body,
+        };
+      }
+      case "risks":
+        return {
+          ...base,
+          summary: "Assumptions to pressure-test",
+          bullets: [
+            "ICP clarity may still need field validation",
+            "Primary channel capacity / creative quality",
+            "Sales / outreach TAT and follow-up discipline",
+          ],
+          body: "Treat this document as a living plan — update after first measurement cycle.",
+        };
+      default:
+        return base;
+    }
+  });
+
+  return {
+    title: `${name} — GTM Strategy`,
+    executiveSummary:
+      [
+        priority && quantified
+          ? `Win condition: ${priority} — hit ${quantified}${timeline ? ` within ${timeline}` : ""}.`
+          : sections[0]?.summary,
+        channel && `Lead with ${channel}.`,
+        profileLabel(profile, "goals.budget_band") && `Budget band: ${profileLabel(profile, "goals.budget_band")}.`,
+      ]
+        .filter(Boolean)
+        .join(" ") || sections[0]?.summary || "",
+    generatedAt: new Date().toISOString(),
+    moduleId: moduleRow.id,
+    moduleName: name,
+    sections,
+    nextSteps: [
+      quantified
+        ? `Instrument tracking so ${quantified}${timeline ? ` by ${timeline}` : ""} is measurable weekly`
+        : "Set a quantified target in Goals before scaling",
+      "Build ICP brief for activation lists",
+      channel
+        ? `Concentrate the first sprint on ${channel}`
+        : "Lock primary channel plan",
+      "Connect Instantly / ads / analytics to make outcomes live",
+    ],
+    goalAlignment: {
+      objective: priority || null,
+      quantified_target: quantified || null,
+      timeline_target: timeline || null,
+      channel_bet: channel || null,
+      budget_band: profileLabel(profile, "goals.budget_band") || null,
+    },
+  };
+}
+
+async function generateStrategyWithLlm(groq, moduleRow) {
+  const profile = moduleRow.profile || {};
+  const fallback = buildDeterministicStrategy(moduleRow);
+  if (!groq) return fallback;
+
+  const objective = profileLabel(profile, "goals.priority_90d") || "unset";
+  const quantified = profileLabel(profile, "goals.quantified_target") || "unset";
+  const timeline = profileLabel(profile, "goals.timeline_target") || "unset";
+  const channelBet = profileLabel(profile, "goals.channel_bet") || "unset";
+  const budget = profileLabel(profile, "goals.budget_band") || "unset";
+
+  try {
+    const completion = await groq.chat.completions.create({
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      temperature: 0.3,
+      max_tokens: 4500,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You are a senior GTM strategist. Given a locked GTM interview profile, produce a board-ready strategy document that is explicitly designed to HIT the quantified goal.
+
+North-star goal (must drive every section):
+- Objective: ${objective}
+- Quantified target: ${quantified}
+- Timeline: ${timeline}
+- Lead channel bet: ${channelBet}
+- Budget band: ${budget}
+
+Hard requirements:
+1. executiveSummary must restate the objective + quantified target + timeline in the first 2 sentences.
+2. Every section must explain how that work contributes to reaching ${quantified} by ${timeline} — not generic GTM advice.
+3. roadmap_90d / execution sections must break the target into phased milestones that sum toward ${quantified}.
+4. kpis section MUST explain metric roles relative to the goal:
+   - Quantified target = success outcome
+   - CPM = upstream paid reach efficiency (critical for awareness; diagnostic for demand)
+   - CAC / CPL = unit cost to acquire (primary for leads/sales; secondary for awareness)
+   - CLTV / LTV = sets max allowable CAC (CAC must stay below CLTV / payback); primary for retention
+   Explicitly state which metric is primary vs diagnostic for objective=${objective}.
+5. Channel / demand / content sections must prioritize ${channelBet} and justify spend within ${budget}.
+6. If quantified_target or timeline_target is missing in the profile, call that out as a gap and recommend setting them before scale.
+
+Return ONLY JSON:
+{
+  "title": string,
+  "executiveSummary": string,
+  "sections": [{ "id": string, "title": string, "channel": string, "summary": string, "bullets": string[], "body": string }],
+  "nextSteps": string[]
+}
+Required section ids (in order): ${STRATEGY_SECTION_DEFS.map((s) => s.id).join(", ")}.
+Each section.channel must look like a Slack channel (e.g. "#positioning-icp").
+Be specific to the profile — no generic filler.`,
+        },
+        {
+          role: "user",
+          content: `Module: ${moduleRow.name}\nLocked profile JSON:\n${JSON.stringify(profile).slice(0, 14000)}`,
+        },
+      ],
+    });
+    const raw = completion.choices?.[0]?.message?.content || "";
+    const parsed = parseJsonLoose(raw);
+    if (!parsed?.sections?.length) return fallback;
+
+    const byId = new Map((parsed.sections || []).map((s) => [s.id, s]));
+    const sections = STRATEGY_SECTION_DEFS.map((def) => {
+      const s = byId.get(def.id) || {};
+      return {
+        id: def.id,
+        title: s.title || def.title,
+        channel: s.channel || def.channel,
+        summary: String(s.summary || ""),
+        bullets: Array.isArray(s.bullets) ? s.bullets.map(String).filter(Boolean) : [],
+        body: String(s.body || s.summary || ""),
+      };
+    });
+
+    return {
+      title: String(parsed.title || fallback.title),
+      executiveSummary: String(parsed.executiveSummary || sections[0]?.summary || ""),
+      generatedAt: new Date().toISOString(),
+      moduleId: moduleRow.id,
+      moduleName: moduleRow.name,
+      sections,
+      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.map(String) : fallback.nextSteps,
+      model: completion.model || null,
+      goalAlignment: {
+        objective,
+        quantified_target: quantified,
+        timeline_target: timeline,
+        channel_bet: channelBet,
+        budget_band: budget,
+      },
+    };
+  } catch (err) {
+    console.warn("[gtm/strategy] LLM failed, using deterministic:", err.message);
+    return fallback;
+  }
+}
+
+function strategyToMarkdown(doc) {
+  const lines = [
+    `# ${doc.title}`,
+    "",
+    `_Generated ${doc.generatedAt || new Date().toISOString()}_`,
+    "",
+    "## Executive summary",
+    doc.executiveSummary || "",
+    "",
+  ];
+  for (const s of doc.sections || []) {
+    lines.push(`## ${s.channel || s.title}`);
+    lines.push("");
+    if (s.summary) lines.push(s.summary, "");
+    if (s.body) lines.push(s.body, "");
+    for (const b of s.bullets || []) lines.push(`- ${b}`);
+    lines.push("");
+  }
+  if (doc.nextSteps?.length) {
+    lines.push("## Next steps", "");
+    for (const n of doc.nextSteps) lines.push(`- ${n}`);
+  }
+  return lines.join("\n");
+}
 
 function db(supabaseAdminClient, supabase) {
   return supabaseAdminClient || supabase;
@@ -821,7 +1231,10 @@ async function syncModuleContextToAgents(deps, moduleRow) {
     primary_goal: profile.goals?.priority_90d || onboarding.primaryGoal || "",
     goals: [
       profile.goals?.priority_90d,
+      profile.goals?.quantified_target && `Target: ${profile.goals.quantified_target}`,
+      profile.goals?.timeline_target && `Timeline: ${profile.goals.timeline_target}`,
       profile.goals?.channel_bet,
+      profile.goals?.budget_band && `Budget: ${profile.goals.budget_band}`,
       profile.offer?.one_liner,
       profile.audience?.target_timeline,
       profile.offer?.pricing_strategy,
@@ -1738,6 +2151,8 @@ export function registerGtmWizardRoutes(app, deps) {
             profile.distribution?.distribution_strategy,
             profile.leads?.tat_outreach_segment,
             profile.goals?.priority_90d,
+            profile.goals?.quantified_target,
+            profile.goals?.timeline_target,
           ]
             .filter(Boolean)
             .join(" · "),
@@ -1776,6 +2191,41 @@ export function registerGtmWizardRoutes(app, deps) {
       const task = EXECUTE_TASK_CATALOG.find((t) => t.id === taskId);
       if (!task) return res.status(400).json({ error: "Unknown taskId" });
 
+      // Document task: generate strategy and return it (no agent deploy)
+      if (task.kind === "document" || task.id === "gtm_strategy_doc") {
+        const strategy = await generateStrategyWithLlm(groq, moduleRow);
+        const { data: updated, error } = await c
+          .from("gtm_modules")
+          .update({
+            active: true,
+            status: "ready",
+            profile: {
+              ...(moduleRow.profile || {}),
+              last_executed_task: {
+                taskId: task.id,
+                agentTarget: null,
+                kind: "document",
+                at: new Date().toISOString(),
+              },
+              strategy_document: strategy,
+            },
+          })
+          .eq("id", req.params.id)
+          .select("*")
+          .single();
+        if (error) throw error;
+
+        return res.json({
+          ok: true,
+          kind: "document",
+          task,
+          agentTarget: null,
+          strategy,
+          module: updated,
+          markdown: strategyToMarkdown(strategy),
+        });
+      }
+
       // Mark active + sync context for agents
       const { data: updated, error } = await c
         .from("gtm_modules")
@@ -1803,6 +2253,7 @@ export function registerGtmWizardRoutes(app, deps) {
 
       res.json({
         ok: true,
+        kind: "agent",
         task,
         agentTarget: task.agentTarget,
         module: updated,
@@ -1814,11 +2265,124 @@ export function registerGtmWizardRoutes(app, deps) {
             updated.profile?.offer?.one_liner,
             updated.profile?.audience?.icp,
             updated.profile?.goals?.priority_90d,
+            updated.profile?.goals?.quantified_target,
+            updated.profile?.goals?.timeline_target,
           ].filter(Boolean),
         },
       });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  // ── Get / regenerate strategy document ───────────────────────────────────────
+  app.get("/api/gtm/modules/:id/strategy", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const strategy = moduleRow.profile?.strategy_document || null;
+      if (!strategy) return res.status(404).json({ error: "No strategy document yet — generate first" });
+      res.json({ strategy, markdown: strategyToMarkdown(strategy) });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  app.post("/api/gtm/modules/:id/strategy", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      if (!allInterviewLocked(moduleRow.section_state)) {
+        return res.status(409).json({ error: "Lock all interview sections first" });
+      }
+      const strategy = await generateStrategyWithLlm(groq, moduleRow);
+      const { data: updated, error } = await c
+        .from("gtm_modules")
+        .update({
+          profile: {
+            ...(moduleRow.profile || {}),
+            strategy_document: strategy,
+          },
+        })
+        .eq("id", req.params.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      res.json({ strategy, module: updated, markdown: strategyToMarkdown(strategy) });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+      // Export strategy to Google Docs via googledocs toolkit (not Drive).
+  // Tool: GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN — args: title + markdown_text
+  app.post("/api/gtm/modules/:id/strategy/google-docs", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const strategy = moduleRow.profile?.strategy_document;
+      if (!strategy) return res.status(404).json({ error: "Generate the strategy document first" });
+
+      if (!moduleRow.workspace_id && !moduleRow.company_id) {
+        return res.status(400).json({ error: "Module missing workspace_id" });
+      }
+
+      const { executeComposioActionForEntities } = await import("./mcp-router.js");
+      const markdown = strategyToMarkdown(strategy);
+      // Prefer workspace entity, fall back to company — resolves googledocs connected account.
+      const result = await executeComposioActionForEntities(
+        "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN",
+        {
+          title: strategy.title || `${moduleRow.name} GTM Strategy`,
+          // Composio schema: markdown_text (aliases: content). Do not send bare `markdown`.
+          markdown_text: markdown,
+          content: markdown,
+        },
+        [moduleRow.workspace_id, moduleRow.company_id]
+      );
+
+      if (result?.error) {
+        return res.status(400).json({
+          error: result.error,
+          hint: "Connect Google Docs (not only Drive) in Settings → Accounts, then retry.",
+          tool: "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN",
+          toolkit: "googledocs",
+        });
+      }
+
+      const payload = result?.result || result?.data || {};
+      const docId =
+        payload?.id ||
+        payload?.documentId ||
+        payload?.document_id ||
+        payload?.response_data?.id ||
+        null;
+      const docUrl =
+        payload?.url ||
+        payload?.documentUrl ||
+        payload?.webViewLink ||
+        (docId ? `https://docs.google.com/document/d/${docId}/edit` : null);
+
+      res.json({
+        ok: true,
+        doc_url: docUrl,
+        document_id: docId,
+        tool: "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN",
+        toolkit: "googledocs",
+        raw: payload,
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: String(err.message || err),
+        hint: "Connect Google Docs in Settings → Accounts before exporting.",
+        tool: "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN",
+      });
     }
   });
 
@@ -1832,6 +2396,7 @@ export function registerGtmWizardRoutes(app, deps) {
         questionIds: s.questions.map((q) => q.id),
       })),
       executeTasks: EXECUTE_TASK_CATALOG,
+      strategyChannels: STRATEGY_SECTION_DEFS,
     });
   });
 }

@@ -14,6 +14,8 @@ import { addIntegrationConnectedListener } from '@/lib/composio'
 import { isConnectorActive } from '@/lib/connectorMeta'
 import {
   checkConnectorReadiness,
+  getLeadOutreachBriefConnectors,
+  getLeadOutreachRequiredConnectors,
   hasWorkflowForm,
   WORKFLOW_CONNECTOR_REQUIREMENTS,
   WORKFLOW_FORMS,
@@ -73,6 +75,8 @@ const MODULE_TASK_TYPES: Record<string, string> = {
   'audience-profiles': 'audience_profiles',
   'email-sequence': 'email_sequence',
   'lead-intelligence': 'lead_score',
+  'paid-ads': 'paid_ads_strategy',
+  'ad-creative': 'paid_ads_copy',
 }
 
 function resolveDeploymentTaskType(moduleId?: string) {
@@ -123,18 +127,66 @@ function toEditableTasks(tasks: PlannedTask[] | undefined, fallbackLabel: string
 }
 
 function buildAnswersBlock(
-  formFields: Array<{ id: string; label: string; options?: Array<{ value: string; label: string }> }>,
+  formFields: Array<{ id: string; label: string; type?: string; options?: Array<{ value: string; label: string }> }>,
   values: Record<string, string>,
 ) {
   return formFields
     .map((field) => {
       const raw = String(values[field.id] || '').trim()
       if (!raw) return null
+      if (field.type === 'multi_select') {
+        const selected = raw.split(',').map((v) => v.trim()).filter(Boolean)
+        const labels = selected.map((v) => field.options?.find((opt) => opt.value === v)?.label ?? v)
+        return `${field.label}: ${labels.join(', ')}.`
+      }
       const label = field.options?.find((opt) => opt.value === raw)?.label ?? raw
       return `${field.label}: ${label}.`
     })
     .filter(Boolean)
     .join(' ')
+}
+
+function parseMultiValues(raw: string | undefined) {
+  return String(raw || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+}
+
+function toggleMultiValue(raw: string | undefined, value: string) {
+  const current = parseMultiValues(raw)
+  const next = current.includes(value)
+    ? current.filter((v) => v !== value)
+    : [...current, value]
+  return next.join(',')
+}
+
+function deriveChannelFromContactChannels(raw: string | undefined) {
+  const selected = new Set(parseMultiValues(raw))
+  const hasEmail = selected.has('email')
+  const hasLinkedin = selected.has('linkedin')
+  const hasPhone = selected.has('phone')
+  if (hasLinkedin && !hasEmail && !hasPhone) return 'linkedin'
+  if (hasEmail && !hasLinkedin && !hasPhone) return 'email'
+  if (selected.size === 0) return 'email'
+  return 'multi'
+}
+
+function isConfigureFormReady(
+  formFields: Array<{ id: string; type?: string; required?: boolean }> | undefined,
+  values: Record<string, string>,
+) {
+  if (!formFields?.length) return true
+  for (const field of formFields) {
+    if (!field.required) continue
+    const raw = String(values[field.id] || '').trim()
+    if (field.type === 'multi_select') {
+      if (!parseMultiValues(raw).length) return false
+      continue
+    }
+    if (!raw) return false
+  }
+  return true
 }
 
 export type OpenAgentTaskDetail = {
@@ -193,8 +245,6 @@ export function CompanyIntelActionButton({
   }, [navigateModuleId])
 
   const targetModuleId = typeof navigateModuleId === 'string' ? navigateModuleId.trim() : ''
-  const requiredConnectors = WORKFLOW_CONNECTOR_REQUIREMENTS[targetModuleId] ?? []
-
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<DialogStep>('configure')
   const [isPreparing, setIsPreparing] = useState(false)
@@ -205,13 +255,37 @@ export function CompanyIntelActionButton({
   const [activeConnectorIds, setActiveConnectorIds] = useState<string[]>([])
   const [connectorsLoading, setConnectorsLoading] = useState(false)
 
+  const requiredConnectors = useMemo(() => {
+    const base = WORKFLOW_CONNECTOR_REQUIREMENTS[targetModuleId] ?? []
+    if (targetModuleId !== 'lead-outreach') return base
+    // Pool stays apollo|hunter; hard gates come from contact channel plan below.
+    return base
+  }, [targetModuleId])
+
+  const requiredAllOverride = useMemo(() => {
+    if (targetModuleId !== 'lead-outreach') return undefined
+    return getLeadOutreachRequiredConnectors(
+      formValues.contact_channels || moduleWorkflowParams?.contact_channels || 'email',
+    )
+  }, [targetModuleId, formValues.contact_channels, moduleWorkflowParams?.contact_channels])
+
+  const briefConnectors = useMemo(() => {
+    if (targetModuleId !== 'lead-outreach') return requiredConnectors
+    return getLeadOutreachBriefConnectors(
+      formValues.contact_channels || moduleWorkflowParams?.contact_channels || 'email',
+    )
+  }, [targetModuleId, requiredConnectors, formValues.contact_channels, moduleWorkflowParams?.contact_channels])
+
   const connectorReadiness = useMemo(
-    () => checkConnectorReadiness(targetModuleId, activeConnectorIds),
-    [targetModuleId, activeConnectorIds],
+    () =>
+      checkConnectorReadiness(targetModuleId, activeConnectorIds, {
+        requiredAllOverride,
+      }),
+    [targetModuleId, activeConnectorIds, requiredAllOverride],
   )
 
   async function refreshConnectors() {
-    if (!workspaceId || requiredConnectors.length === 0) {
+    if (!workspaceId || (requiredConnectors.length === 0 && briefConnectors.length === 0)) {
       setActiveConnectorIds([])
       return
     }
@@ -231,14 +305,14 @@ export function CompanyIntelActionButton({
   }
 
   useEffect(() => {
-    if (!open || !workspaceId || requiredConnectors.length === 0) return
+    if (!open || !workspaceId || (requiredConnectors.length === 0 && briefConnectors.length === 0)) return
     void refreshConnectors()
     return addIntegrationConnectedListener((detail) => {
       if (detail.companyId !== workspaceId) return
       setActiveConnectorIds((prev) => (prev.includes(detail.connectorId) ? prev : [...prev, detail.connectorId]))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, workspaceId, targetModuleId])
+  }, [open, workspaceId, targetModuleId, formValues.contact_channels])
 
   function resetDialogState() {
     setStep(workflowForm ? 'configure' : 'tasks')
@@ -264,6 +338,16 @@ export function CompanyIntelActionButton({
     if (workflowForm?.fields.some((field) => field.id === 'delivery') && !next.delivery) {
       next.delivery = 'draft'
     }
+    if (workflowForm?.fields.some((field) => field.id === 'contact_channels') && !next.contact_channels) {
+      // Prefer legacy channel preset when migrating from email/linkedin/multi
+      const legacy = String(moduleWorkflowParams?.channel || '').trim()
+      if (legacy === 'linkedin') next.contact_channels = 'linkedin'
+      else if (legacy === 'multi') next.contact_channels = 'email,linkedin'
+      else next.contact_channels = 'email'
+    }
+    if (workflowForm?.fields.some((field) => field.id === 'contact_channels')) {
+      next.channel = deriveChannelFromContactChannels(next.contact_channels)
+    }
     setFormValues(next)
   }
 
@@ -283,11 +367,15 @@ export function CompanyIntelActionButton({
         method: 'POST',
         body: JSON.stringify({
           task: enrichedTask,
+          taskType: resolveDeploymentTaskType(navigateModuleId) || undefined,
+          moduleId: targetModuleId || undefined,
           marketingContext: {
             companyId,
             companyName,
             websiteUrl,
             workflowAnswers: values,
+            moduleId: targetModuleId || undefined,
+            taskType: resolveDeploymentTaskType(navigateModuleId) || undefined,
             ...(marketingContext || {}),
           },
         }),
@@ -436,6 +524,12 @@ export function CompanyIntelActionButton({
         ...(moduleWorkflowParams || {}),
         ...formValues,
         question: formValues.question || moduleWorkflowParams?.question || runPrompt || taskRequest,
+        ...(formValues.contact_channels
+          ? {
+              contact_channels: formValues.contact_channels,
+              channel: deriveChannelFromContactChannels(formValues.contact_channels),
+            }
+          : {}),
       }
 
       if (deploymentMode === 'run_now') {
@@ -547,30 +641,6 @@ export function CompanyIntelActionButton({
 
           {step === 'configure' && workflowForm ? (
             <div className="space-y-4">
-              {requiredConnectors.length > 0 && !connectorsLoading && !connectorReadiness.ready ? (
-                <ConnectorGateCard
-                  missingConnectorIds={connectorReadiness.missing}
-                  taskLabel={workflowForm.moduleName}
-                  workspaceId={workspaceId}
-                  hardGate
-                  onConnected={(connectorId) => {
-                    setActiveConnectorIds((prev) =>
-                      prev.includes(connectorId) ? prev : [...prev, connectorId],
-                    )
-                    toast.success('Connector linked — continue when ready.')
-                  }}
-                />
-              ) : null}
-              {requiredConnectors.length > 0 && connectorReadiness.ready ? (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-                  Connected for {workflowForm.moduleName}: {connectorReadiness.connected.join(', ')}. Drafts
-                  use this live account context; send still needs approval later.
-                </div>
-              ) : null}
-              {connectorsLoading ? (
-                <div className="text-xs text-muted-foreground">Checking connected accounts…</div>
-              ) : null}
-
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base text-orange-600 dark:text-orange-400">{workflowForm.moduleName}</CardTitle>
@@ -579,13 +649,48 @@ export function CompanyIntelActionButton({
                   <p className="text-sm text-muted-foreground">{workflowForm.prompt}</p>
                   {workflowForm.fields.map((field) => (
                     <div key={field.id} className="space-y-1.5">
-                      <div className="text-xs font-medium text-muted-foreground">{field.label}</div>
+                      <div className="text-xs font-medium text-muted-foreground">
+                        {field.label}
+                        {field.type === 'multi_select' ? (
+                          <span className="ml-1 font-normal opacity-70">(select one or more)</span>
+                        ) : null}
+                      </div>
                       {field.type === 'text' ? (
                         <Input
                           value={formValues[field.id] ?? ''}
                           onChange={(e) => setFormValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
                           placeholder={field.placeholder}
                         />
+                      ) : field.type === 'multi_select' ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {(field.options || []).map((opt) => {
+                            const selected = parseMultiValues(formValues[field.id]).includes(opt.value)
+                            return (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() =>
+                                  setFormValues((prev) => {
+                                    const contactChannels = toggleMultiValue(prev[field.id], opt.value)
+                                    const next = { ...prev, [field.id]: contactChannels }
+                                    if (field.id === 'contact_channels') {
+                                      next.channel = deriveChannelFromContactChannels(contactChannels)
+                                    }
+                                    return next
+                                  })
+                                }
+                                className={cn(
+                                  'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                                  selected
+                                    ? 'border-orange-400 bg-orange-100 text-orange-700 dark:border-orange-600 dark:bg-orange-900/30 dark:text-orange-300'
+                                    : 'border-border/60 bg-background/70 text-muted-foreground hover:border-orange-300 hover:text-foreground',
+                                )}
+                              >
+                                {opt.label}
+                              </button>
+                            )
+                          })}
+                        </div>
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
                           {(field.options || []).map((opt) => {
@@ -617,6 +722,40 @@ export function CompanyIntelActionButton({
                   ))}
                 </CardContent>
               </Card>
+
+              {connectorsLoading ? (
+                <div className="text-xs text-muted-foreground">Checking connected accounts…</div>
+              ) : null}
+              {briefConnectors.length > 0 && !connectorsLoading ? (
+                <ConnectorGateCard
+                  connectorIds={briefConnectors}
+                  connectedConnectorIds={activeConnectorIds.filter((id) => briefConnectors.includes(id))}
+                  missingConnectorIds={connectorReadiness.missing}
+                  taskLabel={
+                    targetModuleId === 'lead-outreach'
+                      ? 'Lead outreach on this ICP'
+                      : workflowForm.moduleName
+                  }
+                  workspaceId={workspaceId}
+                  hardGate={!connectorReadiness.ready}
+                  onConnected={(connectorId) => {
+                    setActiveConnectorIds((prev) =>
+                      prev.includes(connectorId) ? prev : [...prev, connectorId],
+                    )
+                    toast.success('Connector linked — continue when ready.')
+                    void refreshConnectors()
+                  }}
+                />
+              ) : null}
+              {briefConnectors.length > 0 && connectorReadiness.ready ? (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+                  Ready for {workflowForm.moduleName}
+                  {targetModuleId === 'lead-outreach' && requiredAllOverride?.length
+                    ? ` · launch connectors: ${requiredAllOverride.join(', ')}`
+                    : ''}
+                  . Draft by default — live send still needs Go Live later.
+                </div>
+              ) : null}
             </div>
           ) : (
             <Card>
@@ -711,13 +850,22 @@ export function CompanyIntelActionButton({
                 disabled={
                   isPreparing ||
                   connectorsLoading ||
-                  (requiredConnectors.length > 0 && !connectorReadiness.ready)
+                  (requiredConnectors.length > 0 && !connectorReadiness.ready) ||
+                  !isConfigureFormReady(workflowForm?.fields, formValues)
                 }
-                onClick={() => void prepareTaskPlan(formValues)}
+                onClick={() => {
+                  if (!isConfigureFormReady(workflowForm?.fields, formValues)) {
+                    toast.error('Select at least one contact data option (email, phone, or LinkedIn).')
+                    return
+                  }
+                  void prepareTaskPlan(formValues)
+                }}
               >
                 {requiredConnectors.length > 0 && !connectorReadiness.ready
-                  ? 'Connect an account to continue'
-                  : 'Continue to tasks'}
+                  ? 'Connect required accounts to continue'
+                  : !isConfigureFormReady(workflowForm?.fields, formValues)
+                    ? 'Select contact data to continue'
+                    : 'Continue to tasks'}
               </Button>
             ) : (
               <Button

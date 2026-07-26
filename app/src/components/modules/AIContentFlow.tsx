@@ -417,7 +417,7 @@ const CONTENT_TYPES: {
     icon: Film,
     taskType: 'generate_video',
     placeholder:
-      'e.g. "Create an 8-second cinematic shot of a data dashboard coming to life" · "Generate a product explainer scene: spreadsheet transforms into a clean analytics UI" · "B-roll of a busy SaaS team reviewing marketing metrics"',
+      'e.g. "Create an 8-second cinematic shot of a data dashboard coming to life" · "Generate a product explainer scene: spreadsheet transforms into a clean analytics UI" · "B-roll of a busy SaaS team reviewing marketing metrics · 9:16 Reels"',
   },
   {
     id: 'video-avatar',
@@ -447,8 +447,8 @@ const CHANNELS: { id: string; label: string; icon: React.ComponentType<{ classNa
 
 const DESCRIPTIONS: Record<ContentType, string> = {
   post:           'Write channel-ready text content for social, landing pages, and blog-style drafts — powered by Riya.',
-  image:          'Generate brand-consistent social images via Gemini image generation in any aspect ratio — powered by Riya.',
-  'video-faceless': 'Generate cinematic faceless videos via Veo 3.1 — powered by Riya.',
+  image:          'Generate brand-consistent social and paid-ad images via Gemini 3.1 Flash-Lite Image (gemini-3.1-flash-lite-image) — powered by Riya.',
+  'video-faceless': 'Generate short cinematic videos via Gemini Omni Flash (gemini-omni-flash-preview) — powered by Riya.',
   'video-avatar': 'Generate avatar spokesperson videos via HeyGen — powered by Riya.',
   email:          'Generate email content and HTML-ready campaign drafts for your ESP — powered by Riya.',
 }

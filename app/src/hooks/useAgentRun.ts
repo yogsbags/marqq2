@@ -161,7 +161,7 @@ export function useAgentRun(defaultCompanyId?: string, persistenceKey?: string) 
   }, [persistenceKey, state])
 
   const run = useCallback(
-    async (agentName: string, query: string, taskType?: string, companyId?: string, offer?: Offer | null, tags?: string[], conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>, moduleId?: string, deliveryMode?: 'draft' | 'live', outputMode?: string) => {
+    async (agentName: string, query: string, taskType?: string, companyId?: string, offer?: Offer | null, tags?: string[], conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>, moduleId?: string, deliveryMode?: 'draft' | 'live', outputMode?: string, connectors?: string[], paidChannel?: string) => {
       abortRef.current?.abort()
       const abort = new AbortController()
       abortRef.current = abort
@@ -178,6 +178,8 @@ export function useAgentRun(defaultCompanyId?: string, persistenceKey?: string) 
             ...(moduleId ? { module_id: moduleId } : {}),
             ...(deliveryMode ? { delivery_mode: deliveryMode } : {}),
             ...(outputMode ? { output_mode: outputMode } : {}),
+            ...(connectors?.length ? { connectors } : {}),
+            ...(paidChannel ? { paid_channel: paidChannel } : {}),
             offer_focus: offer ?? undefined,
             ...(tags?.length ? { tags } : {}),
             conversation_history: conversationHistory ?? [],

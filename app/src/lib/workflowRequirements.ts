@@ -18,8 +18,8 @@ export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
   'seo-llmo':              ['gsc', 'ga4', 'semrush', 'ahrefs'],
   // Budget & attribution — needs at least one ad platform or analytics
   'budget-optimization':   ['google_ads', 'meta_ads', 'ga4', 'linkedin_ads'],
-  // Lead scoring — needs a CRM or prospecting tool
-  'lead-intelligence':     ['apollo', 'hubspot', 'salesforce'],
+  // Lead scoring — needs a CRM or prospecting tool (Apollo / Hunter / CRM)
+  'lead-intelligence':     ['apollo', 'hunter', 'hubspot', 'salesforce'],
   // Email sequences — needs a sending/CRM tool
   'email-sequence':        ['mailchimp', 'klaviyo', 'hubspot', 'instantly', 'sendgrid'],
   // Lead magnets — GA4 for conversion data; CRM for lead capture
@@ -38,8 +38,8 @@ export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
   'positioning':           ['gsc', 'semrush', 'ahrefs'],
   // User engagement — product analytics
   'user-engagement':       ['ga4', 'mixpanel', 'amplitude', 'moengage', 'clevertap'],
-  // Lead outreach — Instantly is required for campaign launch; Apollo/Gmail still boost readiness
-  'lead-outreach':         ['apollo', 'instantly', 'hubspot', 'gmail'],
+  // Lead outreach — need ≥1 lead-data provider (Apollo or Hunter); Instantly required to launch
+  'lead-outreach':         ['apollo', 'hunter'],
   // Ad creative — needs at least one ad platform for performance context
   'ad-creative':           ['google_ads', 'meta_ads', 'linkedin_ads'],
   // Paid ads — full ad account management
@@ -72,10 +72,81 @@ export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
  * Connectors that must ALL be connected for the module (in addition to the
  * at-least-one rule from WORKFLOW_CONNECTOR_REQUIREMENTS).
  * Used so outreach still prompts for Instantly even when Apollo/Gmail is already linked.
+ *
+ * For lead-outreach, prefer getLeadOutreachRequiredConnectors(contactChannels) —
+ * Instantly / HeyReach / WhatsApp depend on which contact data the user selected.
  */
 export const WORKFLOW_CONNECTOR_REQUIRED_ALL: Record<string, string[]> = {
   'lead-outreach': ['instantly'],
 };
+
+/** Contact-channel → campaign connector + copy artifacts for Lead Outreach */
+export const OUTREACH_CONTACT_CHANNEL_PLAN: Record<
+  string,
+  { connectorIds: string[]; optionalConnectorIds?: string[]; copyTypes: string[]; label: string }
+> = {
+  email: {
+    connectorIds: ['instantly'],
+    copyTypes: ['email'],
+    label: 'Email draft → Instantly',
+  },
+  linkedin: {
+    connectorIds: ['heyreach'],
+    optionalConnectorIds: ['linkedin'],
+    copyTypes: ['linkedin_dm'],
+    label: 'LinkedIn DM → HeyReach (native LinkedIn optional for profile/posts)',
+  },
+  phone: {
+    connectorIds: ['whatsapp'],
+    copyTypes: ['whatsapp_dm', 'voicebot_script'],
+    label: 'WhatsApp DM + voicebot script',
+  },
+};
+
+export function parseOutreachContactChannels(raw?: string | string[] | null): string[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : String(raw || '')
+        .split(',')
+        .map((v) => v.trim().toLowerCase())
+  return Array.from(
+    new Set(list.filter((v) => v === 'email' || v === 'phone' || v === 'linkedin')),
+  )
+}
+
+/** Hard connectors required before launching campaigns for the selected contact channels. */
+export function getLeadOutreachRequiredConnectors(contactChannels?: string | string[] | null): string[] {
+  const channels = parseOutreachContactChannels(contactChannels)
+  const effective = channels.length ? channels : ['email']
+  const ids = effective.flatMap((channel) => OUTREACH_CONTACT_CHANNEL_PLAN[channel]?.connectorIds || [])
+  return Array.from(new Set(ids))
+}
+
+/** Optional connectors to offer on the ICP brief (e.g. native LinkedIn). */
+export function getLeadOutreachOptionalConnectors(contactChannels?: string | string[] | null): string[] {
+  const channels = parseOutreachContactChannels(contactChannels)
+  const effective = channels.length ? channels : ['email']
+  const ids = effective.flatMap((channel) => OUTREACH_CONTACT_CHANNEL_PLAN[channel]?.optionalConnectorIds || [])
+  return Array.from(new Set(ids))
+}
+
+/**
+ * All connectors to surface on the Launch Outreach / ICP brief configure screen:
+ * lead-data pool + hard launch connectors + optional channel connectors.
+ */
+export function getLeadOutreachBriefConnectors(contactChannels?: string | string[] | null): string[] {
+  const leadData = WORKFLOW_CONNECTOR_REQUIREMENTS['lead-outreach'] || []
+  const required = getLeadOutreachRequiredConnectors(contactChannels)
+  const optional = getLeadOutreachOptionalConnectors(contactChannels)
+  return Array.from(new Set([...leadData, ...required, ...optional]))
+}
+
+export function getLeadOutreachCopyTypes(contactChannels?: string | string[] | null): string[] {
+  const channels = parseOutreachContactChannels(contactChannels)
+  const effective = channels.length ? channels : ['email']
+  const types = effective.flatMap((channel) => OUTREACH_CONTACT_CHANNEL_PLAN[channel]?.copyTypes || [])
+  return Array.from(new Set(types))
+}
 
 // ── Input form definitions per module ────────────────────────────────────────
 export const WORKFLOW_FORMS: Record<string, WorkflowFormData> = {
@@ -588,13 +659,14 @@ export const WORKFLOW_FORMS: Record<string, WorkflowFormData> = {
         placeholder: 'e.g. Book demos with VP-level buyers at Series B SaaS companies',
       },
       {
-        id: 'channel',
-        label: 'Outreach channel',
-        type: 'select',
+        id: 'contact_channels',
+        label: 'What contact data should we fetch?',
+        type: 'multi_select',
+        required: true,
         options: [
-          { value: 'email',    label: 'Email-first' },
-          { value: 'linkedin', label: 'LinkedIn-first' },
-          { value: 'multi',    label: 'Multitouch' },
+          { value: 'email', label: 'Verified email' },
+          { value: 'phone', label: 'Verified phone' },
+          { value: 'linkedin', label: 'LinkedIn profile' },
         ],
       },
       {
@@ -622,8 +694,8 @@ export const WORKFLOW_FORMS: Record<string, WorkflowFormData> = {
         label: 'Delivery in connected tools',
         type: 'select',
         options: [
-          { value: 'draft', label: 'Save as draft (Gmail / Instantly)' },
-          { value: 'live',  label: 'Push live (send / activate)' },
+          { value: 'draft', label: 'Save as draft (default — Instantly draft; LI/WA prepared)' },
+          { value: 'live',  label: 'Push live on Go Live click (send / activate / publish)' },
         ],
       },
     ],
@@ -656,8 +728,10 @@ export const WORKFLOW_FORMS: Record<string, WorkflowFormData> = {
         label: 'Platform',
         type: 'select',
         options: [
-          { value: 'meta',     label: 'Meta Ads' },
-          { value: 'google',   label: 'Google Ads' },
+          { value: 'facebook', label: 'Facebook' },
+          { value: 'instagram', label: 'Instagram' },
+          { value: 'facebook_instagram', label: 'FB + Instagram' },
+          { value: 'google', label: 'Google Ads' },
           { value: 'linkedin', label: 'LinkedIn Ads' },
         ],
       },
@@ -691,8 +765,10 @@ export const WORKFLOW_FORMS: Record<string, WorkflowFormData> = {
         label: 'Priority channel',
         type: 'select',
         options: [
-          { value: 'google',   label: 'Google Ads' },
-          { value: 'meta',     label: 'Meta Ads' },
+          { value: 'facebook', label: 'Facebook' },
+          { value: 'instagram', label: 'Instagram' },
+          { value: 'facebook_instagram', label: 'FB + Instagram' },
+          { value: 'google', label: 'Google Ads' },
           { value: 'linkedin', label: 'LinkedIn Ads' },
         ],
       },
@@ -954,6 +1030,7 @@ export const WORKFLOW_PARAM_KEYS: Record<string, Record<string, string>> = {
   },
   'lead-outreach': {
     question: 'question',
+    contact_channels: 'outreachContactChannels',
     channel:  'outreachChannel',
     target:   'outreachTarget',
     goal:     'outreachGoal',
@@ -1009,6 +1086,17 @@ export function buildWorkflowSummary(moduleId: string, params: Record<string, st
   for (const field of form.fields) {
     const val = params[field.id];
     if (!val) continue;
+    if (field.type === 'multi_select') {
+      const selected = String(val)
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean)
+      const labels = selected.map(
+        (v) => field.options?.find((o) => o.value === v)?.label ?? v,
+      )
+      lines.push(`**${field.label}** ${labels.join(', ')}`);
+      continue
+    }
     const label = field.options?.find(o => o.value === val)?.label ?? val;
     lines.push(`**${field.label}** ${label}`);
   }
@@ -1027,6 +1115,26 @@ export function mapWorkflowParamsToGoalPreset(
   const result: Record<string, string | null> = {};
   for (const [formKey, presetKey] of Object.entries(keyMap)) {
     result[presetKey] = params[formKey] ?? null;
+  }
+  if (moduleId === 'lead-outreach') {
+    const contactRaw = params.contact_channels || result.outreachContactChannels || ''
+    if (contactRaw && !result.outreachContactChannels) {
+      result.outreachContactChannels = contactRaw
+    }
+    if (contactRaw && !result.outreachChannel) {
+      const set = new Set(
+        String(contactRaw)
+          .split(',')
+          .map((v) => v.trim().toLowerCase())
+          .filter(Boolean),
+      )
+      result.outreachChannel =
+        set.has('linkedin') && !set.has('email') && !set.has('phone')
+          ? 'linkedin'
+          : set.has('email') && !set.has('linkedin') && !set.has('phone')
+            ? 'email'
+            : 'multi'
+    }
   }
   return result;
 }
@@ -1052,9 +1160,13 @@ export type ConnectorReadiness = {
 export function checkConnectorReadiness(
   moduleId: string,
   activeConnectorIds: string[],
+  options?: { requiredAllOverride?: string[] },
 ): ConnectorReadiness {
   const required = WORKFLOW_CONNECTOR_REQUIREMENTS[moduleId] ?? [];
-  const requiredAll = WORKFLOW_CONNECTOR_REQUIRED_ALL[moduleId] ?? [];
+  const requiredAll =
+    options?.requiredAllOverride
+    ?? WORKFLOW_CONNECTOR_REQUIRED_ALL[moduleId]
+    ?? [];
   if (required.length === 0 && requiredAll.length === 0) {
     return { ready: true, connected: [], missing: [], required: [] };
   }

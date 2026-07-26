@@ -13,6 +13,18 @@ import type { AgentRunResult, ToolCallEvent, ToolResultEvent, ContractTask } fro
 import { saveLibraryArtifact } from '@/lib/persistence'
 import { markdownToRichText } from '@/lib/markdown'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import {
+  EmailClientPreview,
+  SocialPostPreview,
+  CrmListPreview,
+  NewsletterEmailPreview,
+  BlogArticleBrowserPreview,
+  InlineBrowserPreview,
+  LandingPageBrowserPreview,
+  MetaAdsManagerPreview,
+  OutcomeGoLiveCta,
+  outcomeKindFromPlatform,
+} from '@/components/outcome-previews'
 
 interface AgentRunPanelProps extends AgentRunResult {
   agentName: string
@@ -419,6 +431,145 @@ function InlineMd({ children }: { children: string }) {
   )
 }
 
+// ── PaidCampaignCard ─────────────────────────────────────────────────────────
+function isPaidCampaignArtifact(artifact: Record<string, unknown>): boolean {
+  const hasHeadline =
+    typeof artifact['headline'] === 'string' ||
+    typeof artifact['ad_headline'] === 'string' ||
+    typeof artifact['primary_headline'] === 'string'
+  const hasCopy =
+    typeof artifact['primary_text'] === 'string' ||
+    typeof artifact['ad_copy'] === 'string' ||
+    typeof artifact['copy'] === 'string'
+  const hasLink =
+    typeof artifact['link_url'] === 'string' ||
+    typeof artifact['destination_url'] === 'string' ||
+    typeof artifact['landing_page'] === 'string'
+  const hasBudget =
+    artifact['daily_budget'] != null ||
+    artifact['budget'] != null ||
+    artifact['daily_budget_rupees'] != null
+  const named =
+    typeof artifact['campaign_name'] === 'string' ||
+    artifact['platform'] === 'meta' ||
+    artifact['platform'] === 'meta_ads' ||
+    String(artifact['channel'] || '').toLowerCase().includes('meta')
+  return Boolean((hasHeadline && hasCopy && (hasLink || hasBudget)) || (named && hasHeadline && hasCopy))
+}
+
+function PaidCampaignCard({
+  artifact,
+  workspaceId,
+  companyId,
+}: {
+  artifact: Record<string, unknown>
+  workspaceId?: string | null
+  companyId?: string | null
+}) {
+  const campaignName =
+    (typeof artifact['campaign_name'] === 'string' && artifact['campaign_name']) ||
+    (typeof artifact['name'] === 'string' && artifact['name']) ||
+    (typeof artifact['title'] === 'string' && artifact['title']) ||
+    'Paid campaign'
+  const headline =
+    (typeof artifact['headline'] === 'string' && artifact['headline']) ||
+    (typeof artifact['ad_headline'] === 'string' && artifact['ad_headline']) ||
+    (typeof artifact['primary_headline'] === 'string' && artifact['primary_headline']) ||
+    ''
+  const primaryText =
+    (typeof artifact['primary_text'] === 'string' && artifact['primary_text']) ||
+    (typeof artifact['ad_copy'] === 'string' && artifact['ad_copy']) ||
+    (typeof artifact['copy'] === 'string' && artifact['copy']) ||
+    (typeof artifact['body'] === 'string' && artifact['body']) ||
+    ''
+  const linkUrl =
+    (typeof artifact['link_url'] === 'string' && artifact['link_url']) ||
+    (typeof artifact['destination_url'] === 'string' && artifact['destination_url']) ||
+    (typeof artifact['landing_page'] === 'string' && artifact['landing_page']) ||
+    ''
+  const dailyBudget = artifact['daily_budget'] ?? artifact['budget'] ?? artifact['daily_budget_rupees']
+  const objectiveRaw =
+    (typeof artifact['objective'] === 'string' && artifact['objective']) ||
+    (typeof artifact['goal'] === 'string' && artifact['goal']) ||
+    'OUTCOME_TRAFFIC'
+  const objective = (() => {
+    const v = objectiveRaw.toUpperCase().replace(/\s+/g, '_')
+    if (v.startsWith('OUTCOME_')) return v
+    const map: Record<string, string> = {
+      LEADS: 'OUTCOME_LEADS',
+      TRAFFIC: 'OUTCOME_TRAFFIC',
+      SALES: 'OUTCOME_SALES',
+      CONVERSIONS: 'OUTCOME_SALES',
+      AWARENESS: 'OUTCOME_AWARENESS',
+      ENGAGEMENT: 'OUTCOME_ENGAGEMENT',
+    }
+    return map[v] || 'OUTCOME_TRAFFIC'
+  })()
+  const ctaType = typeof artifact['cta_type'] === 'string' ? artifact['cta_type'] : typeof artifact['cta'] === 'string' ? artifact['cta'] : 'LEARN_MORE'
+  const imageUrl =
+    (typeof artifact['image_url'] === 'string' && artifact['image_url']) ||
+    (typeof artifact['cdn_url'] === 'string' && artifact['cdn_url']) ||
+    undefined
+  const channel =
+    (typeof artifact['channel'] === 'string' && artifact['channel']) ||
+    (typeof artifact['paid_channel'] === 'string' && artifact['paid_channel']) ||
+    (typeof artifact['platform'] === 'string' && artifact['platform']) ||
+    'facebook_instagram'
+  const preferredConnector =
+    /google/i.test(channel) ? 'google_ads' : /linkedin/i.test(channel) ? 'linkedin_ads' : 'meta_ads'
+
+  const payload: Record<string, unknown> = {
+    campaign_name: campaignName,
+    headline,
+    primary_text: primaryText,
+    link_url: linkUrl,
+    daily_budget: dailyBudget,
+    objective,
+    channel,
+    paid_channel: channel,
+    cta_type: ctaType,
+    status: 'PAUSED',
+  }
+  if (imageUrl) payload.image_url = imageUrl
+
+  return (
+    <div className="space-y-3">
+      <MetaAdsManagerPreview
+        campaignName={campaignName}
+        objective={objective}
+        dailyBudget={typeof dailyBudget === 'number' || typeof dailyBudget === 'string' ? dailyBudget : undefined}
+        headline={headline}
+        primaryText={primaryText}
+        linkUrl={linkUrl}
+        ctaType={ctaType}
+        imageUrl={imageUrl}
+        status="PAUSED"
+      />
+      <OutcomeGoLiveCta
+        kind="paid_ads"
+        workspaceId={workspaceId}
+        companyId={companyId}
+        preferredConnector={preferredConnector}
+        requiredAnyOf={[preferredConnector]}
+        liveActionLabel={
+          preferredConnector === 'google_ads'
+            ? 'Create paused Google campaign'
+            : preferredConnector === 'linkedin_ads'
+              ? 'Create paused LinkedIn campaign'
+              : 'Create paused Meta campaign'
+        }
+        payload={payload}
+        goLiveDisabled={!headline || !primaryText || !linkUrl || dailyBudget == null || dailyBudget === ''}
+      />
+      {(!linkUrl || dailyBudget == null || dailyBudget === '') && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Add a destination URL and daily budget (₹) to the brief before creating the campaign.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── ContentPostCard ─────────────────────────────────────────────────────────
 const PLATFORM_STYLES: Record<string, { label: string; bg: string; text: string }> = {
   linkedin:            { label: 'LinkedIn',           bg: 'bg-blue-50 dark:bg-blue-950/30',   text: 'text-blue-700 dark:text-blue-300' },
@@ -802,21 +953,16 @@ ${ctaHtml}
         </div>
       </div>
 
-      {/* Post body */}
-      <div className="px-4 py-4 space-y-4">
-        {hook && hook !== post.split('\n')[0] && (
-          <div className="rounded-lg border border-orange-200/60 bg-orange-50/60 dark:border-orange-800/40 dark:bg-orange-950/20 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-orange-500 mb-1 flex items-center gap-1">
-              <Zap className="h-3 w-3" />
-              Hook
-            </div>
-            <p className="text-sm font-medium text-foreground leading-snug">{hook}</p>
-          </div>
-        )}
-
-        <div className="rounded-lg border border-border/50 bg-muted/10 px-4 py-4">
-          <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{post}</p>
-        </div>
+      {/* Outcome preview — looks like the live social post */}
+      <div className="px-4 py-4 space-y-4 bg-muted/10">
+        <SocialPostPreview
+          platform={platform}
+          post={post}
+          hook={hook && hook !== post.split('\n')[0] ? hook : undefined}
+          hashtags={hashtags}
+          cta={cta}
+          imageUrl={typeof artifact['image_url'] === 'string' ? artifact['image_url'] : typeof artifact['cdn_url'] === 'string' ? artifact['cdn_url'] : undefined}
+        />
 
         <ContentDistributionActions
           companyId={companyId}
@@ -826,56 +972,12 @@ ${ctaHtml}
           workspaceId={workspaceId}
         />
 
-        {hashtags.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground flex items-center gap-1">
-              <Hash className="h-3 w-3" />
-              Hashtags
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {hashtags.map((tag, i) => (
-                <button
-                  key={`${tag}-${i}`}
-                  type="button"
-                  className="rounded-full border border-border/60 bg-background px-2.5 py-0.5 text-xs text-muted-foreground hover:border-orange-300 hover:text-orange-600 transition-colors"
-                  onClick={() => { void navigator.clipboard.writeText(tag).then(() => toast.success('Copied')) }}
-                  title="Click to copy"
-                >
-                  {tag}
-                </button>
-              ))}
-              {hashtags.length > 1 && (
-                <button
-                  type="button"
-                  className="rounded-full border border-dashed border-border/50 bg-background px-2.5 py-0.5 text-xs text-muted-foreground hover:border-orange-300 hover:text-orange-600 transition-colors"
-                  onClick={() => { void copyText(hashtags.join(' '), 'All hashtags copied') }}
-                >
-                  Copy all
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {cta && (
-          <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-800/40 dark:bg-emerald-950/20 px-3 py-2.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400 mb-1 flex items-center gap-1">
-              <Send className="h-3 w-3" />
-              CTA
-            </div>
-            <div className="flex items-start justify-between gap-2">
-              <p className="text-sm text-foreground">{cta}</p>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-1.5 text-[11px] shrink-0 text-emerald-600 hover:text-emerald-700"
-                onClick={() => { void copyText(cta, 'CTA copied') }}
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-        )}
+        <OutcomeGoLiveCta
+          kind={outcomeKindFromPlatform(platform)}
+          workspaceId={workspaceId}
+          companyId={companyId}
+          payload={distributionPayload}
+        />
 
         {variations.length > 0 && (
           <div className="space-y-2">
@@ -912,11 +1014,15 @@ ${ctaHtml}
 }
 
 // ── EmailDraftCard ───────────────────────────────────────────────────────────
-function EmailDraftCard({ artifact }: { artifact: Record<string, unknown> }) {
+function EmailDraftCard({ artifact, workspaceId }: { artifact: Record<string, unknown>; workspaceId?: string | null }) {
   const subject     = typeof artifact['subject']      === 'string' ? artifact['subject']      : ''
   const previewText = typeof artifact['preview_text'] === 'string' ? artifact['preview_text'] : ''
   const body        = typeof artifact['body']         === 'string' ? artifact['body']         : ''
   const cta         = typeof artifact['cta']          === 'string' ? artifact['cta']          : ''
+  const from        = typeof artifact['from'] === 'string' ? artifact['from']
+    : typeof artifact['from_email'] === 'string' ? artifact['from_email'] : ''
+  const to          = typeof artifact['to'] === 'string' ? artifact['to']
+    : typeof artifact['to_email'] === 'string' ? artifact['to_email'] : ''
   const wordCount   = artifact['word_count'] != null  ? String(artifact['word_count'])         : ''
 
   const exportText = [
@@ -928,85 +1034,45 @@ function EmailDraftCard({ artifact }: { artifact: Record<string, unknown> }) {
   ].filter(Boolean).join('\n').trim()
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20 flex-wrap">
-        <Mail className="h-3.5 w-3.5 text-orange-500 shrink-0" />
-        <span className="text-xs font-semibold text-foreground">Email Draft</span>
-        {wordCount && (
-          <span className="ml-auto text-[11px] text-muted-foreground">{wordCount} words</span>
-        )}
+    <div className="space-y-3">
+    <EmailClientPreview
+      from={from || 'you@yourbrand.com'}
+      to={to || 'prospect@company.com'}
+      subject={subject}
+      body={body}
+      previewText={previewText}
+      cta={cta}
+      toolbar={
         <div className="flex items-center gap-1.5">
-          <Button variant="outline"  size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportText, 'Email copied') }}>
+          {wordCount && <span className="text-[10px] text-zinc-500 mr-1">{wordCount} words</span>}
+          <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportText, 'Email copied') }}>
             <Copy className="h-3 w-3" /> Copy
           </Button>
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => downloadTextFile('email-draft.txt', exportText)}>
             <Download className="h-3 w-3" /> .txt
           </Button>
-          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => {
-            const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-            const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${subject ? esc(subject) : 'Email Draft'}</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 40px auto; padding: 0 24px; color: #111; line-height: 1.7; }
-  .subject { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-  .preview { font-size: 13px; color: #6b7280; margin-bottom: 24px; }
-  .body { white-space: pre-wrap; font-size: 15px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
-  .cta { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-size: 14px; color: #166534; margin-top: 20px; }
-</style>
-</head>
-<body>
-${subject ? `<div class="subject">${esc(subject)}</div>` : ''}
-${previewText ? `<div class="preview">${esc(previewText)}</div>` : ''}
-<div class="body">${esc(body)}</div>
-${cta ? `<div class="cta"><strong>CTA:</strong> ${esc(cta)}</div>` : ''}
-</body>
-</html>`
-            downloadTextFile('email-draft.html', html, 'text/html;charset=utf-8')
-          }}>
-            <Download className="h-3 w-3" /> .html
-          </Button>
         </div>
-      </div>
-      <div className="px-4 py-4 space-y-3">
-        {subject && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/10 px-3 py-2.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mt-0.5 w-14 shrink-0">Subject</div>
-            <p className="text-sm font-medium text-foreground leading-snug">{subject}</p>
-            <Button variant="ghost" size="sm" className="h-6 px-1.5 ml-auto shrink-0" onClick={() => { void copyText(subject, 'Subject copied') }}>
-              <Copy className="h-3 w-3 text-muted-foreground" />
-            </Button>
-          </div>
-        )}
-        {previewText && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mt-0.5 w-14 shrink-0">Preview</div>
-            <p className="text-xs text-muted-foreground leading-snug">{previewText}</p>
-          </div>
-        )}
-        {body && (
-          <div className="rounded-lg border border-border/50 bg-muted/10 px-4 py-4">
-            <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{body}</p>
-          </div>
-        )}
-        {cta && (
-          <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-800/40 dark:bg-emerald-950/20 px-3 py-2.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400 mb-1">CTA</div>
-            <p className="text-sm text-foreground">{cta}</p>
-          </div>
-        )}
-      </div>
+      }
+    />
+    <OutcomeGoLiveCta
+      kind="email"
+      workspaceId={workspaceId}
+      payload={{
+        subject,
+        body,
+        preview_text: previewText,
+        cta,
+        from,
+        to,
+      }}
+    />
     </div>
   )
 }
 
 // ── ArticleCard ──────────────────────────────────────────────────────────────
 // Renders Maya's article schema: {title, meta_description, target_keyword, word_count, sections:[{heading,content}]}
-function ArticleCard({ artifact }: { artifact: Record<string, unknown> }) {
-  const [openSections, setOpenSections] = useState<Set<number>>(() => new Set([0, 1]))
+function ArticleCard({ artifact, workspaceId }: { artifact: Record<string, unknown>; workspaceId?: string | null }) {
   const title          = typeof artifact['title']            === 'string' ? artifact['title']            : ''
   const metaDesc       = typeof artifact['meta_description'] === 'string' ? artifact['meta_description'] : ''
   const targetKeyword  = typeof artifact['target_keyword']   === 'string' ? artifact['target_keyword']   : ''
@@ -1014,9 +1080,6 @@ function ArticleCard({ artifact }: { artifact: Record<string, unknown> }) {
   const sections       = Array.isArray(artifact['sections'])
     ? (artifact['sections'] as Record<string, unknown>[]).filter(s => s && typeof s === 'object')
     : []
-
-  const toggleSection = (i: number) =>
-    setOpenSections(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
 
   const exportMarkdown = [
     `# ${title}`,
@@ -1027,13 +1090,17 @@ function ArticleCard({ artifact }: { artifact: Record<string, unknown> }) {
   ].filter(s => s !== undefined).join('\n')
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20 flex-wrap">
-        <FileText className="h-3.5 w-3.5 text-orange-500 shrink-0" />
-        <span className="text-xs font-semibold text-foreground">Article</span>
-        {wordCount && <span className="text-[11px] text-muted-foreground">{wordCount} words</span>}
-        {sections.length > 0 && <span className="text-[11px] text-muted-foreground">{sections.length} sections</span>}
-        <div className="ml-auto flex items-center gap-1.5">
+    <div className="space-y-3">
+    <BlogArticleBrowserPreview
+      title={title}
+      metaDescription={metaDesc}
+      sections={sections.map((s) => ({
+        heading: typeof s['heading'] === 'string' ? s['heading'] : undefined,
+        content: typeof s['content'] === 'string' ? s['content'] : undefined,
+      }))}
+      toolbar={
+        <div className="flex items-center gap-1.5">
+          {wordCount && <span className="text-[10px] text-zinc-500">{wordCount}w</span>}
           <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportMarkdown, 'Article copied') }}>
             <Copy className="h-3 w-3" /> Copy
           </Button>
@@ -1041,50 +1108,19 @@ function ArticleCard({ artifact }: { artifact: Record<string, unknown> }) {
             <Download className="h-3 w-3" /> .md
           </Button>
         </div>
-      </div>
-      <div className="px-4 py-4 space-y-3">
-        {title && <h2 className="text-base font-bold text-foreground leading-snug">{title}</h2>}
-        {metaDesc && (
-          <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-1">Meta Description</div>
-            <p className="text-xs text-muted-foreground leading-relaxed">{metaDesc}</p>
-          </div>
-        )}
-        {targetKeyword && (
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Keyword</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 dark:bg-orange-950/30 px-2.5 py-0.5 text-[11px] font-semibold text-orange-700 dark:text-orange-300">
-              <Hash className="h-3 w-3" />{targetKeyword}
-            </span>
-          </div>
-        )}
-        {sections.length > 0 && (
-          <div className="space-y-2 pt-1">
-            {sections.map((section, i) => {
-              const heading = typeof section['heading'] === 'string' ? section['heading'] : `Section ${i + 1}`
-              const content = typeof section['content'] === 'string' ? section['content'] : ''
-              const isOpen  = openSections.has(i)
-              return (
-                <div key={i} className="rounded-lg border border-border/50 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => toggleSection(i)}
-                    className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors text-left gap-2"
-                  >
-                    <span className="text-sm font-semibold text-foreground">{heading}</span>
-                    {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-                  </button>
-                  {isOpen && content && (
-                    <div className="px-3 py-3 border-t border-border/40 bg-background/60">
-                      <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{content}</p>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      }
+    />
+    <OutcomeGoLiveCta
+      kind="blog"
+      workspaceId={workspaceId}
+      payload={{
+        title,
+        meta_description: metaDesc,
+        target_keyword: targetKeyword,
+        sections,
+        word_count: wordCount,
+      }}
+    />
     </div>
   )
 }
@@ -1394,80 +1430,47 @@ function LeadsCard({ artifact }: { artifact: Record<string, unknown> }) {
   const leads   = Array.isArray(artifact['leads'])   ? artifact['leads']   as Record<string, unknown>[] : []
   const scoring = artifact['scoring'] && typeof artifact['scoring'] === 'object' ? artifact['scoring'] as Record<string, unknown> : null
 
-  const PRIORITY_KEYS = ['name', 'company', 'score', 'email', 'title', 'reason', 'status', 'segment']
   function getScore(lead: Record<string, unknown>) {
     const s = lead['score'] ?? lead['ics_score'] ?? lead['lead_score']
     if (s == null) return null
     const n = typeof s === 'number' ? s : Number(s)
     return isNaN(n) ? String(s) : n
   }
-  function scoreColor(score: number | string | null) {
-    if (typeof score !== 'number') return 'text-muted-foreground'
-    if (score >= 80) return 'text-emerald-600 dark:text-emerald-400'
-    if (score >= 60) return 'text-orange-500'
-    return 'text-red-500'
-  }
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background/90 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/20">
-        <Users className="h-3.5 w-3.5 text-orange-500 shrink-0" />
-        <span className="text-xs font-semibold text-foreground">Leads</span>
-        <span className="text-[11px] text-muted-foreground">{leads.length} leads</span>
-        <Button variant="ghost" size="sm" className="ml-auto h-7 gap-1 px-2 text-xs"
-          onClick={() => {
-            const csv = [
-              Object.keys(leads[0] || {}).join(','),
-              ...leads.map(l => Object.values(l).map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(','))
-            ].join('\n')
-            void copyText(csv, 'Leads copied as CSV')
-          }}>
-          <Copy className="h-3 w-3" /> CSV
-        </Button>
-      </div>
-      <div className="divide-y divide-border/40">
-        {leads.map((lead, i) => {
-          const name    = typeof lead['name']    === 'string' ? lead['name']    : ''
-          const company = typeof lead['company'] === 'string' ? lead['company'] : ''
-          const email   = typeof lead['email']   === 'string' ? lead['email']   : ''
-          const reason  = typeof lead['reason']  === 'string' ? lead['reason']  : typeof lead['notes'] === 'string' ? lead['notes'] : ''
-          const score   = getScore(lead)
-          const otherKeys = Object.keys(lead).filter(k => !PRIORITY_KEYS.includes(k) && lead[k] !== null && lead[k] !== undefined && lead[k] !== '')
-          return (
-            <div key={i} className="px-4 py-3 space-y-1.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-foreground">{name || `Lead ${i+1}`}</span>
-                {company && <span className="text-xs text-muted-foreground">{company}</span>}
-                {score !== null && (
-                  <span className={`ml-auto text-xs font-bold ${scoreColor(score)}`}>
-                    {typeof score === 'number' ? `${score}/100` : score}
-                  </span>
-                )}
-              </div>
-              {email && <p className="text-xs text-muted-foreground">{email}</p>}
-              {reason && <p className="text-xs text-muted-foreground leading-5 italic">{reason}</p>}
-              {otherKeys.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {otherKeys.map(k => (
-                    <span key={k} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                      <span className="font-semibold">{k.replace(/_/g,' ')}:</span> {String(lead[k])}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+    <div className="space-y-3">
+      <CrmListPreview
+        title="CRM · Leads"
+        leads={leads.map((lead, i) => ({
+          id: String(lead['id'] ?? i),
+          name: typeof lead['name'] === 'string' ? lead['name'] : typeof lead['full_name'] === 'string' ? lead['full_name'] : undefined,
+          title: typeof lead['title'] === 'string' ? lead['title'] : undefined,
+          company: typeof lead['company'] === 'string' ? lead['company'] : undefined,
+          email: typeof lead['email'] === 'string' ? lead['email'] : undefined,
+          status: typeof lead['status'] === 'string' ? lead['status'] : typeof lead['segment'] === 'string' ? lead['segment'] : 'New',
+          score: getScore(lead),
+        }))}
+        toolbar={
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs"
+            onClick={() => {
+              const csv = [
+                Object.keys(leads[0] || {}).join(','),
+                ...leads.map(l => Object.values(l).map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(','))
+              ].join('\n')
+              void copyText(csv, 'Leads copied as CSV')
+            }}>
+            <Copy className="h-3 w-3" /> CSV
+          </Button>
+        }
+      />
       {scoring && Object.keys(scoring).length > 0 && (
-        <div className="px-4 py-3 border-t border-border/40 bg-muted/10">
+        <div className="rounded-xl border border-border/50 bg-muted/10 px-4 py-3">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">Scoring Summary</div>
           <div className="flex flex-wrap gap-2">
             {Object.entries(scoring).map(([k, v]) => (
-              <div key={k} className="rounded-md bg-background border border-border/50 px-2.5 py-1.5 text-center">
-                <div className="text-xs font-bold text-foreground">{String(v)}</div>
-                <div className="text-[10px] text-muted-foreground capitalize">{k.replace(/_/g,' ')}</div>
-              </div>
+              <span key={k} className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-0.5 text-[11px] text-muted-foreground border border-border/50">
+                <span className="font-semibold">{k.replace(/_/g, ' ')}:</span> {String(v)}
+              </span>
             ))}
           </div>
         </div>
@@ -2207,20 +2210,51 @@ export function AgentRunPanel({
 
         {/* Artifact renderers — type-aware */}
         {artifact && !renderArtifact && (() => {
+          // Paid Meta campaign brief → Ads Manager preview + create CTA
+          if (isPaidCampaignArtifact(artifact)) {
+            return <PaidCampaignCard artifact={artifact} workspaceId={workspaceId} companyId={companyId} />
+          }
           // Social/text post
           if (typeof artifact['post'] === 'string' && artifact['post']) {
             return <ContentPostCard artifact={artifact} companyId={companyId} agentName={agentName} workspaceId={workspaceId} />
           }
           // Email draft (body without html — html is handled below)
           if (typeof artifact['body'] === 'string' && artifact['body'] && !artifact['generate_email_html']) {
-            return <EmailDraftCard artifact={artifact} />
+            return <EmailDraftCard artifact={artifact} workspaceId={workspaceId} />
           }
           // Article: title + sections array with {heading, content}
           if (typeof artifact['title'] === 'string' && artifact['title'] &&
               Array.isArray(artifact['sections']) && artifact['sections'].length > 0 &&
               artifact['sections'][0] && typeof artifact['sections'][0] === 'object' &&
               ('heading' in (artifact['sections'][0] as object) || 'content' in (artifact['sections'][0] as object))) {
-            return <ArticleCard artifact={artifact} />
+            return <ArticleCard artifact={artifact} workspaceId={workspaceId} />
+          }
+          // Landing page structure
+          if (Array.isArray(artifact['page_structure']) && artifact['page_structure'].length > 0) {
+            const pageSections = (artifact['page_structure'] as Record<string, unknown>[]).map((s) => ({
+              label: typeof s['label'] === 'string' ? s['label'] : undefined,
+              heading: typeof s['heading'] === 'string' ? s['heading'] : typeof s['title'] === 'string' ? s['title'] : undefined,
+              content: typeof s['content'] === 'string' ? s['content'] : typeof s['copy'] === 'string' ? s['copy'] : undefined,
+              cta: typeof s['cta'] === 'string' ? s['cta'] : undefined,
+            }))
+            return (
+              <div className="space-y-3">
+                <LandingPageBrowserPreview
+                  title={typeof artifact['title'] === 'string' ? artifact['title'] : typeof artifact['page_title'] === 'string' ? artifact['page_title'] : 'Landing page'}
+                  sections={pageSections}
+                />
+                <OutcomeGoLiveCta
+                  kind="landing_page"
+                  workspaceId={workspaceId}
+                  companyId={companyId}
+                  payload={{
+                    title: typeof artifact['title'] === 'string' ? artifact['title'] : typeof artifact['page_title'] === 'string' ? artifact['page_title'] : 'Landing page',
+                    page_structure: artifact['page_structure'],
+                    slug: typeof artifact['slug'] === 'string' ? artifact['slug'] : undefined,
+                  }}
+                />
+              </div>
+            )
           }
           // Proposal: proposal_title field
           if (typeof artifact['proposal_title'] === 'string' && artifact['proposal_title']) {
@@ -2376,11 +2410,12 @@ export function AgentRunPanel({
             const emailHtml = String(email.html)
             const emailSubject = email.subject ? String(email.subject) : 'Campaign Email'
             cards.push(
-              <div key="email-html" className="rounded-xl border border-border/70 bg-background/85 p-3 shadow-sm space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground" aria-hidden="true">
-                    Email Newsletter{email.subject ? ` — ${email.subject}` : ''}
-                  </div>
+              <div key="email-html" className="space-y-3">
+              <NewsletterEmailPreview
+                subject={emailSubject}
+                from={typeof email.from === 'string' ? email.from : 'newsletter@yourbrand.com'}
+                html={emailHtml}
+                toolbar={
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
@@ -2401,17 +2436,18 @@ export function AgentRunPanel({
                       Download
                     </Button>
                   </div>
-                </div>
-                <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  Subject: <span className="font-medium text-foreground">{emailSubject}</span>
-                </div>
-                <iframe
-                  srcDoc={emailHtml}
-                  className="w-full rounded-lg border border-border/40"
-                  style={{ height: '480px' }}
-                  sandbox="allow-same-origin"
-                  title="Email preview"
-                />
+                }
+              />
+              <OutcomeGoLiveCta
+                kind="newsletter"
+                workspaceId={workspaceId}
+                companyId={companyId}
+                payload={{
+                  subject: emailSubject,
+                  html: emailHtml,
+                  from: typeof email.from === 'string' ? email.from : undefined,
+                }}
+              />
               </div>
             )
           }
@@ -2420,13 +2456,13 @@ export function AgentRunPanel({
             const articleHtml = String(seo.html)
             const articleTitle = seo.title ? String(seo.title) : 'SEO Article'
             const articleSlug = seo.slug ? String(seo.slug) : ''
-            const articleMeta = seo.meta_description ? String(seo.meta_description) : ''
             cards.push(
-              <div key="seo-article" className="rounded-xl border border-border/70 bg-background/85 p-3 shadow-sm space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground" aria-hidden="true">
-                    Blog Article{seo.title ? ` — ${seo.title}` : ''}
-                  </div>
+              <div key="seo-article" className="space-y-3">
+              <InlineBrowserPreview
+                urlLabel="blog.yoursite.com"
+                title={articleSlug || articleTitle}
+                html={articleHtml}
+                toolbar={
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
@@ -2447,28 +2483,19 @@ export function AgentRunPanel({
                       Download
                     </Button>
                   </div>
-                </div>
-                <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                  <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                    <div className="font-medium text-foreground">Title</div>
-                    <div>{articleTitle}</div>
-                  </div>
-                  <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                    <div className="font-medium text-foreground">Slug</div>
-                    <div>{articleSlug || 'Not provided'}</div>
-                  </div>
-                  <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                    <div className="font-medium text-foreground">Meta Description</div>
-                    <div>{articleMeta || 'Not provided'}</div>
-                  </div>
-                </div>
-                <iframe
-                  srcDoc={articleHtml}
-                  className="w-full rounded-lg border border-border/40"
-                  style={{ height: '600px' }}
-                  sandbox="allow-same-origin"
-                  title="Article preview"
-                />
+                }
+              />
+              <OutcomeGoLiveCta
+                kind="blog"
+                workspaceId={workspaceId}
+                companyId={companyId}
+                preferredConnector="wordpress"
+                payload={{
+                  title: articleTitle,
+                  slug: articleSlug,
+                  html: articleHtml,
+                }}
+              />
               </div>
             )
           }

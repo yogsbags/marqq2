@@ -56,6 +56,7 @@ const CI_TASKS: Record<
     | 'company_intel_channel_strategy'
     | 'company_intel_social_calendar'
     | 'company_intel_lead_magnets'
+    | 'company_intel_marketing_ideas'
   >,
   CiTaskDef
 > = {
@@ -157,6 +158,17 @@ const CI_TASKS: Record<
     marketingSkills: skillsForAgentTarget('company_intel_lead_magnets').marketingSkills,
     requiredConnectors: skillsForAgentTarget('company_intel_lead_magnets').requiredConnectors,
     optionalConnectors: skillsForAgentTarget('company_intel_lead_magnets').optionalConnectors || [],
+  },
+  company_intel_marketing_ideas: {
+    channelTitle: 'mkt-ideas',
+    channelDescription: 'Marketing ideas · Neel',
+    hash: 'ci=marketing_ideas',
+    pageId: 'marketing_ideas',
+    artifactType: 'marketing_ideas',
+    agentName: skillsForAgentTarget('company_intel_marketing_ideas').agentName || 'neel',
+    marketingSkills: skillsForAgentTarget('company_intel_marketing_ideas').marketingSkills,
+    requiredConnectors: skillsForAgentTarget('company_intel_marketing_ideas').requiredConnectors,
+    optionalConnectors: skillsForAgentTarget('company_intel_marketing_ideas').optionalConnectors || [],
   },
 };
 

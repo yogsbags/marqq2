@@ -24,12 +24,14 @@ import type {
   GtmInterviewQuestion,
   GtmModule,
   GtmSectionAnswer,
+  GtmStrategyDocument,
   GtmWizardProgress,
 } from '@/types/gtm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { GtmStrategyDocumentView } from '@/components/home/GtmStrategyDocumentView';
 
-type WizardPhase = 'prep' | 'interview' | 'execute' | 'done';
+type WizardPhase = 'prep' | 'interview' | 'execute' | 'strategy' | 'done';
 
 type ChatLine =
   | { id: string; role: 'assistant' | 'user'; type: 'text'; text: string }
@@ -115,6 +117,8 @@ export function GtmModuleWizard({
     },
   ]);
   const [executeOptions, setExecuteOptions] = useState<GtmExecuteOption[]>([]);
+  const [strategyDoc, setStrategyDoc] = useState<GtmStrategyDocument | null>(null);
+  const [strategyMarkdown, setStrategyMarkdown] = useState<string>('');
   const [modules, setModules] = useState<GtmModule[]>([]);
 
   const currentQuestion = questions[questionIndex] || null;
@@ -225,7 +229,7 @@ export function GtmModuleWizard({
         pushChat({
           role: 'assistant',
           type: 'text',
-          text: 'Profile locked. Pick one task to run — only that agent workflow will start.',
+          text: 'Profile locked. Pick a direction — generate the full GTM strategy document, or run one focused task.',
         });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to load execute options');
@@ -580,6 +584,21 @@ export function GtmModuleWizard({
         type: 'text',
         text: `Run: ${opt.title}`,
       });
+
+      if (result.kind === 'document' || opt.id === 'gtm_strategy_doc' || opt.kind === 'document') {
+        if (!result.strategy) throw new Error('Strategy document missing from response');
+        setStrategyDoc(result.strategy);
+        setStrategyMarkdown(result.markdown || '');
+        setModule(result.module);
+        setPhase('strategy');
+        pushChat({
+          role: 'assistant',
+          type: 'text',
+          text: 'GTM strategy document ready. Browse sections as channels, export PDF/Doc, or open in Google Docs if connected.',
+        });
+        return;
+      }
+
       pushChat({
         role: 'assistant',
         type: 'text',
@@ -587,6 +606,7 @@ export function GtmModuleWizard({
       });
       setPhase('done');
       sessionStorage.removeItem('marqq_gtm_wizard_pending');
+      if (!result.agentTarget) throw new Error('Missing agent target for task');
       onDeployAgent({
         target: result.agentTarget as AgentTarget,
         companyId: module?.company_id || null,
@@ -861,7 +881,8 @@ export function GtmModuleWizard({
                 onClick={() => void handleExecute(opt)}
                 className={cn(
                   'rounded-lg border p-3 text-left transition hover:border-foreground',
-                  opt.recommended && 'border-foreground bg-muted/40'
+                  opt.recommended && 'border-foreground bg-muted/40',
+                  opt.id === 'gtm_strategy_doc' && 'sm:col-span-2 border-orange-400/50 bg-orange-500/[0.06]'
                 )}
               >
                 <p className="text-sm font-semibold">{opt.title}</p>
@@ -874,6 +895,20 @@ export function GtmModuleWizard({
               </button>
             ))}
           </div>
+        )}
+
+        {phase === 'strategy' && strategyDoc && module && (
+          <GtmStrategyDocumentView
+            moduleId={module.id}
+            workspaceId={workspaceId || module.workspace_id || module.company_id}
+            strategy={strategyDoc}
+            markdown={strategyMarkdown}
+            onBack={() => {
+              setPhase('execute');
+              setStrategyDoc(null);
+            }}
+            onStrategyUpdate={(doc) => setStrategyDoc(doc)}
+          />
         )}
 
         {phase === 'done' && (
