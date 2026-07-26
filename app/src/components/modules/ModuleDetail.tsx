@@ -15,6 +15,7 @@ import { UserEngagementFlow } from './UserEngagementFlow';
 import { BudgetOptimizationFlow } from './BudgetOptimizationFlow';
 import { PerformanceScorecard } from './PerformanceScorecard';
 import { SocialMediaFlow, SocialCalendarFlow } from './SocialMediaFlow';
+import { SocialMediaHub } from './SocialMediaHub';
 import { UnifiedCustomerViewFlow } from './UnifiedCustomerViewFlow';
 import { CompanyIntelligenceFlow } from './CompanyIntelligenceFlow';
 import { GuidedFlowShell } from './GuidedFlowShell';
@@ -515,7 +516,7 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
   }
   if (module.id === 'social-media') {
     return (
-      <SocialMediaFlow
+      <SocialMediaHub
         initialPlatforms={goalPreset.socialChannels ? goalPreset.socialChannels.split(',').filter(Boolean) : undefined}
         initialObjective={goalPreset.socialObjective ?? undefined}
         initialFormat={goalPreset.socialFormat ?? undefined}

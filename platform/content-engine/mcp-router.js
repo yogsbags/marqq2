@@ -90,12 +90,15 @@ const AUTH_CONFIG_ENV_KEYS = {
   linkedin: 'COMPOSIO_LINKEDIN_AUTH_CONFIG_ID',
   facebook: 'COMPOSIO_FACEBOOK_AUTH_CONFIG_ID',
   instagram: 'COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID',
+  twitter: 'COMPOSIO_TWITTER_AUTH_CONFIG_ID',
   reddit: 'COMPOSIO_REDDIT_AUTH_CONFIG_ID',
   // Content & creative
   canva: 'COMPOSIO_CANVA_AUTH_CONFIG_ID',
   heygen: 'COMPOSIO_HEYGEN_AUTH_CONFIG_ID',
   elevenlabs: 'COMPOSIO_ELEVENLABS_AUTH_CONFIG_ID',
   veo: 'COMPOSIO_VEO_AUTH_CONFIG_ID',
+  wordpress: 'COMPOSIO_WORDPRESS_AUTH_CONFIG_ID',
+  webflow: 'COMPOSIO_WEBFLOW_AUTH_CONFIG_ID',
   // Automation & data
   make: 'COMPOSIO_MAKE_AUTH_CONFIG_ID',
   apify: 'COMPOSIO_APIFY_AUTH_CONFIG_ID',
@@ -178,6 +181,7 @@ export const CONNECTOR_APP_MAP = {
   facebook:         'facebook',
   reddit:           'reddit',
   instagram:        'instagram',
+  twitter:          'twitter',
   // Content & creative
   canva:            'canva',
   heygen:           'heygen',
@@ -189,6 +193,7 @@ export const CONNECTOR_APP_MAP = {
   shopify:          'shopify',
   snowflake:        'snowflake',
   wordpress:        'wordpress',
+  webflow:          'webflow',
   // AI providers
   openai:           'openai',
   anthropic:        'anthropic',
@@ -631,6 +636,8 @@ const ACTION_TOOLKIT_MAP = {
   HEYREACH:            'heyreach',
   LEMLIST:             'lemlist',
   APOLLO:              'apollo',
+  WORDPRESS:           'wordpress',
+  WEBFLOW:             'webflow',
 }
 
 const ACTION_TOOLKIT_PREFIXES = Object.keys(ACTION_TOOLKIT_MAP).sort((a, b) => b.length - a.length)

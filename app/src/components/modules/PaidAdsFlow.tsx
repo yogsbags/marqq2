@@ -291,9 +291,21 @@ function LivePerformanceTab({ companyId }: { companyId: string }) {
   useEffect(() => { if (companyId) fetchAll() }, [companyId, fetchAll])
 
   const allCampaigns: CampaignRow[] = [
-    ...(metaData?.campaigns || []).map(c => ({ ...c, platform: 'Meta' })),
-    ...(googleData?.campaigns || []).map(c => ({ ...c, platform: 'Google' })),
-    ...(linkedinData?.campaigns || []).map(c => ({ ...c, platform: 'LinkedIn' })),
+    ...(metaData?.campaigns || []).map(c => ({
+      ...c,
+      campaign: c.campaign || (c as { name?: string }).name || '—',
+      platform: 'Meta',
+    })),
+    ...(googleData?.campaigns || []).map(c => ({
+      ...c,
+      campaign: c.campaign || (c as { name?: string }).name || '—',
+      platform: 'Google',
+    })),
+    ...(linkedinData?.campaigns || []).map(c => ({
+      ...c,
+      campaign: c.campaign || (c as { name?: string }).name || '—',
+      platform: 'LinkedIn',
+    })),
   ]
 
   const totalSpend = allCampaigns.reduce((s, c) => s + (c.spend || 0), 0)

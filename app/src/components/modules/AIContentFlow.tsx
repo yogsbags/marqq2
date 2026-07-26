@@ -4,6 +4,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { SeoOrganicPipelinePanel, type SeoOrganicPlan } from '@/components/modules/SeoOrganicPipelinePanel'
 import { PenLine, Image as ImageIcon, Film, Video, Mail, Linkedin, Globe, Instagram, Youtube } from 'lucide-react'
 
 type ContentType = 'post' | 'image' | 'video-faceless' | 'video-avatar' | 'email'
@@ -352,8 +353,8 @@ function getNextActions(channel?: string, contentType?: ContentType, deliverable
   const actions: string[] = []
 
   if (channel === 'website_blog') {
-    if (deliverable === 'landing_page') actions.push('Refine the page structure and publish the approved draft to WordPress.')
-    else actions.push('Polish the draft for SEO and publish it to WordPress.')
+    if (deliverable === 'landing_page') actions.push('Refine the page structure and publish the approved draft to Webflow or WordPress.')
+    else actions.push('Polish the draft for SEO and publish it to Webflow or WordPress.')
   }
   if (channel === 'linkedin') {
     actions.push('Review the draft and schedule it for LinkedIn publishing.')
@@ -484,6 +485,8 @@ export function AIContentFlow({
   const [heygenVoiceId, setHeygenVoiceId] = useState('')
   const [heygenLoading, setHeygenLoading] = useState(false)
   const [heygenLoadError, setHeygenLoadError] = useState<string | null>(null)
+  const [seoPlan, setSeoPlan] = useState<SeoOrganicPlan | null>(null)
+  const [seoResearchSkip, setSeoResearchSkip] = useState(false)
 
   useEffect(() => {
     if (initialContentType) setContentType(initialContentType)
@@ -621,8 +624,18 @@ export function AIContentFlow({
     initialDeliverable === 'seo_page' ||
     channel === 'website_blog'
   )
-  const seoBrief = `Build an SEO brief for a ${deliverableLabel.toLowerCase()} on ${channel ? channel.replace(/_/g, ' ') : 'the website'}. ${selectedTopicPrompt || ''} Identify likely search intent, topic angle, suggested structure, and SEO guidance before drafting.`
+  const seoPlanReady = seoPlan?.status === 'success' && (seoPlan.article_queue?.length || 0) > 0
+  const topSeoItem = seoPlan?.article_queue?.[0]
+  const seoGoalLine = seoPlan?.goal_alignment
+    ? `GTM goal: ${seoPlan.goal_alignment.quantified_target || 'unset'} over ${seoPlan.goal_alignment.timeline_target || seoPlan.volume_target?.timeline_days || '90d'}. Plan ${seoPlan.goal_alignment.articles_planned || seoPlan.article_queue?.length || 0} articles.`
+    : ''
+  const seoBrief = seoPlanReady && topSeoItem
+    ? `Build an SEO brief for keyword "${topSeoItem.keyword}" (topic: ${topSeoItem.topic || topSeoItem.keyword}). Cluster: ${topSeoItem.cluster || 'n/a'}. ${seoGoalLine} Use topical authority gaps and topic clusters from the Semrush/Ahrefs research already run. Identify search intent, outline, and internal-link opportunities before drafting.`
+    : `Build an SEO brief for a ${deliverableLabel.toLowerCase()} on ${channel ? channel.replace(/_/g, ' ') : 'the website'}. ${selectedTopicPrompt || ''} Identify likely search intent, topic angle, suggested structure, and SEO guidance before drafting. Prefer live Semrush/Ahrefs data when the research pipeline has run.`
   const outputMode = resolveOutputMode(contentType, initialDeliverable, channel || undefined)
+  const riyaSeoBrief = seoPlanReady && topSeoItem
+    ? `Write the SEO article for keyword "${topSeoItem.keyword}" with working title "${topSeoItem.topic || topSeoItem.keyword}". ${seoGoalLine} Follow Maya's brief if present. Trigger create_seo_article with this keyword. ${startingBrief}`
+    : `${startingBrief} If Maya has provided an SEO brief above, use it directly in the draft.`
   const contentAgents: AgentConfig[] = isSeoDraftFlow
     ? [
         {
@@ -637,7 +650,7 @@ export function AIContentFlow({
           name: 'riya',
           label: 'Riya — Content Draft',
           taskType: cfg.taskType,
-          defaultQuery: `${startingBrief} If Maya has provided an SEO brief above, use it directly in the draft.`,
+          defaultQuery: riyaSeoBrief,
           placeholder: cfg.placeholder,
           outputMode,
         },
@@ -734,7 +747,9 @@ export function AIContentFlow({
             {isSeoDraftFlow ? (
               <div className="rounded-lg border border-border/50 bg-background/70 px-3 py-2 text-sm">
                 <span className="text-muted-foreground">Flow:</span>{' '}
-                <span className="font-medium">Maya shapes the SEO brief first, then Riya drafts from it.</span>
+                <span className="font-medium">
+                  Connect Semrush/Ahrefs (optional) or web-search estimates → topical authority → clusters → goal-aligned plan → Maya brief → Riya draft.
+                </span>
               </div>
             ) : null}
             {contentType === 'video-avatar' && selectedHeyGenAvatar ? (
@@ -940,8 +955,30 @@ export function AIContentFlow({
         </Card>
       ) : null}
 
+      {isSeoDraftFlow ? (
+        <div className="space-y-2">
+          <SeoOrganicPipelinePanel
+            companyId={activeWorkspace?.id || ''}
+            defaultDomain={activeWorkspace?.website_url || ''}
+            onPlanReady={(p) => {
+              setSeoPlan(p)
+              if (p.status === 'success') setSeoResearchSkip(false)
+            }}
+          />
+          {!seoPlanReady && !seoResearchSkip ? (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+              onClick={() => setSeoResearchSkip(true)}
+            >
+              Skip research and draft without live SEO data (not recommended)
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <AgentModuleShell
-        key={`${contentType}-${channel || 'none'}-${selectedTopic?.id ?? 'default'}-${heygenAvatarId || 'none'}-${heygenVoiceId || 'none'}-${isSeoDraftFlow ? 'seo' : 'standard'}`}
+        key={`${contentType}-${channel || 'none'}-${selectedTopic?.id ?? 'default'}-${heygenAvatarId || 'none'}-${heygenVoiceId || 'none'}-${isSeoDraftFlow ? 'seo' : 'standard'}-${topSeoItem?.keyword || 'nokw'}`}
         moduleId="ai-content"
         title="AI Content"
         description={DESCRIPTIONS[contentType]}
@@ -953,6 +990,8 @@ export function AIContentFlow({
             ? 'Select a platform above to continue.'
             : !hasRequiredHeyGenSelection
             ? 'Select both a HeyGen avatar and a voice to enable avatar video generation.'
+            : isSeoDraftFlow && !seoPlanReady && !seoResearchSkip
+            ? 'Run the SEO pipeline above first (Semrush/Ahrefs optional — web search can estimate volumes).'
             : null
         }
       />

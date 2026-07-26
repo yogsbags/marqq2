@@ -61,8 +61,8 @@ export const ARTIFACT_MARKETING_SKILLS = {
     primary: ["pricing-strategy"],
   },
   content_strategy: {
-    primary: ["content-strategy"],
-    secondary: ["copywriting"],
+    primary: ["content-strategy", "copywriting", "humanizer"],
+    secondary: ["ai-seo", "copy-editing"],
   },
   channel_strategy: {
     primary: ["ads-meta", "paid-ads", "launch-strategy"],
@@ -70,7 +70,19 @@ export const ARTIFACT_MARKETING_SKILLS = {
   },
   social_calendar: {
     primary: ["social-content"],
-    secondary: ["content-strategy"],
+    secondary: ["content-strategy", "copywriting"],
+  },
+  social_posts: {
+    primary: ["social-content", "copywriting", "humanizer"],
+    secondary: ["marketing-psychology", "content-strategy", "copy-editing", "community-marketing"],
+  },
+  b2c_organic_posts: {
+    primary: ["social-content", "copywriting", "humanizer"],
+    secondary: ["marketing-psychology", "content-strategy", "copy-editing", "community-marketing", "ad-creative"],
+  },
+  generate_b2c_organic_pack: {
+    primary: ["social-content", "copywriting", "humanizer"],
+    secondary: ["marketing-psychology", "content-strategy", "copy-editing", "community-marketing", "ad-creative"],
   },
   lead_magnets: {
     primary: ["lead-magnets"],
@@ -165,16 +177,87 @@ export const MODULE_MARKETING_SKILLS = {
     secondary: ["marketing-psychology"],
   },
   "social-media": {
-    primary: ["social-content", "community-marketing"],
-    secondary: ["ad-creative"],
+    primary: ["social-content", "copywriting", "humanizer", "community-marketing"],
+    secondary: ["marketing-psychology", "content-strategy", "copy-editing", "ad-creative"],
+  },
+  social_media: {
+    primary: ["social-content", "copywriting", "humanizer", "community-marketing"],
+    secondary: ["marketing-psychology", "content-strategy", "copy-editing", "ad-creative"],
+  },
+  b2c_organic_posts: {
+    primary: ["social-content", "copywriting", "humanizer"],
+    secondary: ["marketing-psychology", "content-strategy", "copy-editing", "community-marketing", "ad-creative"],
+  },
+  generate_b2c_organic_pack: {
+    primary: ["social-content", "copywriting", "humanizer"],
+    secondary: ["marketing-psychology", "content-strategy", "copy-editing", "community-marketing", "ad-creative"],
   },
   "video-gen": {
     primary: ["ad-creative", "social-content"],
     secondary: ["copywriting"],
   },
   "content-automation": {
-    primary: ["content-strategy", "copywriting"],
-    secondary: ["ai-seo", "seo-audit"],
+    primary: ["content-strategy", "copywriting", "ai-seo"],
+    secondary: ["seo-audit", "humanizer"],
+  },
+  seo_article: {
+    primary: ["ai-seo", "schema-markup", "seo-audit", "content-strategy", "copywriting"],
+    secondary: ["programmatic-seo", "copy-editing", "humanizer"],
+  },
+  create_seo_article: {
+    primary: ["ai-seo", "schema-markup", "seo-audit", "content-strategy", "copywriting"],
+    secondary: ["programmatic-seo", "copy-editing", "humanizer"],
+  },
+  /** Newsletter / HTML email */
+  generate_email_html: {
+    primary: ["email-sequence", "copywriting", "copy-editing"],
+    secondary: ["marketing-psychology", "humanizer"],
+  },
+  newsletter: {
+    primary: ["email-sequence", "copywriting", "copy-editing"],
+    secondary: ["marketing-psychology", "humanizer"],
+  },
+  email_html: {
+    primary: ["email-sequence", "copywriting", "copy-editing"],
+    secondary: ["marketing-psychology", "humanizer"],
+  },
+  generate_email: {
+    primary: ["email-sequence", "copywriting", "copy-editing"],
+    secondary: ["marketing-psychology", "humanizer"],
+  },
+  /** Landing pages */
+  landing_page: {
+    primary: ["page-cro", "copywriting", "form-cro"],
+    secondary: ["marketing-psychology", "copy-editing", "ab-test-setup", "signup-flow-cro"],
+  },
+  "landing-pages": {
+    primary: ["page-cro", "copywriting", "form-cro"],
+    secondary: ["marketing-psychology", "copy-editing", "ab-test-setup", "signup-flow-cro"],
+  },
+  create_landing_page: {
+    primary: ["page-cro", "copywriting", "form-cro"],
+    secondary: ["marketing-psychology", "copy-editing", "ab-test-setup", "signup-flow-cro"],
+  },
+  build_seo_organic_plan: {
+    primary: ["ai-seo", "content-strategy", "seo-audit"],
+    secondary: ["programmatic-seo", "schema-markup", "copywriting"],
+  },
+  execute_seo_plan_articles: {
+    primary: ["ai-seo", "schema-markup", "seo-audit", "copywriting", "humanizer"],
+    secondary: ["content-strategy", "programmatic-seo", "copy-editing"],
+  },
+  /** B2C blog / SEO — humanizer + SEO skills */
+  seo_article_b2c: {
+    primary: ["humanizer", "ai-seo", "schema-markup", "seo-audit", "copywriting"],
+    secondary: ["content-strategy", "marketing-psychology", "copy-editing", "programmatic-seo"],
+  },
+  "ai-content": {
+    primary: ["copywriting", "content-strategy"],
+    secondary: ["humanizer", "ai-seo", "social-content"],
+  },
+  ai_content: {
+    primary: ["copywriting", "content-strategy"],
+    secondary: ["humanizer", "ai-seo", "social-content"],
   },
   "ai-voice-bot": {
     primary: ["copywriting", "sales-enablement"],
@@ -182,7 +265,11 @@ export const MODULE_MARKETING_SKILLS = {
   },
   seo_audit: {
     primary: ["seo-audit", "ai-seo"],
-    secondary: ["schema-markup", "content-strategy"],
+    secondary: ["schema-markup", "content-strategy", "humanizer"],
+  },
+  seo_analysis: {
+    primary: ["ai-seo", "seo-audit"],
+    secondary: ["content-strategy", "humanizer"],
   },
   daily_market_scan: {
     primary: ["analytics-tracking", "marketing-ideas"],

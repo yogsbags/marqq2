@@ -37,6 +37,7 @@ class ConnectorChecker {
       'lemlist': 'Lemlist',
       'herreach': 'HeyReach',
       'wordpress': 'WordPress',
+      'webflow': 'Webflow',
       'sanity': 'Sanity CMS',
       'notion': 'Notion',
       'airtable': 'Airtable',

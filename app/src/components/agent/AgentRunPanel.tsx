@@ -72,6 +72,143 @@ function downloadTextFile(filename: string, content: string, mimeType = 'text/pl
   URL.revokeObjectURL(url)
 }
 
+function escapeHtmlAttr(value: string) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function filenameSlug(value: string, fallback: string) {
+  const slug = String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return slug || fallback
+}
+
+function looksLikeHtml(value: string) {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value || '').trim())
+}
+
+function plainTextToHtmlParagraphs(text: string) {
+  return String(text || '')
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      if (/^#{1,3}\s/.test(block)) {
+        const level = block.match(/^#+/)?.[0].length || 2
+        const content = escapeHtmlAttr(block.replace(/^#+\s*/, ''))
+        return `<h${Math.min(level, 3)}>${content}</h${Math.min(level, 3)}>`
+      }
+      return `<p>${escapeHtmlAttr(block).replace(/\n/g, '<br/>')}</p>`
+    })
+    .join('\n')
+}
+
+function wrapHtmlDocument(opts: {
+  title: string
+  description?: string
+  bodyHtml: string
+  kind?: 'blog' | 'newsletter'
+}) {
+  const title = escapeHtmlAttr(opts.title || (opts.kind === 'newsletter' ? 'Newsletter' : 'Article'))
+  const description = opts.description ? escapeHtmlAttr(opts.description) : ''
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${title}</title>
+  ${description ? `<meta name="description" content="${description}" />` : ''}
+  <style>
+    body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: #18181b; background: #fff; line-height: 1.65; }
+    .wrap { max-width: ${opts.kind === 'newsletter' ? '640px' : '720px'}; margin: 0 auto; padding: 32px 20px 48px; }
+    h1, h2, h3 { font-family: system-ui, -apple-system, Segoe UI, sans-serif; line-height: 1.25; }
+    h1 { font-size: 2rem; margin: 0 0 0.75rem; }
+    h2 { font-size: 1.35rem; margin: 1.75rem 0 0.75rem; }
+    p { margin: 0 0 1rem; }
+    a { color: #ea580c; }
+    .meta { color: #71717a; font-size: 0.95rem; margin-bottom: 1.5rem; }
+    .cta { display: inline-block; margin-top: 1rem; padding: 0.7rem 1.1rem; background: #ea580c; color: #fff !important; text-decoration: none; border-radius: 999px; font-family: system-ui, sans-serif; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    ${opts.bodyHtml}
+  </main>
+</body>
+</html>`
+}
+
+function buildBlogExportHtml(opts: {
+  title?: string
+  metaDescription?: string
+  sections?: Array<Record<string, unknown>>
+  html?: string
+}) {
+  if (opts.html && looksLikeHtml(opts.html)) {
+    return opts.html.includes('<html') ? opts.html : wrapHtmlDocument({
+      title: opts.title || 'Article',
+      description: opts.metaDescription,
+      bodyHtml: opts.html,
+      kind: 'blog',
+    })
+  }
+  const parts = [
+    opts.title ? `<h1>${escapeHtmlAttr(opts.title)}</h1>` : '',
+    opts.metaDescription ? `<p class="meta">${escapeHtmlAttr(opts.metaDescription)}</p>` : '',
+    ...(opts.sections || []).map((s) => {
+      const heading = typeof s.heading === 'string' ? s.heading : typeof s.title === 'string' ? s.title : ''
+      const content = typeof s.content === 'string' ? s.content : typeof s.body === 'string' ? s.body : ''
+      return [
+        heading ? `<h2>${escapeHtmlAttr(heading)}</h2>` : '',
+        content ? (looksLikeHtml(content) ? content : plainTextToHtmlParagraphs(content)) : '',
+      ].filter(Boolean).join('\n')
+    }),
+  ].filter(Boolean)
+  return wrapHtmlDocument({
+    title: opts.title || 'Article',
+    description: opts.metaDescription,
+    bodyHtml: parts.join('\n') || '<p></p>',
+    kind: 'blog',
+  })
+}
+
+function buildNewsletterExportHtml(opts: {
+  subject?: string
+  previewText?: string
+  body?: string
+  html?: string
+  cta?: string
+}) {
+  if (opts.html && looksLikeHtml(opts.html)) {
+    return opts.html.includes('<html') ? opts.html : wrapHtmlDocument({
+      title: opts.subject || 'Newsletter',
+      description: opts.previewText,
+      bodyHtml: opts.html,
+      kind: 'newsletter',
+    })
+  }
+  const body = opts.body || ''
+  const bodyHtml = looksLikeHtml(body) ? body : plainTextToHtmlParagraphs(body)
+  const parts = [
+    opts.subject ? `<h1>${escapeHtmlAttr(opts.subject)}</h1>` : '',
+    opts.previewText ? `<p class="meta">${escapeHtmlAttr(opts.previewText)}</p>` : '',
+    bodyHtml,
+    opts.cta ? `<p><a class="cta" href="#">${escapeHtmlAttr(opts.cta)}</a></p>` : '',
+  ].filter(Boolean)
+  return wrapHtmlDocument({
+    title: opts.subject || 'Newsletter',
+    description: opts.previewText,
+    bodyHtml: parts.join('\n') || '<p></p>',
+    kind: 'newsletter',
+  })
+}
+
 async function copyText(value: string, successMessage: string) {
   await navigator.clipboard.writeText(value)
   toast.success(successMessage)
@@ -1018,20 +1155,33 @@ function EmailDraftCard({ artifact, workspaceId }: { artifact: Record<string, un
   const subject     = typeof artifact['subject']      === 'string' ? artifact['subject']      : ''
   const previewText = typeof artifact['preview_text'] === 'string' ? artifact['preview_text'] : ''
   const body        = typeof artifact['body']         === 'string' ? artifact['body']         : ''
+  const htmlField   = typeof artifact['html'] === 'string' ? artifact['html']
+    : typeof artifact['email_html'] === 'string' ? artifact['email_html'] : ''
   const cta         = typeof artifact['cta']          === 'string' ? artifact['cta']          : ''
   const from        = typeof artifact['from'] === 'string' ? artifact['from']
     : typeof artifact['from_email'] === 'string' ? artifact['from_email'] : ''
   const to          = typeof artifact['to'] === 'string' ? artifact['to']
     : typeof artifact['to_email'] === 'string' ? artifact['to_email'] : ''
   const wordCount   = artifact['word_count'] != null  ? String(artifact['word_count'])         : ''
+  const formatHint  = String(artifact['format'] || artifact['content_type'] || artifact['type'] || '').toLowerCase()
+  const isNewsletter = /newsletter|digest|email_html/.test(formatHint) || Boolean(htmlField)
 
   const exportText = [
     subject  ? `Subject: ${subject}`           : '',
     previewText ? `Preview: ${previewText}`    : '',
     '',
-    body,
+    body || htmlField,
     cta ? `\nCTA: ${cta}` : '',
   ].filter(Boolean).join('\n').trim()
+
+  const exportHtml = buildNewsletterExportHtml({
+    subject,
+    previewText,
+    body,
+    html: htmlField,
+    cta,
+  })
+  const htmlFilename = `${filenameSlug(subject, isNewsletter ? 'newsletter' : 'email')}.html`
 
   return (
     <div className="space-y-3">
@@ -1039,27 +1189,36 @@ function EmailDraftCard({ artifact, workspaceId }: { artifact: Record<string, un
       from={from || 'you@yourbrand.com'}
       to={to || 'prospect@company.com'}
       subject={subject}
-      body={body}
+      body={body || (htmlField ? 'HTML email — use Download HTML / preview in go-live.' : '')}
       previewText={previewText}
       cta={cta}
       toolbar={
         <div className="flex items-center gap-1.5">
           {wordCount && <span className="text-[10px] text-zinc-500 mr-1">{wordCount} words</span>}
-          <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportText, 'Email copied') }}>
-            <Copy className="h-3 w-3" /> Copy
+          <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportHtml, 'HTML copied') }}>
+            <Copy className="h-3 w-3" /> Copy HTML
           </Button>
-          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => downloadTextFile('email-draft.txt', exportText)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => downloadTextFile(htmlFilename, exportHtml, 'text/html;charset=utf-8')}
+          >
+            <Download className="h-3 w-3" /> Download HTML
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => downloadTextFile(`${filenameSlug(subject, 'email')}.txt`, exportText)}>
             <Download className="h-3 w-3" /> .txt
           </Button>
         </div>
       }
     />
     <OutcomeGoLiveCta
-      kind="email"
+      kind={isNewsletter ? 'newsletter' : 'email'}
       workspaceId={workspaceId}
       payload={{
         subject,
         body,
+        html: exportHtml,
         preview_text: previewText,
         cta,
         from,
@@ -1077,6 +1236,7 @@ function ArticleCard({ artifact, workspaceId }: { artifact: Record<string, unkno
   const metaDesc       = typeof artifact['meta_description'] === 'string' ? artifact['meta_description'] : ''
   const targetKeyword  = typeof artifact['target_keyword']   === 'string' ? artifact['target_keyword']   : ''
   const wordCount      = artifact['word_count'] != null ? String(artifact['word_count']) : ''
+  const htmlField      = typeof artifact['html'] === 'string' ? artifact['html'] : ''
   const sections       = Array.isArray(artifact['sections'])
     ? (artifact['sections'] as Record<string, unknown>[]).filter(s => s && typeof s === 'object')
     : []
@@ -1089,11 +1249,20 @@ function ArticleCard({ artifact, workspaceId }: { artifact: Record<string, unkno
     ...sections.map(s => `## ${s['heading'] ?? ''}\n\n${s['content'] ?? ''}`),
   ].filter(s => s !== undefined).join('\n')
 
+  const exportHtml = buildBlogExportHtml({
+    title,
+    metaDescription: metaDesc,
+    sections,
+    html: htmlField,
+  })
+  const htmlFilename = `${filenameSlug(title, 'blog-article')}.html`
+
   return (
     <div className="space-y-3">
     <BlogArticleBrowserPreview
       title={title}
       metaDescription={metaDesc}
+      html={htmlField || undefined}
       sections={sections.map((s) => ({
         heading: typeof s['heading'] === 'string' ? s['heading'] : undefined,
         content: typeof s['content'] === 'string' ? s['content'] : undefined,
@@ -1101,10 +1270,18 @@ function ArticleCard({ artifact, workspaceId }: { artifact: Record<string, unkno
       toolbar={
         <div className="flex items-center gap-1.5">
           {wordCount && <span className="text-[10px] text-zinc-500">{wordCount}w</span>}
-          <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportMarkdown, 'Article copied') }}>
-            <Copy className="h-3 w-3" /> Copy
+          <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => { void copyText(exportHtml, 'HTML copied') }}>
+            <Copy className="h-3 w-3" /> Copy HTML
           </Button>
-          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => downloadTextFile(`${title || 'article'}.md`, exportMarkdown)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => downloadTextFile(htmlFilename, exportHtml, 'text/html;charset=utf-8')}
+          >
+            <Download className="h-3 w-3" /> Download HTML
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => downloadTextFile(`${filenameSlug(title, 'article')}.md`, exportMarkdown)}>
             <Download className="h-3 w-3" /> .md
           </Button>
         </div>
@@ -1118,6 +1295,7 @@ function ArticleCard({ artifact, workspaceId }: { artifact: Record<string, unkno
         meta_description: metaDesc,
         target_keyword: targetKeyword,
         sections,
+        html: exportHtml,
         word_count: wordCount,
       }}
     />
@@ -2229,32 +2407,85 @@ export function AgentRunPanel({
               ('heading' in (artifact['sections'][0] as object) || 'content' in (artifact['sections'][0] as object))) {
             return <ArticleCard artifact={artifact} workspaceId={workspaceId} />
           }
-          // Landing page structure
-          if (Array.isArray(artifact['page_structure']) && artifact['page_structure'].length > 0) {
-            const pageSections = (artifact['page_structure'] as Record<string, unknown>[]).map((s) => ({
-              label: typeof s['label'] === 'string' ? s['label'] : undefined,
-              heading: typeof s['heading'] === 'string' ? s['heading'] : typeof s['title'] === 'string' ? s['title'] : undefined,
-              content: typeof s['content'] === 'string' ? s['content'] : typeof s['copy'] === 'string' ? s['copy'] : undefined,
-              cta: typeof s['cta'] === 'string' ? s['cta'] : undefined,
-            }))
-            return (
-              <div className="space-y-3">
-                <LandingPageBrowserPreview
-                  title={typeof artifact['title'] === 'string' ? artifact['title'] : typeof artifact['page_title'] === 'string' ? artifact['page_title'] : 'Landing page'}
-                  sections={pageSections}
-                />
-                <OutcomeGoLiveCta
-                  kind="landing_page"
-                  workspaceId={workspaceId}
-                  companyId={companyId}
-                  payload={{
-                    title: typeof artifact['title'] === 'string' ? artifact['title'] : typeof artifact['page_title'] === 'string' ? artifact['page_title'] : 'Landing page',
-                    page_structure: artifact['page_structure'],
-                    slug: typeof artifact['slug'] === 'string' ? artifact['slug'] : undefined,
-                  }}
-                />
-              </div>
-            )
+          // Landing page structure (top-level or create_landing_page automation result)
+          {
+            const lpArtifact = (artifact['create_landing_page'] && typeof artifact['create_landing_page'] === 'object'
+              ? artifact['create_landing_page'] as Record<string, unknown>
+              : artifact) as Record<string, unknown>
+            const pageStructure = Array.isArray(lpArtifact['page_structure']) ? lpArtifact['page_structure'] as Record<string, unknown>[] : []
+            if (pageStructure.length > 0 || typeof lpArtifact['html'] === 'string') {
+              const pageSections = pageStructure.map((s) => ({
+                label: typeof s['label'] === 'string' ? s['label'] : undefined,
+                heading: typeof s['heading'] === 'string' ? s['heading'] : typeof s['title'] === 'string' ? s['title'] : undefined,
+                content: typeof s['content'] === 'string' ? s['content'] : typeof s['copy'] === 'string' ? s['copy'] : undefined,
+                cta: typeof s['cta'] === 'string' ? s['cta'] : undefined,
+              }))
+              const lpTitle = typeof lpArtifact['title'] === 'string'
+                ? lpArtifact['title']
+                : typeof lpArtifact['page_title'] === 'string'
+                  ? lpArtifact['page_title']
+                  : 'Landing page'
+              const lpHtml = typeof lpArtifact['html'] === 'string' ? lpArtifact['html'] : ''
+              const lpSlug = typeof lpArtifact['slug'] === 'string' ? lpArtifact['slug'] : filenameSlug(lpTitle, 'landing-page')
+              const skillAlign = lpArtifact['skill_alignment'] as Record<string, unknown> | undefined
+              const skillIds = Array.isArray(skillAlign?.skills) ? skillAlign.skills as string[] : []
+              return (
+                <div className="space-y-3">
+                  <LandingPageBrowserPreview
+                    title={lpTitle}
+                    sections={pageSections}
+                    html={lpHtml || undefined}
+                    toolbar={
+                      <div className="flex flex-wrap items-center gap-2">
+                        {skillIds.slice(0, 3).map((id) => (
+                          <span
+                            key={id}
+                            className="rounded border border-violet-800/50 bg-violet-950/30 px-1.5 py-0.5 text-[10px] text-violet-300"
+                            title="Marketing skill applied"
+                          >
+                            {id}
+                          </span>
+                        ))}
+                        {lpHtml ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 px-2 text-xs"
+                              onClick={() => { void copyText(lpHtml, 'Landing page HTML copied') }}
+                            >
+                              <Copy className="h-3 w-3" />
+                              Copy HTML
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 gap-1 px-2 text-xs"
+                              onClick={() => downloadTextFile(`${lpSlug}.html`, lpHtml, 'text/html;charset=utf-8')}
+                            >
+                              <Download className="h-3 w-3" />
+                              Download HTML
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
+                    }
+                  />
+                  <OutcomeGoLiveCta
+                    kind="landing_page"
+                    workspaceId={workspaceId}
+                    companyId={companyId}
+                    payload={{
+                      title: lpTitle,
+                      page_structure: pageStructure,
+                      html: lpHtml || undefined,
+                      slug: lpSlug,
+                      meta_description: typeof lpArtifact['meta_description'] === 'string' ? lpArtifact['meta_description'] : undefined,
+                    }}
+                  />
+                </div>
+              )
+            }
           }
           // Proposal: proposal_title field
           if (typeof artifact['proposal_title'] === 'string' && artifact['proposal_title']) {
@@ -2409,6 +2640,12 @@ export function AgentRunPanel({
           if (email?.html) {
             const emailHtml = String(email.html)
             const emailSubject = email.subject ? String(email.subject) : 'Campaign Email'
+            const newsletterHtml = emailHtml.includes('<html')
+              ? emailHtml
+              : buildNewsletterExportHtml({ subject: emailSubject, html: emailHtml })
+            const emailSkills = Array.isArray((email.skill_alignment as { skills?: string[] } | undefined)?.skills)
+              ? ((email.skill_alignment as { skills: string[] }).skills)
+              : []
             cards.push(
               <div key="email-html" className="space-y-3">
               <NewsletterEmailPreview
@@ -2417,6 +2654,15 @@ export function AgentRunPanel({
                 html={emailHtml}
                 toolbar={
                   <div className="flex flex-wrap items-center gap-2">
+                    {emailSkills.slice(0, 3).map((id) => (
+                      <span
+                        key={id}
+                        className="rounded border border-sky-800/50 bg-sky-950/30 px-1.5 py-0.5 text-[10px] text-sky-300"
+                        title="Marketing skill applied"
+                      >
+                        {id}
+                      </span>
+                    ))}
                     <Button
                       variant="outline"
                       size="sm"
@@ -2430,10 +2676,14 @@ export function AgentRunPanel({
                       variant="ghost"
                       size="sm"
                       className="h-7 gap-1 px-2 text-xs"
-                      onClick={() => downloadTextFile('riya-email.html', emailHtml, 'text/html;charset=utf-8')}
+                      onClick={() => downloadTextFile(
+                        `${filenameSlug(emailSubject, 'newsletter')}.html`,
+                        newsletterHtml,
+                        'text/html;charset=utf-8',
+                      )}
                     >
                       <Download className="h-3 w-3" />
-                      Download
+                      Download HTML
                     </Button>
                   </div>
                 }
@@ -2444,8 +2694,10 @@ export function AgentRunPanel({
                 companyId={companyId}
                 payload={{
                   subject: emailSubject,
-                  html: emailHtml,
+                  html: newsletterHtml,
+                  body: newsletterHtml,
                   from: typeof email.from === 'string' ? email.from : undefined,
+                  preview_text: typeof email.preview_text === 'string' ? email.preview_text : undefined,
                 }}
               />
               </div>
@@ -2456,6 +2708,10 @@ export function AgentRunPanel({
             const articleHtml = String(seo.html)
             const articleTitle = seo.title ? String(seo.title) : 'SEO Article'
             const articleSlug = seo.slug ? String(seo.slug) : ''
+            const skillAlign = seo.skill_alignment as Record<string, unknown> | undefined
+            const humanizer = (skillAlign?.humanizer || seo.humanizer) as Record<string, unknown> | undefined
+            const humanizerApplied = humanizer?.applied === true
+            const marketLabel = typeof seo.market === 'string' ? String(seo.market).toUpperCase() : ''
             cards.push(
               <div key="seo-article" className="space-y-3">
               <InlineBrowserPreview
@@ -2464,6 +2720,43 @@ export function AgentRunPanel({
                 html={articleHtml}
                 toolbar={
                   <div className="flex flex-wrap items-center gap-2">
+                    {marketLabel ? (
+                      <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                        {marketLabel}
+                      </span>
+                    ) : null}
+                    {humanizerApplied ? (
+                      <span
+                        className="rounded border border-emerald-800/60 bg-emerald-950/40 px-1.5 py-0.5 text-[10px] text-emerald-400"
+                        title="blader/humanizer pass applied"
+                      >
+                        Humanized
+                      </span>
+                    ) : null}
+                    {Array.isArray(seo.schemas) && seo.schemas.length ? (
+                      <span
+                        className="rounded border border-sky-800/60 bg-sky-950/40 px-1.5 py-0.5 text-[10px] text-sky-300"
+                        title="JSON-LD structured data"
+                      >
+                        Schema: {(seo.schemas as string[]).join(' · ')}
+                      </span>
+                    ) : null}
+                    {typeof seo.primary_keyword === 'string' ? (
+                      <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                        Primary: {String(seo.primary_keyword)}
+                      </span>
+                    ) : null}
+                    {seo.seo_richness && typeof (seo.seo_richness as { grade?: string }).grade === 'string' ? (
+                      <span
+                        className="rounded border border-amber-800/60 bg-amber-950/30 px-1.5 py-0.5 text-[10px] text-amber-300"
+                        title="SEO richness score from ai-seo / seo-audit checklist"
+                      >
+                        SEO {(seo.seo_richness as { grade: string; score?: number }).grade}
+                        {(seo.seo_richness as { score?: number }).score != null
+                          ? ` ${String((seo.seo_richness as { score?: number }).score)}`
+                          : ''}
+                      </span>
+                    ) : null}
                     <Button
                       variant="outline"
                       size="sm"
@@ -2477,10 +2770,16 @@ export function AgentRunPanel({
                       variant="ghost"
                       size="sm"
                       className="h-7 gap-1 px-2 text-xs"
-                      onClick={() => downloadTextFile(`${articleSlug || 'riya-seo-article'}.html`, articleHtml, 'text/html;charset=utf-8')}
+                      onClick={() => downloadTextFile(
+                        `${articleSlug || filenameSlug(articleTitle, 'seo-article')}.html`,
+                        articleHtml.includes('<html')
+                          ? articleHtml
+                          : buildBlogExportHtml({ title: articleTitle, html: articleHtml }),
+                        'text/html;charset=utf-8',
+                      )}
                     >
                       <Download className="h-3 w-3" />
-                      Download
+                      Download HTML
                     </Button>
                   </div>
                 }
@@ -2489,11 +2788,11 @@ export function AgentRunPanel({
                 kind="blog"
                 workspaceId={workspaceId}
                 companyId={companyId}
-                preferredConnector="wordpress"
                 payload={{
                   title: articleTitle,
                   slug: articleSlug,
                   html: articleHtml,
+                  meta_description: typeof seo.meta_description === 'string' ? seo.meta_description : undefined,
                 }}
               />
               </div>

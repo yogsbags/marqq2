@@ -6,10 +6,11 @@
  *
  * Handlers:
  *   generateSocialImage   — Gemini 3.1 Flash-Lite Image → imgbb (Cloudinary fallback)
- *   generateEmailHtml     — Groq LLM → full inline-styled HTML email
+ *   generateEmailHtml     — Groq LLM → HTML newsletter (email-sequence + copywriting skills)
  *   generateFacelessVideo — Gemini Omni Flash → Cloudinary (Veo fallback path also → Cloudinary)
  *   generateAvatarVideo   — HeyGen v2 API → Cloudinary when polled
  *   createSeoArticle      — Groq LLM → full HTML blog post with SEO meta
+ *   createLandingPage     — Groq LLM → page_structure + HTML (page-cro + copywriting skills)
  */
 
 import { getConnectedAccountApiKey } from '../../mcp-router.js';
@@ -270,6 +271,7 @@ async function uploadBase64ToImgbb(base64) {
 
 /**
  * params: { subject, content, tone, brand_name, primary_color, sections }
+ * Uses email-sequence + copywriting + copy-editing skill playbooks.
  */
 export async function generateEmailHtml(params, companyId) {
   const {
@@ -288,11 +290,20 @@ export async function generateEmailHtml(params, companyId) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) return { status: 'error', error: 'GROQ_API_KEY not configured' };
 
+  const { loadMarketingSkillsForTask, resolveSkillPack } = await import(
+    '../../lib/artifactMarketingSkills.js'
+  );
+
+  const skillKey = 'generate_email_html';
+  const skillPack = resolveSkillPack(skillKey);
+  const skillIds = [...(skillPack.primary || []), ...(skillPack.secondary || [])];
+  const skillPlaybook = await loadMarketingSkillsForTask(skillKey);
+
   const sectionList = sections.length
-    ? sections.map((s, i) => `${i + 1}. ${s}`).join('\n')
+    ? sections.map((s, i) => `${i + 1}. ${typeof s === 'string' ? s : JSON.stringify(s)}`).join('\n')
     : '';
 
-  const userPrompt = `Create a complete HTML email newsletter.
+  const userPrompt = `Create a complete HTML email newsletter using the marketing skill playbook.
 
 Subject: ${subject}
 Brand name: ${brand_name}
@@ -301,7 +312,15 @@ Tone: ${tone}
 Main content: ${content}
 ${sectionList ? `Sections to include:\n${sectionList}` : ''}
 
-STRICT requirements:
+${skillPlaybook ? `Marketing skill playbook (authoritative — email-sequence, copywriting, copy-editing):\n${String(skillPlaybook).slice(0, 12_000)}\n` : ''}
+
+Apply email-sequence principles:
+- One email, one job — single primary CTA
+- Value before ask; clear subject + preview text alignment
+- Scannable sections with benefit-led headings
+- Mobile-first readability
+
+STRICT HTML requirements:
 - Full HTML document (<!DOCTYPE html>, <html>, <head>, <body>)
 - ALL CSS must be inline style attributes — zero <style> blocks (Gmail strips them)
 - Outer wrapper: max-width 600px centered table
@@ -309,7 +328,7 @@ STRICT requirements:
 - Body sections: clean readable copy with headings
 - Footer: "You're receiving this because you subscribed" + unsubscribe placeholder
 - Font: Arial, Helvetica, sans-serif
-- Mobile-readable (no tiny text, tap targets >= 44px)
+- Tap targets >= 44px
 - Output ONLY the HTML — no explanation, no markdown code fences`;
 
   let resp;
@@ -320,10 +339,14 @@ STRICT requirements:
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'You are an expert email HTML designer. Output only valid HTML. No explanations. No code fences.' },
+          {
+            role: 'system',
+            content:
+              'You are an expert email marketer applying email-sequence, copywriting, and copy-editing skills. Output only valid, ESP-safe HTML. No explanations. No code fences.',
+          },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.2,
+        temperature: 0.25,
         max_tokens: 4096,
       }),
     });
@@ -332,12 +355,10 @@ STRICT requirements:
   }
 
   let html = resp.choices?.[0]?.message?.content?.trim() ?? '';
-  // Strip any accidental markdown code fences
   html = html.replace(/^```html?\n?/, '').replace(/\n?```$/, '').trim();
 
   if (!html) return { status: 'error', error: 'No HTML content generated' };
 
-  // Derive preview text from first <p> tag
   const previewMatch = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
   const preview_text = previewMatch
     ? previewMatch[1].replace(/<[^>]+>/g, '').trim().slice(0, 150)
@@ -351,7 +372,130 @@ STRICT requirements:
     brand_name,
     primary_color,
     char_count: html.length,
+    skill_alignment: {
+      skill_key: skillKey,
+      skills: skillIds,
+      playbook_loaded: Boolean(skillPlaybook),
+    },
   };
+}
+
+/**
+ * Skill-guided landing page copy + HTML.
+ * params: { product, audience, offer, goal, cta, brand_context, pain_points?, sections? }
+ */
+export async function createLandingPage(params = {}, companyId) {
+  const product = String(params.product || params.offer || params.title || '').trim();
+  const audience = String(params.audience || params.target_audience || '').trim();
+  const offer = String(params.offer || params.value_prop || product).trim();
+  const goal = String(params.goal || params.primary_cta_goal || 'lead_gen').trim();
+  const cta = String(params.cta || params.primary_cta || 'Get started').trim();
+  const brand_context = String(params.brand_context || params.brandContext || '').trim();
+  const painPoints = Array.isArray(params.pain_points)
+    ? params.pain_points
+    : Array.isArray(params.painPoints)
+      ? params.painPoints
+      : [];
+
+  if (!product && !offer) {
+    return { status: 'error', error: 'product or offer required' };
+  }
+
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey) return { status: 'error', error: 'GROQ_API_KEY not configured' };
+
+  const { loadMarketingSkillsForTask, resolveSkillPack } = await import(
+    '../../lib/artifactMarketingSkills.js'
+  );
+  const skillKey = 'create_landing_page';
+  const skillPack = resolveSkillPack(skillKey);
+  const skillPlaybook = await loadMarketingSkillsForTask(skillKey);
+
+  const userPrompt = `Build a conversion-ready landing page using page-cro + copywriting skills.
+
+Product: ${product || offer}
+Offer / value prop: ${offer}
+Audience: ${audience || 'n/a'}
+Primary goal: ${goal}
+Primary CTA: ${cta}
+Brand context: ${brand_context || 'n/a'}
+Pain points: ${painPoints.length ? painPoints.join('; ') : 'n/a'}
+
+${skillPlaybook ? `Marketing skill playbook (authoritative — page-cro, copywriting, form-cro):\n${String(skillPlaybook).slice(0, 12_000)}\n` : ''}
+
+Return ONLY JSON:
+{
+  "title": "page title",
+  "slug": "url-slug",
+  "meta_description": "≤155 chars",
+  "page_structure": [
+    {
+      "label": "hero",
+      "heading": "benefit-led headline",
+      "content": "supporting copy",
+      "cta": "button text"
+    }
+  ],
+  "html": "<!DOCTYPE html>... full single-page HTML ...",
+  "ab_tests": ["hero headline variant to test"]
+}
+
+Rules from page-cro / copywriting:
+- 5-second clarity: visitor knows what it is and why care
+- One primary CTA; benefit-led headlines; specificity over vagueness
+- Sections: hero, problem/agitation or benefits, social proof, how it works, FAQ, closing CTA (min 6)
+- Form/CTA copy communicates value (not "Submit")
+- HTML: semantic, mobile-friendly, no invented stats/testimonials — use placeholders like [Customer logo] / [Quote]
+- Never invent fake review scores or case-study numbers`;
+
+  try {
+    const resp = await doFetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+        temperature: 0.35,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are an expert landing-page strategist applying page-cro, copywriting, and form-cro skills. Return JSON only. Never invent fake social proof metrics.',
+          },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 6000,
+      }),
+    });
+
+    const raw = resp.choices?.[0]?.message?.content?.trim() || '{}';
+    const parsed = JSON.parse(raw);
+    let html = String(parsed.html || '').trim();
+    html = html.replace(/^```html?\n?/, '').replace(/\n?```$/, '').trim();
+    const page_structure = Array.isArray(parsed.page_structure) ? parsed.page_structure : [];
+
+    if (!html && !page_structure.length) {
+      return { status: 'error', error: 'Landing page generation returned empty structure' };
+    }
+
+    return {
+      status: 'success',
+      format: 'landing_page',
+      title: parsed.title || `${product || offer} Landing Page`,
+      slug: parsed.slug || null,
+      meta_description: parsed.meta_description || null,
+      page_structure,
+      html: html || null,
+      ab_tests: Array.isArray(parsed.ab_tests) ? parsed.ab_tests : [],
+      skill_alignment: {
+        skill_key: skillKey,
+        skills: [...(skillPack.primary || []), ...(skillPack.secondary || [])],
+        playbook_loaded: Boolean(skillPlaybook),
+      },
+    };
+  } catch (e) {
+    return { status: 'error', error: `Landing page generation failed: ${e.message}` };
+  }
 }
 
 // ── Gemini Omni Flash / Veo Faceless Video ───────────────────────────────────
@@ -712,44 +856,153 @@ export async function generateAvatarVideo(params, companyId) {
 // ── SEO Article HTML ──────────────────────────────────────────────────────────
 
 /**
- * params: { keyword, topic, word_count_target, target_audience, brand_context }
- * Returns a complete HTML blog post with meta description and SEO slug.
+ * params: {
+ *   keyword | primary_keyword, secondary_keywords?, topic, word_count_target,
+ *   target_audience, brand_context, market_type?, humanize?,
+ *   site_url?, brand_name?, faq_questions?
+ * }
+ * B2C: humanizer playbook + post-pass.
+ * Always: natural primary/secondary keyword spray + FAQ HTML + JSON-LD (BlogPosting, FAQPage, BreadcrumbList).
  */
 export async function createSeoArticle(params, companyId) {
   const {
     keyword,
+    primary_keyword,
+    primaryKeyword,
+    secondary_keywords,
+    secondaryKeywords,
     topic,
     word_count_target = 1200,
     target_audience   = 'B2B decision makers',
     brand_context     = '',
+    market_type,
+    market,
+    marketType,
+    humanize,
+    site_url,
+    siteUrl,
+    brand_name,
+    brandName,
+    faq_questions,
+    faqQuestions,
   } = params;
 
-  if (!keyword && !topic) return { status: 'error', error: 'keyword or topic is required' };
+  if (!keyword && !primary_keyword && !primaryKeyword && !topic) {
+    return { status: 'error', error: 'keyword or topic is required' };
+  }
 
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) return { status: 'error', error: 'GROQ_API_KEY not configured' };
 
-  const primaryTopic   = topic ?? keyword;
-  const primaryKeyword = keyword ?? topic;
+  const {
+    normalizeKeywordSet,
+    buildKeywordAndSchemaPromptBlock,
+    buildSeoRichArticleChecklist,
+    ensureFaqSection,
+    ensureKeyTakeaway,
+    extractFaqPairs,
+    buildArticleJsonLd,
+    injectJsonLd,
+    stripJsonLdScripts,
+    auditKeywordPlacement,
+    scoreSeoRichness,
+  } = await import('../../lib/seoArticleStructure.js');
 
-  const userPrompt = `Write a comprehensive, SEO-optimised blog post.
+  const { primary: primaryKeywordResolved, secondary } = normalizeKeywordSet({
+    keyword,
+    primary_keyword: primary_keyword || primaryKeyword,
+    secondary_keywords: secondary_keywords || secondaryKeywords,
+    topic,
+  });
+  const primaryTopic = topic ?? primaryKeywordResolved;
+  const primaryKeywordFinal = primaryKeywordResolved;
+
+  const { isB2cMarket, humanizeBlogArticleHtml, loadHumanizerSkillMd, HUMANIZER_UPSTREAM } =
+    await import('../../lib/humanizerPass.js');
+  const { loadMarketingSkillsForTask, resolveSkillPack } =
+    await import('../../lib/artifactMarketingSkills.js');
+
+  const b2c = isB2cMarket({
+    market_type: market_type || marketType || market,
+    market: market || market_type || marketType,
+    marketType: marketType || market_type || market,
+    target_audience,
+    audience: target_audience,
+  });
+  const shouldHumanize =
+    humanize === true ||
+    humanize === 'true' ||
+    (humanize !== false && humanize !== 'false' && b2c);
+
+  const skillKey = b2c ? 'seo_article_b2c' : 'seo_article';
+  const skillPack = resolveSkillPack(skillKey);
+  const skillPlaybook = await loadMarketingSkillsForTask(skillKey);
+  const skillIds = [...(skillPack.primary || []), ...(skillPack.secondary || [])];
+
+  let humanizerExcerpt = '';
+  if (shouldHumanize) {
+    humanizerExcerpt = await loadHumanizerSkillMd(10_000);
+  }
+
+  const audienceLine = b2c
+    ? `Target audience: ${target_audience || 'everyday consumers'} (B2C — write for people, not procurement committees)`
+    : `Target audience: ${target_audience}`;
+
+  const b2cVoice = b2c
+    ? `
+B2C voice (required):
+- Write like a helpful human expert talking to consumers — concrete, specific, slightly uneven rhythm
+- Benefits over features; customer language over company jargon
+- Avoid AI tells: significance inflation, "it's not just X, it's Y", em-dash stacks, rule of three, "landscape/testament/delve", chatbot closers
+- Personality is OK (mixed feelings, asides) but NEVER invent stats, studies, quotes, or testimonials
+${humanizerExcerpt ? `\nFollow this humanizer playbook while drafting:\n${humanizerExcerpt.slice(0, 5000)}\n` : ''}`
+    : '';
+
+  const seedFaqs = Array.isArray(faq_questions || faqQuestions)
+    ? (faq_questions || faqQuestions).map(String).filter(Boolean).slice(0, 6)
+    : [];
+
+  const keywordSchemaBlock = buildKeywordAndSchemaPromptBlock({
+    primary: primaryKeywordFinal,
+    secondary,
+    wordCount: word_count_target,
+    seedFaqs,
+  });
+
+  const seoRichChecklist = buildSeoRichArticleChecklist({
+    primary: primaryKeywordFinal,
+    secondary,
+    wordCount: word_count_target,
+  });
+
+  const userPrompt = `Write a comprehensive, SEO-rich blog post designed to rank on page 1 and be citable in AI Overviews.
 
 Topic: ${primaryTopic}
-Target keyword: ${primaryKeyword}
+Primary keyword: ${primaryKeywordFinal}
+Secondary keywords: ${secondary.join(', ') || 'derive closely related phrases'}
 Target word count: ${word_count_target}
-Target audience: ${target_audience}
+${audienceLine}
+Market: ${b2c ? 'B2C' : 'B2B'}
 ${brand_context ? `Company context: ${brand_context}` : ''}
+${b2cVoice}
+
+${keywordSchemaBlock}
+
+${seoRichChecklist}
+
+${skillPlaybook ? `Marketing skill playbook (authoritative method — ai-seo, schema-markup, seo-audit, content-strategy, copywriting):\n${String(skillPlaybook).slice(0, 12_000)}\n` : ''}
 
 STRICT output rules:
 - Output ONLY the HTML article (start with <article>, end with </article>)
 - No <!DOCTYPE>, no <html>, no <head>, no <body> wrapper — the caller embeds this
-- First line must be: <!-- META: your 150-char meta description here -->
+- First line must be: <!-- META: your 150-char meta description here (include primary keyword once, naturally) -->
 - Second line must be: <!-- SLUG: url-friendly-slug-here -->
-- Use semantic HTML: <h1> for title, <h2> for sections, <p> for body, <ul><li> for lists
+- Use semantic HTML: <h1>, <h2>, <h3>, <p>, <ul>/<ol>/<li>, <table> when comparing, <aside id="key-takeaway">, <figure>
 - Minimum ${word_count_target} words of actual prose in the <p> tags
-- Include target keyword naturally 4-6 times
+- Must include: key-takeaway aside, 4+ H2s covering secondaries, list OR table, 2–4 internal <a href="/…"> links, 1 figure with alt, <section id="faq"> with 4–6 details/summary Q&As, takeaways H2, CTA close
 - No inline styles or class attributes
-- Sections: compelling intro, 4-6 substantive H2 sections, practical takeaways, CTA conclusion`;
+- Do not include <script> tags (JSON-LD is injected after)
+- Never invent statistics, reviews, or fake citations`;
 
   let resp;
   try {
@@ -759,11 +1012,16 @@ STRICT output rules:
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'You are an expert SEO content writer. Output only valid HTML. No markdown code fences. No explanations.' },
+          {
+            role: 'system',
+            content: b2c
+              ? 'You are an expert B2C SEO + AEO content writer applying ai-seo, schema-markup, and seo-audit skills. Produce SEO-rich HTML: answer-first, topical depth, FAQ-ready, natural keywords only. Sound human. Never invent facts. Output HTML only.'
+              : 'You are an expert SEO + AEO content writer applying ai-seo, schema-markup, seo-audit, and content-strategy skills. Produce page-1-ready, SEO-rich HTML with topical completeness, FAQ structure, and natural keyword use. Never invent facts. Output HTML only.',
+          },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.35,
-        max_tokens: 6000,
+        temperature: b2c ? 0.4 : 0.32,
+        max_tokens: 8000,
       }),
     });
   } catch (e) {
@@ -775,6 +1033,52 @@ STRICT output rules:
 
   if (!html) return { status: 'error', error: 'No HTML content generated' };
 
+  html = stripJsonLdScripts(html);
+  html = ensureKeyTakeaway(html, { primary: primaryKeywordFinal });
+  html = ensureFaqSection(html, {
+    primary: primaryKeywordFinal,
+    secondary,
+    seedQuestions: seedFaqs,
+  });
+
+  let humanizerMeta = {
+    skill: 'humanizer',
+    upstream: HUMANIZER_UPSTREAM,
+    requested: shouldHumanize,
+    market: b2c ? 'b2c' : 'b2b',
+    applied: false,
+    reason: shouldHumanize ? 'pending' : 'skipped_not_b2c',
+  };
+
+  if (shouldHumanize) {
+    const pass = await humanizeBlogArticleHtml(html, {
+      title: primaryTopic,
+      keyword: primaryKeywordFinal,
+      target_audience,
+      brand_context,
+    });
+    if (pass.applied && pass.html) {
+      html = stripJsonLdScripts(pass.html);
+      html = ensureKeyTakeaway(html, { primary: primaryKeywordFinal });
+      html = ensureFaqSection(html, {
+        primary: primaryKeywordFinal,
+        secondary,
+        seedQuestions: seedFaqs,
+      });
+      humanizerMeta = {
+        ...humanizerMeta,
+        applied: true,
+        reason: pass.reason || 'ok',
+      };
+    } else {
+      humanizerMeta = {
+        ...humanizerMeta,
+        applied: false,
+        reason: pass.reason || 'pass_failed',
+      };
+    }
+  }
+
   const metaMatch  = html.match(/<!--\s*META:\s*(.+?)\s*-->/i);
   const slugMatch  = html.match(/<!--\s*SLUG:\s*(.+?)\s*-->/i);
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
@@ -782,9 +1086,31 @@ STRICT output rules:
   const meta_description = metaMatch?.[1]?.trim()
     ?? `${primaryTopic} — complete guide for ${target_audience}`;
   const slug = slugMatch?.[1]?.trim()
-    ?? primaryKeyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    ?? primaryKeywordFinal.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const title = titleMatch?.[1]?.replace(/<[^>]+>/g, '').trim() ?? primaryTopic;
-  const word_count = html.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
+
+  const faq = extractFaqPairs(html);
+  const jsonLd = buildArticleJsonLd({
+    title,
+    description: meta_description,
+    slug,
+    primaryKeyword: primaryKeywordFinal,
+    secondaryKeywords: secondary,
+    faq,
+    brandName: brand_name || brandName || 'Brand',
+    siteUrl: site_url || siteUrl || 'https://example.com',
+  });
+  html = injectJsonLd(html, jsonLd);
+
+  const keyword_audit = auditKeywordPlacement(html, {
+    primary: primaryKeywordFinal,
+    secondary,
+  });
+  const seo_richness = scoreSeoRichness(html, {
+    primary: primaryKeywordFinal,
+    secondary,
+  });
+  const word_count = keyword_audit.word_count;
 
   return {
     status: 'success',
@@ -792,8 +1118,26 @@ STRICT output rules:
     title,
     meta_description,
     slug,
-    keyword: primaryKeyword,
+    keyword: primaryKeywordFinal,
+    primary_keyword: primaryKeywordFinal,
+    secondary_keywords: secondary,
+    faq,
+    json_ld: jsonLd,
+    schemas: ['BlogPosting', 'BreadcrumbList', ...(faq.length >= 2 ? ['FAQPage'] : [])],
+    keyword_audit,
+    seo_richness,
     word_count,
     target_audience,
+    market: b2c ? 'b2c' : 'b2b',
+    skill_alignment: {
+      pack: skillKey,
+      skills: skillIds,
+      humanizer: humanizerMeta,
+      schema_markup: {
+        applied: true,
+        types: ['BlogPosting', 'BreadcrumbList', ...(faq.length >= 2 ? ['FAQPage'] : [])],
+      },
+      seo_richness,
+    },
   };
 }

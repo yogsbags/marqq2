@@ -5970,7 +5970,9 @@ Replace ALL placeholder values with your actual outputs.
 - generate_email_html: Full inline-CSS HTML email newsletter. params: { subject, content, tone?, brand_name?, primary_color?, sections? }. Returns: { html, subject, preview_text }
 - generate_faceless_video: Gemini Omni Flash (gemini-omni-flash-preview) -> Cloudinary CDN. params: { prompt, duration?, aspect_ratio?, style?, image_url? }. Returns: { status, video_url, cloudinary_url, host }
 - generate_avatar_video: HeyGen spokesperson video (async). params: { script, avatar_id?, voice_id?, background_color?, width?, height? }. Returns: { status:processing, video_id, check_url }
-- create_seo_article: Full HTML blog post with SEO meta. params: { keyword, topic?, word_count_target?, target_audience?, brand_context? }. Returns: { html, title, meta_description, slug, word_count }
+- create_seo_article: Full HTML blog post with SEO meta. Prefer build_seo_organic_plan first. params: { keyword, topic?, word_count_target?, target_audience?, brand_context?, market_type?: "b2c"|"b2b"|"mixed", humanize?: boolean }. For B2C, applies blader/humanizer (draft + second pass). Returns: { html, title, meta_description, slug, word_count, market, skill_alignment }
+- build_seo_organic_plan: Semrush/Ahrefs-gated pipeline — domain metrics → topical authority → topic clusters → article queue sized to GTM quantified_target/timeline. params: { domain?, database?, preferred_toolkit?, quantified_target?, timeline_target? }. Returns plan + stages; status needs_connectors if tools missing.
+- execute_seo_plan_articles: Write next N articles from article_queue via create_seo_article (max 5/run).
 `;
 
   const fullSystem = [
@@ -7405,7 +7407,8 @@ app.post("/api/agents/:name/run", async (req, res) => {
     if (taskType === "generate_image") return "image";
     if (taskType === "generate_video") return "video";
     if (taskType === "generate_avatar_video") return "avatar_video";
-    if (taskType === "generate_email") return "email_html";
+    if (taskType === "generate_email" || taskType === "newsletter") return "email_html";
+    if (taskType === "landing_page" || taskType === "landing-pages") return "landing_page";
     if (taskType === "seo_analysis") return "text";
     return "";
   };
@@ -7420,9 +7423,11 @@ app.post("/api/agents/:name/run", async (req, res) => {
     avatar_video:
       "Return a spokesperson video script in artifact.data and include exactly one automation_triggers entry with automation_id generate_avatar_video. Fill params.script with the final spoken script and include avatar_id or voice_id only if the user provided exact IDs.",
     email_html:
-      "Return email strategy/copy in artifact.data and include exactly one automation_triggers entry with automation_id generate_email_html. Fill params.subject, params.content, params.tone, params.brand_name, and params.sections when available.",
+      "Return email strategy/copy in artifact.data and include exactly one automation_triggers entry with automation_id generate_email_html (uses email-sequence + copywriting + copy-editing skills). Fill params.subject, params.content, params.tone, params.brand_name, and params.sections when available.",
+    landing_page:
+      "Return landing page strategy in artifact.data and include exactly one automation_triggers entry with automation_id create_landing_page (uses page-cro + copywriting + form-cro skills). Fill params.product, params.offer, params.audience, params.goal, params.cta, and params.brand_context when available.",
     seo_article:
-      "Return the article plan in artifact.data and include exactly one automation_triggers entry with automation_id create_seo_article. Fill params.keyword, params.topic, params.word_count_target, params.target_audience, and params.brand_context when available.",
+      "First ensure Semrush or Ahrefs is connected. Prefer automation_triggers with build_seo_organic_plan (domain metrics → topical authority → topic clusters → GTM-goal-aligned article queue). Then include create_seo_article (or execute_seo_plan_articles) using a keyword from that queue. Fill params.keyword, params.topic, params.word_count_target, params.target_audience, params.brand_context, and params.market_type (b2c|b2b). Align article volume to GTM quantified_target + timeline_target.",
     text:
       "Return a complete text deliverable in artifact.data. Do not include content-generation automation_triggers unless the user explicitly asks for an asset file.",
   };
@@ -7508,7 +7513,9 @@ Replace ALL placeholder values with your actual outputs.
 - generate_email_html: Full inline-CSS HTML email newsletter. params: { subject, content, tone?, brand_name?, primary_color?, sections? }. Returns: { html, subject, preview_text }
 - generate_faceless_video: Gemini Omni Flash (gemini-omni-flash-preview) -> Cloudinary CDN. params: { prompt, duration?, aspect_ratio?, style?, image_url? }. Returns: { status, video_url, cloudinary_url, host }
 - generate_avatar_video: HeyGen spokesperson video (async). params: { script, avatar_id?, voice_id?, background_color?, width?, height? }. Returns: { status:processing, video_id, check_url }
-- create_seo_article: Full HTML blog post with SEO meta. params: { keyword, topic?, word_count_target?, target_audience?, brand_context? }. Returns: { html, title, meta_description, slug, word_count }
+- create_seo_article: Full HTML blog post with SEO meta. Prefer build_seo_organic_plan first. params: { keyword, topic?, word_count_target?, target_audience?, brand_context?, market_type?: "b2c"|"b2b"|"mixed", humanize?: boolean }. For B2C, applies blader/humanizer (draft + second pass). Returns: { html, title, meta_description, slug, word_count, market, skill_alignment }
+- build_seo_organic_plan: Semrush/Ahrefs-gated pipeline — domain metrics → topical authority → topic clusters → article queue sized to GTM quantified_target/timeline. params: { domain?, database?, preferred_toolkit?, quantified_target?, timeline_target? }. Returns plan + stages; status needs_connectors if tools missing.
+- execute_seo_plan_articles: Write next N articles from article_queue via create_seo_article (max 5/run).
 `;
 
   const fullSystem = [
@@ -8273,7 +8280,7 @@ function verifyComposioWebhook(req, secret) {
   return { ok: false, reason: 'signature_mismatch' };
 }
 
-/** Composio project webhook — route GMAIL_NEW_GMAIL_MESSAGE into outreach replies */
+/** Composio project webhook — Gmail replies + Mailchimp audience/campaign events */
 app.post(
   '/api/webhooks/composio',
   express.json({
@@ -8299,6 +8306,18 @@ app.post(
           body.event ||
           '',
       ).toUpperCase();
+
+      if (
+        slug.includes('MAILCHIMP') ||
+        slug.includes('SUBSCRIBE_TRIGGER') ||
+        slug.includes('UNSUBSCRIBE_TRIGGER') ||
+        slug.includes('PROFILE_UPDATE_TRIGGER') ||
+        slug.includes('CAMPAIGN_TRIGGER')
+      ) {
+        const { handleComposioMailchimpTrigger } = await import('./mailchimpTriggers.js');
+        const result = await handleComposioMailchimpTrigger(body);
+        return res.json(result);
+      }
 
       if (
         slug.includes('GMAIL') ||
@@ -10851,7 +10870,7 @@ app.get("/api/analytics/gsc/sites", async (req, res) => {
 
   try {
     const accountId = await resolveAnalyticsAccountId(companyId, "google_search_console", apiKey);
-    const result = await runComposioAction(accountId, "GOOGLESEARCHCONSOLE_LIST_SITES", {}, apiKey);
+    const result = await runGscComposioAction(accountId, "GOOGLE_SEARCH_CONSOLE_LIST_SITES", {}, apiKey);
     const rawSites = result?.siteEntry || result?.data?.siteEntry || result?.sites || [];
     const sites = rawSites.map(s => ({
       id: s.siteUrl || s.site_url || s,
@@ -10863,6 +10882,152 @@ app.get("/api/analytics/gsc/sites", async (req, res) => {
     res.json({ sites, accounts: sites, preferred: preferred || null, needsSelection: sites.length > 1 && !preferred });
   } catch (err) {
     console.error("[gsc/sites]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/webflow/sites?companyId=X
+app.get("/api/webflow/sites", async (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  if (!companyId) return res.status(400).json({ error: "companyId required" });
+  try {
+    const { executeComposioActionForEntities, composioEntityCandidates } = await import("./mcp-router.js");
+    const {
+      getPreferredWebflowSiteId,
+      getPreferredWebflowBlogCollectionId,
+      getPreferredWebflowLandingCollectionId,
+    } = await import("./connector-preferences.js");
+    const entityIds = composioEntityCandidates(companyId);
+    const listed = await executeComposioActionForEntities("WEBFLOW_LIST_WEBFLOW_SITES", {}, entityIds);
+    if (listed.error) return res.status(400).json({ error: listed.error });
+    const raw =
+      listed.result?.sites ||
+      listed.result?.data?.sites ||
+      listed.result?.items ||
+      (Array.isArray(listed.result) ? listed.result : []);
+    const sites = (raw || []).map((s) => ({
+      id: s.id || s._id || s.siteId,
+      displayName: s.displayName || s.name || s.shortName || s.id,
+      shortName: s.shortName || null,
+      previewUrl: s.previewUrl || s.preview_url || null,
+    })).filter((s) => s.id);
+    res.json({
+      sites,
+      preferred: getPreferredWebflowSiteId(companyId) || null,
+      preferredBlogCollection: getPreferredWebflowBlogCollectionId(companyId) || null,
+      preferredLandingCollection: getPreferredWebflowLandingCollectionId(companyId) || null,
+      needsSelection: sites.length > 1 && !getPreferredWebflowSiteId(companyId),
+    });
+  } catch (err) {
+    console.error("[webflow/sites]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/mailchimp/audiences?companyId=X
+app.get("/api/mailchimp/audiences", async (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  if (!companyId) return res.status(400).json({ error: "companyId required" });
+  try {
+    const { executeComposioActionForEntities, composioEntityCandidates } = await import("./mcp-router.js");
+    const { getPreferredMailchimpListId } = await import("./connector-preferences.js");
+    const { getMailchimpTriggerRegistration } = await import("./mailchimpTriggers.js");
+    const entityIds = composioEntityCandidates(companyId);
+    const listed = await executeComposioActionForEntities("MAILCHIMP_GET_LISTS_INFO", {}, entityIds);
+    if (listed.error) return res.status(400).json({ error: listed.error });
+    const raw =
+      listed.result?.lists ||
+      listed.result?.data?.lists ||
+      listed.result?.items ||
+      (Array.isArray(listed.result) ? listed.result : []);
+    const audiences = (raw || []).map((a) => ({
+      id: a.id || a.list_id || a.listId,
+      displayName: a.name || a.displayName || a.id,
+      memberCount: a.stats?.member_count ?? a.member_count ?? a.memberCount ?? null,
+    })).filter((a) => a.id);
+    const preferred = getPreferredMailchimpListId(companyId) || null;
+    res.json({
+      audiences,
+      preferred,
+      triggers: getMailchimpTriggerRegistration(companyId),
+      needsSelection: audiences.length > 1 && !preferred,
+    });
+  } catch (err) {
+    console.error("[mailchimp/audiences]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/mailchimp/triggers  { companyId, listId? }
+app.post("/api/mailchimp/triggers", express.json(), async (req, res) => {
+  const companyId = String(req.body?.companyId || "").trim();
+  const listId = String(req.body?.listId || req.body?.list_id || "").trim();
+  if (!companyId) return res.status(400).json({ error: "companyId required" });
+  try {
+    if (listId) {
+      setConnectorPreferences(companyId, { mailchimp_list_id: listId });
+    }
+    const { ensureMailchimpTriggers } = await import("./mailchimpTriggers.js");
+    const result = await ensureMailchimpTriggers(companyId, { listId: listId || undefined });
+    return res.status(result.ok ? 200 : 400).json(result);
+  } catch (err) {
+    console.error("[mailchimp/triggers]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/mailchimp/events?companyId=X&limit=50
+app.get("/api/mailchimp/events", async (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit || 50)));
+  if (!companyId) return res.status(400).json({ error: "companyId required" });
+  try {
+    const { listMailchimpEvents, getMailchimpTriggerRegistration } = await import("./mailchimpTriggers.js");
+    res.json({
+      events: listMailchimpEvents(companyId, { limit }),
+      triggers: getMailchimpTriggerRegistration(companyId),
+    });
+  } catch (err) {
+    console.error("[mailchimp/events]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/webflow/collections?companyId=X&siteId=Y
+app.get("/api/webflow/collections", async (req, res) => {
+  const companyId = String(req.query.companyId || "").trim();
+  const siteId = String(req.query.siteId || "").trim();
+  if (!companyId || !siteId) return res.status(400).json({ error: "companyId and siteId required" });
+  try {
+    const { executeComposioActionForEntities, composioEntityCandidates } = await import("./mcp-router.js");
+    const {
+      getPreferredWebflowBlogCollectionId,
+      getPreferredWebflowLandingCollectionId,
+    } = await import("./connector-preferences.js");
+    const entityIds = composioEntityCandidates(companyId);
+    const listed = await executeComposioActionForEntities(
+      "WEBFLOW_LIST_COLLECTIONS",
+      { site_id: siteId, siteId },
+      entityIds,
+    );
+    if (listed.error) return res.status(400).json({ error: listed.error });
+    const raw =
+      listed.result?.collections ||
+      listed.result?.data?.collections ||
+      listed.result?.items ||
+      (Array.isArray(listed.result) ? listed.result : []);
+    const collections = (raw || []).map((c) => ({
+      id: c.id || c._id || c.collectionId,
+      displayName: c.displayName || c.name || c.slug || c.id,
+      slug: c.slug || null,
+    })).filter((c) => c.id);
+    res.json({
+      collections,
+      preferredBlog: getPreferredWebflowBlogCollectionId(companyId) || null,
+      preferredLanding: getPreferredWebflowLandingCollectionId(companyId) || null,
+    });
+  } catch (err) {
+    console.error("[webflow/collections]", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -10954,6 +11119,10 @@ app.post("/api/integrations/preferences", (req, res) => {
     "google_ads_customer_id",
     "ga4_property_id",
     "gsc_site_url",
+    "webflow_site_id",
+    "webflow_blog_collection_id",
+    "webflow_landing_collection_id",
+    "mailchimp_list_id",
     "lead_data_provider",
   ];
   const patch = {};
@@ -10962,6 +11131,13 @@ app.post("/api/integrations/preferences", (req, res) => {
   }
   try {
     const preferences = setConnectorPreferences(companyId, patch);
+    // When audience is set, upsert Composio Mailchimp webhook triggers
+    if (patch.mailchimp_list_id) {
+      const { ensureMailchimpTriggers } = await import("./mailchimpTriggers.js");
+      ensureMailchimpTriggers(companyId, { listId: patch.mailchimp_list_id }).catch((err) => {
+        console.warn("[mailchimp/triggers] ensure on prefs:", err?.message || err);
+      });
+    }
     res.json({ ok: true, preferences });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -10998,6 +11174,17 @@ async function runComposioAction(connectedAccountId, actionSlug, args, apiKey) {
   if (!res.ok) throw new Error(`${actionSlug} HTTP ${res.status}`);
   const json = await res.json();
   return json.data ?? json;
+}
+
+/** Prefer live GOOGLE_SEARCH_CONSOLE_* slugs; fall back to legacy GOOGLESEARCHCONSOLE_* */
+async function runGscComposioAction(connectedAccountId, canonicalSlug, args, apiKey) {
+  const legacy = String(canonicalSlug || "").replace(/^GOOGLE_SEARCH_CONSOLE_/, "GOOGLESEARCHCONSOLE_");
+  try {
+    return await runComposioAction(connectedAccountId, canonicalSlug, args, apiKey);
+  } catch (err) {
+    if (legacy === canonicalSlug) throw err;
+    return runComposioAction(connectedAccountId, legacy, args, apiKey);
+  }
 }
 
 function periodToDates(period) {
@@ -11158,7 +11345,7 @@ async function fetchGSCData(entityId, apiKey, period, gscSiteUrl = null) {
     const { startDate, endDate } = periodToDates(period);
 
     // GSC search analytics — top queries
-    const queryData = await runComposioAction(accountId, "GOOGLESEARCHCONSOLE_SEARCH_ANALYTICS_QUERY", {
+    const queryData = await runGscComposioAction(accountId, "GOOGLE_SEARCH_CONSOLE_SEARCH_ANALYTICS_QUERY", {
       start_date: startDate,
       end_date: endDate,
       dimensions: ["query"],
@@ -11167,7 +11354,7 @@ async function fetchGSCData(entityId, apiKey, period, gscSiteUrl = null) {
     }, apiKey);
 
     // GSC totals (no dimension)
-    const totals = await runComposioAction(accountId, "GOOGLESEARCHCONSOLE_SEARCH_ANALYTICS_QUERY", {
+    const totals = await runGscComposioAction(accountId, "GOOGLE_SEARCH_CONSOLE_SEARCH_ANALYTICS_QUERY", {
       start_date: startDate,
       end_date: endDate,
       row_limit: 1,
@@ -11205,42 +11392,78 @@ async function fetchGSCData(entityId, apiKey, period, gscSiteUrl = null) {
 }
 
 /** Fetch Google Ads KPIs. Returns null on failure. */
+function periodToMetaDatePreset(period) {
+  if (period === "7d") return "last_7d";
+  if (period === "90d") return "this_quarter";
+  return "last_30d";
+}
+
+function normalizeMetaAdAccountId(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s || s === "me") return null;
+  return s.startsWith("act_") ? s : `act_${s.replace(/^act_/, "")}`;
+}
+
+function adsPlaceholderKpis(platformLabel) {
+  return [
+    { label: `${platformLabel} Spend`, value: "—", delta: "—", trend: "flat", sub: platformLabel },
+  ];
+}
+
 async function fetchGoogleAdsData(entityId, apiKey, period, customerId = null) {
   try {
     const accountId = await resolveAnalyticsAccountId(entityId, "google_ads", apiKey);
     const { startDate, endDate } = periodToDates(period);
 
-    // Google Ads campaign performance report
-    const report = await runComposioAction(accountId, "GOOGLEADS_QUERY", {
-      customer_id: customerId,
-      query: `SELECT campaign.name, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' ORDER BY metrics.cost_micros DESC LIMIT 10`,
-    }, apiKey);
+    const queryArgs = {
+      query: `SELECT campaign.name, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' ORDER BY metrics.cost_micros DESC LIMIT 25`,
+    };
+    if (customerId) queryArgs.customer_id = String(customerId).replace(/-/g, "");
 
-    const rows = report?.results || report?.data?.results || [];
+    // Prefer GAQL query; fall back to search stream if QUERY slug differs by toolkit version
+    let report = null;
+    try {
+      report = await runComposioAction(accountId, "GOOGLEADS_QUERY", queryArgs, apiKey);
+    } catch {
+      report = await runComposioAction(accountId, "GOOGLEADS_SEARCH_STREAM_GAQL", queryArgs, apiKey);
+    }
 
-    const totalSpendMicros = rows.reduce((s, r) => s + (r.metrics?.cost_micros || 0), 0);
-    const totalClicks      = rows.reduce((s, r) => s + (r.metrics?.clicks || 0), 0);
-    const totalImpressions = rows.reduce((s, r) => s + (r.metrics?.impressions || 0), 0);
-    const totalConversions = rows.reduce((s, r) => s + (r.metrics?.conversions || 0), 0);
+    const rows = report?.results || report?.data?.results || report?.rows || (Array.isArray(report) ? report : []);
+
+    const totalSpendMicros = rows.reduce((s, r) => s + Number(r.metrics?.cost_micros || 0), 0);
+    const totalClicks      = rows.reduce((s, r) => s + Number(r.metrics?.clicks || 0), 0);
+    const totalImpressions = rows.reduce((s, r) => s + Number(r.metrics?.impressions || 0), 0);
+    const totalConversions = rows.reduce((s, r) => s + Number(r.metrics?.conversions || 0), 0);
+    const totalConvValue   = rows.reduce((s, r) => s + Number(r.metrics?.conversions_value || 0), 0);
     const totalSpend       = totalSpendMicros / 1_000_000;
-
-    const cpc  = totalClicks ? totalSpend / totalClicks : 0;
     const ctr  = totalImpressions ? (totalClicks / totalImpressions) * 100 : 0;
+    const roas = totalSpend > 0 ? totalConvValue / totalSpend : 0;
 
-    const topCampaigns = rows.slice(0, 5).map(r => ({
-      name: r.campaign?.name || "—",
-      spend: `$${(( r.metrics?.cost_micros || 0) / 1_000_000).toFixed(2)}`,
-      clicks: Math.round(r.metrics?.clicks || 0),
-    }));
+    const topCampaigns = rows.slice(0, 8).map(r => {
+      const spend = Number(r.metrics?.cost_micros || 0) / 1_000_000;
+      const clicks = Math.round(Number(r.metrics?.clicks || 0));
+      const impressions = Math.round(Number(r.metrics?.impressions || 0));
+      return {
+        name: r.campaign?.name || "—",
+        platform: "Google",
+        spend,
+        spendLabel: `$${spend.toFixed(2)}`,
+        clicks,
+        impressions,
+        ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+      };
+    });
 
     return {
       kpis: [
-        { label: "Ad Spend",     value: `$${fmtNum(Math.round(totalSpend))}`, delta: "—", trend: "flat", sub: "Google Ads" },
-        { label: "Ad Clicks",    value: fmtNum(totalClicks),                   delta: "—", trend: "flat", sub: "Google Ads" },
-        { label: "Conversions",  value: fmtNum(Math.round(totalConversions)),  delta: "—", trend: "flat", sub: "Google Ads" },
-        { label: "CTR",          value: `${ctr.toFixed(2)}%`,                  delta: "—", trend: "flat", sub: "Google Ads" },
+        { label: "Google Ads Spend", value: `$${fmtNum(Math.round(totalSpend))}`, delta: "—", trend: "flat", sub: "Google Ads" },
+        { label: "Google Ads Clicks", value: fmtNum(totalClicks), delta: "—", trend: "flat", sub: "Google Ads" },
+        { label: "Google Conversions", value: fmtNum(Math.round(totalConversions)), delta: "—", trend: "flat", sub: "Google Ads" },
+        { label: "Google Ads CTR", value: `${ctr.toFixed(2)}%`, delta: "—", trend: "flat", sub: "Google Ads" },
+        ...(roas > 0 ? [{ label: "Google Ads ROAS", value: `${roas.toFixed(2)}x`, delta: "—", trend: "flat", sub: "Google Ads" }] : []),
       ],
-      topCampaigns: topCampaigns.length ? topCampaigns : null,
+      topCampaigns,
     };
   } catch (err) {
     console.error("[analytics/google-ads] fetch failed:", err.message);
@@ -11251,37 +11474,189 @@ async function fetchGoogleAdsData(entityId, apiKey, period, customerId = null) {
 /** Fetch Meta Ads KPIs. Returns null on failure. */
 async function fetchMetaAdsData(entityId, apiKey, period, adAccountId = null) {
   try {
-    const accountId = await resolveAnalyticsAccountId(entityId, "meta_ads", apiKey);
+    const connectedAccountId = await resolveAnalyticsAccountId(entityId, "meta_ads", apiKey);
     const { startDate, endDate } = periodToDates(period);
+    const objectId = normalizeMetaAdAccountId(adAccountId);
+    const datePreset = periodToMetaDatePreset(period);
 
-    const target = adAccountId || "me";
+    const insightArgs = {
+      level: "campaign",
+      fields: ["campaign_name", "spend", "clicks", "impressions", "reach", "cpc", "ctr", "actions", "purchase_roas"],
+      date_preset: datePreset,
+    };
+    if (objectId) insightArgs.object_id = objectId;
+    // 90d / custom windows: prefer explicit range when Meta preset is coarse
+    if (period === "90d") {
+      insightArgs.time_range = { since: startDate, until: endDate };
+      delete insightArgs.date_preset;
+    }
 
-    const insights = await runComposioAction(accountId, "FACEBOOKADS_GET_AD_ACCOUNT_INSIGHTS", {
-      account_id: target,
-      date_preset: "last_30d",
-      time_range: { since: startDate, until: endDate },
-      fields: "spend,clicks,impressions,reach,cpc,ctr,actions",
-    }, apiKey);
+    let insights = null;
+    try {
+      insights = await runComposioAction(connectedAccountId, "METAADS_GET_INSIGHTS", insightArgs, apiKey);
+    } catch (primaryErr) {
+      // Fallback for older Facebook Ads toolkit slug
+      const fallbackArgs = {
+        account_id: objectId || "me",
+        date_preset: datePreset,
+        time_range: { since: startDate, until: endDate },
+        fields: "campaign_name,spend,clicks,impressions,reach,cpc,ctr,actions",
+        level: "campaign",
+      };
+      try {
+        insights = await runComposioAction(
+          connectedAccountId,
+          "FACEBOOKADS_GET_AD_ACCOUNT_INSIGHTS",
+          fallbackArgs,
+          apiKey,
+        );
+      } catch {
+        throw primaryErr;
+      }
+    }
 
-    const data = insights?.data?.[0] || insights;
+    const rows = Array.isArray(insights?.data)
+      ? insights.data
+      : Array.isArray(insights)
+        ? insights
+        : insights?.data
+          ? [insights.data]
+          : insights
+            ? [insights]
+            : [];
 
-    const spend       = parseFloat(data?.spend || 0);
-    const clicks      = parseInt(data?.clicks || 0, 10);
-    const impressions = parseInt(data?.impressions || 0, 10);
-    const reach       = parseInt(data?.reach || 0, 10);
-    const cpc         = parseFloat(data?.cpc || 0);
-    const ctr         = parseFloat(data?.ctr || 0);
+    const spend = rows.reduce((s, r) => s + parseFloat(r?.spend || 0), 0);
+    const clicks = rows.reduce((s, r) => s + parseInt(r?.clicks || 0, 10), 0);
+    const impressions = rows.reduce((s, r) => s + parseInt(r?.impressions || 0, 10), 0);
+    const reach = rows.reduce((s, r) => s + parseInt(r?.reach || 0, 10), 0);
+    const ctr = impressions > 0 ? (clicks / impressions) * 100 : rows.reduce((s, r) => s + parseFloat(r?.ctr || 0), 0) / Math.max(rows.length, 1);
+    let purchaseValue = 0;
+    for (const r of rows) {
+      const roasArr = r?.purchase_roas || [];
+      const match = Array.isArray(roasArr)
+        ? roasArr.find((x) => x.action_type === "omni_purchase" || x.action_type === "purchase")
+        : null;
+      if (match?.value != null && r?.spend) {
+        purchaseValue += parseFloat(match.value) * parseFloat(r.spend);
+      } else {
+        const actions = Array.isArray(r?.actions) ? r.actions : [];
+        const purchase = actions.find((a) => a.action_type === "purchase" || a.action_type === "omni_purchase");
+        if (purchase?.value) purchaseValue += parseFloat(purchase.value);
+      }
+    }
+    const roas = spend > 0 && purchaseValue > 0 ? purchaseValue / spend : 0;
+
+    const topCampaigns = rows
+      .slice()
+      .sort((a, b) => parseFloat(b?.spend || 0) - parseFloat(a?.spend || 0))
+      .slice(0, 8)
+      .map((r) => {
+        const cSpend = parseFloat(r?.spend || 0);
+        const cClicks = parseInt(r?.clicks || 0, 10);
+        const cImpr = parseInt(r?.impressions || 0, 10);
+        return {
+          name: r?.campaign_name || r?.campaign || "—",
+          platform: "Meta",
+          spend: cSpend,
+          spendLabel: `$${cSpend.toFixed(2)}`,
+          clicks: cClicks,
+          impressions: cImpr,
+          ctr: cImpr > 0 ? (cClicks / cImpr) * 100 : parseFloat(r?.ctr || 0),
+        };
+      });
 
     return {
       kpis: [
-        { label: "Meta Ad Spend",  value: `$${fmtNum(Math.round(spend))}`, delta: "—", trend: "flat", sub: "Meta Ads" },
-        { label: "Meta Clicks",    value: fmtNum(clicks),                   delta: "—", trend: "flat", sub: "Meta Ads" },
-        { label: "Reach",          value: fmtNum(reach),                    delta: "—", trend: "flat", sub: "Meta Ads" },
-        { label: "Meta CTR",       value: `${ctr.toFixed(2)}%`,             delta: "—", trend: "flat", sub: "Meta Ads" },
+        { label: "Meta Ads Spend", value: `$${fmtNum(Math.round(spend))}`, delta: "—", trend: "flat", sub: "Meta Ads" },
+        { label: "Meta Ads Clicks", value: fmtNum(clicks), delta: "—", trend: "flat", sub: "Meta Ads" },
+        { label: "Meta Reach", value: fmtNum(reach), delta: "—", trend: "flat", sub: "Meta Ads" },
+        { label: "Meta Ads CTR", value: `${ctr.toFixed(2)}%`, delta: "—", trend: "flat", sub: "Meta Ads" },
+        ...(roas > 0 ? [{ label: "Meta Ads ROAS", value: `${roas.toFixed(2)}x`, delta: "—", trend: "flat", sub: "Meta Ads" }] : []),
       ],
+      topCampaigns,
     };
   } catch (err) {
     console.error("[analytics/meta-ads] fetch failed:", err.message);
+    return null;
+  }
+}
+
+/** Fetch LinkedIn Ads KPIs. Returns null on failure. */
+async function fetchLinkedInAdsData(entityId, apiKey, period) {
+  try {
+    const connectedAccountId = await resolveAnalyticsAccountId(entityId, "linkedin_ads", apiKey);
+    const { startDate, endDate, periodDays } = periodToDates(period);
+    const asLiDate = (iso) => {
+      const [y, m, d] = iso.split("-").map(Number);
+      return { year: y, month: m, day: d };
+    };
+
+    const accounts = await runComposioAction(
+      connectedAccountId,
+      "LINKEDIN_ADS_SEARCH_AD_ACCOUNTS",
+      { status: ["ACTIVE"], page_size: 25 },
+      apiKey,
+    );
+    const accountRows = accounts?.elements || accounts?.data || accounts?.items || (Array.isArray(accounts) ? accounts : []);
+    const first = accountRows[0];
+    const adAccountId = String(
+      first?.id || first?.account_id || String(first?.account || first?.urn || "").split(":").pop() || "",
+    ).replace(/^urn:li:sponsoredAccount:/, "").replace(/\D/g, "");
+    if (!adAccountId) return { kpis: adsPlaceholderKpis("LinkedIn Ads"), topCampaigns: [] };
+
+    const analytics = await runComposioAction(
+      connectedAccountId,
+      "LINKEDIN_ADS_GET_AD_ANALYTICS",
+      {
+        pivot: "CAMPAIGN",
+        timeGranularity: "ALL",
+        fields: "impressions,clicks,costInLocalCurrency,externalWebsiteConversions,oneClickLeads",
+        accounts: [`urn:li:sponsoredAccount:${adAccountId}`],
+        dateRange: { start: asLiDate(startDate), end: asLiDate(endDate) },
+      },
+      apiKey,
+    );
+    const rows = analytics?.elements || analytics?.data || analytics?.items || (Array.isArray(analytics) ? analytics : []);
+
+    const spend = rows.reduce((s, r) => s + Number(r?.costInLocalCurrency || r?.costInUsd || r?.spend || 0), 0);
+    const clicks = rows.reduce((s, r) => s + Number(r?.clicks || 0), 0);
+    const impressions = rows.reduce((s, r) => s + Number(r?.impressions || 0), 0);
+    const conversions = rows.reduce(
+      (s, r) => s + Number(r?.externalWebsiteConversions || r?.oneClickLeads || r?.conversions || 0),
+      0,
+    );
+    const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+
+    const topCampaigns = rows
+      .slice()
+      .sort((a, b) => Number(b?.costInLocalCurrency || b?.spend || 0) - Number(a?.costInLocalCurrency || a?.spend || 0))
+      .slice(0, 8)
+      .map((r) => {
+        const cSpend = Number(r?.costInLocalCurrency || r?.spend || 0);
+        const cClicks = Number(r?.clicks || 0);
+        const cImpr = Number(r?.impressions || 0);
+        return {
+          name: String(r?.pivotValues?.[0] || r?.campaign || r?.name || "LinkedIn campaign"),
+          platform: "LinkedIn",
+          spend: cSpend,
+          spendLabel: `$${cSpend.toFixed(2)}`,
+          clicks: cClicks,
+          impressions: cImpr,
+          ctr: cImpr > 0 ? (cClicks / cImpr) * 100 : 0,
+        };
+      });
+
+    return {
+      kpis: [
+        { label: "LinkedIn Ads Spend", value: `$${fmtNum(Math.round(spend))}`, delta: "—", trend: "flat", sub: `LinkedIn Ads · ${periodDays}d` },
+        { label: "LinkedIn Ads Clicks", value: fmtNum(clicks), delta: "—", trend: "flat", sub: "LinkedIn Ads" },
+        { label: "LinkedIn Conversions", value: fmtNum(Math.round(conversions)), delta: "—", trend: "flat", sub: "LinkedIn Ads" },
+        { label: "LinkedIn Ads CTR", value: `${ctr.toFixed(2)}%`, delta: "—", trend: "flat", sub: "LinkedIn Ads" },
+      ],
+      topCampaigns,
+    };
+  } catch (err) {
+    console.error("[analytics/linkedin-ads] fetch failed:", err.message);
     return null;
   }
 }
@@ -11326,16 +11701,18 @@ app.get("/api/analytics/dashboard", async (req, res) => {
   const hasGSC = connectedSources.some(s => s.id === "gsc");
   const hasGoogleAds = connectedSources.some(s => s.id === "google_ads");
   const hasMetaAds   = connectedSources.some(s => s.id === "meta_ads");
+  const hasLinkedInAds = connectedSources.some(s => s.id === "linkedin_ads");
 
-  const [ga4Data, gscData, googleAdsData, metaAdsData] = await Promise.all([
-    hasGA4        ? fetchGA4Data(companyId, apiKey, period, ga4PropertyId)                : Promise.resolve(null),
-    hasGSC        ? fetchGSCData(companyId, apiKey, period, gscSiteUrl)                  : Promise.resolve(null),
-    hasGoogleAds  ? fetchGoogleAdsData(companyId, apiKey, period, googleAdsCustomer)     : Promise.resolve(null),
-    hasMetaAds    ? fetchMetaAdsData(companyId, apiKey, period, metaAdsAccount)          : Promise.resolve(null),
+  const [ga4Data, gscData, googleAdsData, metaAdsData, linkedInAdsData] = await Promise.all([
+    hasGA4         ? fetchGA4Data(companyId, apiKey, period, ga4PropertyId)                : Promise.resolve(null),
+    hasGSC         ? fetchGSCData(companyId, apiKey, period, gscSiteUrl)                  : Promise.resolve(null),
+    hasGoogleAds   ? fetchGoogleAdsData(companyId, apiKey, period, googleAdsCustomer)     : Promise.resolve(null),
+    hasMetaAds     ? fetchMetaAdsData(companyId, apiKey, period, metaAdsAccount)          : Promise.resolve(null),
+    hasLinkedInAds ? fetchLinkedInAdsData(companyId, apiKey, period)                      : Promise.resolve(null),
   ]);
 
   // 4. If all real fetches failed, return mock with connected=true so banner still shows
-  if (!ga4Data && !gscData && !googleAdsData && !metaAdsData) {
+  if (!ga4Data && !gscData && !googleAdsData && !metaAdsData && !linkedInAdsData) {
     const fallback = buildAnalyticsDashboard(period);
     fallback.connected = true;
     fallback.connectedSources = connectedSources;
@@ -11346,17 +11723,29 @@ app.get("/api/analytics/dashboard", async (req, res) => {
   // 5. Merge real data into dashboard — start from mock for chart skeleton if needed
   const mock = buildAnalyticsDashboard(period);
   const kpis = [
-    ...(ga4Data?.kpis || [{ label: "Sessions",         value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" },
-                            { label: "Bounce Rate",     value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" },
-                            { label: "Goal Completions",value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" }].filter(() => hasGA4)),
-    ...(gscData?.kpis || [{ label: "Organic Clicks",  value: "—", delta: "—", trend: "flat", sub: "Search Console" },
-                            { label: "Impressions",    value: "—", delta: "—", trend: "flat", sub: "Search Console" },
-                            { label: "Avg. Position",  value: "—", delta: "—", trend: "flat", sub: "lower is better" }].filter(() => hasGSC)),
+    ...(ga4Data?.kpis || (hasGA4 ? [
+      { label: "Sessions", value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" },
+      { label: "Bounce Rate", value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" },
+      { label: "Goal Completions", value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" },
+    ] : [])),
+    ...(gscData?.kpis || (hasGSC ? [
+      { label: "Organic Clicks", value: "—", delta: "—", trend: "flat", sub: "Search Console" },
+      { label: "Impressions", value: "—", delta: "—", trend: "flat", sub: "Search Console" },
+      { label: "Avg. Position", value: "—", delta: "—", trend: "flat", sub: "lower is better" },
+    ] : [])),
+    // Paid ads — use live fetch results (not placeholders)
+    ...(googleAdsData?.kpis || (hasGoogleAds ? adsPlaceholderKpis("Google Ads") : [])),
+    ...(metaAdsData?.kpis || (hasMetaAds ? adsPlaceholderKpis("Meta Ads") : [])),
+    ...(linkedInAdsData?.kpis || (hasLinkedInAds ? adsPlaceholderKpis("LinkedIn Ads") : [])),
   ];
 
-  // Ad spend KPIs (placeholder real-ish values — true API fetch can be added per connector)
-  if (hasGoogleAds) kpis.push({ label: "Google Ads Spend", value: "—", delta: "—", trend: "flat", sub: "Google Ads" });
-  if (hasMetaAds)   kpis.push({ label: "Meta Ads Spend",   value: "—", delta: "—", trend: "flat", sub: "Meta Ads"   });
+  const topAdCampaigns = [
+    ...(googleAdsData?.topCampaigns || []),
+    ...(metaAdsData?.topCampaigns || []),
+    ...(linkedInAdsData?.topCampaigns || []),
+  ]
+    .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0))
+    .slice(0, 12);
 
   return res.json({
     lastUpdated: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
@@ -11369,6 +11758,7 @@ app.get("/api/analytics/dashboard", async (req, res) => {
     topPages:         ga4Data?.topPages       || mock.topPages,
     topQueries:       gscData?.topQueries     || mock.topQueries,
     channels:         ga4Data?.channels       || mock.channels,
+    topAdCampaigns,
   });
 });
 
@@ -12609,7 +12999,14 @@ app.post("/api/content-studio/distribute", async (req, res) => {
   if (!companyId || typeof companyId !== "string") {
     return res.status(400).json({ error: "companyId is required" });
   }
-  const validPlatforms = ["linkedin", "facebook_instagram", "website_blog"];
+  const validPlatforms = [
+    "linkedin",
+    "facebook_instagram",
+    "website_blog",
+    "instagram",
+    "facebook",
+    "twitter",
+  ];
   if (!platform || !validPlatforms.includes(platform)) {
     return res.status(400).json({ error: `platform must be one of: ${validPlatforms.join(", ")}` });
   }
@@ -12665,7 +13062,9 @@ app.post("/api/content-studio/distribute", async (req, res) => {
 
     const platformLabel =
       platform === "linkedin" ? "LinkedIn" :
-      platform === "facebook_instagram" ? "Facebook" :
+      platform === "instagram" ? "Instagram" :
+      platform === "facebook" || platform === "facebook_instagram" ? "Facebook" :
+      platform === "twitter" ? "X" :
       "Google Docs";
 
     const summary =
@@ -12673,9 +13072,66 @@ app.post("/api/content-studio/distribute", async (req, res) => {
         ? `${platformLabel} draft scheduled for ${new Date(publishAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`
         : `${platformLabel} draft saved (ID: ${data?.id?.slice(0, 8) ?? "—"})`;
 
-    res.json({ id: data?.id, summary });
+    res.json({ id: data?.id, summary, platform, publish_at, status });
   } catch (err) {
     console.error("[distribute] Unexpected error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── GET /api/content-studio/scheduled ──────────────────────────────────────
+// Lists scheduled organic/content drafts for Marketing Calendar.
+app.get("/api/content-studio/scheduled", async (req, res) => {
+  const companyId = String(req.query.companyId || req.query.workspaceId || "");
+  if (!companyId) return res.status(400).json({ error: "companyId is required" });
+
+  const sb = supabaseForServerData();
+  if (!sb) return res.status(503).json({ error: "Database not available" });
+
+  try {
+    const { data, error } = await sb
+      .from("content_drafts")
+      .select("id, company_id, platform, mode, status, title, post, cta, hashtags, payload, publish_at, created_at")
+      .eq("company_id", companyId)
+      .eq("status", "scheduled")
+      .order("publish_at", { ascending: true })
+      .limit(200);
+
+    if (error) {
+      if (error.code === "42P01") {
+        return res.json({ items: [], note: "content_drafts table missing" });
+      }
+      return res.status(500).json({ error: error.message });
+    }
+
+    const items = (data || []).map((row) => {
+      const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+      const platform = String(row.platform || payload.platform || "linkedin");
+      return {
+        id: row.id,
+        platform,
+        platformId:
+          platform === "facebook_instagram" ? "facebook" :
+          platform === "website_blog" ? "blog" :
+          platform,
+        title: row.title || payload.title || "Scheduled post",
+        post: row.post || payload.post || "",
+        cta: row.cta || payload.cta || "",
+        hashtags: row.hashtags || payload.hashtags || [],
+        image_url: payload.image_url || payload.cdn_url || null,
+        publish_at: row.publish_at,
+        status: row.status,
+        scheduledFor: row.publish_at,
+        agentName: "riya",
+        sectionTitle: row.title || `${platform} organic post`,
+        agentTarget: "social_posts",
+        scheduleMode: "once",
+      };
+    });
+
+    res.json({ items, count: items.length });
+  } catch (err) {
+    console.error("[content-studio/scheduled]", err);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -12721,6 +13177,17 @@ app.post("/api/agents/integration-connected", express.json(), async (req, res) =
     companyId: workspaceId || "default",
     userName,
   }).catch(err => console.warn("[integration_connected] suggestion email failed:", err.message));
+
+  // Mailchimp: if audience already preferred, register Composio webhook triggers
+  if (connectorId === "mailchimp" && workspaceId) {
+    import("./mailchimpTriggers.js")
+      .then(({ ensureMailchimpTriggers }) =>
+        ensureMailchimpTriggers(workspaceId).catch((err) =>
+          console.warn("[integration_connected] mailchimp triggers:", err?.message || err),
+        ),
+      )
+      .catch(() => {});
+  }
 
   res.json({
     ok: true,

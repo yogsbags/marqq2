@@ -1,5 +1,5 @@
 {
-  "connectors": ["gsc", "ga4", "semrush", "ahrefs", "wordpress", "google_sheets"],
+  "connectors": ["gsc", "ga4", "semrush", "ahrefs", "wordpress", "webflow", "google_sheets"],
   "permissions": "read",
   "description": "Maya owns SEO and search-content visibility across search consoles, ranking tools, and publishing signals.",
   "recipes": {}

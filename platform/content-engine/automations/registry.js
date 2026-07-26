@@ -30,8 +30,14 @@ import {
   generateFacelessVideo,
   generateAvatarVideo,
   createSeoArticle,
+  createLandingPage,
 } from './handlers/contentCreation.js';
+import { generateB2cOrganicPack } from './handlers/b2cOrganicPack.js';
 import { managePaidAdsLoop, enrollPaidAdsLoop } from './handlers/managePaidAdsLoop.js';
+import {
+  buildSeoOrganicPlan,
+  executeSeoPlanArticles,
+} from './handlers/seoOrganicPipeline.js';
 
 export { enrollPaidAdsLoop };
 
@@ -722,9 +728,27 @@ export const REGISTRY = [
     requires_credential: null,
   },
   {
+    id: "generate_b2c_organic_pack",
+    name: "Generate B2C Organic Image Pack",
+    description: "Creates 3 image posts (pain / proof / offer) for Instagram, Facebook, LinkedIn, and X — captions + Gemini images at channel-native aspect ratios. Image posts only (no reels).",
+    category: "content_creation",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      brand: "Brand name",
+      offer: "Product or offer",
+      audience: "B2C audience description",
+      brand_context: "Optional brand style notes",
+      channels: "Optional subset: instagram|facebook|linkedin|twitter",
+    },
+    returns: "{ posts: [...], cta_flow, ready_count }",
+    which_agents_can_invoke: ["riya", "kiran", "maya", "zara"],
+    requires_credential: null,
+  },
+  {
     id: "generate_email_html",
     name: "Generate Email Newsletter HTML",
-    description: "Generates a complete, email-client-safe HTML newsletter with inline CSS, responsive table layout, header, body sections, and footer. Ready to paste into any ESP (Mailchimp, Klaviyo, SendGrid).",
+    description: "Generates a complete, email-client-safe HTML newsletter using email-sequence, copywriting, and copy-editing marketing skills. Inline CSS, responsive table layout, header/body/footer — ready for Mailchimp, Klaviyo, or Gmail go-live.",
     category: "content_creation",
     trigger_type: "direct_api",
     endpoint: null,
@@ -736,8 +760,30 @@ export const REGISTRY = [
       primary_color: "Hex color for header and CTAs (default: #f97316)",
       sections: "Array of section titles/descriptions to include",
     },
-    returns: "{ html, subject, preview_text, brand_name, primary_color, char_count }",
+    returns: "{ html, subject, preview_text, brand_name, primary_color, char_count, skill_alignment }",
     which_agents_can_invoke: ["riya", "sam", "kiran"],
+    requires_credential: null,
+  },
+  {
+    id: "create_landing_page",
+    name: "Create Landing Page",
+    description:
+      "Generates conversion-ready landing page structure + HTML using page-cro, copywriting, and form-cro marketing skills. Returns page_structure for preview and go-live to Webflow/WordPress.",
+    category: "content_creation",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      product: "Product or offer name (required)",
+      offer: "Value proposition / offer summary",
+      audience: "Target audience",
+      goal: "lead_gen | saas_trial | ecommerce | webinar | default",
+      cta: "Primary CTA button text",
+      brand_context: "Optional brand / positioning notes",
+      pain_points: "Optional array of audience pain points",
+    },
+    returns:
+      "{ title, slug, meta_description, page_structure, html, ab_tests, skill_alignment }",
+    which_agents_can_invoke: ["riya", "tara", "neel"],
     requires_credential: null,
   },
   {
@@ -781,18 +827,75 @@ export const REGISTRY = [
   {
     id: "create_seo_article",
     name: "Create SEO Blog Article",
-    description: "Generates a complete, publish-ready SEO-optimised HTML blog article using Groq LLM. Returns full article HTML with semantic markup, meta description, and URL slug. Designed for Maya to produce actual content, not just briefs.",
+    description:
+      "Generates a complete, publish-ready SEO-optimised HTML blog article using Groq LLM. For B2C (market_type=b2c or consumer audience), drafts with the humanizer skill and runs a second humanizer pass (blader/humanizer) so prose sounds human — no invented facts. Prefer running build_seo_organic_plan first (Semrush/Ahrefs) so keyword + topic come from the goal-aligned queue.",
     category: "content_creation",
     trigger_type: "direct_api",
     endpoint: null,
     params_schema: {
       keyword: "Primary target keyword (required if topic not provided)",
+      primary_keyword: "Alias for keyword",
+      secondary_keywords:
+        "Array of 3–5 related phrases to weave naturally (no stuffing). Derived if omitted.",
+      faq_questions: "Optional seed FAQ questions (4–6) for FAQPage rich results",
       topic: "Article topic/title (required if keyword not provided)",
       word_count_target: "Target word count (default: 1200)",
-      target_audience: "Who the article is written for (default: B2B decision makers)",
+      target_audience:
+        "Who the article is written for. Use consumer language for B2C (e.g. 'everyday consumers', 'patients', 'app users'). Default: B2B decision makers",
       brand_context: "Company positioning or product context to weave in",
+      brand_name: "Publisher brand for JSON-LD",
+      site_url: "Canonical site origin for JSON-LD URLs",
+      market_type: "b2c | b2b | mixed — set b2c to force consumer voice + humanizer pass",
+      market: "Alias for market_type",
+      humanize:
+        "true/false — override: force or skip humanizer. Default: on for B2C, off for B2B",
     },
-    returns: "{ html, title, meta_description, slug, keyword, word_count, target_audience }",
+    returns:
+      "{ html, title, meta_description, slug, primary_keyword, secondary_keywords, faq, json_ld, schemas, keyword_audit, seo_richness, word_count, market, skill_alignment }",
+    which_agents_can_invoke: ["maya", "riya"],
+    requires_credential: null,
+  },
+  {
+    id: "build_seo_organic_plan",
+    name: "Build SEO Organic Plan",
+    description:
+      "Prefer build_seo_organic_plan first. Semrush/Ahrefs/GSC are optional — when disconnected the pipeline estimates keyword volumes via web search. When GSC is connected, merges live queries + striking-distance opportunities. When Semrush/Ahrefs are connected, uses live rankings. Then create_seo_article / execute_seo_plan_articles from the queue.",
+    category: "seo",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      domain: "Root domain e.g. nouriva.tech (falls back to workspace website URL)",
+      database: "Semrush/Ahrefs country DB code (default us)",
+      preferred_toolkit: "semrush | ahrefs — try this toolkit first",
+      gsc_site_url: "Optional Search Console property URL (sc-domain:… or https://…)",
+      brand_context: "Optional positioning context",
+      quantified_target: "Override GTM quantified goal",
+      timeline_target: "Override GTM timeline e.g. 90d",
+      channel_bet: "Override GTM channel bet",
+    },
+    returns:
+      "{ status, domain, topical_authority, topic_clusters, article_queue, goal_alignment, volume_target, gsc, stages, needs? }",
+    which_agents_can_invoke: ["maya", "riya"],
+    requires_credential: null,
+  },
+  {
+    id: "execute_seo_plan_articles",
+    name: "Execute SEO Plan Articles",
+    description:
+      "Writes the next N articles from an SEO organic plan (or rebuilds the plan first) via create_seo_article, aligned to GTM numeric goals. Caps at 5 per run.",
+    category: "seo",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      article_queue: "Optional queue from build_seo_organic_plan",
+      limit: "How many articles to write now (default 3, max 5)",
+      domain: "Domain if rebuilding plan",
+      target_audience: "Audience for articles",
+      brand_context: "Brand context",
+      market_type: "b2c | b2b",
+      humanize: "Pass-through to create_seo_article",
+    },
+    returns: "{ status, written, attempted, results[], plan_snapshot }",
     which_agents_can_invoke: ["maya", "riya"],
     requires_credential: null,
   },
@@ -1016,8 +1119,14 @@ const directApiHandlers = {
   async generate_social_image(params, companyId) {
     return generateSocialImage(params, companyId);
   },
+  async generate_b2c_organic_pack(params, companyId) {
+    return generateB2cOrganicPack(params, companyId);
+  },
   async generate_email_html(params, companyId) {
     return generateEmailHtml(params, companyId);
+  },
+  async create_landing_page(params, companyId) {
+    return createLandingPage(params, companyId);
   },
   async generate_faceless_video(params, companyId) {
     return generateFacelessVideo(params, companyId);
@@ -1027,6 +1136,12 @@ const directApiHandlers = {
   },
   async create_seo_article(params, companyId) {
     return createSeoArticle(params, companyId);
+  },
+  async build_seo_organic_plan(params, companyId, supabaseClient) {
+    return buildSeoOrganicPlan(params, companyId, supabaseClient);
+  },
+  async execute_seo_plan_articles(params, companyId, supabaseClient) {
+    return executeSeoPlanArticles(params, companyId, supabaseClient);
   },
   async ads_intel_analyze(params, companyId, supabaseClient) {
     if (!supabaseClient) return { status: 'error', error: 'supabaseClient required' };
@@ -2126,9 +2241,15 @@ const directApiHandlers = {
       byCampaign[ad.campaign].impressions  += Number(ad.impressions || 0);
     }
     const campaigns = Object.values(byCampaign).map(c => ({
-      ...c,
-      spend: c.spend.toFixed(2),
-      ctr: c.impressions > 0 ? ((c.clicks / c.impressions) * 100).toFixed(2) + '%' : '0%',
+      campaign: c.name,
+      name: c.name,
+      spend: Number(c.spend.toFixed(2)),
+      clicks: c.clicks,
+      impressions: c.impressions,
+      conversions: c.conversions,
+      ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+      cpc: c.clicks > 0 ? c.spend / c.clicks : 0,
+      roas: null,
     }));
 
     return { status: 'completed', date_range: datePreset, campaigns, adsets: [], ads };

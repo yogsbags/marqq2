@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   EyeOpenIcon,
   GlobeIcon,
@@ -7,6 +7,8 @@ import {
 } from '@radix-ui/react-icons'
 import { AgentModuleShell, type AgentConfig } from '@/components/agent/AgentModuleShell'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { SeoOrganicPipelinePanel, type SeoOrganicPlan } from '@/components/modules/SeoOrganicPipelinePanel'
+import { useWorkspace } from '@/contexts/WorkspaceContext'
 
 type SEOLLMOFlowProps = {
   initialQuestion?: string
@@ -48,26 +50,49 @@ export function SEOLLMOFlow({
   initialSurface,
   initialGoal,
 }: SEOLLMOFlowProps = {}) {
+  const { activeWorkspace } = useWorkspace()
   const focus = initialFocus || 'both'
   const surface = initialSurface || 'homepage'
   const goal = initialGoal || 'traffic'
+  const [seoPlan, setSeoPlan] = useState<SeoOrganicPlan | null>(null)
+  const [seoResearchSkip, setSeoResearchSkip] = useState(false)
+  const seoPlanReady = seoPlan?.status === 'success'
 
-  const agents = useMemo<Array<AgentConfig>>(
-    () => [
+  const agents = useMemo<Array<AgentConfig>>(() => {
+    const planHint = seoPlanReady
+      ? `\n\nLive SEO research already ran for ${seoPlan?.domain || 'the domain'}. Topical authority score: ${seoPlan?.topical_authority?.score ?? 'n/a'}. Prefer these priority keywords: ${(seoPlan?.article_queue || []).slice(0, 5).map((a) => a.keyword).join(', ')}. Align recommendations to GTM goal ${seoPlan?.goal_alignment?.quantified_target || 'from strategy'} over ${seoPlan?.goal_alignment?.timeline_target || 'the timeline'}.`
+      : '\n\nIf Semrush/Ahrefs research is available from the pipeline above, use it. Otherwise ask the user to connect and run the SEO pipeline first.'
+    return [
       {
         name: 'maya',
         label: 'Build Visibility Plan',
         taskType: 'seo_analysis',
-        defaultQuery: buildMayaQuery(focus, surface, goal, initialQuestion),
+        defaultQuery: `${buildMayaQuery(focus, surface, goal, initialQuestion)}${planHint}`,
         placeholder: 'Describe the site, page set, topic area, or search problem you want to improve first.',
         tags: ['seo', 'llmo', 'visibility'],
       },
-    ],
-    [focus, goal, initialQuestion, surface]
-  )
+    ]
+  }, [focus, goal, initialQuestion, surface, seoPlan, seoPlanReady])
 
   const preAgentContent = (
     <div className="space-y-5">
+      <SeoOrganicPipelinePanel
+        companyId={activeWorkspace?.id || ''}
+        defaultDomain={activeWorkspace?.website_url || ''}
+        onPlanReady={(p) => {
+          setSeoPlan(p)
+          if (p.status === 'success') setSeoResearchSkip(false)
+        }}
+      />
+      {!seoPlanReady && !seoResearchSkip ? (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+          onClick={() => setSeoResearchSkip(true)}
+        >
+          Skip research and continue with qualitative visibility planning
+        </button>
+      ) : null}
       <section className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
         <Card className="rounded-[2rem] border-orange-200/70 bg-zinc-950 text-orange-50 shadow-[0_28px_80px_-34px_rgba(113,63,18,0.44)] dark:border-orange-900/70">
           <CardContent className="space-y-6 p-5 lg:p-6">
@@ -196,6 +221,11 @@ export function SEOLLMOFlow({
       resourceContextHint="Optional. Use this when the visibility work should anchor to an exact page, sitemap, or content planning document."
       buildResourceContext={(value) => `Use this exact page, sitemap, or content planning document if needed: ${value}`}
       resourceContextPlacement="primary"
+      disabledReason={
+        !seoPlanReady && !seoResearchSkip
+          ? 'Run the SEO pipeline above first (Semrush/Ahrefs optional — web search estimates keyword volumes when disconnected).'
+          : null
+      }
     />
   )
 }

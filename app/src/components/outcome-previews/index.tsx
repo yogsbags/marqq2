@@ -288,7 +288,43 @@ export function SocialPostPreview({
     )
   }
 
-  // LinkedIn (default) + X-ish falls back to LinkedIn chrome
+  if (key === 'x') {
+    return (
+      <div className={cn('mx-auto w-full max-w-[480px] overflow-hidden rounded-2xl border border-zinc-200 bg-black text-zinc-100 shadow-sm dark:border-zinc-700', className)}>
+        <div className="flex items-start gap-3 px-4 pt-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-sm font-bold">
+            {initials(authorName)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="truncate text-sm font-bold">{authorName}</p>
+              <span className="text-xs text-zinc-500">@{authorHandle || authorName.toLowerCase().replace(/\s+/g, '')}</span>
+              <span className="text-xs text-zinc-600">· just now</span>
+              {toolbar || <MoreHorizontal className="ml-auto h-4 w-4 text-zinc-500" />}
+            </div>
+            <div className="mt-1 text-[15px] leading-5 whitespace-pre-wrap">
+              {text}
+              {tags.length > 0 && <span className="text-sky-400"> {tags.join(' ')}</span>}
+            </div>
+            {cta && <p className="mt-1 text-sm font-semibold text-sky-400">{cta}</p>}
+            {imageUrl && (
+              <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-800 aspect-video bg-zinc-900">
+                <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+              </div>
+            )}
+            <div className="mt-2 mb-2 flex items-center justify-between text-zinc-500 pr-6">
+              <MessageCircle className="h-4 w-4" />
+              <Repeat2 className="h-4 w-4" />
+              <Heart className="h-4 w-4" />
+              <Share2 className="h-4 w-4" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // LinkedIn (default)
   return (
     <div className={cn('mx-auto w-full max-w-[560px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950', className)}>
       <div className="flex items-start gap-3 px-4 pt-4">

@@ -338,14 +338,34 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
   // Fetch deployments
   useEffect(() => {
     if (!activeWorkspace?.id) return
-    fetchJson(`/api/workspaces/${activeWorkspace.id}/agent-deployments`)
-      .then((data: unknown) => {
-        const arr = Array.isArray(data)
-          ? data
-          : (data as { deployments?: DeploymentEntry[] }).deployments ?? []
-        setDeployments(arr as DeploymentEntry[])
-      })
-      .catch(() => {})
+    let cancelled = false
+    async function load() {
+      try {
+        const [depRes, schedRes] = await Promise.all([
+          fetchJson(`/api/workspaces/${activeWorkspace!.id}/agent-deployments`),
+          fetchJson(`/api/content-studio/scheduled?companyId=${encodeURIComponent(activeWorkspace!.id)}`).catch(() => ({ items: [] })),
+        ])
+        if (cancelled) return
+        const arr = Array.isArray(depRes)
+          ? depRes
+          : (depRes as { deployments?: DeploymentEntry[] }).deployments ?? []
+        const organic = ((schedRes as { items?: Array<Record<string, unknown>> })?.items || []).map((item) => ({
+          id: String(item.id),
+          agentName: String(item.agentName || 'riya'),
+          workspaceId: activeWorkspace!.id,
+          agentTarget: String(item.platformId || item.platform || 'social'),
+          sectionTitle: String(item.title || item.sectionTitle || 'Organic post'),
+          scheduleMode: 'once',
+          status: String(item.status || 'scheduled'),
+          scheduledFor: (item.scheduledFor || item.publish_at) as string | null,
+        }))
+        setDeployments([...(arr as DeploymentEntry[]), ...organic])
+      } catch {
+        if (!cancelled) setDeployments([])
+      }
+    }
+    void load()
+    return () => { cancelled = true }
   }, [activeWorkspace?.id])
 
   // Fetch festivals

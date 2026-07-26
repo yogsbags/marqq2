@@ -18,6 +18,7 @@ export type OutcomeLiveKind =
   | 'linkedin'
   | 'instagram'
   | 'facebook'
+  | 'twitter'
   | 'social'
   | 'newsletter'
   | 'blog'
@@ -59,23 +60,28 @@ const LIVE_SPECS: Record<OutcomeLiveKind, LiveSpec> = {
     liveAction: 'Publish to Facebook',
     outcomeNoun: 'Facebook post',
   },
+  twitter: {
+    anyOf: ['twitter'],
+    liveAction: 'Publish to X',
+    outcomeNoun: 'X post',
+  },
   social: {
-    anyOf: ['linkedin', 'instagram', 'facebook'],
+    anyOf: ['linkedin', 'instagram', 'facebook', 'twitter'],
     liveAction: 'Publish post',
     outcomeNoun: 'social post',
   },
   newsletter: {
     anyOf: ['mailchimp', 'klaviyo', 'gmail'],
-    liveAction: 'Send newsletter',
+    liveAction: 'Go live via email',
     outcomeNoun: 'newsletter',
   },
   blog: {
-    anyOf: ['wordpress', 'google_docs'],
+    anyOf: ['webflow', 'wordpress', 'google_docs'],
     liveAction: 'Publish article',
     outcomeNoun: 'blog article',
   },
   landing_page: {
-    anyOf: ['wordpress'],
+    anyOf: ['webflow', 'wordpress'],
     liveAction: 'Publish landing page',
     outcomeNoun: 'landing page',
   },
@@ -91,6 +97,7 @@ export function outcomeKindFromPlatform(platform?: string | null): OutcomeLiveKi
   if (p.includes('linkedin')) return 'linkedin'
   if (p.includes('instagram') || p === 'ig') return 'instagram'
   if (p.includes('facebook') || p === 'fb') return 'facebook'
+  if (p.includes('twitter') || p === 'x') return 'twitter'
   return 'social'
 }
 
@@ -228,6 +235,21 @@ export function OutcomeGoLiveCta({
   const connected = new Set(connectedIds)
   const missing = missingForSpec(spec, connected)
   const ready = isReady(spec, connected)
+  const publisherChoices =
+    kind === 'blog' || kind === 'landing_page' || kind === 'newsletter'
+      ? spec.anyOf.filter((id) => connected.has(id))
+      : []
+  const [cmsPublisher, setCmsPublisher] = useState<string | undefined>(preferredConnector)
+
+  useEffect(() => {
+    if (preferredConnector && connected.has(preferredConnector)) {
+      setCmsPublisher(preferredConnector)
+      return
+    }
+    if (publisherChoices.length && (!cmsPublisher || !publisherChoices.includes(cmsPublisher))) {
+      setCmsPublisher(publisherChoices[0])
+    }
+  }, [preferredConnector, connectedIds.join('|'), kind]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleConnect = async (connectorId: string) => {
     if (!workspaceId) {
@@ -283,7 +305,7 @@ export function OutcomeGoLiveCta({
         kind,
         workspaceId,
         companyId,
-        preferredConnector,
+        preferredConnector: cmsPublisher || preferredConnector,
         payload,
       })
       if (result.url) {
@@ -371,6 +393,22 @@ export function OutcomeGoLiveCta({
               ? 'Published on your click. Open the live link anytime.'
               : `Connectors linked. Nothing is live until you click ${spec.liveAction}.`}
           </p>
+          {publisherChoices.length > 1 && !liveUrl ? (
+            <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{kind === 'newsletter' ? 'Send via' : 'Publish to'}</span>
+              <select
+                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                value={cmsPublisher || publisherChoices[0]}
+                onChange={(e) => setCmsPublisher(e.target.value)}
+              >
+                {publisherChoices.map((id) => (
+                  <option key={id} value={id}>
+                    {connectorLabel(id)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {liveUrl ? (
             <a
               href={liveUrl}
@@ -390,7 +428,13 @@ export function OutcomeGoLiveCta({
         onClick={() => void handleGoLive()}
       >
         {goingLive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
-        {liveUrl ? `Re-${spec.liveAction}` : spec.liveAction}
+        {goingLive
+          ? 'Working…'
+          : liveUrl
+            ? `Re-${spec.liveAction}`
+            : cmsPublisher && publisherChoices.length
+              ? `${spec.liveAction} → ${connectorLabel(cmsPublisher)}`
+              : spec.liveAction}
       </Button>
     </div>
   )

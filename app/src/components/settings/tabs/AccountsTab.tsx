@@ -6,7 +6,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { addIntegrationConnectedListener, connectComposioConnector, formatConnectorError } from '@/lib/composio';
 import { cn } from '@/lib/utils';
-import { BarChart2, Check, ChevronDown, Loader2, Megaphone, Search, X } from 'lucide-react';
+import { BarChart2, Check, ChevronDown, Globe, Loader2, Mail, Megaphone, Search, X } from 'lucide-react';
 
 type Connector = {
   id: string;
@@ -78,12 +78,14 @@ const CONNECTOR_META: Record<string, ConnectorMeta> = {
   facebook:        { category: 'Social & Community',        description: 'Facebook Pages posts, insights, and audience data.',              logoBg: 'bg-[#0866FF]', logoLabel: 'FB'  },
   reddit:          { category: 'Social & Community',        description: 'Reddit posts, comments, and community signals.',                  logoBg: 'bg-[#FF4500]', logoLabel: 'R'   },
   instagram:       { category: 'Social & Community',        description: 'Instagram business profile posts and engagement.',                logoBg: 'bg-[#E1306C]', logoLabel: 'IG'  },
+  twitter:         { category: 'Social & Community',        description: 'X (Twitter) posts and organic publishing.',                       logoBg: 'bg-[#111827]', logoLabel: 'X'   },
   // Content & Creative
   canva:           { category: 'Content & Creative',        description: 'Create and manage design assets in Canva.',                       logoBg: 'bg-[#00C4CC]', logoLabel: 'CV'  },
   heygen:          { category: 'Content & Creative',        description: 'AI avatar video generation via HeyGen.',                         logoBg: 'bg-[#6C47FF]', logoLabel: 'HG'  },
   elevenlabs:      { category: 'Content & Creative',        description: 'AI voice generation and text-to-speech from ElevenLabs.',        logoBg: 'bg-[#1A1A1A]', logoLabel: 'EL'  },
   veo:             { category: 'Content & Creative',        description: 'Google Veo AI video generation.',                                logoBg: 'bg-[#4285F4]', logoLabel: 'VEO' },
   wordpress:       { category: 'Content & Creative',        description: 'Blog and landing page content for SEO performance.',             logoBg: 'bg-[#21759B]', logoLabel: 'WP'  },
+  webflow:         { category: 'Content & Creative',        description: 'Publish blogs and landing pages to Webflow CMS collections.',   logoBg: 'bg-[#4353FF]', logoLabel: 'WF'  },
   // Automation & Data
   make:            { category: 'Automation & Data',         description: 'Trigger and manage Make (Integromat) automation scenarios.',     logoBg: 'bg-[#6D00CC]', logoLabel: 'MK'  },
   apify:           { category: 'Automation & Data',         description: 'Web scraping and data extraction via Apify actors.',             logoBg: 'bg-[#1DB954]', logoLabel: 'AP'  },
@@ -143,6 +145,10 @@ const GA4_PROPERTY_KEY = (wsId: string) => `marqq_ga4_property_${wsId}`;
 const META_AD_ACCOUNT_KEY = (wsId: string) => `marqq_meta_ad_account_${wsId}`;
 const GOOGLE_ADS_CUSTOMER_KEY = (wsId: string) => `marqq_google_ads_customer_${wsId}`;
 const GSC_SITE_KEY = (wsId: string) => `marqq_gsc_site_${wsId}`;
+const WEBFLOW_SITE_KEY = (wsId: string) => `marqq_webflow_site_${wsId}`;
+const WEBFLOW_BLOG_COLLECTION_KEY = (wsId: string) => `marqq_webflow_blog_collection_${wsId}`;
+const WEBFLOW_LANDING_COLLECTION_KEY = (wsId: string) => `marqq_webflow_landing_collection_${wsId}`;
+const MAILCHIMP_LIST_KEY = (wsId: string) => `marqq_mailchimp_list_${wsId}`;
 
 function readLocal(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -162,6 +168,18 @@ export function getGoogleAdsCustomerId(workspaceId: string): string | null {
 }
 export function getGscSiteUrl(workspaceId: string): string | null {
   return readLocal(GSC_SITE_KEY(workspaceId));
+}
+export function getWebflowSiteId(workspaceId: string): string | null {
+  return readLocal(WEBFLOW_SITE_KEY(workspaceId));
+}
+export function getWebflowBlogCollectionId(workspaceId: string): string | null {
+  return readLocal(WEBFLOW_BLOG_COLLECTION_KEY(workspaceId));
+}
+export function getWebflowLandingCollectionId(workspaceId: string): string | null {
+  return readLocal(WEBFLOW_LANDING_COLLECTION_KEY(workspaceId));
+}
+export function getMailchimpListId(workspaceId: string): string | null {
+  return readLocal(MAILCHIMP_LIST_KEY(workspaceId));
 }
 
 const LEAD_DATA_PROVIDER_KEY = (ws: string) => `marqq:lead_data_provider:${ws}`
@@ -425,11 +443,49 @@ const GSC_PICKER: ResourcePickerConfig = {
   emptyMessage: 'No Search Console sites found for this connection.',
 };
 
+const WEBFLOW_SITE_PICKER: ResourcePickerConfig = {
+  title: 'Select Webflow Site',
+  description: 'Choose which Webflow site receives blog and landing-page publishes',
+  accentClass: 'bg-[#4353FF]/15',
+  icon: <Globe className="h-4 w-4 text-[#4353FF]" />,
+  fetchUrl: (ws) => `/api/webflow/sites?companyId=${encodeURIComponent(ws)}`,
+  parseOptions: (data) => (data.sites || []).map((s: any) => ({
+    id: s.id,
+    displayName: s.displayName || s.id,
+    subtitle: s.shortName || s.previewUrl || undefined,
+  })),
+  localKey: WEBFLOW_SITE_KEY,
+  serverField: 'webflow_site_id',
+  getSaved: getWebflowSiteId,
+  saveLabel: 'Save site',
+  emptyMessage: 'No Webflow sites found for this connection.',
+};
+
+const MAILCHIMP_LIST_PICKER: ResourcePickerConfig = {
+  title: 'Select Mailchimp Audience',
+  description: 'Audience for newsletter go-live and subscribe / campaign webhook triggers',
+  accentClass: 'bg-[#FFE01B]/20',
+  icon: <Mail className="h-4 w-4 text-[#241c15]" />,
+  fetchUrl: (ws) => `/api/mailchimp/audiences?companyId=${encodeURIComponent(ws)}`,
+  parseOptions: (data) => (data.audiences || []).map((a: any) => ({
+    id: a.id,
+    displayName: a.displayName || a.id,
+    subtitle: a.memberCount != null ? `${a.memberCount} members` : undefined,
+  })),
+  localKey: MAILCHIMP_LIST_KEY,
+  serverField: 'mailchimp_list_id',
+  getSaved: getMailchimpListId,
+  saveLabel: 'Save audience',
+  emptyMessage: 'No Mailchimp audiences found for this connection.',
+};
+
 const PICKER_BY_CONNECTOR: Record<string, ResourcePickerConfig> = {
   ga4: GA4_PICKER,
   meta_ads: META_PICKER,
   google_ads: GOOGLE_ADS_PICKER,
   gsc: GSC_PICKER,
+  webflow: WEBFLOW_SITE_PICKER,
+  mailchimp: MAILCHIMP_LIST_PICKER,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -650,7 +706,7 @@ export function AccountsTab() {
                   const hasPicker = Boolean(PICKER_BY_CONNECTOR[c.id]);
                   const pickerLabel =
                     c.id === 'ga4' ? 'Property' :
-                    c.id === 'gsc' ? 'Site' :
+                    c.id === 'gsc' || c.id === 'webflow' ? 'Site' :
                     'Account';
                   return (
                     <div

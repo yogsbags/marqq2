@@ -8,6 +8,12 @@ import {
   executeComposioActionForEntities,
   getConnectors,
 } from "./mcp-router.js";
+import {
+  getPreferredWebflowSiteId,
+  getPreferredWebflowBlogCollectionId,
+  getPreferredWebflowLandingCollectionId,
+  getPreferredMailchimpListId,
+} from "./connector-preferences.js";
 
 const KIND_CONNECTORS = {
   email: ["gmail", "instantly"],
@@ -15,10 +21,11 @@ const KIND_CONNECTORS = {
   linkedin: ["linkedin"],
   instagram: ["instagram"],
   facebook: ["facebook"],
-  social: ["linkedin", "instagram", "facebook"],
+  twitter: ["twitter"],
+  social: ["linkedin", "instagram", "facebook", "twitter"],
   newsletter: ["mailchimp", "klaviyo", "gmail"],
-  blog: ["wordpress", "google_docs"],
-  landing_page: ["wordpress"],
+  blog: ["webflow", "wordpress", "google_docs"],
+  landing_page: ["webflow", "wordpress"],
   paid_ads: ["meta_ads", "google_ads", "linkedin_ads"],
 };
 
@@ -93,12 +100,353 @@ function extractUrl(result) {
     r.documentUrl ||
     r.post_url ||
     r.shareUrl ||
+    r.publishedPath ||
+    r.publishedUrl ||
+    r.cmsLocaleId ||
     (r.id && String(r.id).includes("http") ? r.id : null) ||
     (r.document_id || r.documentId || r.id
       ? `https://docs.google.com/document/d/${r.document_id || r.documentId || r.id}/edit`
       : null) ||
     null
   );
+}
+
+function extractList(payload, ...keys) {
+  for (const key of keys) {
+    const v = payload?.[key];
+    if (Array.isArray(v)) return v;
+    if (Array.isArray(v?.items)) return v.items;
+    if (Array.isArray(v?.sites)) return v.sites;
+    if (Array.isArray(v?.collections)) return v.collections;
+  }
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+function slugify(input) {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function collectionScore(name, kind) {
+  const n = String(name || "").toLowerCase();
+  if (kind === "landing_page") {
+    if (/landing|lp\b|squeeze|sales.?page|marketing.?page/.test(n)) return 100;
+    if (/page/.test(n) && !/blog|post|article|news/.test(n)) return 70;
+    if (/blog|post|article/.test(n)) return 20;
+    return 10;
+  }
+  if (/blog|post|article|news|insight|story/.test(n)) return 100;
+  if (/content/.test(n)) return 50;
+  return 10;
+}
+
+function pickCollection(collections, kind, preferredId) {
+  const list = (collections || []).filter(Boolean);
+  if (preferredId) {
+    const hit = list.find((c) => String(c.id || c._id) === String(preferredId));
+    if (hit) return hit;
+  }
+  return [...list].sort(
+    (a, b) =>
+      collectionScore(b.displayName || b.name || b.slug, kind) -
+      collectionScore(a.displayName || a.name || a.slug, kind),
+  )[0] || null;
+}
+
+function fieldSlug(field) {
+  return String(field?.slug || field?.id || field?.name || "").trim();
+}
+
+function buildWebflowFieldData(fields, { title, slug, contentHtml, meta }) {
+  const list = Array.isArray(fields) ? fields : [];
+  const data = {};
+  const used = new Set();
+
+  const assign = (candidates, value) => {
+    if (value == null || value === "") return;
+    for (const cand of candidates) {
+      const match = list.find((f) => {
+        const s = fieldSlug(f).toLowerCase();
+        const type = String(f?.type || f?.fieldType || "").toLowerCase();
+        if (used.has(s)) return false;
+        if (s === cand || s.includes(cand)) return true;
+        if (cand === "name" && (type.includes("plain") || s === "name")) return true;
+        return false;
+      });
+      if (match) {
+        const key = fieldSlug(match);
+        data[key] = value;
+        used.add(key.toLowerCase());
+        return true;
+      }
+    }
+    return false;
+  };
+
+  assign(["name", "title", "headline"], title);
+  assign(["slug", "post-slug", "url"], slug);
+  assign(
+    ["post-body", "body", "content", "main-content", "article-body", "rich-text", "post-content"],
+    contentHtml,
+  );
+  assign(["summary", "excerpt", "meta-description", "seo-description", "description"], meta);
+
+  // Webflow often requires `name` even when schema listing is incomplete
+  if (!Object.keys(data).some((k) => k.toLowerCase() === "name")) {
+    data.name = title;
+  }
+  if (slug && !Object.keys(data).some((k) => k.toLowerCase().includes("slug"))) {
+    data.slug = slug;
+  }
+
+  return data;
+}
+
+async function resolveWebflowSiteAndCollection(payload, entityIds, kind) {
+  const companyId = entityIds[0];
+  const preferredSite =
+    asString(payload.webflow_site_id || payload.site_id || payload.siteId) ||
+    (companyId ? getPreferredWebflowSiteId(companyId) : null);
+  const preferredCollection =
+    asString(payload.webflow_collection_id || payload.collection_id || payload.collectionId) ||
+    (companyId
+      ? kind === "landing_page"
+        ? getPreferredWebflowLandingCollectionId(companyId)
+        : getPreferredWebflowBlogCollectionId(companyId)
+      : null);
+
+  const sitesRes = await runTool("WEBFLOW_LIST_WEBFLOW_SITES", {}, entityIds);
+  if (!sitesRes.ok) return { ok: false, error: sitesRes.error || "Could not list Webflow sites", sitesRes };
+
+  const sites = extractList(sitesRes.result, "sites", "data");
+  let site =
+    (preferredSite && sites.find((s) => String(s.id || s._id) === String(preferredSite))) ||
+    sites[0] ||
+    null;
+  if (!site && preferredSite) {
+    site = { id: preferredSite };
+  }
+  const siteId = site?.id || site?._id || preferredSite;
+  if (!siteId) {
+    return { ok: false, error: "No Webflow site found — connect Webflow and select a site in Settings" };
+  }
+
+  const colsRes = await runTool(
+    "WEBFLOW_LIST_COLLECTIONS",
+    { site_id: siteId, siteId },
+    entityIds,
+  );
+  if (!colsRes.ok) {
+    return { ok: false, error: colsRes.error || "Could not list Webflow collections", siteId };
+  }
+  const collections = extractList(colsRes.result, "collections", "data");
+  const collection = pickCollection(collections, kind, preferredCollection);
+  const collectionId = collection?.id || collection?._id || preferredCollection;
+  if (!collectionId) {
+    return {
+      ok: false,
+      error:
+        kind === "landing_page"
+          ? "No Webflow CMS collection found for landing pages — create a Landing Pages collection or set it in Settings"
+          : "No Webflow CMS Blog/Posts collection found — create one or set it in Settings",
+      siteId,
+    };
+  }
+
+  const detail = await runTool(
+    "WEBFLOW_GET_COLLECTION",
+    { collection_id: collectionId, collectionId },
+    entityIds,
+  );
+  const fields =
+    detail.result?.fields ||
+    detail.result?.data?.fields ||
+    collection?.fields ||
+    [];
+
+  return {
+    ok: true,
+    siteId,
+    collectionId,
+    collectionName: collection?.displayName || collection?.name || null,
+    fields,
+    siteName: site?.displayName || site?.name || null,
+  };
+}
+
+async function goLiveWebflow(payload, entityIds, kind = "blog") {
+  const { title, contentHtml, markdown } = articleMarkdown(payload);
+  const slug = asString(payload.slug) || slugify(title) || `draft-${Date.now()}`;
+  const html = contentHtml || markdown;
+  if (!html) return { ok: false, error: "Article HTML/content is empty" };
+
+  const resolved = await resolveWebflowSiteAndCollection(payload, entityIds, kind);
+  if (!resolved.ok) return resolved;
+
+  const fieldData = buildWebflowFieldData(resolved.fields, {
+    title: title || (kind === "landing_page" ? "Landing page" : "Untitled"),
+    slug,
+    contentHtml: html,
+    meta: asString(payload.meta_description || payload.excerpt),
+  });
+
+  const livePreferred = payload.publish_live !== false && payload.draft !== true;
+  const createArgs = {
+    collection_id: resolved.collectionId,
+    collectionId: resolved.collectionId,
+    fieldData,
+    field_data: fieldData,
+    isArchived: false,
+    isDraft: !livePreferred,
+  };
+
+  let created = livePreferred
+    ? await runTool("WEBFLOW_CREATE_LIVE_COLLECTION_ITEM", createArgs, entityIds)
+    : await runTool("WEBFLOW_CREATE_COLLECTION_ITEM", createArgs, entityIds);
+
+  if (!created.ok && livePreferred) {
+    created = await runTool("WEBFLOW_CREATE_COLLECTION_ITEM", { ...createArgs, isDraft: false }, entityIds);
+  }
+  if (!created.ok) return created;
+
+  const itemId =
+    created.result?.id ||
+    created.result?.itemId ||
+    created.result?.data?.id ||
+    created.result?._id ||
+    null;
+
+  if (itemId && livePreferred) {
+    await runTool(
+      "WEBFLOW_PUBLISH_COLLECTION_ITEMS",
+      {
+        collection_id: resolved.collectionId,
+        collectionId: resolved.collectionId,
+        itemIds: [itemId],
+        item_ids: [itemId],
+      },
+      entityIds,
+    );
+    await runTool(
+      "WEBFLOW_PUBLISH_SITE",
+      { site_id: resolved.siteId, siteId: resolved.siteId },
+      entityIds,
+    ).catch(() => null);
+  }
+
+  const designerUrl = itemId
+    ? `https://webflow.com/dashboard?workspace=` // soft fallback below
+    : null;
+  const cmsUrl =
+    itemId && resolved.siteId
+      ? `https://webflow.com/dashboard/sites/${resolved.siteId}/cms/${resolved.collectionId}/${itemId}`
+      : `https://webflow.com/dashboard/sites/${resolved.siteId}/cms`;
+
+  return {
+    ok: true,
+    tool: created.tool,
+    url: extractUrl(created) || cmsUrl || designerUrl,
+    result: {
+      ...(created.result || {}),
+      site_id: resolved.siteId,
+      collection_id: resolved.collectionId,
+      collection_name: resolved.collectionName,
+      item_id: itemId,
+      field_data_keys: Object.keys(fieldData),
+    },
+  };
+}
+
+async function goLiveBlog(payload, entityIds, connected, preferredConnector) {
+  const order = [];
+  if (preferredConnector) order.push(preferredConnector);
+  for (const id of ["webflow", "wordpress", "google_docs"]) {
+    if (!order.includes(id)) order.push(id);
+  }
+
+  for (const id of order) {
+    if (!connected.has(id)) continue;
+    if (id === "webflow") {
+      const res = await goLiveWebflow(payload, entityIds, "blog");
+      if (res.ok) return { ...res, connector: "webflow" };
+      // fall through to next if Webflow site/collection not configured
+      if (!/collection|site/i.test(String(res.error || ""))) return res;
+      continue;
+    }
+    if (id === "wordpress") {
+      const { title, contentHtml, markdown } = articleMarkdown(payload);
+      return {
+        ...(await runTool(
+          "WORDPRESS_CREATE_POST",
+          {
+            title,
+            content: contentHtml || markdown,
+            status: "publish",
+            excerpt: asString(payload.meta_description || payload.excerpt),
+            slug: asString(payload.slug),
+          },
+          entityIds,
+        )),
+        connector: "wordpress",
+      };
+    }
+    if (id === "google_docs") {
+      const { title, markdown } = articleMarkdown(payload);
+      return {
+        ...(await runTool(
+          "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN",
+          {
+            title,
+            markdown_text: markdown,
+            content: markdown,
+          },
+          entityIds,
+        )),
+        connector: "google_docs",
+      };
+    }
+  }
+  return { ok: false, error: "Connect Webflow, WordPress, or Google Docs first" };
+}
+
+async function goLiveLanding(payload, entityIds, connected, preferredConnector) {
+  const order = [];
+  if (preferredConnector) order.push(preferredConnector);
+  for (const id of ["webflow", "wordpress"]) {
+    if (!order.includes(id)) order.push(id);
+  }
+
+  for (const id of order) {
+    if (!connected.has(id)) continue;
+    if (id === "webflow") {
+      const res = await goLiveWebflow(payload, entityIds, "landing_page");
+      if (res.ok) return { ...res, connector: "webflow" };
+      if (!/collection|site/i.test(String(res.error || ""))) return res;
+      continue;
+    }
+    if (id === "wordpress") {
+      const { title, contentHtml, markdown } = articleMarkdown(payload);
+      return {
+        ...(await runTool(
+          "WORDPRESS_CREATE_POST",
+          {
+            title: title || "Landing page",
+            content: contentHtml || markdown,
+            status: "publish",
+            slug: asString(payload.slug),
+          },
+          entityIds,
+        )),
+        connector: "wordpress",
+      };
+    }
+  }
+  return { ok: false, error: "Connect Webflow or WordPress first" };
 }
 
 async function connectedSet(entityId) {
@@ -176,7 +524,53 @@ async function goLiveFacebook(payload, entityIds) {
     ? payload.hashtags.map((h) => `#${String(h).replace(/^#/, "")}`).join(" ")
     : "";
   const full = [message, hashtags, asString(payload.cta)].filter(Boolean).join("\n\n");
+  const imageUrl =
+    asString(payload.image_url) ||
+    asString(payload.cdn_url) ||
+    asString(payload.media_url) ||
+    asString(payload.image);
+
+  if (imageUrl) {
+    const photo = await runTool(
+      "FACEBOOK_CREATE_PHOTO_POST",
+      { message: full, url: imageUrl, image_url: imageUrl, caption: full },
+      entityIds
+    );
+    if (photo.ok) return photo;
+    const photoAlt = await runTool(
+      "FACEBOOK_CREATE_POST",
+      { message: full, message_text: full, url: imageUrl, link: imageUrl, image_url: imageUrl },
+      entityIds
+    );
+    if (photoAlt.ok) return photoAlt;
+  }
+
   return runTool("FACEBOOK_CREATE_POST", { message: full, message_text: full }, entityIds);
+}
+
+async function goLiveTwitter(payload, entityIds) {
+  const text = pickPayloadText(payload);
+  if (!text) return { ok: false, error: "Post text is empty" };
+  const hashtags = Array.isArray(payload.hashtags)
+    ? payload.hashtags.map((h) => `#${String(h).replace(/^#/, "")}`).join(" ")
+    : "";
+  const full = [text, hashtags, asString(payload.cta)].filter(Boolean).join("\n\n").slice(0, 280);
+  const imageUrl =
+    asString(payload.image_url) ||
+    asString(payload.cdn_url) ||
+    asString(payload.media_url) ||
+    asString(payload.image);
+
+  const args = { text: full, tweet_text: full, status: full };
+  if (imageUrl) {
+    args.media_url = imageUrl;
+    args.image_url = imageUrl;
+  }
+
+  let res = await runTool("TWITTER_CREATION_OF_A_POST", args, entityIds);
+  if (!res.ok) res = await runTool("TWITTER_CREATE_TWEET", args, entityIds);
+  if (!res.ok) res = await runTool("X_CREATE_TWEET", args, entityIds);
+  return res;
 }
 
 async function goLiveInstagram(payload, entityIds) {
@@ -317,103 +711,252 @@ async function goLiveWhatsApp(payload, entityIds) {
   );
 }
 
-async function goLiveBlog(payload, entityIds, connected) {
-  const { title, contentHtml, markdown } = articleMarkdown(payload);
-  if (connected.has("wordpress")) {
-    return runTool(
-      "WORDPRESS_CREATE_POST",
-      {
-        title,
-        content: contentHtml || markdown,
-        status: "publish",
-        excerpt: asString(payload.meta_description || payload.excerpt),
-        slug: asString(payload.slug),
-      },
-      entityIds
-    );
-  }
-  if (connected.has("google_docs")) {
-    return runTool(
-      "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN",
-      {
-        title,
-        markdown_text: markdown,
-        content: markdown,
-      },
-      entityIds
-    );
-  }
-  return { ok: false, error: "Connect WordPress or Google Docs first" };
-}
+async function goLiveMailchimpNewsletter(payload, entityIds, html, subject, companyId) {
+  const fromName = asString(payload.from_name || payload.fromName, "Newsletter");
+  const replyTo = asString(payload.reply_to || payload.replyTo || payload.from);
+  const listId =
+    asString(payload.list_id || payload.listId || payload.audience_id) ||
+    (companyId ? getPreferredMailchimpListId(companyId) : null);
 
-async function goLiveLanding(payload, entityIds) {
-  const { title, contentHtml, markdown } = articleMarkdown(payload);
-  return runTool(
-    "WORDPRESS_CREATE_POST",
-    {
-      title: title || "Landing page",
-      content: contentHtml || markdown,
-      status: "publish",
-      slug: asString(payload.slug),
+  const createArgs = {
+    type: "regular",
+    recipients: listId ? { list_id: listId } : undefined,
+    settings: {
+      subject_line: subject,
+      title: subject,
+      from_name: fromName,
+      reply_to: replyTo || undefined,
     },
-    entityIds
+  };
+
+  let created = await runTool("MAILCHIMP_ADD_CAMPAIGN", createArgs, entityIds);
+  if (!created.ok) {
+    created = await runTool("MAILCHIMP_CREATE_CAMPAIGN", createArgs, entityIds);
+  }
+  if (!created.ok) {
+    created = await runTool("MAILCHIMP_CREATE_A_SURVEY_CAMPAIGN", createArgs, entityIds);
+  }
+  if (!created.ok) return { ...created, connector: "mailchimp" };
+
+  const campaignId =
+    created.result?.id ||
+    created.result?.campaign_id ||
+    created.result?.data?.id ||
+    asString(payload.campaign_id);
+  if (!campaignId) {
+    return {
+      ok: true,
+      tool: created.tool,
+      connector: "mailchimp",
+      url: extractUrl(created),
+      result: {
+        ...(created.result || {}),
+        message: "Mailchimp campaign created — open Mailchimp to set HTML content if content API needs campaign id.",
+      },
+    };
+  }
+
+  const set = await runTool(
+    "MAILCHIMP_SET_CAMPAIGN_CONTENT",
+    { campaign_id: campaignId, campaignId, html, content: { html } },
+    entityIds,
   );
+  if (!set.ok) return { ...set, connector: "mailchimp" };
+
+  // Best-effort: watch audience for subscribe/unsubscribe/campaign events
+  if (listId && companyId) {
+    try {
+      const { ensureMailchimpTriggers } = await import("./mailchimpTriggers.js");
+      void ensureMailchimpTriggers(companyId, { listId }).catch((err) => {
+        console.warn("[go-live/mailchimp] ensure triggers:", err?.message || err);
+      });
+    } catch (err) {
+      console.warn("[go-live/mailchimp] trigger import:", err?.message || err);
+    }
+  }
+
+  const sendNow = payload.send === true || payload.send_now === true;
+  if (sendNow) {
+    const sent = await runTool(
+      "MAILCHIMP_SEND_CAMPAIGN",
+      { campaign_id: campaignId, campaignId },
+      entityIds,
+    );
+    return { ...sent, connector: "mailchimp" };
+  }
+
+  return {
+    ok: true,
+    tool: set.tool || created.tool,
+    connector: "mailchimp",
+    url: extractUrl(set) || extractUrl(created) || `https://admin.mailchimp.com/campaigns/show?id=${campaignId}`,
+    result: {
+      campaign_id: campaignId,
+      list_id: listId || null,
+      status: "draft_ready",
+      message: "Campaign created in Mailchimp with HTML content — review & send in Mailchimp (or pass send:true).",
+    },
+  };
 }
 
-async function goLiveNewsletter(payload, entityIds, connected) {
-  const subject = asString(payload.subject, "Newsletter");
-  const html = asString(payload.html) || asString(payload.body);
-  if (!html) return { ok: false, error: "Newsletter HTML/body is empty" };
+async function goLiveKlaviyoNewsletter(payload, entityIds, html, subject) {
+  const fromEmail = asString(payload.from_email || payload.fromEmail || payload.from, "hello@example.com");
+  const fromName = asString(payload.from_name || payload.fromName, "Newsletter");
+  const listIds = Array.isArray(payload.list_ids)
+    ? payload.list_ids
+    : Array.isArray(payload.listIds)
+      ? payload.listIds
+      : asString(payload.list_id || payload.listId)
+        ? [asString(payload.list_id || payload.listId)]
+        : [];
 
-  if (connected.has("mailchimp")) {
-    const created = await runTool(
-      "MAILCHIMP_CREATE_A_SURVEY_CAMPAIGN",
-      { type: "regular", settings: { subject_line: subject, title: subject } },
-      entityIds
-    );
-    // Prefer setting content on an existing campaign id when create returned one
-    const campaignId =
-      created.result?.id ||
-      created.result?.campaign_id ||
-      asString(payload.campaign_id);
-    if (campaignId) {
-      const set = await runTool(
-        "MAILCHIMP_SET_CAMPAIGN_CONTENT",
-        { campaign_id: campaignId, html },
-        entityIds
-      );
-      if (!set.ok) return set;
-      return runTool("MAILCHIMP_SEND_CAMPAIGN", { campaign_id: campaignId }, entityIds);
-    }
-    // Fallback: Gmail draft with HTML if Mailchimp create shape differed
+  let templateId = asString(payload.template_id || payload.templateId) || null;
+  const template = await runTool(
+    "KLAVIYO_CREATE_TEMPLATE",
+    {
+      name: `${subject} — ${new Date().toISOString().slice(0, 10)}`,
+      html,
+      html_part: html,
+      editor_type: "CODE",
+    },
+    entityIds,
+  );
+  if (template.ok) {
+    templateId =
+      template.result?.id ||
+      template.result?.data?.id ||
+      template.result?.template_id ||
+      templateId;
   }
 
-  if (connected.has("klaviyo")) {
-    return runTool(
-      "KLAVIYO_CREATE_CAMPAIGN",
-      {
-        name: subject,
-        subject,
-        html,
-        content: html,
-      },
-      entityIds
+  const created = await runTool(
+    "KLAVIYO_CREATE_CAMPAIGN",
+    {
+      name: subject,
+      subject,
+      from_email: fromEmail,
+      from_name: fromName,
+      list_ids: listIds,
+      template_id: templateId,
+      html,
+      content: html,
+    },
+    entityIds,
+  );
+  if (!created.ok) return { ...created, connector: "klaviyo" };
+
+  const campaignId =
+    created.result?.id ||
+    created.result?.campaign_id ||
+    created.result?.data?.id ||
+    null;
+
+  if ((payload.send === true || payload.send_now === true) && campaignId) {
+    const job = await runTool(
+      "KLAVIYO_CREATE_CAMPAIGN_SEND_JOB",
+      { campaign_id: campaignId, campaignId },
+      entityIds,
     );
+    if (job.ok) return { ...job, connector: "klaviyo" };
   }
 
-  if (connected.has("gmail")) {
-    return runTool(
-      "GMAIL_CREATE_EMAIL_DRAFT",
+  return {
+    ...created,
+    connector: "klaviyo",
+    url: extractUrl(created) || (campaignId ? `https://www.klaviyo.com/campaign/${campaignId}/wizard` : null),
+    result: {
+      ...(created.result || {}),
+      campaign_id: campaignId,
+      template_id: templateId,
+      status: "draft_ready",
+      message: "Campaign created in Klaviyo — review audience & send in Klaviyo (or pass send:true).",
+    },
+  };
+}
+
+async function goLiveGmailNewsletter(payload, entityIds, html, subject) {
+  const to = asString(payload.to || payload.to_email || payload.recipient);
+  const sendNow = payload.send === true || payload.send_now === true;
+
+  if (sendNow && to) {
+    const sent = await runTool(
+      "GMAIL_SEND_EMAIL",
       {
+        to,
+        recipient_email: to,
         subject,
         body: html,
         message_body: html,
         is_html: true,
+        html,
       },
-      entityIds
+      entityIds,
     );
+    return { ...sent, connector: "gmail" };
   }
 
+  const draft = await runTool(
+    "GMAIL_CREATE_EMAIL_DRAFT",
+    {
+      to: to || undefined,
+      recipient_email: to || undefined,
+      subject,
+      body: html,
+      message_body: html,
+      is_html: true,
+      html,
+    },
+    entityIds,
+  );
+  return {
+    ...draft,
+    connector: "gmail",
+    url: extractUrl(draft) || "https://mail.google.com/mail/#drafts",
+    result: {
+      ...(draft.result || {}),
+      status: "draft_ready",
+      message: to
+        ? "Gmail draft created — open Drafts to review & send."
+        : "Gmail draft created — add a recipient in Gmail Drafts to send.",
+    },
+  };
+}
+
+async function goLiveNewsletter(payload, entityIds, connected, preferredConnector) {
+  const subject = asString(payload.subject, "Newsletter");
+  const html = asString(payload.html) || asString(payload.body);
+  if (!html) return { ok: false, error: "Newsletter HTML/body is empty" };
+  const companyId = entityIds[0];
+
+  const order = [];
+  if (preferredConnector) order.push(preferredConnector);
+  for (const id of ["mailchimp", "klaviyo", "gmail"]) {
+    if (!order.includes(id)) order.push(id);
+  }
+
+  let lastError = null;
+  for (const id of order) {
+    if (!connected.has(id)) continue;
+    if (id === "mailchimp") {
+      const res = await goLiveMailchimpNewsletter(payload, entityIds, html, subject, companyId);
+      if (res.ok) return res;
+      lastError = res;
+      continue;
+    }
+    if (id === "klaviyo") {
+      const res = await goLiveKlaviyoNewsletter(payload, entityIds, html, subject);
+      if (res.ok) return res;
+      lastError = res;
+      continue;
+    }
+    if (id === "gmail") {
+      const res = await goLiveGmailNewsletter(payload, entityIds, html, subject);
+      if (res.ok) return res;
+      lastError = res;
+    }
+  }
+
+  if (lastError) return lastError;
   return { ok: false, error: "Connect Mailchimp, Klaviyo, or Gmail first" };
 }
 
@@ -721,9 +1264,13 @@ export async function executeOutcomeGoLive(opts = {}) {
     case "instagram":
       result = await goLiveInstagram(payload, entityIds);
       break;
+    case "twitter":
+      result = await goLiveTwitter(payload, entityIds);
+      break;
     case "social": {
       if (connector === "linkedin") result = await goLiveLinkedIn(payload, entityIds);
       else if (connector === "facebook") result = await goLiveFacebook(payload, entityIds);
+      else if (connector === "twitter") result = await goLiveTwitter(payload, entityIds);
       else result = await goLiveInstagram(payload, entityIds);
       break;
     }
@@ -734,13 +1281,13 @@ export async function executeOutcomeGoLive(opts = {}) {
       result = await goLiveWhatsApp(payload, entityIds);
       break;
     case "blog":
-      result = await goLiveBlog(payload, entityIds, connected);
+      result = await goLiveBlog(payload, entityIds, connected, preferredConnector);
       break;
     case "landing_page":
-      result = await goLiveLanding(payload, entityIds);
+      result = await goLiveLanding(payload, entityIds, connected, preferredConnector);
       break;
     case "newsletter":
-      result = await goLiveNewsletter(payload, entityIds, connected);
+      result = await goLiveNewsletter(payload, entityIds, connected, preferredConnector);
       break;
     case "paid_ads":
       result = await goLivePaidAds(payload, entityIds);

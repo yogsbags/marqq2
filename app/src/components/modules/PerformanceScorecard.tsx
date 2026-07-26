@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, Minus,
   BarChart2, Globe, Search, MousePointerClick,
   Eye, ArrowUpRight, RefreshCw, PlugZap, CheckCircle2,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Megaphone,
 } from 'lucide-react'
 import {
   LineChart, Line, AreaChart, Area,
@@ -45,6 +45,15 @@ type ChartPoint = { date: string; value: number; prev?: number }
 type TopPage = { path: string; sessions: number; delta: number }
 type TopQuery = { query: string; clicks: number; impressions: number; position: number }
 type ChannelRow = { channel: string; sessions: number; pct: number; delta: number }
+type AdCampaignRow = {
+  name: string
+  platform: string
+  spend: number
+  spendLabel?: string
+  clicks: number
+  impressions: number
+  ctr: number
+}
 
 type ConnectedSource = { id: string; name: string; connectedAt?: string | null }
 
@@ -57,6 +66,7 @@ type DashboardData = {
   topPages: TopPage[]
   topQueries: TopQuery[]
   channels: ChannelRow[]
+  topAdCampaigns?: AdCampaignRow[]
   connected: boolean
   connectedSources?: ConnectedSource[]
 }
@@ -87,6 +97,7 @@ function buildEmptyData(): DashboardData {
     topPages: [],
     topQueries: [],
     channels: [],
+    topAdCampaigns: [],
   }
 }
 
@@ -144,6 +155,11 @@ function buildMockData(): DashboardData {
       { channel: 'Referral',       sessions: 5430,  pct: 14, delta: -2 },
       { channel: 'Social',         sessions: 3020,  pct: 8,  delta: 22 },
       { channel: 'Email',          sessions: 1534,  pct: 4,  delta: 9  },
+    ],
+    topAdCampaigns: [
+      { name: 'Brand Search — Exact', platform: 'Google', spend: 1840, spendLabel: '$1840.00', clicks: 920, impressions: 18400, ctr: 5.0 },
+      { name: 'Prospecting — Lookalike', platform: 'Meta', spend: 1260, spendLabel: '$1260.00', clicks: 410, impressions: 98000, ctr: 0.42 },
+      { name: 'ABM — Decision Makers', platform: 'LinkedIn', spend: 980, spendLabel: '$980.00', clicks: 86, impressions: 12400, ctr: 0.69 },
     ],
   }
 }
@@ -207,7 +223,7 @@ function ConnectBanner({ onModuleSelect }: { onModuleSelect?: (id: string) => vo
     <div className="flex items-center gap-3 rounded-xl border border-dashed border-orange-300/60 bg-orange-50/40 dark:border-orange-800/40 dark:bg-orange-950/20 px-4 py-3 text-sm">
       <PlugZap className="h-4 w-4 text-orange-500 flex-shrink-0" />
       <p className="text-muted-foreground flex-1">
-        Showing <span className="font-medium text-foreground">demo data</span> — connect Google Analytics 4 &amp; Search Console for live metrics.
+        Showing <span className="font-medium text-foreground">demo data</span> — connect GA4, Search Console, and ad accounts for live metrics.
       </p>
       <button
         onClick={() => onModuleSelect?.('integrations')}
@@ -506,6 +522,45 @@ export function PerformanceScorecard({ onModuleSelect }: PerformanceScorecardPro
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
           {data.kpis.map(k => <KpiTile key={k.label} card={k} />)}
         </div>
+
+        {/* Paid ads campaigns (live from Meta / Google / LinkedIn) */}
+        {(data.topAdCampaigns?.length ?? 0) > 0 && (
+          <div className="rounded-xl border border-border/60 bg-background/80 p-4">
+            <SectionHeader
+              icon={<Megaphone className="h-4 w-4" />}
+              title="Paid campaign performance"
+              sub="Meta · Google · LinkedIn"
+            />
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-12 text-[10px] text-muted-foreground pb-1 border-b border-border/40 gap-2">
+                <span className="col-span-5">Campaign</span>
+                <span className="col-span-2">Platform</span>
+                <span className="col-span-2 text-right">Spend</span>
+                <span className="col-span-1 text-right">Clicks</span>
+                <span className="col-span-2 text-right">CTR</span>
+              </div>
+              {data.topAdCampaigns!.map((c, i) => (
+                <div key={`${c.platform}-${c.name}-${i}`} className="grid grid-cols-12 items-center py-0.5 gap-2">
+                  <span className="text-xs text-foreground col-span-5 truncate">{c.name}</span>
+                  <span className="col-span-2">
+                    <span className="inline-flex rounded-full border border-border/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {c.platform}
+                    </span>
+                  </span>
+                  <span className="text-[11px] text-muted-foreground text-right col-span-2 tabular-nums">
+                    {c.spendLabel || `$${Number(c.spend || 0).toFixed(0)}`}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground text-right col-span-1 tabular-nums">
+                    {fmt(c.clicks)}
+                  </span>
+                  <span className="text-[11px] text-foreground text-right col-span-2 tabular-nums font-medium">
+                    {Number(c.ctr || 0).toFixed(2)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Charts row */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">

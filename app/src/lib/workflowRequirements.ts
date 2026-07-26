@@ -14,8 +14,8 @@ import type { WorkflowFormData } from '@/types/chat';
 export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
   // CRM pipeline data — at least one CRM boosts analysis quality
   'revenue-ops':           ['hubspot', 'salesforce', 'zoho_crm'],
-  // SEO / LLMO — Search Console is the most impactful single connector
-  'seo-llmo':              ['gsc', 'ga4', 'semrush', 'ahrefs'],
+  // SEO / LLMO — Semrush/Ahrefs optional (web-search volume estimates available)
+  'seo-llmo':              [],
   // Budget & attribution — needs at least one ad platform or analytics
   'budget-optimization':   ['google_ads', 'meta_ads', 'ga4', 'linkedin_ads'],
   // Lead scoring — needs a CRM or prospecting tool (Apollo / Hunter / CRM)
@@ -55,7 +55,7 @@ export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
   // Social performance — at least one social platform
   'social-media':          ['linkedin', 'facebook', 'instagram'],
   'social-calendar':       ['linkedin', 'facebook', 'instagram', 'google_calendar'],
-  // AI content — no hard requirements (LLM-only is still useful)
+  // AI content — Semrush/Ahrefs optional (SEO pipeline can estimate via web search)
   'ai-content':            [],
   // Market signals / industry intel — no hard requirements
   'market-signals':        ['semrush', 'ahrefs', 'gsc'],

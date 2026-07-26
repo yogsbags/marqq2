@@ -159,6 +159,7 @@ const SOCIAL_CHANNEL_MAP: Record<string, SocialChannelConfig> = {
   facebook:  { name: 'Facebook',   color: 'bg-blue-700',  textColor: 'text-white', Icon: Facebook },
   youtube:   { name: 'YouTube',    color: 'bg-red-500',   textColor: 'text-white', Icon: Youtube },
   wordpress: { name: 'WordPress',  color: 'bg-blue-400',  textColor: 'text-white', Icon: Globe },
+  webflow:   { name: 'Webflow',    color: 'bg-indigo-500', textColor: 'text-white', Icon: Globe },
   reddit:    { name: 'Reddit',     color: 'bg-orange-500', textColor: 'text-white', Icon: MessageSquare },
   tiktok:    { name: 'TikTok',     color: 'bg-zinc-900',  textColor: 'text-white', Icon: MessageSquare },
 };

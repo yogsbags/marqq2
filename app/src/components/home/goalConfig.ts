@@ -205,6 +205,7 @@ export const CONNECTOR_LABEL_TO_ID: Record<string, string> = {
   GA4: 'ga4',
   'TikTok Ads': 'tiktok_ads',
   WordPress: 'wordpress',
+  Webflow: 'webflow',
   Sanity: 'google_docs',
   CRM: 'hubspot',
   'Email platform': 'mailchimp',

@@ -26,8 +26,12 @@ export const CONNECTOR_DISPLAY: Record<string, { label: string; bg: string }> = 
   linkedin: { label: 'LinkedIn', bg: 'bg-[#0A66C2]' },
   facebook: { label: 'Facebook', bg: 'bg-[#0866FF]' },
   instagram: { label: 'Instagram', bg: 'bg-[#E1306C]' },
+  twitter: { label: 'X (Twitter)', bg: 'bg-[#111827]' },
   moengage: { label: 'MoEngage', bg: 'bg-[#4F46E5]' },
   clevertap: { label: 'CleverTap', bg: 'bg-[#FF6B6B]' },
+  wordpress: { label: 'WordPress', bg: 'bg-[#21759B]' },
+  webflow: { label: 'Webflow', bg: 'bg-[#4353FF]' },
+  google_docs: { label: 'Google Docs', bg: 'bg-[#4285F4]' },
   google_calendar: { label: 'Google Calendar', bg: 'bg-[#4285F4]' },
 };
 

@@ -72,7 +72,38 @@ Your `artifact.data` must always be a fully populated JSON object. Never return 
 
 ## Available Content Automation Tools
 
-When asked to create an actual blog post (not just a brief), trigger `create_seo_article`:
+Before writing blog articles, prefer the live SEO pipeline (Semrush or Ahrefs required):
+
+```json
+"automation_triggers": [
+  {
+    "automation_id": "build_seo_organic_plan",
+    "params": {
+      "domain": "example.com",
+      "database": "us"
+    },
+    "reason": "Pull domain rankings, score topical authority, build topic clusters, size article queue to GTM quantified_target"
+  }
+]
+```
+
+Then write from the plan queue (or batch):
+
+```json
+"automation_triggers": [
+  {
+    "automation_id": "execute_seo_plan_articles",
+    "params": {
+      "article_queue": [{ "keyword": "...", "topic": "...", "word_count_target": 1200 }],
+      "limit": 3,
+      "market_type": "b2c"
+    },
+    "reason": "Execute priority articles aligned to GTM numeric goal"
+  }
+]
+```
+
+When asked to create a single blog post and a keyword is already chosen, trigger `create_seo_article`:
 
 ```json
 "automation_triggers": [
@@ -80,20 +111,32 @@ When asked to create an actual blog post (not just a brief), trigger `create_seo
     "automation_id": "create_seo_article",
     "params": {
       "keyword": "lead scoring software India",
+      "secondary_keywords": ["B2B lead scoring", "lead scoring model", "sales qualified leads"],
+      "faq_questions": [
+        "What is lead scoring software?",
+        "How does lead scoring work without a data science team?",
+        "What is a good lead scoring model for B2B SaaS?",
+        "How is lead scoring different from lead qualification?"
+      ],
       "topic": "How to Score B2B Leads Without a Data Science Team",
       "word_count_target": 1500,
       "target_audience": "B2B SaaS founders and growth leads",
-      "brand_context": "Use the company positioning and offer details from MKG context"
+      "brand_context": "Use the company positioning and offer details from MKG context",
+      "market_type": "b2b",
+      "site_url": "https://example.com",
+      "brand_name": "Example"
     },
     "reason": "User asked for a full article, not just a brief — triggering HTML article generation"
   }
 ]
 ```
 
-Rules for when to trigger `create_seo_article`:
-- Trigger when the user asks to "write", "create", "generate" an article or blog post
-- Do NOT trigger for audits, gap analyses, or brief-only requests
-- You can trigger multiple articles in one run (one trigger per article)
+Rules for SEO article generation:
+- If Semrush/Ahrefs are not connected, still run `build_seo_organic_plan` — it estimates keyword volumes via web search. Mention that live tools are optional enrichers.
+- Prefer `build_seo_organic_plan` before `create_seo_article` so keywords come from live rankings (or web-search estimates) + topical authority gaps
+- Align article volume to GTM `quantified_target` + `timeline_target` (content_seo channel bet gets full weight)
+- Trigger `create_seo_article` / `execute_seo_plan_articles` when the user asks to "write", "create", or "generate" an article
+- Do NOT trigger article writing for audits, gap analyses, or brief-only requests unless they explicitly ask to draft
 - Always include brand_context using the company's positioning from MKG
 
 Quality rules:

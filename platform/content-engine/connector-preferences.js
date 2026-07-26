@@ -60,6 +60,26 @@ export function getPreferredGscSiteUrl(companyId) {
   return prefs.gsc_site_url || null;
 }
 
+export function getPreferredWebflowSiteId(companyId) {
+  const prefs = getConnectorPreferences(companyId);
+  return prefs.webflow_site_id || null;
+}
+
+export function getPreferredWebflowBlogCollectionId(companyId) {
+  const prefs = getConnectorPreferences(companyId);
+  return prefs.webflow_blog_collection_id || null;
+}
+
+export function getPreferredWebflowLandingCollectionId(companyId) {
+  const prefs = getConnectorPreferences(companyId);
+  return prefs.webflow_landing_collection_id || null;
+}
+
+export function getPreferredMailchimpListId(companyId) {
+  const prefs = getConnectorPreferences(companyId);
+  return prefs.mailchimp_list_id || null;
+}
+
 /** Preferred B2B lead-data provider: apollo | hunter | … */
 export function getPreferredLeadDataProvider(companyId) {
   const prefs = getConnectorPreferences(companyId);
