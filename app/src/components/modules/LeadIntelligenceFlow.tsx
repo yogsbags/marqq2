@@ -22,6 +22,7 @@ import { useAgentRun } from '@/hooks/useAgentRun'
 import { AgentRunPanel } from '@/components/agent/AgentRunPanel'
 import { OfferSelector, type Offer } from '@/components/agent/OfferSelector'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
 import * as XLSX from 'xlsx'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1345,6 +1346,8 @@ function OutreachTab({
   const [body, setBody] = useState('')
   const [senderEmail, setSenderEmail] = useState('')
   const [dailyLimit, setDailyLimit] = useState(50)
+  const instantlyConnected = integrations.some((c) => c.id === 'instantly' && c.connected)
+  const connectedConnectorIds = integrations.filter((c) => c.connected).map((c) => c.id)
 
   useEffect(() => {
     if (sharedLeads.length > 0 && leads.length === 0) {
@@ -1442,6 +1445,10 @@ function OutreachTab({
     if (!leads.length) { toast.error('Use the current lead set or import leads before launching outreach'); return }
     if (!subject || !body) { toast.error('Subject and body required'); return }
     if (!copyApproved) { toast.error('Approve the offer copy before launch'); return }
+    if (!instantlyConnected) {
+      toast.error('Connect Instantly before launching email outreach')
+      return
+    }
 
     setLaunching(true); setResult(null)
     try {
@@ -1694,9 +1701,26 @@ function OutreachTab({
         primaryAction={{
           label: channel === 'email' ? 'Launch Email Campaign' : channel === 'linkedin' ? 'Launch LinkedIn Campaign' : channel === 'voicebot' ? 'Launch Voicebot Campaign' : 'Launch WhatsApp Outreach',
           onClick: handleLaunch,
-          disabled: launching || !leads.length || !copyApproved || !isCopyReady,
+          disabled:
+            launching ||
+            !leads.length ||
+            !copyApproved ||
+            !isCopyReady ||
+            (channel === 'email' && !instantlyConnected),
         }}
       />
+      {channel === 'email' && !instantlyConnected ? (
+        <ConnectorGateCard
+          missingConnectorIds={['instantly']}
+          connectedConnectorIds={connectedConnectorIds}
+          taskLabel="Email outreach via Instantly"
+          workspaceId={companyId}
+          hardGate
+          onConnected={() => {
+            toast.success('Instantly connected — you can launch the campaign')
+          }}
+        />
+      ) : null}
       {/* Channel selector */}
       <div className="flex gap-2">
         {([

@@ -152,8 +152,8 @@ export const AGENT_TARGET_SKILLS: Record<AgentTarget, SkillPack> = {
   lead_intelligence: {
     agentName: 'arjun',
     marketingSkills: ['cold-email', 'revops', 'form-cro', 'signup-flow-cro'],
-    requiredConnectors: ['apollo', 'hubspot', 'salesforce'],
-    optionalConnectors: ['instantly'],
+    requiredConnectors: ['apollo'],
+    optionalConnectors: ['instantly', 'hubspot', 'salesforce', 'gmail'],
   },
   budget_optimization: {
     agentName: 'dev',
@@ -177,6 +177,12 @@ export const AGENT_TARGET_SKILLS: Record<AgentTarget, SkillPack> = {
 
 export const MODULE_SKILLS: Record<string, SkillPack> = {
   'lead-intelligence': AGENT_TARGET_SKILLS.lead_intelligence,
+  'lead-outreach': {
+    agentName: 'sam',
+    marketingSkills: ['cold-email', 'copywriting', 'email-sequence'],
+    requiredConnectors: ['instantly'],
+    optionalConnectors: ['apollo', 'gmail', 'hubspot'],
+  },
   'budget-optimization': AGENT_TARGET_SKILLS.budget_optimization,
   'performance-scorecard': AGENT_TARGET_SKILLS.performance_scorecard,
   'user-engagement': AGENT_TARGET_SKILLS.user_engagement,

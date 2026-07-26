@@ -1,6 +1,6 @@
 {
-  "connectors": ["gmail", "outlook", "zoho_mail", "slack", "google_docs", "google_drive", "one_drive", "mailchimp", "klaviyo", "hubspot", "zoho_crm", "google_sheets"],
+  "connectors": ["gmail", "outlook", "zoho_mail", "slack", "google_docs", "google_drive", "one_drive", "mailchimp", "klaviyo", "hubspot", "zoho_crm", "google_sheets", "instantly"],
   "permissions": "read-write",
-  "description": "Sam owns messaging systems, nurture copy, and message deployment touchpoints.",
+  "description": "Sam owns messaging systems, nurture copy, Instantly outreach campaigns, and message deployment touchpoints.",
   "recipes": {}
 }

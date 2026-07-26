@@ -38,7 +38,7 @@ export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
   'positioning':           ['gsc', 'semrush', 'ahrefs'],
   // User engagement — product analytics
   'user-engagement':       ['ga4', 'mixpanel', 'amplitude', 'moengage', 'clevertap'],
-  // Lead outreach — prospecting + sending tool
+  // Lead outreach — Instantly is required for campaign launch; Apollo/Gmail still boost readiness
   'lead-outreach':         ['apollo', 'instantly', 'hubspot', 'gmail'],
   // Ad creative — needs at least one ad platform for performance context
   'ad-creative':           ['google_ads', 'meta_ads', 'linkedin_ads'],
@@ -66,6 +66,15 @@ export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
   'channel-health':        ['ga4', 'google_ads', 'meta_ads', 'gsc'],
   // Performance scorecard — rich multi-source dashboard
   'performance-scorecard': ['ga4', 'gsc', 'google_ads', 'meta_ads'],
+};
+
+/**
+ * Connectors that must ALL be connected for the module (in addition to the
+ * at-least-one rule from WORKFLOW_CONNECTOR_REQUIREMENTS).
+ * Used so outreach still prompts for Instantly even when Apollo/Gmail is already linked.
+ */
+export const WORKFLOW_CONNECTOR_REQUIRED_ALL: Record<string, string[]> = {
+  'lead-outreach': ['instantly'],
 };
 
 // ── Input form definitions per module ────────────────────────────────────────
@@ -1045,16 +1054,21 @@ export function checkConnectorReadiness(
   activeConnectorIds: string[],
 ): ConnectorReadiness {
   const required = WORKFLOW_CONNECTOR_REQUIREMENTS[moduleId] ?? [];
-  if (required.length === 0) {
+  const requiredAll = WORKFLOW_CONNECTOR_REQUIRED_ALL[moduleId] ?? [];
+  if (required.length === 0 && requiredAll.length === 0) {
     return { ready: true, connected: [], missing: [], required: [] };
   }
   const activeSet = new Set(activeConnectorIds);
-  const connected = required.filter(id => activeSet.has(id));
-  const missing    = required.filter(id => !activeSet.has(id));
+  const connected = [...new Set([...required, ...requiredAll])].filter((id) => activeSet.has(id));
+  const missingAll = requiredAll.filter((id) => !activeSet.has(id));
+  const missingOptionalPool = required.filter((id) => !activeSet.has(id));
+  // Prefer surfacing hard requirements first (e.g. Instantly for outreach)
+  const missing = [...new Set([...missingAll, ...missingOptionalPool])];
+  const poolSatisfied = required.length === 0 || required.some((id) => activeSet.has(id));
   return {
-    ready: connected.length > 0,
+    ready: missingAll.length === 0 && poolSatisfied,
     connected,
     missing,
-    required,
+    required: [...new Set([...requiredAll, ...required])],
   };
 }

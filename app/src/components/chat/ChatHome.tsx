@@ -1055,13 +1055,25 @@ const AGENT_REQUIRED_CONNECTORS: Record<string, string[]> = {
   arjun: ['apollo'],       // Lead Intel — needs Apollo
   kiran: ['hubspot'],      // Lifecycle — needs HubSpot
   zara:  ['google_ads'],   // Campaigns — needs Google Ads or Meta Ads
-  sam:   [],               // Email — can run copy-only, no hard requirement
+  sam:   [],               // Email copy can run without connectors; outreach adds Instantly below
   riya:  [],               // Content — runs without connectors
   priya: [],               // Brand/Competitive — runs without connectors
   isha:  [],               // Market Research — runs without connectors
   neel:  [],               // Strategy — runs without connectors
   tara:  ['ga4'],          // CRO — needs GA4 for conversion data
 };
+
+/** Match routing_table build-sequences: Instantly is required for live outreach. */
+function resolveAgentRequiredConnectors(agentName: string, query: string): string[] {
+  const base = AGENT_REQUIRED_CONNECTORS[agentName] ?? [];
+  const isOutreach = /\b(outreach|cold\s*email|email\s*sequence|build\s*sequence|instantly|lead\s*outreach|prospect(?:ing)?|campaign\s*launch)\b/i.test(
+    query || '',
+  );
+  if (isOutreach && (agentName === 'sam' || agentName === 'arjun')) {
+    return [...new Set([...base, 'instantly'])];
+  }
+  return base;
+}
 
 const TOOL_USE_LABELS = [
   'Analysing your context...',
@@ -2026,6 +2038,26 @@ export function ChatHome({
       };
       const moduleId = moduleMap[cmd.action];
       if (moduleId) {
+        // Outreach must prompt for Instantly before opening the workspace
+        if (moduleId === 'lead-outreach') {
+          const readiness = checkConnectorReadiness(moduleId, activeConnectorIds);
+          if (!readiness.ready && readiness.missing.includes('instantly')) {
+            setIsTyping(false);
+            const ctaMsgId = `slash-cta-${Date.now()}`;
+            onMessagesChange((prev) => [
+              ...prev,
+              {
+                id: ctaMsgId,
+                content: `__connector_cta__:${moduleId}:Lead Outreach:instantly`,
+                sender: 'ai',
+                timestamp: new Date(),
+              },
+            ]);
+            setPendingWorkflow({ moduleId, moduleLabel: 'Lead Outreach', formMessageId: ctaMsgId });
+            toast.message('Connect Instantly to continue outreach');
+            return true;
+          }
+        }
         window.location.hash = 'auto-start';
         onModuleSelect(moduleId);
       } else if (cmd.action === 'agents') {
@@ -3230,7 +3262,7 @@ export function ChatHome({
         // Single-agent path — Veena already picked the right specialist.
         // Check if required connectors are active (from routing_table.json required_connectors).
         // If not, show the ConnectorReadinessCard instead of running the agent against empty data.
-        const agentRequired = AGENT_REQUIRED_CONNECTORS[veena.agentName] ?? [];
+        const agentRequired = resolveAgentRequiredConnectors(veena.agentName, veena.query || currentInput);
         const agentMissing = agentRequired.filter(c => !activeConnectorIds.includes(c));
         if (agentMissing.length > 0) {
           const ctaMsgId = `agent-cta-${Date.now()}`;
