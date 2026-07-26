@@ -613,6 +613,80 @@ function fallbackOptions(question, sourceContext, profile) {
   ];
 }
 
+function resolveGtmContext(sourceContext, profile) {
+  const onboarding = sourceContext?.onboarding || {};
+  const crawl = sourceContext?.crawlDigest || {};
+  const company =
+    (typeof profile?.module?.name === "string" && profile.module.name) ||
+    (typeof profile?.module?.module_name === "string" && profile.module.module_name) ||
+    onboarding.company ||
+    "Your company";
+  const industry =
+    (typeof profile?.offer?.category === "string" && profile.offer.category) ||
+    onboarding.industry ||
+    "your category";
+  const icp =
+    (typeof profile?.audience?.icp === "string" && profile.audience.icp) ||
+    onboarding.icp ||
+    "your ideal customer";
+  const oneLiner =
+    (typeof profile?.offer?.one_liner === "string" && profile.offer.one_liner) ||
+    (typeof crawl.positioning?.value === "string" && crawl.positioning.value) ||
+    "";
+  const differentiation =
+    (typeof profile?.positioning?.differentiation === "string" &&
+      profile.positioning.differentiation) ||
+    "";
+  return { company, industry, icp, oneLiner, differentiation, crawl };
+}
+
+/**
+ * Positioning + elevator pitch must never be short feature chips.
+ * Build full statements/pitches from locked profile + onboarding context.
+ */
+function deterministicMessagingOptions(questionId, sourceContext, profile) {
+  const { company, industry, icp, oneLiner, differentiation } = resolveGtmContext(
+    sourceContext,
+    profile
+  );
+
+  if (questionId === "positioning_statement") {
+    const statements = [
+      `For ${icp} who need a better way to get results, ${company} is a ${industry} solution that delivers clearer outcomes without the usual friction.`,
+      `For ${icp} frustrated by generic alternatives, ${company} is the ${industry} option that makes the hard part simple and personal.`,
+      differentiation
+        ? `For ${icp} who want a clear edge, ${company} stands apart because ${differentiation}.`
+        : `For buyers comparing crowded ${industry} choices, ${company} is the one that wins on clarity, proof, and speed to value.`,
+      oneLiner && oneLiner.length > 48
+        ? oneLiner.slice(0, 220)
+        : `For ${icp} who cannot afford guesswork, ${company} is a focused ${industry} product that turns intent into measurable progress.`,
+    ];
+    return statements.slice(0, 4).map((label, i) => ({
+      value: `pos_${i + 1}`,
+      label: String(label).slice(0, 220),
+      recommended: i === 0,
+    }));
+  }
+
+  if (questionId === "elevator_pitch") {
+    const pitches = [
+      `${company} helps ${icp} get better ${industry} outcomes faster — without the usual complexity, delay, or generic advice.`,
+      `Most ${industry} tools feel generic. ${company} is built around ${icp}, so every recommendation is relevant from day one.`,
+      `In thirty seconds: ${company} takes your context, focuses on what matters for ${icp}, and turns it into clear next steps.`,
+      differentiation
+        ? `Here’s the difference: ${differentiation}. That’s why ${icp} choose ${company}.`
+        : `Think of ${company} as the ${industry} partner that removes guesswork and compounds results over time.`,
+    ];
+    return pitches.slice(0, 4).map((label, i) => ({
+      value: `pitch_${i + 1}`,
+      label: String(label).slice(0, 220),
+      recommended: i === 0,
+    }));
+  }
+
+  return null;
+}
+
 function optionLabelLimit(questionId) {
   if (
     questionId === "positioning_statement" ||
@@ -627,7 +701,6 @@ function optionLabelLimit(questionId) {
 function optionsLookValid(questionId, options) {
   if (!Array.isArray(options) || options.length < 4) return false;
   if (questionId === "positioning_statement") {
-    // Reject feature-name chips ("Personalized Nutrition") — need full statements
     return options.every((o) => {
       const label = String(o.label || "").trim();
       return (
@@ -637,7 +710,12 @@ function optionsLookValid(questionId, options) {
     });
   }
   if (questionId === "elevator_pitch") {
-    return options.every((o) => String(o.label || "").trim().length >= 40);
+    return options.every((o) => {
+      const label = String(o.label || "").trim();
+      // Reject title-case feature chips ("Lab Report Integration")
+      const wordCount = label.split(/\s+/).filter(Boolean).length;
+      return label.length >= 48 && wordCount >= 8 && /[.!?,]|helps|for |we /i.test(label);
+    });
   }
   return true;
 }
@@ -647,8 +725,7 @@ function questionOptionGuidance(question) {
   const guides = {
     positioning_statement: `Each option MUST be a full positioning statement in this shape:
 "For [target buyer] who [need/problem], [product] is a [category] that [key benefit]."
-Do NOT output product features, feature names, category chips, or short titles.
-Example: "For busy professionals managing chronic conditions who need personalized guidance, Acme is a clinical nutrition app that turns lab reports into daily food decisions."`,
+Do NOT output product features, feature names, category chips, or short titles.`,
     elevator_pitch: `Each option MUST be a spoken 1–3 sentence elevator pitch (20–30 seconds).
 Do NOT output feature lists or short product names.`,
     differentiation: `Each option is a sharp point of difference vs alternatives — a benefit claim, not a feature name alone.`,
@@ -666,6 +743,14 @@ async function generateOptionsForQuestion(groq, question, sourceContext, profile
   if (Array.isArray(question.fixedOptions) && question.fixedOptions.length === 4) {
     return question.fixedOptions;
   }
+
+  // Never let the LLM invent feature chips for messaging questions
+  const deterministic = deterministicMessagingOptions(
+    question.id,
+    sourceContext,
+    profile
+  );
+  if (deterministic) return deterministic;
 
   const labelMax = optionLabelLimit(question.id);
   const system = `You generate exactly 4 multiple-choice options for a GTM interview question.
@@ -1356,7 +1441,7 @@ export function registerGtmWizardRoutes(app, deps) {
           groq,
           q,
           sourceContext,
-          { ...profile, ...draftAnswers }
+          profile
         );
         questions.push({
           id: q.id,
