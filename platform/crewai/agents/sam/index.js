@@ -80,21 +80,46 @@ class SamAgent {
 
     // Try to create in Instantly if connector available
     let instantlyCreated = false;
+    let instantlyMeta = null;
     if (apiKey) {
       try {
+        // Prefer registry-quality payload: sequences + schedule via Composio campaign create
+        const emailTouches = sequence.emails
+          .filter((e) => e.channel === 'email')
+          .map((e) => ({
+            subject: e.subject,
+            body: e.body,
+            delay_days: Math.max(0, Number(e.day || 1) - 1),
+          }));
+
         await executeComposioTool(
           entityId, 'instantly', 'INSTANTLY_CREATE_CAMPAIGN',
           {
-            name:         `${product} — ${audience} outreach`,
-            from_name:    extracted_params.senderName || 'The Team',
-            subject:      sequence.emails[0].subject,
-            body:         sequence.emails[0].body,
-            daily_limit:  50,
+            name: `${product} — ${audience} outreach`,
+            sequences: [{
+              steps: emailTouches.map((e, i) => ({
+                type: 'email',
+                delay: i === 0 ? 0 : Math.max(1, Number(e.delay_days) || 3),
+                variants: [{ subject: e.subject, body: e.body }],
+              })),
+            }],
+            campaign_schedule: {
+              schedules: [{
+                name: 'Business hours',
+                timing: { from: '09:00', to: '17:00' },
+                days: { 0: false, 1: true, 2: true, 3: true, 4: true, 5: true, 6: false },
+                timezone: extracted_params.timezone || 'Asia/Kolkata',
+              }],
+            },
+            daily_limit: 50,
             stop_on_reply: true,
+            open_tracking: true,
+            link_tracking: true,
           },
           apiKey
         );
         instantlyCreated = true;
+        instantlyMeta = { touches: emailTouches.length };
       } catch (err) {
         if (err.message.includes('No active instantly')) {
           return this._connectorMissing('instantly', err.message, sequence);
@@ -104,7 +129,7 @@ class SamAgent {
     }
 
     return {
-      prose: `I've built a ${sequence.emails.length}-touch outreach sequence for ${audience}.${instantlyCreated ? ' The campaign has been created in Instantly — add your lead list to activate it.' : ' Connect Instantly to load this sequence directly into your outreach tool.'} The sequence runs over ${sequence.total_days} days, with the goal of ${campaignGoal.replace(/_/g, ' ')}.`,
+      prose: `I've built a ${sequence.emails.length}-touch outreach sequence for ${audience}.${instantlyCreated ? ` The campaign has been created in Instantly with ${instantlyMeta?.touches || 'multi'}-step email sequences — add your lead list and activate when ready.` : ' Connect Instantly to load this sequence directly into your outreach tool.'} The sequence runs over ${sequence.total_days} days, with the goal of ${campaignGoal.replace(/_/g, ' ')}.`,
       response_type: 'creation',
       agent: SamAgent.id,
       crew: 'email-automation',

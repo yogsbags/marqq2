@@ -94,6 +94,10 @@ interface OutreachResult {
   emails?: Array<Record<string, unknown>>
   conversations?: Array<Record<string, unknown>>
   credits_remaining?: number | string | Record<string, unknown> | null
+  sender_accounts?: Array<{ email?: string; status?: number | null }>
+  email_list?: string[]
+  webhook?: { status?: string; webhook_id?: string; target_hook_url?: string; error?: string } | null
+  subsequence?: { status?: string; subsequence_id?: string; error?: string } | null
   message?: string
   error?: string
 }
@@ -1346,8 +1350,38 @@ function OutreachTab({
   const [body, setBody] = useState('')
   const [senderEmail, setSenderEmail] = useState('')
   const [dailyLimit, setDailyLimit] = useState(50)
+  const [senderAccounts, setSenderAccounts] = useState<Array<{ email: string; status?: number | null }>>([])
+  const [loadingAccounts, setLoadingAccounts] = useState(false)
+  const [registeringWebhook, setRegisteringWebhook] = useState(false)
   const instantlyConnected = integrations.some((c) => c.id === 'instantly' && c.connected)
   const connectedConnectorIds = integrations.filter((c) => c.connected).map((c) => c.id)
+
+  useEffect(() => {
+    if (!companyId || !instantlyConnected || channel !== 'email') return
+    let cancelled = false
+    setLoadingAccounts(true)
+    void apiAutomation('instantly_list_accounts', { limit: 25, status: 1 }, companyId)
+      .then((res) => {
+        if (cancelled) return
+        const accounts = Array.isArray((res as OutreachResult & { accounts?: Array<{ email?: string }> }).accounts)
+          ? ((res as { accounts: Array<{ email?: string; status?: number | null }> }).accounts || [])
+              .filter((a) => a.email)
+              .map((a) => ({ email: String(a.email), status: a.status ?? null }))
+          : []
+        setSenderAccounts(accounts)
+        if (!senderEmail && accounts[0]?.email) setSenderEmail(accounts[0].email)
+      })
+      .catch(() => {
+        if (!cancelled) setSenderAccounts([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAccounts(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only refresh when Instantly/channel changes
+  }, [companyId, instantlyConnected, channel])
 
   useEffect(() => {
     if (sharedLeads.length > 0 && leads.length === 0) {
@@ -1457,8 +1491,10 @@ function OutreachTab({
         name: campaignName,
         subject,
         body,
-        from_email: senderEmail,
+        from_email: senderEmail || undefined,
         daily_limit: dailyLimit,
+        register_webhook: true,
+        create_interested_subsequence: false,
         leads: leads.slice(0, 500).map(l => ({
           email: l.email || l.email_norm,
           first_name: l.full_name?.split(' ')[0] || '',
@@ -1468,7 +1504,14 @@ function OutreachTab({
         })).filter(l => l.email),
       }, companyId)
 
-      setResult({ ...res, leads_added: leads.length })
+      setResult({ ...res, leads_added: (res as OutreachResult).leads_added ?? leads.length })
+      if (Array.isArray((res as OutreachResult).sender_accounts)) {
+        setSenderAccounts(
+          ((res as OutreachResult).sender_accounts || [])
+            .filter((a) => a.email)
+            .map((a) => ({ email: String(a.email), status: a.status ?? null })),
+        )
+      }
       onStageComplete('outreach')
       toast.success('Email campaign created in Instantly!')
       if ((res as OutreachResult)?.campaign_id) {
@@ -1531,6 +1574,31 @@ function OutreachTab({
       toast.error(msg)
     } finally {
       setUpdatingInstantly(false)
+    }
+  }
+
+  const handleRegisterInstantlyWebhook = async () => {
+    if (!companyId) return
+    setRegisteringWebhook(true)
+    try {
+      const res = await apiAutomation(
+        'instantly_register_webhook',
+        {
+          campaign_id: result?.campaign_id || undefined,
+          event_type: 'all_events',
+        },
+        companyId,
+      ) as OutreachResult
+      if (res.status === 'error') {
+        toast.error(res.error || 'Webhook registration failed')
+        return
+      }
+      setResult((current) => (current ? { ...current, webhook: res } : current))
+      toast.success('Instantly reply webhook registered')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Webhook registration failed')
+    } finally {
+      setRegisteringWebhook(false)
     }
   }
 
@@ -1892,6 +1960,40 @@ function OutreachTab({
             </div>
 
             {channel === 'email' && (
+              <div className="space-y-1">
+                <Label className="text-xs">Instantly sender account</Label>
+                {loadingAccounts ? (
+                  <p className="text-[11px] text-muted-foreground">Loading Instantly mailboxes…</p>
+                ) : senderAccounts.length > 0 ? (
+                  <Select value={senderEmail || senderAccounts[0].email} onValueChange={setSenderEmail}>
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Select sender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {senderAccounts.map((account) => (
+                        <SelectItem key={account.email} value={account.email}>
+                          {account.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="space-y-1">
+                    <Input
+                      className="h-9 text-xs"
+                      placeholder="sender@yourdomain.com"
+                      value={senderEmail}
+                      onChange={(e) => setSenderEmail(e.target.value)}
+                    />
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                      No active Instantly mailboxes found. Add a sender in Instantly, then refresh.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {channel === 'email' && (
               <div className="space-y-1"><Label className="text-xs">Daily Limit: {dailyLimit}</Label>
                 <Slider min={10} max={200} step={10} value={[dailyLimit]} onValueChange={([v]) => setDailyLimit(v)} />
               </div>
@@ -1946,9 +2048,34 @@ function OutreachTab({
                                 {monitoringInstantly ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
                                 Refresh
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-[11px]"
+                                onClick={() => void handleRegisterInstantlyWebhook()}
+                                disabled={registeringWebhook || updatingInstantly}
+                              >
+                                {registeringWebhook ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                                Register webhook
+                              </Button>
                             </div>
                           </div>
                           <div className="mt-2 space-y-2">
+                            {Array.isArray(result.email_list) && result.email_list.length > 0 && (
+                              <div className="text-[11px]">
+                                Sender: <span className="font-medium">{result.email_list.join(', ')}</span>
+                              </div>
+                            )}
+                            {result.webhook?.status === 'completed' && (
+                              <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                                Webhook registered{result.webhook.webhook_id ? ` · ${result.webhook.webhook_id}` : ''}
+                              </div>
+                            )}
+                            {result.webhook?.status === 'error' && (
+                              <div className="text-[11px] text-amber-700 dark:text-amber-300">
+                                Webhook: {result.webhook.error || 'not registered (set PUBLIC_BASE_URL)'}
+                              </div>
+                            )}
                             {formatSendingStatus(result.sending_status) && (
                               <div className="text-[11px]">
                                 Sending status: <span className="font-medium">{formatSendingStatus(result.sending_status)}</span>

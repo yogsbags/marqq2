@@ -279,18 +279,39 @@ export const REGISTRY = [
   {
     id: "instantly_create_campaign",
     name: "Instantly Email Campaign",
-    description: "Creates an email outreach campaign in Instantly and bulk-adds leads to it. Returns campaign_id and count of leads added.",
+    description: "Creates an Instantly campaign with proper sequences + schedule, bulk-adds leads, optionally registers reply webhook and interested subsequence.",
     category: "outreach",
     trigger_type: "direct_api",
     params_schema: {
       name: "Campaign name",
       subject: "Email subject line (supports {{first_name}}, {{company}})",
       body: "Email body (supports {{first_name}}, {{company}}, {{personalization}})",
-      from_email: "Sender email address (optional — uses connected account default)",
+      sequence_emails: "Optional array of { subject, body, delay_days } for multi-touch",
+      from_email: "Sender email — must match an Instantly account (optional; auto-picks first active)",
       daily_limit: "Max emails per day (default 50)",
+      timezone: "Campaign schedule timezone (default Asia/Kolkata)",
       leads: "Array of { email, first_name, last_name, company_name, personalization }",
+      verify_leads: "Verify emails on import (default false)",
+      register_webhook: "Register Marqq Instantly webhook for replies (default true when PUBLIC_BASE_URL set)",
+      create_interested_subsequence: "Create interested-lead subsequence from follow-up copy (default true when sequence_emails has 2+)",
+      activate: "Activate campaign after create (default false — draft mode)",
     },
-    returns: "{ campaign_id, campaign_name, leads_added, message }",
+    returns: "{ campaign_id, campaign_name, leads_added, sender_accounts, webhook, subsequence, message }",
+    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    requires_credential: "instantly",
+  },
+  {
+    id: "instantly_list_accounts",
+    name: "Instantly List Sender Accounts",
+    description: "Lists Instantly sending mailboxes so campaigns can be bound to a valid email_list before activate.",
+    category: "outreach",
+    trigger_type: "direct_api",
+    params_schema: {
+      limit: "Max accounts (default 25)",
+      search: "Optional email/domain filter",
+      status: "Optional account status filter (1=Active)",
+    },
+    returns: "{ accounts: [...], count }",
     which_agents_can_invoke: ["sam", "kiran", "neel"],
     requires_credential: "instantly",
   },
@@ -350,13 +371,13 @@ export const REGISTRY = [
   {
     id: "instantly_activate_campaign",
     name: "Instantly Activate Campaign",
-    description: "Activates or resumes an Instantly campaign when it is ready to send.",
+    description: "Activates or resumes an Instantly campaign when sender accounts + leads are ready. Checks LIST_ACCOUNTS first.",
     category: "outreach",
     trigger_type: "direct_api",
     params_schema: {
       campaign_id: "Instantly campaign ID",
     },
-    returns: "{ campaign_id, action: 'activated' }",
+    returns: "{ campaign_id, action: 'activated', sender_accounts }",
     which_agents_can_invoke: ["sam", "kiran", "neel"],
     requires_credential: "instantly",
   },
@@ -383,6 +404,80 @@ export const REGISTRY = [
       limit: "Max emails to fetch (default 10)",
     },
     returns: "{ emails: [...], count }",
+    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    requires_credential: "instantly",
+  },
+  {
+    id: "instantly_register_webhook",
+    name: "Instantly Register Reply Webhook",
+    description: "Registers Instantly → Marqq webhook so reply/interest events post to /api/webhooks/instantly.",
+    category: "outreach",
+    trigger_type: "direct_api",
+    params_schema: {
+      campaign_id: "Optional campaign UUID to scope events",
+      event_type: "Event type (default all_events)",
+      target_hook_url: "Override webhook URL (defaults to PUBLIC_BASE_URL + /api/webhooks/instantly)",
+    },
+    returns: "{ webhook_id, target_hook_url, event_type }",
+    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    requires_credential: "instantly",
+  },
+  {
+    id: "instantly_create_subsequence",
+    name: "Instantly Create Subsequence",
+    description: "Creates a condition-triggered subsequence (e.g. interested CRM status) under a parent campaign.",
+    category: "outreach",
+    trigger_type: "direct_api",
+    params_schema: {
+      campaign_id: "Parent Instantly campaign UUID",
+      name: "Subsequence name",
+      subject: "Follow-up email subject",
+      body: "Follow-up email body",
+      crm_status: "CRM interest status that triggers (default 1 = Interested)",
+      timezone: "Schedule timezone",
+    },
+    returns: "{ subsequence_id, campaign_id }",
+    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    requires_credential: "instantly",
+  },
+  {
+    id: "instantly_verify_email",
+    name: "Instantly Verify Email",
+    description: "Verifies a single email address for deliverability before outreach.",
+    category: "outreach",
+    trigger_type: "direct_api",
+    params_schema: {
+      email: "Email to verify",
+    },
+    returns: "{ email, verification }",
+    which_agents_can_invoke: ["sam", "kiran", "arjun", "neel"],
+    requires_credential: "instantly",
+  },
+  {
+    id: "instantly_update_lead_interest",
+    name: "Instantly Update Lead Interest",
+    description: "Sets Instantly interest status for a lead (interested, meeting booked, not interested, etc.).",
+    category: "outreach",
+    trigger_type: "direct_api",
+    params_schema: {
+      lead_email: "Lead email",
+      interest_value: "0 OOO | 1 Interested | 2 Meeting Booked | 3 Meeting Completed | 4 Closed | -1 Not Interested | -2 Wrong Person | -3 Lost",
+      campaign_id: "Optional campaign scope",
+    },
+    returns: "{ lead_email, interest_value }",
+    which_agents_can_invoke: ["sam", "kiran", "neel"],
+    requires_credential: "instantly",
+  },
+  {
+    id: "instantly_mark_thread_read",
+    name: "Instantly Mark Thread Read",
+    description: "Marks an Instantly email thread as read after Marqq processes the reply.",
+    category: "outreach",
+    trigger_type: "direct_api",
+    params_schema: {
+      thread_id: "Instantly thread UUID",
+    },
+    returns: "{ thread_id, action: 'marked_read' }",
     which_agents_can_invoke: ["sam", "kiran", "neel"],
     requires_credential: "instantly",
   },
@@ -664,6 +759,74 @@ async function getComposioToken(companyId, appName) {
  * directApiHandlers — per-automation_id handlers for trigger_type: "direct_api".
  * Each receives (params, companyId, supabaseClient) and returns a plain result object.
  */
+
+function instantlyPublicWebhookUrl(override) {
+  if (override) return String(override).trim();
+  const base = String(
+    process.env.PUBLIC_BASE_URL ||
+      process.env.TWILIO_PUBLIC_BASE_URL ||
+      process.env.RAILWAY_PUBLIC_DOMAIN ||
+      ""
+  ).replace(/\/$/, "");
+  if (!base) return null;
+  const withScheme = /^https?:\/\//i.test(base) ? base : `https://${base}`;
+  return `${withScheme}/api/webhooks/instantly`;
+}
+
+function instantlyDefaultSchedule(timezone = "Asia/Kolkata") {
+  return {
+    schedules: [
+      {
+        name: "Business hours",
+        timing: { from: "09:00", to: "17:00" },
+        days: { 0: false, 1: true, 2: true, 3: true, 4: true, 5: true, 6: false },
+        timezone,
+      },
+    ],
+  };
+}
+
+function instantlyBuildSequences(emails) {
+  const steps = (Array.isArray(emails) ? emails : [])
+    .filter((e) => e && (e.subject || e.body))
+    .map((e, i) => ({
+      type: "email",
+      delay: i === 0 ? 0 : Number(e.delay_days ?? e.delay ?? 3),
+      variants: [
+        {
+          subject: String(e.subject || "Quick question"),
+          body: String(e.body || ""),
+        },
+      ],
+    }));
+  return steps.length ? [{ steps }] : null;
+}
+
+async function instantlyListSenderAccounts(companyId, params = {}) {
+  const res = await executeComposioAction(
+    "INSTANTLY_LIST_ACCOUNTS",
+    {
+      limit: Math.min(Math.max(Number(params.limit) || 25, 1), 100),
+      ...(params.search ? { search: String(params.search) } : {}),
+      ...(params.status != null ? { status: Number(params.status) } : { status: 1 }),
+    },
+    companyId
+  );
+  if (res.error) {
+    return { error: res.error, accounts: [] };
+  }
+  const raw = res.result?.items || res.result?.accounts || res.result?.data || res.result || [];
+  const accounts = (Array.isArray(raw) ? raw : [])
+    .map((a) => ({
+      email: a.email || a.username || a.address || null,
+      status: a.status ?? null,
+      provider: a.provider_code ?? a.provider ?? null,
+      raw: a,
+    }))
+    .filter((a) => a.email);
+  return { accounts, error: null };
+}
+
 const directApiHandlers = {
   async _heyreachRequest(companyId, path, options = {}) {
     const connectedHeyReach = await getConnectedAccountApiKey('heyreach', companyId);
@@ -1633,80 +1796,248 @@ const directApiHandlers = {
   },
 
   // ── Instantly — Email Campaign via Composio ───────────────────────────────
-  // Flow: CREATE_CAMPAIGN → CREATE_LEAD (bulk) → return campaign_id
+  // Flow: LIST_ACCOUNTS → CREATE_CAMPAIGN (sequences+schedule) → ADD_LEADS_BULK
+  //       → optional CREATE_WEBHOOK + CREATE_SUBSEQUENCE → optional ACTIVATE
+
+  async instantly_list_accounts(params, companyId) {
+    const { accounts, error } = await instantlyListSenderAccounts(companyId, params);
+    if (error) {
+      return { status: "error", error: `Instantly list accounts failed: ${error}`, accounts: [], count: 0 };
+    }
+    return { status: "completed", accounts, count: accounts.length };
+  },
+
   async instantly_create_campaign(params, companyId) {
     const {
-      name = 'Marqq Outreach Campaign',
+      name = "Marqq Outreach Campaign",
       subject,
       body,
+      sequence_emails,
       from_email,
       daily_limit = 50,
+      timezone = "Asia/Kolkata",
       leads = [],
+      verify_leads = false,
+      register_webhook,
+      create_interested_subsequence,
+      activate = false,
     } = params;
 
-    if (!subject || !body) {
-      return { status: 'error', error: 'subject and body are required' };
+    const sequenceEmails =
+      Array.isArray(sequence_emails) && sequence_emails.length
+        ? sequence_emails
+        : subject && body
+          ? [{ subject, body, delay_days: 0 }]
+          : [];
+
+    if (!sequenceEmails.length) {
+      return { status: "error", error: "subject/body or sequence_emails are required" };
     }
 
-    // 1. Create campaign
-    const campaignRes = await executeComposioAction('INSTANTLY_CREATE_CAMPAIGN', {
+    const sequences = instantlyBuildSequences(sequenceEmails);
+    if (!sequences) {
+      return { status: "error", error: "Could not build Instantly sequences from email copy" };
+    }
+
+    // Resolve sender accounts — required for activate; preferred on create
+    const { accounts: senderAccounts, error: accountsError } =
+      await instantlyListSenderAccounts(companyId, { limit: 25, status: 1 });
+    if (accountsError) {
+      console.warn("[instantly_create_campaign] list accounts:", accountsError);
+    }
+
+    let emailList = [];
+    if (from_email) {
+      const match = senderAccounts.find(
+        (a) => String(a.email).toLowerCase() === String(from_email).toLowerCase()
+      );
+      if (!match && senderAccounts.length) {
+        return {
+          status: "error",
+          error: `from_email "${from_email}" is not an Instantly sender account. Available: ${senderAccounts
+            .map((a) => a.email)
+            .join(", ")}`,
+          sender_accounts: senderAccounts,
+        };
+      }
+      emailList = [from_email];
+    } else if (senderAccounts[0]?.email) {
+      emailList = [senderAccounts[0].email];
+    }
+
+    const campaignPayload = {
       name,
-      subject,
-      body,
-      from_email: from_email || undefined,
-      daily_limit,
-    }, companyId);
+      sequences,
+      campaign_schedule: instantlyDefaultSchedule(timezone),
+      daily_limit: Number(daily_limit) || 50,
+      stop_on_reply: true,
+      open_tracking: true,
+      link_tracking: true,
+      ...(emailList.length ? { email_list: emailList } : {}),
+    };
+
+    const campaignRes = await executeComposioAction(
+      "INSTANTLY_CREATE_CAMPAIGN",
+      campaignPayload,
+      companyId
+    );
 
     if (campaignRes.error) {
-      return { status: 'error', error: `Campaign creation failed: ${campaignRes.error}` };
+      return {
+        status: "error",
+        error: `Campaign creation failed: ${campaignRes.error}`,
+        sender_accounts: senderAccounts,
+      };
     }
 
-    const campaignId = campaignRes.result?.id || campaignRes.result?.campaign_id
-      || campaignRes.result?.data?.id;
+    const campaignId =
+      campaignRes.result?.id ||
+      campaignRes.result?.campaign_id ||
+      campaignRes.result?.data?.id ||
+      null;
 
-    // 2. Add leads to campaign in batches of 100
+    // Bulk-add leads (fallback to per-lead CREATE_LEAD if bulk fails)
+    const validLeads = (Array.isArray(leads) ? leads : [])
+      .map((l) => ({
+        email: l.email || l.email_norm,
+        first_name: l.first_name || String(l.full_name || "").split(" ")[0] || "",
+        last_name:
+          l.last_name ||
+          String(l.full_name || "").split(" ").slice(1).join(" ") ||
+          "",
+        company_name: l.company_name || l.company || "",
+        personalization: l.personalization || "",
+      }))
+      .filter((l) => l.email);
+
     let leadsAdded = 0;
-    const validLeads = leads.filter(l => l.email);
-    for (let i = 0; i < validLeads.length; i += 100) {
-      const batch = validLeads.slice(i, i + 100);
-      for (const lead of batch) {
-        const lr = await executeComposioAction('INSTANTLY_CREATE_LEAD', {
-          campaign_id: campaignId,
-          email: lead.email,
-          first_name: lead.first_name || '',
-          last_name: lead.last_name || '',
-          company_name: lead.company_name || '',
-          personalization: lead.personalization || '',
-        }, companyId);
-        if (!lr.error) leadsAdded++;
+    let bulkError = null;
+    if (campaignId && validLeads.length) {
+      for (let i = 0; i < validLeads.length; i += 100) {
+        const batch = validLeads.slice(i, i + 100);
+        const bulkRes = await executeComposioAction(
+          "INSTANTLY_ADD_LEADS_BULK",
+          {
+            campaign_id: campaignId,
+            leads: batch,
+            skip_if_in_campaign: true,
+            skip_if_in_workspace: false,
+            verify: Boolean(verify_leads),
+          },
+          companyId
+        );
+        if (bulkRes.error) {
+          bulkError = bulkRes.error;
+          for (const lead of batch) {
+            const lr = await executeComposioAction(
+              "INSTANTLY_CREATE_LEAD",
+              {
+                campaign_id: campaignId,
+                email: lead.email,
+                first_name: lead.first_name,
+                last_name: lead.last_name,
+                company_name: lead.company_name,
+                personalization: lead.personalization,
+              },
+              companyId
+            );
+            if (!lr.error) leadsAdded++;
+          }
+        } else {
+          const added =
+            bulkRes.result?.leads_added ??
+            bulkRes.result?.added ??
+            bulkRes.result?.count ??
+            bulkRes.result?.data?.leads_added ??
+            batch.length;
+          leadsAdded += Number(added) || batch.length;
+        }
       }
     }
 
+    // Reply webhook → Marqq
+    let webhook = null;
+    const shouldRegisterWebhook =
+      register_webhook != null
+        ? Boolean(register_webhook)
+        : Boolean(instantlyPublicWebhookUrl());
+    if (shouldRegisterWebhook && campaignId) {
+      webhook = await directApiHandlers.instantly_register_webhook(
+        { campaign_id: campaignId, event_type: "all_events" },
+        companyId
+      );
+    }
+
+    // Interested subsequence from remaining touches
+    let subsequence = null;
+    const shouldCreateSub =
+      create_interested_subsequence != null
+        ? Boolean(create_interested_subsequence)
+        : sequenceEmails.length > 1;
+    if (shouldCreateSub && campaignId && sequenceEmails.length > 1) {
+      const follow = sequenceEmails[1];
+      subsequence = await directApiHandlers.instantly_create_subsequence(
+        {
+          campaign_id: campaignId,
+          name: `${name} — Interested follow-up`,
+          subject: follow.subject,
+          body: follow.body,
+          crm_status: 1,
+          timezone,
+        },
+        companyId
+      );
+    }
+
+    let activation = null;
+    if (activate && campaignId) {
+      activation = await directApiHandlers.instantly_activate_campaign({ campaign_id: campaignId }, companyId);
+    }
+
     return {
-      status: 'completed',
+      status: "completed",
       campaign_id: campaignId,
       campaign_name: name,
       leads_added: leadsAdded,
-      message: `Campaign "${name}" created with ${leadsAdded} leads`,
+      leads_requested: validLeads.length,
+      sender_accounts: senderAccounts,
+      email_list: emailList,
+      webhook: webhook?.status === "completed" ? webhook : webhook,
+      subsequence: subsequence?.status === "completed" ? subsequence : subsequence,
+      activation,
+      bulk_fallback: Boolean(bulkError),
+      message: `Campaign "${name}" created with ${leadsAdded}/${validLeads.length} leads${
+        emailList[0] ? ` via ${emailList[0]}` : ""
+      }`,
     };
   },
 
   async instantly_list_campaigns(params, companyId) {
     const limit = Math.min(Math.max(Number(params.limit) || 25, 1), 100);
-    const search = String(params.search || '').trim();
-    const res = await executeComposioAction('INSTANTLY_LIST_CAMPAIGNS', {
-      limit,
-      ...(search ? { search } : {}),
-    }, companyId);
+    const search = String(params.search || "").trim();
+    const res = await executeComposioAction(
+      "INSTANTLY_LIST_CAMPAIGNS",
+      {
+        limit,
+        ...(search ? { search } : {}),
+      },
+      companyId
+    );
 
     if (res.error) {
-      return { status: 'error', error: `Instantly list campaigns failed: ${res.error}`, campaigns: [], count: 0 };
+      return {
+        status: "error",
+        error: `Instantly list campaigns failed: ${res.error}`,
+        campaigns: [],
+        count: 0,
+      };
     }
 
-    const rawCampaigns = res.result?.items || res.result?.campaigns || res.result?.data || res.result || [];
+    const rawCampaigns =
+      res.result?.items || res.result?.campaigns || res.result?.data || res.result || [];
     const campaigns = (Array.isArray(rawCampaigns) ? rawCampaigns : []).map((campaign) => ({
       id: campaign.id || campaign.campaign_id || campaign.campaignId || null,
-      name: campaign.name || campaign.campaign_name || campaign.campaignName || 'Untitled campaign',
+      name: campaign.name || campaign.campaign_name || campaign.campaignName || "Untitled campaign",
       status: campaign.status || campaign.state || campaign.campaign_status || null,
       created_at: campaign.created_at || campaign.createdAt || null,
       updated_at: campaign.updated_at || campaign.updatedAt || null,
@@ -1714,7 +2045,7 @@ const directApiHandlers = {
     }));
 
     return {
-      status: 'completed',
+      status: "completed",
       count: campaigns.length,
       campaigns,
     };
@@ -1723,21 +2054,30 @@ const directApiHandlers = {
   async instantly_get_campaign_analytics(params, companyId) {
     const campaignId = params.campaign_id || params.id;
     if (!campaignId) {
-      return { status: 'error', error: 'campaign_id is required', analytics: null };
+      return { status: "error", error: "campaign_id is required", analytics: null };
     }
 
-    const res = await executeComposioAction('INSTANTLY_GET_CAMPAIGN_ANALYTICS', {
-      campaign_id: campaignId,
-      id: campaignId,
-    }, companyId);
+    const res = await executeComposioAction(
+      "INSTANTLY_GET_CAMPAIGN_ANALYTICS",
+      {
+        campaign_id: campaignId,
+        id: campaignId,
+      },
+      companyId
+    );
 
     if (res.error) {
-      return { status: 'error', error: `Instantly analytics failed: ${res.error}`, campaign_id: campaignId, analytics: null };
+      return {
+        status: "error",
+        error: `Instantly analytics failed: ${res.error}`,
+        campaign_id: campaignId,
+        analytics: null,
+      };
     }
 
     const analytics = res.result?.analytics || res.result?.data || res.result || null;
     return {
-      status: 'completed',
+      status: "completed",
       campaign_id: String(campaignId),
       analytics,
     };
@@ -1746,21 +2086,30 @@ const directApiHandlers = {
   async instantly_get_campaign_status(params, companyId) {
     const campaignId = params.campaign_id || params.id;
     if (!campaignId) {
-      return { status: 'error', error: 'campaign_id is required', sending_status: null };
+      return { status: "error", error: "campaign_id is required", sending_status: null };
     }
 
-    const res = await executeComposioAction('INSTANTLY_GET_CAMPAIGN_SENDING_STATUS', {
-      campaign_id: campaignId,
-      id: campaignId,
-    }, companyId);
+    const res = await executeComposioAction(
+      "INSTANTLY_GET_CAMPAIGN_SENDING_STATUS",
+      {
+        campaign_id: campaignId,
+        id: campaignId,
+      },
+      companyId
+    );
 
     if (res.error) {
-      return { status: 'error', error: `Instantly sending status failed: ${res.error}`, campaign_id: campaignId, sending_status: null };
+      return {
+        status: "error",
+        error: `Instantly sending status failed: ${res.error}`,
+        campaign_id: campaignId,
+        sending_status: null,
+      };
     }
 
     const sendingStatus = res.result?.status || res.result?.data || res.result || null;
     return {
-      status: 'completed',
+      status: "completed",
       campaign_id: String(campaignId),
       sending_status: sendingStatus,
     };
@@ -1769,21 +2118,29 @@ const directApiHandlers = {
   async instantly_pause_campaign(params, companyId) {
     const campaignId = params.campaign_id || params.id;
     if (!campaignId) {
-      return { status: 'error', error: 'campaign_id is required' };
+      return { status: "error", error: "campaign_id is required" };
     }
 
-    const res = await executeComposioAction('INSTANTLY_PAUSE_CAMPAIGN', {
-      id: campaignId,
-    }, companyId);
+    const res = await executeComposioAction(
+      "INSTANTLY_PAUSE_CAMPAIGN",
+      {
+        id: campaignId,
+      },
+      companyId
+    );
 
     if (res.error) {
-      return { status: 'error', error: `Instantly pause failed: ${res.error}`, campaign_id: String(campaignId) };
+      return {
+        status: "error",
+        error: `Instantly pause failed: ${res.error}`,
+        campaign_id: String(campaignId),
+      };
     }
 
     return {
-      status: 'completed',
+      status: "completed",
       campaign_id: String(campaignId),
-      action: 'paused',
+      action: "paused",
       result: res.result || null,
     };
   },
@@ -1791,40 +2148,76 @@ const directApiHandlers = {
   async instantly_activate_campaign(params, companyId) {
     const campaignId = params.campaign_id || params.id;
     if (!campaignId) {
-      return { status: 'error', error: 'campaign_id is required' };
+      return { status: "error", error: "campaign_id is required" };
     }
 
-    const res = await executeComposioAction('INSTANTLY_ACTIVATE_CAMPAIGN', {
-      id: campaignId,
-    }, companyId);
+    const { accounts, error: accountsError } = await instantlyListSenderAccounts(companyId, {
+      limit: 25,
+      status: 1,
+    });
+    if (accountsError) {
+      return {
+        status: "error",
+        error: `Cannot activate — failed to list Instantly sender accounts: ${accountsError}`,
+        campaign_id: String(campaignId),
+      };
+    }
+    if (!accounts.length) {
+      return {
+        status: "error",
+        error:
+          "Cannot activate — no active Instantly sender accounts. Add a mailbox in Instantly, then retry.",
+        campaign_id: String(campaignId),
+        sender_accounts: [],
+      };
+    }
+
+    const res = await executeComposioAction(
+      "INSTANTLY_ACTIVATE_CAMPAIGN",
+      {
+        id: campaignId,
+      },
+      companyId
+    );
 
     if (res.error) {
-      return { status: 'error', error: `Instantly activate failed: ${res.error}`, campaign_id: String(campaignId) };
+      return {
+        status: "error",
+        error: `Instantly activate failed: ${res.error}`,
+        campaign_id: String(campaignId),
+        sender_accounts: accounts,
+      };
     }
 
     return {
-      status: 'completed',
+      status: "completed",
       campaign_id: String(campaignId),
-      action: 'activated',
+      action: "activated",
+      sender_accounts: accounts,
       result: res.result || null,
     };
   },
 
   async instantly_count_unread_emails(_params, companyId) {
-    const res = await executeComposioAction('INSTANTLY_COUNT_UNREAD_EMAILS', {}, companyId);
+    const res = await executeComposioAction("INSTANTLY_COUNT_UNREAD_EMAILS", {}, companyId);
 
     if (res.error) {
-      return { status: 'error', error: `Instantly unread count failed: ${res.error}`, unread_count: null };
+      return {
+        status: "error",
+        error: `Instantly unread count failed: ${res.error}`,
+        unread_count: null,
+      };
     }
 
-    const unreadCount = res.result?.count
-      ?? res.result?.unread_count
-      ?? res.result?.data?.count
-      ?? res.result?.data?.unread_count
-      ?? null;
+    const unreadCount =
+      res.result?.count ??
+      res.result?.unread_count ??
+      res.result?.data?.count ??
+      res.result?.data?.unread_count ??
+      null;
 
     return {
-      status: 'completed',
+      status: "completed",
       unread_count: unreadCount,
     };
   },
@@ -1835,33 +2228,196 @@ const directApiHandlers = {
       limit,
       ...(params.campaign_id ? { campaign_id: params.campaign_id } : {}),
       ...(params.is_unread != null ? { is_unread: Boolean(params.is_unread) } : {}),
-      sort_order: 'desc',
+      sort_order: "desc",
     };
 
-    const res = await executeComposioAction('INSTANTLY_LIST_EMAILS', payload, companyId);
+    const res = await executeComposioAction("INSTANTLY_LIST_EMAILS", payload, companyId);
 
     if (res.error) {
-      return { status: 'error', error: `Instantly list emails failed: ${res.error}`, emails: [], count: 0 };
+      return {
+        status: "error",
+        error: `Instantly list emails failed: ${res.error}`,
+        emails: [],
+        count: 0,
+      };
     }
 
     const rawEmails = res.result?.items || res.result?.emails || res.result?.data || res.result || [];
     const emails = (Array.isArray(rawEmails) ? rawEmails : []).map((email) => ({
       id: email.id || null,
       thread_id: email.thread_id || null,
-      subject: email.subject || email.email_subject || '',
-      from_email: email.from_email || email.from || '',
-      to_email: email.to_email || email.to || email.lead || '',
+      subject: email.subject || email.email_subject || "",
+      from_email: email.from_email || email.from || "",
+      to_email: email.to_email || email.to || email.lead || "",
       is_unread: Boolean(email.is_unread),
-      email_type: email.email_type || email.type || '',
-      body_preview: email.body_preview || email.preview || email.snippet || '',
+      email_type: email.email_type || email.type || "",
+      body_preview: email.body_preview || email.preview || email.snippet || "",
       created_at: email.created_at || email.createdAt || email.date || null,
       raw: email,
     }));
 
     return {
-      status: 'completed',
+      status: "completed",
       count: emails.length,
       emails,
+    };
+  },
+
+  async instantly_register_webhook(params, companyId) {
+    const target =
+      instantlyPublicWebhookUrl(params.target_hook_url) ||
+      String(params.target_hook_url || "").trim();
+    if (!target) {
+      return {
+        status: "error",
+        error:
+          "target_hook_url is required (set PUBLIC_BASE_URL so Marqq can register /api/webhooks/instantly)",
+      };
+    }
+
+    const res = await executeComposioAction(
+      "INSTANTLY_CREATE_WEBHOOK",
+      {
+        target_hook_url: target,
+        event_type: params.event_type || "all_events",
+        ...(params.campaign_id ? { campaign: params.campaign_id } : {}),
+      },
+      companyId
+    );
+
+    if (res.error) {
+      return { status: "error", error: `Instantly webhook register failed: ${res.error}` };
+    }
+
+    const webhookId =
+      res.result?.id || res.result?.webhook_id || res.result?.data?.id || null;
+
+    return {
+      status: "completed",
+      webhook_id: webhookId,
+      target_hook_url: target,
+      event_type: params.event_type || "all_events",
+      campaign_id: params.campaign_id || null,
+      result: res.result || null,
+    };
+  },
+
+  async instantly_create_subsequence(params, companyId) {
+    const campaignId = params.campaign_id || params.parent_campaign;
+    const subject = params.subject;
+    const body = params.body;
+    if (!campaignId) return { status: "error", error: "campaign_id is required" };
+    if (!subject || !body) return { status: "error", error: "subject and body are required" };
+
+    const timezone = params.timezone || "Asia/Kolkata";
+    const crmStatus = params.crm_status != null ? Number(params.crm_status) : 1;
+
+    const res = await executeComposioAction(
+      "INSTANTLY_CREATE_SUBSEQUENCE",
+      {
+        name: params.name || "Interested follow-up",
+        parent_campaign: campaignId,
+        conditions: { crm_status: [crmStatus] },
+        sequences: instantlyBuildSequences([
+          { subject, body, delay_days: 0 },
+        ]),
+        subsequence_schedule: instantlyDefaultSchedule(timezone),
+      },
+      companyId
+    );
+
+    if (res.error) {
+      return {
+        status: "error",
+        error: `Instantly subsequence create failed: ${res.error}`,
+        campaign_id: String(campaignId),
+      };
+    }
+
+    const subsequenceId =
+      res.result?.id || res.result?.subsequence_id || res.result?.data?.id || null;
+
+    return {
+      status: "completed",
+      subsequence_id: subsequenceId,
+      campaign_id: String(campaignId),
+      crm_status: crmStatus,
+      result: res.result || null,
+    };
+  },
+
+  async instantly_verify_email(params, companyId) {
+    const email = String(params.email || "").trim();
+    if (!email) return { status: "error", error: "email is required" };
+
+    const res = await executeComposioAction("INSTANTLY_VERIFY_EMAIL", { email }, companyId);
+    if (res.error) {
+      return { status: "error", error: `Instantly verify failed: ${res.error}`, email };
+    }
+    return {
+      status: "completed",
+      email,
+      verification: res.result?.data || res.result || null,
+    };
+  },
+
+  async instantly_update_lead_interest(params, companyId) {
+    const leadEmail = String(params.lead_email || params.email || "").trim();
+    if (!leadEmail) return { status: "error", error: "lead_email is required" };
+    if (params.interest_value == null || params.interest_value === "") {
+      return { status: "error", error: "interest_value is required" };
+    }
+
+    const res = await executeComposioAction(
+      "INSTANTLY_UPDATE_LEAD_INTEREST_STATUS",
+      {
+        lead_email: leadEmail,
+        interest_value: String(params.interest_value),
+        ...(params.campaign_id ? { campaign_id: params.campaign_id } : {}),
+        ...(params.list_id ? { list_id: params.list_id } : {}),
+      },
+      companyId
+    );
+
+    if (res.error) {
+      return {
+        status: "error",
+        error: `Instantly interest update failed: ${res.error}`,
+        lead_email: leadEmail,
+      };
+    }
+
+    return {
+      status: "completed",
+      lead_email: leadEmail,
+      interest_value: params.interest_value,
+      result: res.result || null,
+    };
+  },
+
+  async instantly_mark_thread_read(params, companyId) {
+    const threadId = params.thread_id || params.id;
+    if (!threadId) return { status: "error", error: "thread_id is required" };
+
+    const res = await executeComposioAction(
+      "INSTANTLY_MARK_THREAD_AS_READ",
+      { thread_id: threadId },
+      companyId
+    );
+
+    if (res.error) {
+      return {
+        status: "error",
+        error: `Instantly mark thread read failed: ${res.error}`,
+        thread_id: String(threadId),
+      };
+    }
+
+    return {
+      status: "completed",
+      thread_id: String(threadId),
+      action: "marked_read",
+      result: res.result || null,
     };
   },
 

@@ -1178,8 +1178,9 @@ function buildAgentRunGuardrails(name, taskType) {
       "Ground profiles in connected analytics/CRM tools before guessing segment volumes.",
     ],
     lead_outreach: [
-      "Execute outreach prep with tools in order: prospect/enrich → CRM context → Instantly campaign / Gmail draft save.",
-      "Default delivery is draft-in-tool: create Instantly campaigns/leads and Gmail drafts. Only live-send when delivery_mode is live / user explicitly asks to push live.",
+      "Execute outreach prep with tools in order: Instantly LIST_ACCOUNTS → CREATE_CAMPAIGN (sequences+schedule) → ADD_LEADS_BULK → CREATE_WEBHOOK → optional CREATE_SUBSEQUENCE → ACTIVATE only when delivery_mode is live.",
+      "Default delivery is draft-in-tool: create Instantly campaigns/leads and Gmail drafts. Only live-send / ACTIVATE when delivery_mode is live / user explicitly asks to push live.",
+      "Prefer INSTANTLY_ADD_LEADS_BULK over per-lead CREATE_LEAD. Prefer Instantly sender email_list from LIST_ACCOUNTS — never invent sender addresses.",
       "Never use Apollo to search for consumer traits, private individuals, patient cohorts, health conditions, demographics, or other sensitive personal attributes. Apollo outreach is only valid for B2B/company/professional-buyer cohorts.",
       "If the input cohort is B2C, consumer, patient, user, or demographic-based, state that outreach/Apollo is the wrong acquisition channel and recommend paid ads, content, social, creators, communities, SEO, or landing pages instead.",
     ],
@@ -1284,7 +1285,8 @@ const LIVE_SEND_TOOLS = new Set([
   "SLACK_SENDS_A_MESSAGE", "SLACK_SEND_MESSAGE",
   "WHATSAPP_SEND_MESSAGE",
   "HUBSPOT_CREATE_ENGAGEMENT",
-  "INSTANTLY_SEND_EMAIL",
+  "INSTANTLY_ACTIVATE_CAMPAIGN",
+  "INSTANTLY_RESUME_SUBSEQUENCE",
   "LEMLIST_SEND_EMAIL",
 ]);
 
