@@ -92,6 +92,7 @@ export function GtmModuleWizard({
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const lockCtaRef = useRef<HTMLDivElement | null>(null);
 
   const [phase, setPhase] = useState<WizardPhase>('prep');
   const [prepMessage, setPrepMessage] = useState('Preparing your GTM brief…');
@@ -121,6 +122,13 @@ export function GtmModuleWizard({
     () => questions.length > 0 && sectionAnswersComplete(questions, answers),
     [questions, answers]
   );
+  /** Only after the last question is answered — never while mid-section */
+  const awaitingLock =
+    phase === 'interview' &&
+    canLock &&
+    questions.length > 0 &&
+    questionIndex >= questions.length - 1 &&
+    Boolean(answers[questions[questions.length - 1]?.id]);
 
   const pushChat = useCallback((line: Omit<ChatLine, 'id'> & { id?: string }) => {
     setChat((prev) => {
@@ -136,6 +144,14 @@ export function GtmModuleWizard({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [chat, questions, questionIndex, executeOptions]);
+
+  useEffect(() => {
+    if (!awaitingLock) return;
+    const id = window.requestAnimationFrame(() => {
+      lockCtaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [awaitingLock, sectionId]);
 
   const loadQuestionsFor = useCallback(
     async (mod: GtmModule, nextSection: string) => {
@@ -698,7 +714,13 @@ export function GtmModuleWizard({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <div ref={scrollRef} className="h-[280px] space-y-3 overflow-y-auto rounded-md border p-3">
+        <div
+          ref={scrollRef}
+          className={cn(
+            'space-y-3 overflow-y-auto rounded-md border p-3',
+            awaitingLock ? 'max-h-[160px]' : 'h-[220px]'
+          )}
+        >
           {chat.map((line) => (
             <div
               key={line.id}
@@ -717,7 +739,36 @@ export function GtmModuleWizard({
           )}
         </div>
 
-        {phase === 'interview' && currentQuestion && (
+        {phase === 'interview' && awaitingLock && (
+          <div
+            ref={lockCtaRef}
+            className="sticky bottom-0 z-10 space-y-3 rounded-lg border border-foreground/15 bg-background/95 p-3 shadow-sm backdrop-blur"
+          >
+            <div>
+              <p className="text-sm font-medium">{sectionTitle} complete</p>
+              <p className="text-sm text-muted-foreground">
+                Lock this section to continue — you can unlock later if you need to edit.
+              </p>
+            </div>
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {questions.map((q) => (
+                <li key={q.id} className="truncate">
+                  <span className="font-medium text-foreground">{answers[q.id]?.label || '—'}</span>
+                </li>
+              ))}
+            </ul>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={busy || !canLock}
+              onClick={() => void handleLock()}
+            >
+              Lock {sectionTitle || 'section'}
+            </Button>
+          </div>
+        )}
+
+        {phase === 'interview' && currentQuestion && !awaitingLock && (
           <div className="space-y-3">
             <div>
               <p className="text-sm font-medium">
@@ -797,14 +848,6 @@ export function GtmModuleWizard({
                 Continue with selected
               </Button>
             ) : null}
-            <Button
-              type="button"
-              className="w-full"
-              disabled={busy || !canLock}
-              onClick={() => void handleLock()}
-            >
-              Lock {sectionTitle || 'section'}
-            </Button>
           </div>
         )}
 

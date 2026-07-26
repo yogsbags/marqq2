@@ -558,40 +558,46 @@ function fallbackOptions(question, sourceContext, profile) {
     ],
     positioning_statement: [
       {
-        value: `For ${icp} who need faster GTM execution, ${company} is an AI marketing OS that ships campaigns without an agency.`,
-        label: `For ${icp} who need faster GTM execution, ${company} is an AI marketing OS that ships campaigns without an agency.`,
+        value: `For ${icp} who need a better way to get results, ${company} is a ${industry} solution that delivers clearer outcomes without the usual friction.`,
+        label: `For ${icp} who need a better way to get results, ${company} is a ${industry} solution that delivers clearer outcomes without the usual friction.`,
         recommended: true,
       },
       {
-        value: positioning.slice(0, 160),
-        label: positioning.slice(0, 160),
+        value:
+          typeof crawl.positioning?.value === "string" && String(crawl.positioning.value).length > 48
+            ? String(crawl.positioning.value).slice(0, 220)
+            : `For ${icp} who are underserved by generic alternatives, ${company} is the ${industry} option that makes the hard part simple.`,
+        label:
+          typeof crawl.positioning?.value === "string" && String(crawl.positioning.value).length > 48
+            ? String(crawl.positioning.value).slice(0, 220)
+            : `For ${icp} who are underserved by generic alternatives, ${company} is the ${industry} option that makes the hard part simple.`,
       },
       {
-        value: `${company} is the autonomous GTM layer for ${industry} teams that outgrew spreadsheets and retainers.`,
-        label: `${company} is the autonomous GTM layer for ${industry} teams that outgrew spreadsheets and retainers.`,
+        value: `For buyers comparing crowded ${industry} options, ${company} is the choice that wins on clarity, proof, and speed to value.`,
+        label: `For buyers comparing crowded ${industry} options, ${company} is the choice that wins on clarity, proof, and speed to value.`,
       },
       {
-        value: `The only marketing platform that remembers your company context and compounds outcomes over time.`,
-        label: `The only marketing platform that remembers your company context and compounds outcomes over time.`,
+        value: `For ${icp} who cannot afford guesswork, ${company} is a focused ${industry} product that turns intent into measurable progress.`,
+        label: `For ${icp} who cannot afford guesswork, ${company} is a focused ${industry} product that turns intent into measurable progress.`,
       },
     ],
     elevator_pitch: [
       {
-        value: `${company} helps ${icp} run GTM with AI agents so they get pipeline without hiring a full marketing team.`,
-        label: `${company} helps ${icp} run GTM with AI agents so they get pipeline without hiring a full marketing team.`,
+        value: `${company} helps ${icp} get better ${industry} outcomes faster — without the usual complexity, delay, or generic advice.`,
+        label: `${company} helps ${icp} get better ${industry} outcomes faster — without the usual complexity, delay, or generic advice.`,
         recommended: true,
       },
       {
-        value: `We replace fragmented tools and agency retainers with one multi-agent marketing OS built around your brand DNA.`,
-        label: `We replace fragmented tools and agency retainers with one multi-agent marketing OS built around your brand DNA.`,
+        value: `Most options in ${industry} are noisy and generic. ${company} is built around ${icp}, so every recommendation feels relevant from day one.`,
+        label: `Most options in ${industry} are noisy and generic. ${company} is built around ${icp}, so every recommendation feels relevant from day one.`,
       },
       {
-        value: `In 30 seconds: upload your context, lock your GTM answers, and agents brief, create, and outreach for you.`,
-        label: `In 30 seconds: upload your context, lock your GTM answers, and agents brief, create, and outreach for you.`,
+        value: `In thirty seconds: ${company} takes your context, focuses on what matters for ${icp}, and turns it into clear next steps.`,
+        label: `In thirty seconds: ${company} takes your context, focuses on what matters for ${icp}, and turns it into clear next steps.`,
       },
       {
-        value: `Think of us as an always-on marketing team that learns your ICP and improves every campaign.`,
-        label: `Think of us as an always-on marketing team that learns your ICP and improves every campaign.`,
+        value: `Think of ${company} as the ${industry} partner that removes guesswork and compounds results over time.`,
+        label: `Think of ${company} as the ${industry} partner that removes guesswork and compounds results over time.`,
       },
     ],
   };
@@ -607,24 +613,81 @@ function fallbackOptions(question, sourceContext, profile) {
   ];
 }
 
+function optionLabelLimit(questionId) {
+  if (
+    questionId === "positioning_statement" ||
+    questionId === "elevator_pitch" ||
+    questionId === "one_liner"
+  ) {
+    return 220;
+  }
+  return 120;
+}
+
+function optionsLookValid(questionId, options) {
+  if (!Array.isArray(options) || options.length < 4) return false;
+  if (questionId === "positioning_statement") {
+    // Reject feature-name chips ("Personalized Nutrition") — need full statements
+    return options.every((o) => {
+      const label = String(o.label || "").trim();
+      return (
+        label.length >= 48 &&
+        /\b(for|who|is|that|helps|enables)\b/i.test(label)
+      );
+    });
+  }
+  if (questionId === "elevator_pitch") {
+    return options.every((o) => String(o.label || "").trim().length >= 40);
+  }
+  return true;
+}
+
+function questionOptionGuidance(question) {
+  const id = question.id;
+  const guides = {
+    positioning_statement: `Each option MUST be a full positioning statement in this shape:
+"For [target buyer] who [need/problem], [product] is a [category] that [key benefit]."
+Do NOT output product features, feature names, category chips, or short titles.
+Example: "For busy professionals managing chronic conditions who need personalized guidance, Acme is a clinical nutrition app that turns lab reports into daily food decisions."`,
+    elevator_pitch: `Each option MUST be a spoken 1–3 sentence elevator pitch (20–30 seconds).
+Do NOT output feature lists or short product names.`,
+    differentiation: `Each option is a sharp point of difference vs alternatives — a benefit claim, not a feature name alone.`,
+    one_liner: `Each option is a single sentence product one-liner.`,
+    icp: `Each option names a concrete ideal customer segment.`,
+    persona: `Each option is a buyer persona / role title.`,
+    jtbd: `Each option is a job-to-be-done the buyer hires the product for.`,
+    competitors: `Each option is a competitor brand, category alternative, or status-quo substitute.`,
+    proof: `Each option is a proof asset or trust signal usable in sales.`,
+  };
+  return guides[id] || "Options must directly answer the question. No unrelated feature lists.";
+}
+
 async function generateOptionsForQuestion(groq, question, sourceContext, profile) {
   if (Array.isArray(question.fixedOptions) && question.fixedOptions.length === 4) {
     return question.fixedOptions;
   }
 
-  const system = `You generate exactly 4 concise multiple-choice options for a GTM onboarding question.
-Return JSON only: {"options":[{"value":"snake_or_short","label":"Human label","recommended":true|false}]}
+  const labelMax = optionLabelLimit(question.id);
+  const system = `You generate exactly 4 multiple-choice options for a GTM interview question.
+Return JSON only: {"options":[{"value":"short_slug","label":"Human-readable option text","recommended":true|false}]}
 Rules:
 - Exactly 4 options
-- One recommended:true max
-- Prefer language from onboarding + website crawl context
-- Labels under 100 chars
-- No markdown`;
+- At most one recommended:true
+- Prefer language grounded in onboarding + website crawl + locked profile
+- Labels max ${labelMax} characters
+- value is a short slug; label is what the user reads
+- No markdown
+- CRITICAL: answer THIS question only — do not reuse product feature names unless the question asks for features
+${questionOptionGuidance(question)}`;
 
   const user = JSON.stringify({
     question: question.question,
+    helperText: question.helperText || "",
     questionId: question.id,
-    sourceContext,
+    sourceContext: {
+      onboarding: sourceContext?.onboarding || {},
+      crawlDigest: sourceContext?.crawlDigest || {},
+    },
     lockedProfile: profile,
   });
 
@@ -635,8 +698,8 @@ Rules:
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0.4,
-      max_tokens: 600,
+      temperature: 0.35,
+      max_tokens: 900,
     });
     const raw = completion.choices?.[0]?.message?.content || "";
     const parsed = parseJsonLoose(raw);
@@ -644,11 +707,11 @@ Rules:
     const cleaned = options
       .map((o, i) => ({
         value: String(o.value || `opt_${i + 1}`).slice(0, 80),
-        label: String(o.label || o.value || `Option ${i + 1}`).slice(0, 120),
+        label: String(o.label || o.value || `Option ${i + 1}`).slice(0, labelMax),
         recommended: Boolean(o.recommended),
       }))
       .filter((o) => o.label.trim());
-    if (cleaned.length >= 4) {
+    if (cleaned.length >= 4 && optionsLookValid(question.id, cleaned)) {
       const four = cleaned.slice(0, 4);
       if (!four.some((o) => o.recommended)) four[0].recommended = true;
       return four;

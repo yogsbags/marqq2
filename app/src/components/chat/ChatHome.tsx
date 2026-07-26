@@ -3446,7 +3446,7 @@ export function ChatHome({
         </div>
 
         {showGtmWizard && scope === 'main' && (
-          <div className="border-b border-border/70 px-4 py-4">
+          <div className="min-h-0 max-h-[min(70vh,760px)] shrink overflow-y-auto border-b border-border/70 px-4 py-4">
             <GtmModuleWizard
               onDeployAgent={(req: GtmDeployRequest) => {
                 try {
