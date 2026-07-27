@@ -690,7 +690,7 @@ export function AccountsTab() {
       )}
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : connectors.length === 0 ? (
+      ) : !activeWorkspace ? null : connectors.length === 0 ? (
         <p className="text-sm text-muted-foreground">No integrations available.</p>
       ) : (
         <div className="space-y-6">
