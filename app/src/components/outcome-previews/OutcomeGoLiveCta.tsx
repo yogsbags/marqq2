@@ -24,6 +24,12 @@ export type OutcomeLiveKind =
   | 'blog'
   | 'landing_page'
   | 'paid_ads'
+  | 'voicebot'
+  | 'crm_push'
+  | 'crm_task'
+  | 'sheets_push'
+  | 'drive_save'
+  | 'drive_share'
 
 type LiveSpec = {
   /** Any-of: at least one must be connected */
@@ -89,6 +95,37 @@ const LIVE_SPECS: Record<OutcomeLiveKind, LiveSpec> = {
     anyOf: ['meta_ads', 'google_ads', 'linkedin_ads'],
     liveAction: 'Go live on paid ads',
     outcomeNoun: 'paid campaign',
+  },
+  voicebot: {
+    // Twilio + Sarvam are env-configured (not Composio OAuth)
+    anyOf: [],
+    liveAction: 'Place voice calls',
+    outcomeNoun: 'voice calls',
+  },
+  crm_push: {
+    anyOf: ['hubspot', 'zoho_crm'],
+    liveAction: 'Push to CRM',
+    outcomeNoun: 'CRM record',
+  },
+  crm_task: {
+    anyOf: ['hubspot', 'zoho_crm'],
+    liveAction: 'Create CRM task',
+    outcomeNoun: 'CRM task',
+  },
+  sheets_push: {
+    anyOf: ['google_sheets'],
+    liveAction: 'Push to Sheet',
+    outcomeNoun: 'Google Sheet row',
+  },
+  drive_save: {
+    anyOf: ['google_drive'],
+    liveAction: 'Save to Drive',
+    outcomeNoun: 'Drive file',
+  },
+  drive_share: {
+    anyOf: ['google_drive'],
+    liveAction: 'Share Drive link',
+    outcomeNoun: 'shared Drive file',
   },
 }
 
@@ -236,7 +273,7 @@ export function OutcomeGoLiveCta({
   const missing = missingForSpec(spec, connected)
   const ready = isReady(spec, connected)
   const publisherChoices =
-    kind === 'blog' || kind === 'landing_page' || kind === 'newsletter'
+    kind === 'blog' || kind === 'landing_page' || kind === 'newsletter' || kind === 'crm_push' || kind === 'crm_task'
       ? spec.anyOf.filter((id) => connected.has(id))
       : []
   const [cmsPublisher, setCmsPublisher] = useState<string | undefined>(preferredConnector)
@@ -349,7 +386,13 @@ export function OutcomeGoLiveCta({
           <div>
             <p className="text-sm font-semibold text-foreground">Make it live</p>
             <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-              This is still a draft. Connect {missing.map(connectorLabel).join(' or ')}, then click {spec.liveAction} — nothing publishes until you do.
+              {kind === 'crm_push' || kind === 'crm_task'
+                ? 'Connect HubSpot or Zoho CRM, then click the action — nothing syncs until you do.'
+                : kind === 'sheets_push'
+                  ? 'Connect Google Sheets, then click Push to Sheet — nothing writes until you do.'
+                  : kind === 'drive_save' || kind === 'drive_share'
+                    ? 'Connect Google Drive, then click the action — nothing uploads or shares until you do.'
+                : `This is still a draft. Connect ${missing.map(connectorLabel).join(' or ')}, then click ${spec.liveAction} — nothing publishes until you do.`}
             </p>
           </div>
         </div>

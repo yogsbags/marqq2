@@ -13,7 +13,7 @@ export type PinnedChannel = {
 };
 
 // Module IDs that are ALWAYS shown statically — never stored in pinnedChannels
-export const STATIC_CHANNEL_IDS = new Set(['home', 'main', 'performance-scorecard', 'calendar']);
+export const STATIC_CHANNEL_IDS = new Set(['home', 'main', 'performance-scorecard', 'crm', 'calendar']);
 
 // Non-channel module IDs that should never be pinned as channels
 export const NON_CHANNEL_IDS = new Set([
@@ -74,6 +74,7 @@ export function moduleIdToChannelTitle(moduleId: string): string {
     'action-plan':           'action-plan',
     'cro-audit':             'cro-audit',
     'performance-scorecard': 'performance',
+    'crm':                   'crm',
   };
   return OVERRIDES[moduleId] ?? moduleId.replace(/-+/g, '-').slice(0, 16);
 }

@@ -99,6 +99,16 @@ export const dashboardData: DashboardData = {
       ],
     },
     {
+      id: 'crm',
+      name: 'CRM',
+      color: '#FF7A59',
+      metrics: [
+        { label: 'Contacts', value: '—', change: 0 },
+        { label: 'Connectors', value: 'HubSpot · Zoho', change: 0 },
+        { label: 'Voice sync', value: 'Push to CRM', change: 0 },
+      ],
+    },
+    {
       id: 'unified-customer-view',
       name: 'Unified Customer View',
       color: '#EC4899',

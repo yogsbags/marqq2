@@ -551,7 +551,7 @@ export const REGISTRY = [
     params_schema: {
       campaign_name: "Campaign name",
       script_hint: "Opening line or call objective",
-      leads: "Array of { phone, name, company, email }",
+      leads: "Array of { phone, name, company, email, opening_line? } — per-lead opening_line preferred",
       language: "en | hi",
       gender: "female | male",
     },
@@ -3393,6 +3393,17 @@ const directApiHandlers = {
     } = params;
 
     const normalizePhone = (value) => String(value || '').replace(/[^\d+]/g, '');
+    const personalize = (template, lead) => {
+      const fullName = String(lead.name || lead.full_name || '').trim();
+      const firstName = String(lead.first_name || fullName.split(/\s+/)[0] || 'there').trim();
+      const company = String(lead.company || lead.company_name || 'your company').trim();
+      return String(template || '')
+        .replace(/\{\{\s*first_name\s*\}\}/gi, firstName)
+        .replace(/\{\{\s*full_name\s*\}\}/gi, fullName || firstName)
+        .replace(/\{\{\s*company\s*\}\}/gi, company)
+        .replace(/\{\{\s*company_name\s*\}\}/gi, company);
+    };
+
     const validLeads = leads
       .map((lead) => ({
         ...lead,
@@ -3411,6 +3422,10 @@ const directApiHandlers = {
 
     for (const lead of validLeads.slice(0, 100)) {
       try {
+        const openingLine = personalize(
+          lead.opening_line || lead.openingLine || lead.script_hint || lead.script || script_hint,
+          lead,
+        );
         const response = await fetch(`${baseUrl}/api/voicebot/twilio/calls`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3423,7 +3438,10 @@ const directApiHandlers = {
             leadEmail: lead.email || '',
             language,
             gender,
-            openingLine: script_hint,
+            openingLine,
+            // Prospect context for dialogue / KB grounding on the call
+            leadCompany: lead.company || lead.company_name || '',
+            leadTitle: lead.title || lead.designation || lead.personalization || '',
           }),
         });
 
@@ -3432,6 +3450,7 @@ const directApiHandlers = {
           failedCount += 1;
           calls.push({
             phone: lead.phone,
+            name: lead.name || lead.full_name || null,
             status: 'failed',
             error: json?.error || `Voicebot call failed with ${response.status}`,
           });
@@ -3441,14 +3460,17 @@ const directApiHandlers = {
         queuedCount += 1;
         calls.push({
           phone: lead.phone,
+          name: lead.name || lead.full_name || null,
           status: 'queued',
           sid: json?.sid || null,
           to: json?.to || lead.phone,
+          opening_line: openingLine,
         });
       } catch (error) {
         failedCount += 1;
         calls.push({
           phone: lead.phone,
+          name: lead.name || lead.full_name || null,
           status: 'failed',
           error: String(error),
         });

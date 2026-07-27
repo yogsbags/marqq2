@@ -23,7 +23,7 @@ import { AgentRunPanel } from '@/components/agent/AgentRunPanel'
 import { OfferSelector, type Offer } from '@/components/agent/OfferSelector'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
-import { EmailClientPreview, WhatsAppDmPreview, OutcomeGoLiveCta } from '@/components/outcome-previews'
+import { EmailClientPreview, WhatsAppDmPreview, VoiceCallPreview, OutcomeGoLiveCta } from '@/components/outcome-previews'
 import * as XLSX from 'xlsx'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1445,6 +1445,13 @@ function OutreachTab({
 
   const requiresSubject = channel === 'email'
   const isCopyReady = Boolean(body.trim()) && (!requiresSubject || Boolean(subject.trim()))
+  const phoneReadyLeads = leads.filter((l) => Boolean(l.phone_e164))
+  const previewLead = phoneReadyLeads[0] || leads[0]
+  const personalizedPreviewScript = body
+    .replace(/\{\{\s*first_name\s*\}\}/gi, previewLead?.full_name?.split(/\s+/)[0] || 'there')
+    .replace(/\{\{\s*full_name\s*\}\}/gi, previewLead?.full_name || 'there')
+    .replace(/\{\{\s*company\s*\}\}/gi, previewLead?.company || 'your company')
+    .replace(/\{\{\s*company_name\s*\}\}/gi, previewLead?.company || 'your company')
 
   const handleGenerateDraft = async () => {
     if (!leads.length) {
@@ -1697,25 +1704,41 @@ function OutreachTab({
   }
 
   const handleVoicebotOutreach = async () => {
-    if (!leads.length) { toast.error('Use the current lead set or import leads before launching outreach'); return }
-    if (!body.trim()) { toast.error('Call opening line required'); return }
-    if (!copyApproved) { toast.error('Approve the offer copy before launch'); return }
+    const phoneLeads = leads
+      .map((l) => ({
+        phone: l.phone_e164,
+        name: l.full_name,
+        full_name: l.full_name,
+        first_name: l.full_name?.split(/\s+/)[0] || '',
+        company: l.company,
+        email: l.email || l.email_norm,
+        title: l.designation || '',
+        designation: l.designation || '',
+        personalization: `${l.designation || ''} at ${l.company || ''}`.trim(),
+        opening_line: body,
+      }))
+      .filter((l) => l.phone)
+
+    if (!phoneLeads.length) {
+      toast.error('No leads with phone numbers in the current set. Route phone-ready leads or enrich phones first.')
+      return
+    }
+    if (!body.trim()) { toast.error('Confirm the voice script before placing calls'); return }
+    if (!copyApproved) { toast.error('Approve the voice script before launch'); return }
 
     setLaunching(true); setResult(null)
     try {
       const res = await apiAutomation('voicebot_campaign_launch', {
         campaign_name: campaignName,
         script_hint: body,
-        leads: leads.slice(0, 100).map(l => ({
-          phone: l.phone_e164,
-          name: l.full_name,
-          company: l.company,
-          email: l.email || l.email_norm,
-        })).filter(l => l.phone),
+        language: 'en',
+        gender: 'female',
+        leads: phoneLeads.slice(0, 100),
       }, companyId)
       setResult(res)
       onStageComplete('outreach')
-      toast.success('Voicebot campaign queued!')
+      const queued = Number((res as { queued_count?: number }).queued_count || 0)
+      toast.success(queued > 0 ? `Queued ${queued} Sarvam voice calls` : 'Voicebot campaign processed')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Launch failed'
       setResult({ status: 'error', error: msg })
@@ -1768,14 +1791,15 @@ function OutreachTab({
           onClick: useCurrentLeadSet,
         } : undefined}
         primaryAction={{
-          label: channel === 'email' ? 'Launch Email Campaign' : channel === 'linkedin' ? 'Launch LinkedIn Campaign' : channel === 'voicebot' ? 'Launch Voicebot Campaign' : 'Launch WhatsApp Outreach',
+          label: channel === 'email' ? 'Launch Email Campaign' : channel === 'linkedin' ? 'Launch LinkedIn Campaign' : channel === 'voicebot' ? 'Place voice calls' : 'Launch WhatsApp Outreach',
           onClick: handleLaunch,
           disabled:
             launching ||
             !leads.length ||
             !copyApproved ||
             !isCopyReady ||
-            (channel === 'email' && !instantlyConnected),
+            (channel === 'email' && !instantlyConnected) ||
+            (channel === 'voicebot' && phoneReadyLeads.length === 0),
         }}
       />
       {channel === 'email' && !instantlyConnected ? (
@@ -1934,6 +1958,45 @@ function OutreachTab({
               />
             )}
 
+            {channel === 'voicebot' && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                  <Badge variant="outline" className="text-[10px]">
+                    {phoneReadyLeads.length} / {leads.length} with phone
+                  </Badge>
+                  <span>Script is personalized per lead at dial time (&#123;&#123;first_name&#125;&#125;, &#123;&#123;company&#125;&#125;).</span>
+                </div>
+                {phoneReadyLeads.length === 0 ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+                    No phone numbers in this lead set. Enrich phones or adopt routed voicebot-ready leads before placing calls.
+                  </div>
+                ) : (
+                  <VoiceCallPreview
+                    prospectName={previewLead?.full_name || 'Prospect'}
+                    title={previewLead?.designation}
+                    company={previewLead?.company}
+                    phone={previewLead?.phone_e164}
+                    email={previewLead?.email || previewLead?.email_norm}
+                    script={body}
+                    status={copyApproved ? 'confirmed' : 'draft'}
+                    editable
+                    onScriptChange={(v) => { setBody(v); setCopyApproved(false); setDraftSource('manual') }}
+                    signals={[
+                      previewLead?.designation && previewLead?.company
+                        ? `${previewLead.designation} at ${previewLead.company}`
+                        : '',
+                      previewLead?.city ? `Location: ${previewLead.city}${previewLead.state ? `, ${previewLead.state}` : ''}` : '',
+                      selectedOffer?.name ? `Offer: ${selectedOffer.name}` : offerName ? `Offer: ${offerName}` : '',
+                      previewLead?.full_name
+                        ? `Spoken preview: ${personalizedPreviewScript.slice(0, 120)}${personalizedPreviewScript.length > 120 ? '…' : ''}`
+                        : '',
+                      `Campaign: ${campaignName}`,
+                    ].filter(Boolean) as string[]}
+                  />
+                )}
+              </div>
+            )}
+
             {channel === 'linkedin' && (
               <div className="space-y-1">
                 <Label className="text-xs">LinkedIn Launch Provider</Label>
@@ -1949,17 +2012,13 @@ function OutreachTab({
               </div>
             )}
 
-            {(channel === 'linkedin' || channel === 'voicebot') && (
+            {channel === 'linkedin' && (
             <div className="space-y-1"><Label className="text-xs">
-              {channel === 'linkedin'
-                  ? `Connection Message (use {{first_name}}, {{company}})`
-                  : 'Voicebot Opening Line'}
+                  Connection Message (use {'{{first_name}}'}, {'{{company}}'})
             </Label>
               <textarea
                 className="w-full text-xs border rounded p-2 h-28 resize-none bg-background"
-                placeholder={channel === 'linkedin'
-                    ? 'Hi {{first_name}}, impressed by what you are building at {{company}}...'
-                      : `Hi {{first_name}}, this is ${workspaceName} calling because {{company}} may be a fit for our outreach automation workflows...`}
+                placeholder="Hi {{first_name}}, impressed by what you are building at {{company}}..."
                 value={body} onChange={e => { setBody(e.target.value); setCopyApproved(false); setDraftSource('manual') }}
               />
             </div>
@@ -2005,19 +2064,28 @@ function OutreachTab({
               </div>
             )}
 
-            {(channel === 'email' || channel === 'whatsapp') && (
+            {(channel === 'email' || channel === 'whatsapp' || channel === 'voicebot') && (
               <OutcomeGoLiveCta
-                kind={channel === 'email' ? 'email' : 'whatsapp'}
+                kind={channel === 'email' ? 'email' : channel === 'whatsapp' ? 'whatsapp' : 'voicebot'}
                 workspaceId={companyId}
-                goLiveDisabled={launching || !leads.length || !copyApproved || !isCopyReady}
+                goLiveDisabled={
+                  launching ||
+                  !leads.length ||
+                  !copyApproved ||
+                  !isCopyReady ||
+                  (channel === 'voicebot' && phoneReadyLeads.length === 0)
+                }
+                liveActionLabel={channel === 'voicebot' ? 'Place voice calls' : undefined}
                 onGoLive={() => handleLaunch()}
               />
             )}
 
+            {channel !== 'voicebot' && (
             <Button className="h-9 w-full text-xs shadow-sm" onClick={handleLaunch} disabled={launching || !leads.length || !copyApproved || !isCopyReady}>
               {launching ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Send className="h-3 w-3 mr-1" />}
-              Launch {channel === 'email' ? 'Email Campaign' : channel === 'linkedin' ? 'LinkedIn Campaign' : channel === 'voicebot' ? 'Voicebot Campaign' : 'WhatsApp Outreach'}
+              Launch {channel === 'email' ? 'Email Campaign' : channel === 'linkedin' ? 'LinkedIn Campaign' : 'WhatsApp Outreach'}
             </Button>
+            )}
 
             {result && (
               <div className={cn('p-3 rounded border text-xs', result.status === 'error' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700')}>
@@ -2029,6 +2097,19 @@ function OutreachTab({
                       {typeof result.leads_added === 'number' && <div>{result.leads_added} leads queued</div>}
                       {typeof result.sent_count === 'number' && <div>{result.sent_count} messages sent</div>}
                       {(result as { queued_count?: number }).queued_count != null && <div>{(result as { queued_count?: number }).queued_count} calls queued</div>}
+                      {channel === 'voicebot' && Array.isArray((result as { calls?: Array<{ phone?: string; name?: string; status?: string; sid?: string; error?: string }> }).calls) && (
+                        <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-green-200/70 bg-white/80 p-2 text-foreground dark:border-green-900/30 dark:bg-background/40">
+                          {((result as { calls: Array<{ phone?: string; name?: string; status?: string; sid?: string; error?: string }> }).calls || []).slice(0, 20).map((call, idx) => (
+                            <div key={`${call.phone || 'call'}-${idx}`} className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="truncate">{call.name || call.phone || 'Lead'}</span>
+                              <span className="shrink-0 text-muted-foreground">{call.status}{call.sid ? ` · ${call.sid}` : ''}{call.error ? ` · ${call.error}` : ''}</span>
+                            </div>
+                          ))}
+                          <p className="pt-1 text-[10px] text-muted-foreground">
+                            After each call ends, Marqq summarizes the conversation and scores the lead (shown in Voice Campaign monitor).
+                          </p>
+                        </div>
+                      )}
                       {channel === 'email' && result.campaign_id && (
                         <div className="mt-2 rounded border border-green-200/70 bg-white/70 p-2 text-foreground dark:border-green-900/30 dark:bg-background/40">
                           <div className="flex items-center justify-between gap-2">
@@ -2515,8 +2596,12 @@ function RoutingTab({
           leads: channelLeads.map(l => ({
             phone: l.phone,
             name: l.full_name || '',
+            full_name: l.full_name || '',
+            first_name: l.full_name?.split(/\s+/)[0] || '',
             company: l.company || '',
             email: l.email || '',
+            title: (l as RoutedLead & { designation?: string }).designation || '',
+            opening_line: undefined,
           })).filter(l => l.phone),
         }, companyId)
       } else {

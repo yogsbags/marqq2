@@ -2,12 +2,12 @@
  * Outcome previews — render drafts as the finished artifact
  * (email client, IG/LI/FB post, WhatsApp DM, CRM list, inline browser).
  */
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import {
   Heart, MessageCircle, Send, Bookmark, MoreHorizontal,
   ThumbsUp, Repeat2, Share2, Lock, ArrowLeft, Phone, Video,
-  Search, Paperclip, Smile, CheckCheck, Globe, RefreshCw,
+  Search, Paperclip, Smile, CheckCheck, Globe, RefreshCw, Volume2,
 } from 'lucide-react'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -360,6 +360,249 @@ export function SocialPostPreview({
             {label}
           </button>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Voice call (Twilio + Sarvam) ────────────────────────────────────────────
+
+export type VoiceCallPreviewProps = {
+  prospectName?: string
+  title?: string
+  company?: string
+  phone?: string
+  email?: string
+  script?: string
+  language?: 'en' | 'hi'
+  gender?: 'male' | 'female'
+  status?: 'draft' | 'confirmed' | 'queued' | 'calling' | 'completed' | 'failed' | string
+  streaming?: boolean
+  editable?: boolean
+  onScriptChange?: (v: string) => void
+  className?: string
+  toolbar?: ReactNode
+  /** Extra prospect context lines shown under the card */
+  signals?: string[]
+  /** Post-call summary + scorecard (when available) */
+  scorecard?: {
+    summary?: string
+    overallScore?: number
+    fitScore?: number
+    status?: string
+    leadTemperature?: string
+    nextAction?: string
+    detectedSignals?: string[]
+    objections?: string[]
+    keyMoments?: string[]
+    humanCloserBrief?: string
+  } | null
+  /** Optional Push-to-CRM CTA rendered under the scorecard */
+  crmPushSlot?: ReactNode
+}
+
+export function VoiceCallPreview({
+  prospectName,
+  title,
+  company,
+  phone,
+  email,
+  script = '',
+  language = 'en',
+  gender = 'female',
+  status = 'draft',
+  streaming,
+  editable,
+  onScriptChange,
+  className,
+  toolbar,
+  signals = [],
+  scorecard = null,
+  crmPushSlot = null,
+}: VoiceCallPreviewProps) {
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  const playPreview = async () => {
+    if (!String(script || '').trim()) return
+    setPreviewLoading(true)
+    try {
+      const resp = await fetch('/api/voicebot/tts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: script, language, gender }),
+      })
+      const json = await resp.json().catch(() => null)
+      if (!resp.ok) throw new Error(json?.error || 'TTS failed')
+      const audioBase64 = json?.audioBase64
+      if (!audioBase64) throw new Error('No audio returned')
+      const audio = new Audio(`data:${json?.mimeType || 'audio/mpeg'};base64,${audioBase64}`)
+      await audio.play()
+    } catch (err: unknown) {
+      console.warn('[VoiceCallPreview]', err)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const statusLabel = String(status || 'draft')
+  const statusTone =
+    statusLabel === 'confirmed' || statusLabel === 'queued' || statusLabel === 'completed'
+      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+      : statusLabel === 'failed'
+        ? 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300'
+        : statusLabel === 'calling'
+          ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300'
+          : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-gradient-to-br from-orange-50/80 via-white to-amber-50/50 dark:from-orange-950/20 dark:via-zinc-950 dark:to-zinc-900 shadow-[0_8px_30px_rgba(0,0,0,0.08)]',
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2 border-b border-orange-200/70 dark:border-orange-900/40 bg-white/70 dark:bg-zinc-950/60 px-4 py-2.5">
+        <Phone className="h-4 w-4 text-orange-500" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">
+          Outbound voice · Sarvam
+        </span>
+        <span className={cn('ml-1 rounded-full px-2 py-0.5 text-[10px] font-medium capitalize', statusTone)}>
+          {statusLabel}
+        </span>
+        {streaming ? (
+          <span className="ml-auto inline-flex items-center gap-1.5 text-[10px] font-medium text-orange-600">
+            <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-pulse" />
+            Writing script…
+          </span>
+        ) : toolbar ? (
+          <div className="ml-auto flex items-center gap-1.5">{toolbar}</div>
+        ) : null}
+      </div>
+
+      <div className="grid gap-0 md:grid-cols-[0.95fr_1.05fr]">
+        <div className="space-y-3 border-b border-orange-100/80 p-4 md:border-b-0 md:border-r dark:border-orange-900/30">
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-500 text-sm font-bold text-white">
+              {initials(prospectName)}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                {prospectName || 'Prospect'}
+              </p>
+              <p className="truncate text-xs text-zinc-500">
+                {[title, company].filter(Boolean).join(' · ') || 'Role / company unknown'}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-xl border border-zinc-200/80 bg-white/80 p-3 text-xs dark:border-zinc-700 dark:bg-zinc-900/50">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-zinc-500">Phone</span>
+              <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">{phone || '—'}</span>
+            </div>
+            {email ? (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-zinc-500">Email</span>
+                <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">{email}</span>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-zinc-500">Voice</span>
+              <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                Sarvam · {language === 'hi' ? 'Hindi' : 'English'} · {gender}
+              </span>
+            </div>
+          </div>
+
+          {signals.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Prospect signals</p>
+              <ul className="space-y-1">
+                {signals.slice(0, 4).map((s) => (
+                  <li key={s} className="rounded-lg bg-orange-50/80 px-2.5 py-1.5 text-[11px] leading-4 text-zinc-700 dark:bg-orange-950/30 dark:text-zinc-300">
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col p-4">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Call script</p>
+            <button
+              type="button"
+              onClick={() => { void playPreview() }}
+              disabled={previewLoading || streaming || !String(script || '').trim()}
+              className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-[11px] font-medium text-orange-700 disabled:opacity-50 dark:border-orange-900/40 dark:bg-orange-950/30 dark:text-orange-300"
+            >
+              <Volume2 className={cn('h-3 w-3', previewLoading && 'animate-pulse')} />
+              {previewLoading ? 'Playing…' : 'Preview Sarvam'}
+            </button>
+          </div>
+
+          <div className="min-h-[160px] flex-1 rounded-xl border border-zinc-200 bg-white/90 p-3 dark:border-zinc-700 dark:bg-zinc-900/40">
+            {editable && onScriptChange ? (
+              <textarea
+                value={script}
+                onChange={(e) => onScriptChange(e.target.value)}
+                disabled={streaming}
+                className="h-full min-h-[140px] w-full resize-none bg-transparent text-sm leading-6 text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
+                placeholder="Opening script the voicebot will speak…"
+              />
+            ) : (
+              <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-900 dark:text-zinc-100">
+                {script || (streaming ? '' : '—')}
+                {streaming ? <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-orange-500 align-middle" /> : null}
+              </p>
+            )}
+          </div>
+
+          <p className="mt-2 text-[11px] leading-4 text-zinc-500">
+            Confirm the script, then place Twilio calls. Sarvam handles live STT/TTS on the media stream with prospect context in the dialogue.
+          </p>
+
+          {scorecard?.summary || scorecard?.overallScore != null ? (
+            <div className="mt-3 space-y-2 rounded-xl border border-emerald-200/80 bg-emerald-50/70 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                  Post-call scorecard
+                </span>
+                <span className="rounded-full border border-emerald-300/60 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-700/80 dark:text-emerald-300/80">
+                  AI-generated
+                </span>
+                {scorecard.overallScore != null ? (
+                  <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                    Score {scorecard.overallScore}/100
+                  </span>
+                ) : null}
+                {scorecard.status ? (
+                  <span className="rounded-full border border-emerald-300/80 px-2 py-0.5 text-[10px] capitalize text-emerald-800 dark:text-emerald-200">
+                    {scorecard.status}
+                    {scorecard.leadTemperature ? ` · ${scorecard.leadTemperature}` : ''}
+                  </span>
+                ) : null}
+              </div>
+              {scorecard.summary ? (
+                <p className="text-xs leading-5 text-zinc-800 dark:text-zinc-200">{scorecard.summary}</p>
+              ) : null}
+              {scorecard.nextAction ? (
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                  Next: {scorecard.nextAction}
+                </p>
+              ) : null}
+              {Array.isArray(scorecard.keyMoments) && scorecard.keyMoments.length > 0 ? (
+                <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-zinc-600 dark:text-zinc-400">
+                  {scorecard.keyMoments.slice(0, 4).map((m) => (
+                    <li key={m}>{m}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {crmPushSlot ? <div className="pt-1">{crmPushSlot}</div> : null}
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   )

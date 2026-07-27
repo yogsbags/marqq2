@@ -18,7 +18,7 @@ const GROWTH_MODULES = new Set([
   'company-intelligence', 'lead-intelligence', 'market-signals', 'industry-intelligence',
   'audience-profiles', 'positioning', 'action-plan', 'offer-design', 'messaging',
   'channel-health', 'landing-pages', 'social-calendar', 'ai-content', 'seo-llmo',
-  'budget-optimization', 'performance-scorecard', 'ad-creative', 'email-sequence',
+  'budget-optimization', 'performance-scorecard', 'crm', 'ad-creative', 'email-sequence',
   'lead-outreach', 'cro', 'cro-audit', 'ab-test', 'marketing-audit', 'launch-strategy',
   'revenue-ops', 'lead-magnets', 'sales-enablement', 'paid-ads', 'referral-program',
   'churn-prevention', 'unified-customer-view', 'user-engagement', 'setup',

@@ -45,6 +45,7 @@ import { SalesEnablementFlow } from './SalesEnablementFlow';
 import { PaidAdsFlow } from './PaidAdsFlow';
 import { ReferralProgramFlow } from './ReferralProgramFlow';
 import { ChurnPreventionFlow } from './ChurnPreventionFlow';
+import { CrmFlow } from './CrmFlow';
 import { DraftApprovalsView } from '../approvals/DraftApprovalsView';
 import { mapWorkflowParamsToGoalPreset } from '@/lib/workflowRequirements';
 
@@ -369,6 +370,10 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
     return (
       <PerformanceScorecard onModuleSelect={onModuleSelect} />
     );
+  }
+
+  if (module.id === 'crm') {
+    return <CrmFlow onModuleSelect={onModuleSelect} />;
   }
 
   // Special handling for Unified Customer View module

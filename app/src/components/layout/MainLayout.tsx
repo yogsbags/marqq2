@@ -25,6 +25,7 @@ const CHANNEL_NAMES: Record<string, { name: string; description: string }> = {
   main: { name: 'main', description: 'Your autonomous AI marketing team' },
   'veena-dm': { name: 'veena', description: 'Direct message with Veena' },
   'performance-scorecard': { name: 'performance', description: 'Analytics & KPI tracking' },
+  'crm': { name: 'crm', description: 'HubSpot & Zoho contacts, notes, and voicebot sync' },
   'channel-health': { name: 'daily-brief', description: 'Daily marketing intelligence brief' },
   'calendar': { name: 'calendar', description: 'Content schedule across all channels' },
   'workspace-files': { name: 'files', description: 'Files created by your AI team' },
@@ -49,7 +50,7 @@ export function MainLayout({
 
   // Chat/channel view = home, main (+ channel pages use ChannelHeader)
   const isChatView = !selectedModule || selectedModule === 'home' || selectedModule === 'main' || selectedModule === 'veena-dm'
-    || selectedModule === 'performance-scorecard' || selectedModule === 'channel-health'
+    || selectedModule === 'performance-scorecard' || selectedModule === 'crm' || selectedModule === 'channel-health'
     || selectedModule === 'calendar' || selectedModule === 'workspace-files'
     || selectedModule === 'scheduled-jobs' || selectedModule === 'chat-sessions'
     || selectedModule === 'profile'

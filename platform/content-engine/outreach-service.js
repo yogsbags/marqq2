@@ -3242,7 +3242,18 @@ export async function launchOutreachGoLive({
 
   if (copyTypes.includes('voicebot_script')) {
     const template = pickTemplate('voicebot_script')
-    const phoneLeads = candidates.map(toLead).filter((l) => l.phone)
+    const phoneLeads = candidates
+      .map((p) => {
+        const lead = toLead(p)
+        const perCopy = p.channel_copies?.voicebot_script || p.channel_copies?.voicebot
+        return {
+          ...lead,
+          title: p.title || p.designation || '',
+          designation: p.title || p.designation || '',
+          opening_line: String(perCopy?.body || template?.body || '').trim() || undefined,
+        }
+      })
+      .filter((l) => l.phone)
     if (!activate) {
       planned.push({
         channel: 'voicebot',
@@ -3250,14 +3261,14 @@ export async function launchOutreachGoLive({
         skipped: true,
         reason: 'Draft mode — voicebot calls wait for live Go Live',
         prepared_leads: phoneLeads.length,
-        has_copy: Boolean(template?.body),
+        has_copy: Boolean(template?.body) || phoneLeads.some((l) => l.opening_line),
       })
-    } else if (template?.body && phoneLeads.length) {
+    } else if (phoneLeads.length && (template?.body || phoneLeads.some((l) => l.opening_line))) {
       triggers.push({
         automation_id: 'voicebot_campaign_launch',
         params: {
           campaign_name: `${campaignNameBase} · Voicebot · ${dateLabel}`,
-          script_hint: template.body,
+          script_hint: template?.body || phoneLeads.find((l) => l.opening_line)?.opening_line,
           leads: phoneLeads,
         },
       })

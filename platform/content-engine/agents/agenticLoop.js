@@ -24,6 +24,10 @@ import {
 import { WEBFLOW_TOOL_SLUGS } from "../lib/webflowToolkitCatalog.js";
 import { MAILCHIMP_TOOL_SLUGS } from "../lib/mailchimpToolkitCatalog.js";
 import { KLAVIYO_TOOL_SLUGS } from "../lib/klaviyoToolkitCatalog.js";
+import { ZOHO_CRM_TOOL_SLUGS } from "../lib/zohoCrmToolkitCatalog.js";
+import { HUBSPOT_TOOL_SLUGS } from "../lib/hubspotToolkitCatalog.js";
+import { GOOGLEDRIVE_TOOL_SLUGS } from "../lib/googleDriveToolkitCatalog.js";
+import { GOOGLESHEETS_TOOL_SLUGS } from "../lib/googleSheetsToolkitCatalog.js";
 
 const TOOLKIT_ALLOWED_TOOL_SLUGS = {
   semrush: new Set(SEMRUSH_TOOL_SLUGS),
@@ -247,21 +251,7 @@ const TOOLKIT_ALLOWED_TOOL_SLUGS = {
     "GOOGLEDOCS_UPDATE_DOCUMENT_SECTION_MARKDOWN",
     "GOOGLEDOCS_UPDATE_EXISTING_DOCUMENT",
   ]),
-  googledrive: new Set([
-    "GOOGLEDRIVE_CREATE_FILE",
-    "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",
-    "GOOGLEDRIVE_CREATE_FOLDER",
-    "GOOGLEDRIVE_CREATE_PERMISSION",
-    "GOOGLEDRIVE_DOWNLOAD_FILE",
-    "GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE",
-    "GOOGLEDRIVE_FIND_FILE",
-    "GOOGLEDRIVE_FIND_FOLDER",
-    "GOOGLEDRIVE_GET_FILE_METADATA",
-    "GOOGLEDRIVE_GET_PERMISSION_ID_FOR_EMAIL",
-    "GOOGLEDRIVE_LIST_FILES",
-    "GOOGLEDRIVE_UPLOAD_FILE",
-    "GOOGLEDRIVE_UPLOAD_FROM_URL",
-  ]),
+  googledrive: new Set(GOOGLEDRIVE_TOOL_SLUGS),
   onedrive: new Set([
     // Reporting-safe OneDrive subset based on the documented OneDrive actions.
     "ONE_DRIVE_CREATE_SHARING_LINK",
@@ -299,14 +289,8 @@ const TOOLKIT_ALLOWED_TOOL_SLUGS = {
     "YOUTUBE_UPLOAD_VIDEO",
     "YOUTUBE_VIDEO_DETAILS",
   ]),
-  zoho: new Set([
-    "ZOHO_GET_MODULE_FIELDS",
-    "ZOHO_GET_RELATED_LISTS",
-    "ZOHO_GET_ZOHO_RECORDS",
-    "ZOHO_GET_ZOHO_USERS",
-    "ZOHO_LIST_MODULES",
-    "ZOHO_SEARCH_ZOHO_RECORDS",
-  ]),
+  zoho: new Set(ZOHO_CRM_TOOL_SLUGS),
+  hubspot: new Set(HUBSPOT_TOOL_SLUGS),
   klaviyo: new Set(KLAVIYO_TOOL_SLUGS),
   mailchimp: new Set(MAILCHIMP_TOOL_SLUGS),
   google_analytics: new Set([
@@ -323,17 +307,7 @@ const TOOLKIT_ALLOWED_TOOL_SLUGS = {
     "GOOGLE_ANALYTICS_RUN_REALTIME_REPORT",
     "GOOGLE_ANALYTICS_RUN_REPORT",
   ]),
-  googlesheets: new Set([
-    "GOOGLESHEETS_BATCH_GET",
-    "GOOGLESHEETS_EXECUTE_SQL",
-    "GOOGLESHEETS_GET_SPREADSHEET_INFO",
-    "GOOGLESHEETS_GET_TABLE_SCHEMA",
-    "GOOGLESHEETS_LIST_TABLES",
-    "GOOGLESHEETS_LOOKUP_SPREADSHEET_ROW",
-    "GOOGLESHEETS_QUERY_TABLE",
-    "GOOGLESHEETS_SEARCH_SPREADSHEETS",
-    "GOOGLESHEETS_VALUES_GET",
-  ]),
+  googlesheets: new Set(GOOGLESHEETS_TOOL_SLUGS),
   hunter: new Set([
     "HUNTER_ACCOUNT_INFORMATION",
     "HUNTER_COMBINED_ENRICHMENT",

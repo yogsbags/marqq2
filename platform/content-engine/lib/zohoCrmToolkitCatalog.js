@@ -1,0 +1,59 @@
+/**
+ * Canonical Composio Zoho CRM tools — curated for Marqq
+ * (lead/contact create, notes from voicebot scorecards, search/update).
+ */
+
+export const ZOHO_CRM_TOOL_SLUGS = [
+  // Create / update leads & contacts
+  'ZOHO_CREATE_LEAD',
+  'ZOHO_CREATE_CONTACT',
+  'ZOHO_CREATE_DEAL',
+  'ZOHO_CREATE_NOTE',
+  'ZOHO_CREATE_ZOHO_RECORD',
+  'ZOHO_UPDATE_LEAD',
+  'ZOHO_UPDATE_ZOHO_RECORD',
+  'ZOHO_CONVERT_ZOHO_LEAD',
+
+  // Search / read
+  'ZOHO_SEARCH_LEADS',
+  'ZOHO_SEARCH_CONTACTS',
+  'ZOHO_SEARCH_DEALS',
+  'ZOHO_SEARCH_ZOHO_RECORDS',
+  'ZOHO_LIST_LEADS',
+  'ZOHO_LIST_CONTACTS',
+  'ZOHO_LIST_DEALS',
+  'ZOHO_LIST_MODULES',
+  'ZOHO_GET_MODULE_FIELDS',
+  'ZOHO_GET_ZOHO_RECORDS',
+  'ZOHO_GET_CONTACT',
+  'ZOHO_GET_RELATED_LISTS',
+  'ZOHO_GET_RELATED_RECORDS',
+  'ZOHO_GET_ZOHO_USERS',
+  'ZOHO_LIST_NOTES',
+  'ZOHO_GET_NOTE',
+
+  // Call / task logging
+  'ZOHO_LIST_CALLS',
+  'ZOHO_GET_CALL',
+  'ZOHO_UPDATE_CALL',
+  'ZOHO_LIST_TASKS',
+  'ZOHO_GET_TASK',
+  'ZOHO_SEARCH_TASKS',
+  'ZOHO_CREATE_EVENT',
+  'ZOHO_LIST_EVENTS',
+
+  // Tags / attachments / validate
+  'ZOHO_CREATE_ZOHO_TAG',
+  'ZOHO_UPLOAD_ATTACHMENT',
+  'ZOHO_VALIDATE_CREDENTIAL',
+]
+
+/** Tools used when pushing a scored voicebot call into Zoho */
+export const ZOHO_CRM_VOICEBOT_PUSH_TOOLS = [
+  'ZOHO_SEARCH_LEADS',
+  'ZOHO_SEARCH_CONTACTS',
+  'ZOHO_CREATE_LEAD',
+  'ZOHO_CREATE_CONTACT',
+  'ZOHO_CREATE_NOTE',
+  'ZOHO_UPDATE_LEAD',
+]

@@ -14,6 +14,7 @@ import type { WorkflowFormData } from '@/types/chat';
 export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
   // CRM pipeline data — at least one CRM boosts analysis quality
   'revenue-ops':           ['hubspot', 'salesforce', 'zoho_crm'],
+  'crm':                   ['hubspot', 'zoho_crm'],
   // SEO / LLMO — Semrush/Ahrefs optional (web-search volume estimates available)
   'seo-llmo':              [],
   // Budget & attribution — needs at least one ad platform or analytics

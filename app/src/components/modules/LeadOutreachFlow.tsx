@@ -18,7 +18,7 @@ import {
   OUTREACH_CONTACT_CHANNEL_PLAN,
 } from '@/lib/workflowRequirements'
 import { connectorLabel } from '@/lib/connectorMeta'
-import { CrmListPreview, EmailClientPreview, OutcomeGoLiveCta } from '@/components/outcome-previews'
+import { CrmListPreview, EmailClientPreview, OutcomeGoLiveCta, VoiceCallPreview, WhatsAppDmPreview } from '@/components/outcome-previews'
 
 type LeadOutreachFlowProps = {
   initialQuestion?: string
@@ -1258,14 +1258,58 @@ export function LeadOutreachFlow({
                   </div>
                 ) : null}
 
+                {activeCopyType === 'voicebot_script' ? (
+                  <VoiceCallPreview
+                    prospectName={selected.full_name || 'Prospect'}
+                    title={selected.title || String(selected.person_profile?.title || selected.person_profile?.headline || '')}
+                    company={selected.company}
+                    phone={selected.phone_e164 || ''}
+                    email={selected.email || ''}
+                    script={streaming && streamText && !body ? streamText : body}
+                    status={copyLocked ? 'confirmed' : 'draft'}
+                    streaming={streaming}
+                    editable={!streaming && !copyLocked}
+                    onScriptChange={(next) => {
+                      setBody(next)
+                      setChannelCopies((prev) => ({
+                        ...(prev || selected.channel_copies || {}),
+                        [activeCopyType]: {
+                          ...((prev || selected.channel_copies || {})[activeCopyType] || {}),
+                          subject: '',
+                          body: next,
+                        },
+                      }))
+                    }}
+                    signals={[
+                      ...(selected.signals || []).slice(0, 3).map((s) => String(s.text || s.type || '')).filter(Boolean),
+                      ...(((channelCopies || selected.channel_copies)?.[activeCopyType]?.skills || []).slice(0, 2).map((s: string) => `Skill: ${s}`)),
+                    ].filter(Boolean) as string[]}
+                  />
+                ) : activeCopyType === 'whatsapp_dm' ? (
+                  <WhatsAppDmPreview
+                    contactName={selected.full_name || 'Prospect'}
+                    message={streaming && streamText && !body ? streamText : body}
+                    streaming={streaming}
+                    editable={!streaming && !copyLocked}
+                    onMessageChange={(next) => {
+                      setBody(next)
+                      setChannelCopies((prev) => ({
+                        ...(prev || selected.channel_copies || {}),
+                        [activeCopyType]: {
+                          ...((prev || selected.channel_copies || {})[activeCopyType] || {}),
+                          subject: '',
+                          body: next,
+                        },
+                      }))
+                    }}
+                  />
+                ) : (
                 <EmailClientPreview
                   from="you@yourbrand.com"
                   to={
                     activeCopyType === 'linkedin_dm'
                       ? selected.linkedin_url || selected.full_name
-                      : activeCopyType === 'whatsapp_dm' || activeCopyType === 'voicebot_script'
-                        ? selected.phone_e164 || selected.email || ''
-                        : selected.email || ''
+                      : selected.email || ''
                   }
                   subject={activeCopyType === 'email' ? subject : `${activeCopyType.replace(/_/g, ' ')}`}
                   body={streaming && streamText && !body ? streamText : body}
@@ -1284,6 +1328,7 @@ export function LeadOutreachFlow({
                     }))
                   }}
                 />
+                )}
 
                 <div className="space-y-2 rounded-xl border border-border/60 p-3">
                   <div className="text-xs font-medium text-muted-foreground">
@@ -1345,18 +1390,31 @@ export function LeadOutreachFlow({
                 </div>
 
                 <OutcomeGoLiveCta
-                  kind="email"
+                  kind={
+                    activeCopyType === 'voicebot_script'
+                      ? 'voicebot'
+                      : activeCopyType === 'whatsapp_dm'
+                        ? 'whatsapp'
+                        : activeCopyType === 'linkedin_dm'
+                          ? 'linkedin'
+                          : 'email'
+                  }
                   workspaceId={workspaceId}
                   companyId={companyId}
-                  requiredAllOf={requiredLaunchConnectors}
-                  requiredAnyOf={[]}
-                  liveActionLabel={delivery === 'live' ? 'Go Live — launch now' : 'Save draft to connectors'}
+                  requiredAllOf={activeCopyType === 'voicebot_script' ? [] : requiredLaunchConnectors}
+                  requiredAnyOf={activeCopyType === 'voicebot_script' ? [] : undefined}
+                  liveActionLabel={
+                    activeCopyType === 'voicebot_script'
+                      ? (delivery === 'live' ? 'Place voice calls' : 'Save voice draft')
+                      : (delivery === 'live' ? 'Go Live — launch now' : 'Save draft to connectors')
+                  }
                   goLiveDisabled={
                     sendingNow
                     || streaming
                     || !body.trim()
                     || !copyLocked
                     || (activeCopyType === 'email' && !subject.trim())
+                    || (activeCopyType === 'voicebot_script' && !selected.phone_e164)
                   }
                   onGoLive={() => goLiveCampaigns()}
                 />

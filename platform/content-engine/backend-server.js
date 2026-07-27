@@ -1335,6 +1335,12 @@ const LIVE_SEND_TOOLS = new Set([
   "WHATSAPP_SEND_MESSAGE",
   "WHATSAPP_SEND_TEMPLATE_MESSAGE",
   "HUBSPOT_CREATE_ENGAGEMENT",
+  "HUBSPOT_CREATE_CONTACT",
+  "HUBSPOT_CREATE_NOTE",
+  "HUBSPOT_CREATE_TASK",
+  "ZOHO_CREATE_LEAD",
+  "ZOHO_CREATE_CONTACT",
+  "ZOHO_CREATE_NOTE",
   "INSTANTLY_ACTIVATE_CAMPAIGN",
   "INSTANTLY_RESUME_SUBSEQUENCE",
   "INSTANTLY_REPLY_TO_AN_EMAIL",
@@ -1350,6 +1356,19 @@ const LIVE_SEND_TOOLS = new Set([
   "LINKEDIN_DELETE_POST",
   "LINKEDIN_DELETE_UGC_POST",
   "LEMLIST_SEND_EMAIL",
+  "WEBFLOW_CREATE_LIVE_COLLECTION_ITEM",
+  "WEBFLOW_CREATE_COLLECTION_ITEM",
+  "WEBFLOW_PUBLISH_COLLECTION_ITEMS",
+  "WEBFLOW_PUBLISH_SITE",
+  "WEBFLOW_UPDATE_LIVE_COLLECTION_ITEM",
+  "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+  "GOOGLESHEETS_UPSERT_ROWS",
+  "GOOGLESHEETS_CREATE_GOOGLE_SHEET1",
+  "GOOGLESHEETS_SHEET_FROM_JSON",
+  "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",
+  "GOOGLEDRIVE_CREATE_FILE",
+  "GOOGLEDRIVE_UPLOAD_FROM_URL",
+  "GOOGLEDRIVE_CREATE_PERMISSION",
 ]);
 
 // Back-compat alias used elsewhere
@@ -2015,8 +2034,18 @@ ${successfulToolContext}`;
     );
     const successfulGoogleDriveFile = toolExecutions.find((entry) =>
       entry?.successful &&
-      entry?.emittedToolName === "GOOGLEDRIVE_CREATE_FILE" &&
-      (entry?.data?.id || entry?.data?.file_id)
+      [
+        "GOOGLEDRIVE_CREATE_FILE",
+        "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",
+        "GOOGLEDRIVE_UPLOAD_FILE",
+        "GOOGLEDRIVE_UPLOAD_FROM_URL",
+      ].includes(entry?.emittedToolName) &&
+      (
+        entry?.data?.id ||
+        entry?.data?.file_id ||
+        entry?.data?.response_data?.id ||
+        entry?.data?.response_data?.file_id
+      )
     );
 
     if (!reportData.doc_url && successfulGoogleDocCreate) {
@@ -2031,7 +2060,11 @@ ${successfulToolContext}`;
     }
 
     if (!reportData.file_url && successfulGoogleDriveFile) {
-      const fileId = successfulGoogleDriveFile.data?.id || successfulGoogleDriveFile.data?.file_id;
+      const fileId =
+        successfulGoogleDriveFile.data?.id ||
+        successfulGoogleDriveFile.data?.file_id ||
+        successfulGoogleDriveFile.data?.response_data?.id ||
+        successfulGoogleDriveFile.data?.response_data?.file_id;
       if (fileId) {
         reportData.file_url = `https://drive.google.com/file/d/${fileId}/view`;
       }
@@ -2648,6 +2681,15 @@ async function scoreVoicebotCall({
   const transcriptText = turns.map((turn) => `${turn.role}: ${turn.text}`).join("\n");
   const heuristic = summarizeLeadQualification(turns);
   const salesContext = await buildCompanySalesContext(companyId);
+  const turnCount = Array.isArray(turns) ? turns.length : 0;
+  const userTurns = (turns || []).filter((t) => String(t.role || "").toLowerCase() === "user");
+
+  const heuristicSummary =
+    turnCount === 0
+      ? "No conversation transcript was captured."
+      : `Call had ${turnCount} turns (${userTurns.length} from the lead). Signals: ${
+          heuristic.detectedSignals.length ? heuristic.detectedSignals.join(", ") : "none detected"
+        }.`;
 
   const fallback = {
     callSid,
@@ -2661,9 +2703,12 @@ async function scoreVoicebotCall({
     urgencyScore: heuristic.detectedSignals.includes("timing") ? 70 : 35,
     authorityScore: heuristic.detectedSignals.includes("authority") ? 70 : 35,
     budgetScore: heuristic.detectedSignals.includes("budget") ? 65 : 30,
+    overallScore: heuristic.heuristicScore,
     leadTemperature: heuristic.heuristicScore >= 70 ? "hot" : heuristic.heuristicScore >= 40 ? "warm" : "cold",
     detectedSignals: heuristic.detectedSignals,
     objections: [],
+    summary: heuristicSummary,
+    keyMoments: [],
     nextAction: heuristic.heuristicScore >= 60 ? "Route to human closer for follow-up" : "Continue nurture and gather more qualification data",
     humanCloserBrief: "Outbound salesbot call completed. Review transcript and follow up based on qualification signals.",
     recommendedCrmUpdate: {
@@ -2681,25 +2726,28 @@ async function scoreVoicebotCall({
       messages: [
         {
           role: "system",
-          content: `You score outbound sales qualification calls for ${salesContext.companyName}.
+          content: `You summarize and score outbound sales qualification calls for ${salesContext.companyName}.
 Return valid JSON only.
 
-Decide whether the lead should be handed to a human closer.
-Use the transcript and company context. Be conservative about qualification.
+Write a concise conversation summary a sales rep can skim in 20 seconds.
+Score the lead for BANT-style fit. Be conservative about qualification.
 
 JSON schema:
 {
+  "summary": "2-4 sentence conversation summary covering opener, lead responses, outcome",
+  "keyMoments": ["short bullet of important moments"],
   "status": "qualified" | "nurture" | "disqualified",
   "fitScore": number,
   "intentScore": number,
   "urgencyScore": number,
   "authorityScore": number,
   "budgetScore": number,
+  "overallScore": number,
   "leadTemperature": "hot" | "warm" | "cold",
   "detectedSignals": ["string"],
   "objections": ["string"],
   "nextAction": "string",
-  "humanCloserBrief": "string",
+  "humanCloserBrief": "string for human SDR/AE handoff",
   "recommendedCrmUpdate": {
     "lifecycleStage": "string",
     "ownerQueue": "string",
@@ -2713,7 +2761,7 @@ JSON schema:
         },
       ],
       temperature: 0.2,
-      max_completion_tokens: 600,
+      max_completion_tokens: 900,
       response_format: { type: "json_object" },
     });
 
@@ -2721,6 +2769,12 @@ JSON schema:
     if (!parsed || typeof parsed !== "object") {
       return fallback;
     }
+
+    const overallScore = Number(
+      parsed.overallScore ??
+        parsed.fitScore ??
+        fallback.overallScore,
+    );
 
     return {
       ...fallback,
@@ -2730,16 +2784,88 @@ JSON schema:
       leadName: leadName || null,
       companyId: companyId || null,
       companyName: companyName || salesContext.companyName,
+      overallScore: Number.isFinite(overallScore) ? Math.max(0, Math.min(100, overallScore)) : fallback.overallScore,
+      summary: normalizeShortText(parsed.summary, fallback.summary),
+      keyMoments: Array.isArray(parsed.keyMoments)
+        ? parsed.keyMoments.map((item) => normalizeShortText(item, "")).filter(Boolean).slice(0, 6)
+        : [],
       detectedSignals: Array.isArray(parsed.detectedSignals)
         ? parsed.detectedSignals.map((item) => normalizeShortText(item, "")).filter(Boolean)
         : fallback.detectedSignals,
       objections: Array.isArray(parsed.objections)
         ? parsed.objections.map((item) => normalizeShortText(item, "")).filter(Boolean)
         : [],
+      scoredAt: new Date().toISOString(),
     };
   } catch {
-    return fallback;
+    return { ...fallback, scoredAt: new Date().toISOString() };
   }
+}
+
+/**
+ * Finalize a call: score + summarize + persist (idempotent if already scored).
+ */
+async function finalizeVoicebotCallRecord(callSid, extras = {}) {
+  const sid = normalizeShortText(callSid, "");
+  if (!sid) return null;
+
+  const existing = (await readVoicebotCallRecord(sid)) || {};
+  const turns = Array.isArray(extras.turns)
+    ? extras.turns
+    : Array.isArray(existing.turns)
+      ? existing.turns
+      : [];
+
+  if (existing.scorecard?.summary && existing.scorecard?.scoredAt && !extras.force) {
+    return existing;
+  }
+
+  const companyId = extras.companyId || existing.companyId || null;
+  const companySalesContext = await buildCompanySalesContext(companyId);
+  const callScore = await scoreVoicebotCall({
+    companyId,
+    companyName: extras.companyName || existing.companyName || companySalesContext.companyName,
+    leadId: extras.leadId || existing.leadId || null,
+    leadName: extras.leadName || existing.leadName || null,
+    callSid: sid,
+    turns,
+  });
+
+  let googleSheetsSync = existing.googleSheetsSync || null;
+  try {
+    googleSheetsSync = await syncVoicebotCallToGoogleSheets({
+      companyId,
+      leadId: extras.leadId || existing.leadId || null,
+      leadName: extras.leadName || existing.leadName || null,
+      leadPhone: extras.leadPhone || existing.leadPhone || null,
+      leadEmail: extras.leadEmail || existing.leadEmail || null,
+      callSid: sid,
+      scorecard: callScore,
+      turns,
+    });
+  } catch (error) {
+    console.warn("[GoogleSheets] voicebot sync failed:", String(error));
+  }
+
+  const record = {
+    ...existing,
+    ...extras,
+    callSid: sid,
+    companyId,
+    companyName: extras.companyName || existing.companyName || companySalesContext.companyName,
+    turns,
+    scorecard: callScore,
+    summary: callScore.summary,
+    leadScore: callScore.overallScore,
+    leadStatus: callScore.status,
+    leadTemperature: callScore.leadTemperature,
+    googleSheetsSync,
+    status: extras.status || existing.status || "completed",
+    endedAt: extras.endedAt || existing.endedAt || new Date().toISOString(),
+  };
+
+  await persistVoicebotCallRecord(record);
+  return record;
 }
 
 async function persistVoicebotCallRecord(record) {
@@ -2893,11 +3019,13 @@ function buildHubspotVoicebotNote({
     phoneNumber ? `Lead phone: ${phoneNumber}` : "",
     `Status: ${scorecard?.status || "unknown"}`,
     `Temperature: ${scorecard?.leadTemperature || "unknown"}`,
+    scorecard?.overallScore != null ? `Overall score: ${scorecard.overallScore}/100` : "",
     `Fit score: ${scorecard?.fitScore ?? "n/a"}`,
     `Intent score: ${scorecard?.intentScore ?? "n/a"}`,
     `Urgency score: ${scorecard?.urgencyScore ?? "n/a"}`,
     `Authority score: ${scorecard?.authorityScore ?? "n/a"}`,
     `Budget score: ${scorecard?.budgetScore ?? "n/a"}`,
+    scorecard?.summary ? `AI summary:\n${scorecard.summary}` : "",
     detectedSignals ? `Detected signals: ${detectedSignals}` : "",
     objections ? `Objections: ${objections}` : "",
     scorecard?.nextAction ? `Recommended next action: ${scorecard.nextAction}` : "",
@@ -5503,15 +5631,32 @@ app.all("/api/voicebot/twilio/twiml", (req, res) => {
   res.type("text/xml").send(xml);
 });
 
-app.post("/api/voicebot/twilio/status", (req, res) => {
+app.post("/api/voicebot/twilio/status", async (req, res) => {
+  const callSid = req.body?.CallSid || null;
+  const callStatus = String(req.body?.CallStatus || "").toLowerCase();
   console.log("[TwilioStatus]", {
-    callSid: req.body?.CallSid || null,
-    callStatus: req.body?.CallStatus || null,
+    callSid,
+    callStatus,
     answeredBy: req.body?.AnsweredBy || null,
     to: req.body?.To || null,
     from: req.body?.From || null,
     timestamp: new Date().toISOString(),
   });
+
+  // On completed/no-answer/busy/failed — ensure we have a summary + lead score when turns exist.
+  if (callSid && ["completed", "busy", "failed", "no-answer", "canceled"].includes(callStatus)) {
+    try {
+      await finalizeVoicebotCallRecord(callSid, {
+        status: callStatus,
+        twilioStatus: callStatus,
+        answeredBy: req.body?.AnsweredBy || null,
+        endedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.warn("[TwilioStatus] finalize failed:", String(err));
+    }
+  }
+
   res.json({ ok: true });
 });
 
@@ -8750,36 +8895,9 @@ function attachTwilioMediaStreamServer(server) {
             session.utteranceFrames = [];
             await generateTwilioAssistantReply({ ws, session, utterance });
           }
-          const companySalesContext = await buildCompanySalesContext(session.companyId);
-          const callScore = await scoreVoicebotCall({
-            companyId: session.companyId,
-            companyName: companySalesContext.companyName,
-            leadId: session.leadId,
-            leadName: session.leadName,
-            callSid: session.callSid,
-            turns: session.turns,
-          });
-          session.callScore = callScore;
-          let googleSheetsSync = null;
-          try {
-            googleSheetsSync = await syncVoicebotCallToGoogleSheets({
-              companyId: session.companyId,
-              leadId: session.leadId,
-              leadName: session.leadName,
-              leadPhone: session.leadPhone,
-              leadEmail: session.leadEmail,
-              callSid: session.callSid,
-              scorecard: callScore,
-              turns: session.turns,
-            });
-          } catch (error) {
-            console.warn("[GoogleSheets] voicebot sync failed:", String(error));
-          }
-          await persistVoicebotCallRecord({
+          const finalized = await finalizeVoicebotCallRecord(session.callSid, {
             streamSid: session.streamSid,
-            callSid: session.callSid,
             companyId: session.companyId,
-            companyName: companySalesContext.companyName,
             campaignId: session.campaignId,
             leadId: session.leadId,
             leadName: session.leadName,
@@ -8788,12 +8906,13 @@ function attachTwilioMediaStreamServer(server) {
             language: session.language,
             openingLine: session.openingLine,
             turns: session.turns,
-            scorecard: callScore,
-            googleSheetsSync,
             lastTranscript: session.lastTranscript,
             lastAssistantText: session.lastAssistantText,
+            status: "completed",
             endedAt: new Date().toISOString(),
+            force: true,
           });
+          session.callScore = finalized?.scorecard || null;
           if (session.streamSid) {
             twilioMediaSessions.delete(session.streamSid);
           }
@@ -8802,8 +8921,10 @@ function attachTwilioMediaStreamServer(server) {
             callSid: session.callSid,
             lastTranscript: session.lastTranscript,
             lastAssistantText: session.lastAssistantText,
-            callScore,
-            googleSheetsSync,
+            summary: finalized?.summary || null,
+            leadScore: finalized?.leadScore ?? null,
+            leadStatus: finalized?.leadStatus || null,
+            callScore: session.callScore,
           });
           try {
             ws.close();
@@ -8819,6 +8940,27 @@ function attachTwilioMediaStreamServer(server) {
     ws.on("close", () => {
       if (session.streamSid) {
         twilioMediaSessions.delete(session.streamSid);
+      }
+      // If Twilio closed without a stop event, still summarize + score once.
+      if (session.callSid && Array.isArray(session.turns) && session.turns.length && !session.callScore) {
+        void finalizeVoicebotCallRecord(session.callSid, {
+          streamSid: session.streamSid,
+          companyId: session.companyId,
+          campaignId: session.campaignId,
+          leadId: session.leadId,
+          leadName: session.leadName,
+          leadPhone: session.leadPhone,
+          leadEmail: session.leadEmail,
+          language: session.language,
+          openingLine: session.openingLine,
+          turns: session.turns,
+          lastTranscript: session.lastTranscript,
+          lastAssistantText: session.lastAssistantText,
+          status: "completed",
+          endedAt: new Date().toISOString(),
+        }).catch((err) => {
+          console.warn("[TwilioMediaStream] finalize on close failed:", String(err));
+        });
       }
     });
   });
@@ -11111,7 +11253,7 @@ app.get("/api/integrations/preferences", (req, res) => {
 });
 
 // POST /api/integrations/preferences  { companyId, ...prefs }
-app.post("/api/integrations/preferences", (req, res) => {
+app.post("/api/integrations/preferences", async (req, res) => {
   const companyId = String(req.body?.companyId || "").trim();
   if (!companyId) return res.status(400).json({ error: "companyId required" });
   const allowed = [
@@ -12955,6 +13097,38 @@ app.patch("/api/mkg/:companyId", async (req, res) => {
     }
     console.error("PATCH /api/mkg error:", err);
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── GET /api/crm/contacts ──────────────────────────────────────────────────
+// Pull HubSpot / Zoho CRM contacts for the #crm channel table.
+app.get("/api/crm/contacts", async (req, res) => {
+  try {
+    const workspaceId =
+      req.query.workspaceId ||
+      req.query.companyId ||
+      req.headers["x-workspace-id"];
+    if (!workspaceId) {
+      return res.status(400).json({ error: "workspaceId is required" });
+    }
+    const { listCrmContacts } = await import("./crm-service.js");
+    const result = await listCrmContacts({
+      workspaceId: String(workspaceId),
+      companyId: req.query.companyId ? String(req.query.companyId) : undefined,
+      preferredConnector: req.query.connector ? String(req.query.connector) : undefined,
+      query: req.query.q ? String(req.query.q) : "",
+      limit: Math.min(100, Number(req.query.limit) || 50),
+    });
+    if (!result.ok && result.missing?.length) {
+      return res.status(400).json(result);
+    }
+    if (!result.ok) {
+      return res.status(502).json(result);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error("[crm/contacts]", err);
+    res.status(500).json({ error: String(err.message || err) });
   }
 });
 

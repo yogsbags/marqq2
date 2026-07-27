@@ -145,8 +145,8 @@ export function LiveKitVoiceSession() {
             LiveKit URL: <span className="font-mono">{config?.livekitUrl || '—'}</span>
           </div>
           <div className="text-xs text-gray-600">
-            Realtime room status: current LiveKit stack • LLM OpenAI ({config?.providers?.llm?.configured ? 'ok' : 'missing'}) •
-            Simulator + preview speech now use Sarvam
+            Stack: LiveKit room · LLM OpenAI ({config?.providers?.llm?.configured ? 'ok' : 'missing'}) ·
+            STT/TTS Sarvam only ({config?.providers?.stt?.configured && config?.providers?.tts?.configured ? 'ok' : 'needs SARVAM_API_KEY'})
           </div>
         </CardContent>
       </Card>

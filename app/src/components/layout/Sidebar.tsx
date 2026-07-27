@@ -56,6 +56,7 @@ function formatConvName(name: string): string {
 const channels: NavItem[] = [
   { id: 'home',                  title: 'main',        icon: Hash },
   { id: 'performance-scorecard', title: 'performance', icon: Hash },
+  { id: 'crm',                   title: 'crm',         icon: Hash },
   { id: 'calendar',              title: 'calendar',    icon: Hash },
 ];
 

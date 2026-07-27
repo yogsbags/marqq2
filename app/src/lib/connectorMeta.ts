@@ -32,6 +32,8 @@ export const CONNECTOR_DISPLAY: Record<string, { label: string; bg: string }> = 
   wordpress: { label: 'WordPress', bg: 'bg-[#21759B]' },
   webflow: { label: 'Webflow', bg: 'bg-[#4353FF]' },
   google_docs: { label: 'Google Docs', bg: 'bg-[#4285F4]' },
+  google_sheets: { label: 'Google Sheets', bg: 'bg-[#0F9D58]' },
+  google_drive: { label: 'Google Drive', bg: 'bg-[#4285F4]' },
   google_calendar: { label: 'Google Calendar', bg: 'bg-[#4285F4]' },
 };
 

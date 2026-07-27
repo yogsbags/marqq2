@@ -15,6 +15,7 @@ import {
 import { FileText, Link2, Mail, Send, ExternalLink, CheckCircle2 } from 'lucide-react'
 import { useAgentRun } from '@/hooks/useAgentRun'
 import { AgentRunPanel } from './AgentRunPanel'
+import { OutcomeGoLiveCta } from '@/components/outcome-previews'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { addIntegrationConnectedListener, connectComposioConnector } from '@/lib/composio'
 import { toast } from 'sonner'
@@ -237,6 +238,18 @@ export function ReportDeliveryCard({
     (reportRun.artifact?.doc_url as string | undefined) ||
     ((reportRun.artifact?.data as Record<string, unknown> | undefined)?.doc_url as string | undefined) ||
     ''
+  const createdFileUrl =
+    (reportRun.artifact?.file_url as string | undefined) ||
+    ((reportRun.artifact?.data as Record<string, unknown> | undefined)?.file_url as string | undefined) ||
+    ''
+  const reportMarkdown =
+    ((reportRun.artifact?.data as Record<string, unknown> | undefined)?.report_markdown as string | undefined) ||
+    reportRun.text ||
+    ''
+  const executiveSummary =
+    ((reportRun.artifact?.data as Record<string, unknown> | undefined)?.executive_summary as string | undefined) ||
+    ''
+  const workspaceId = activeWorkspace?.id || ''
   const deliveredTo =
     ((deliveryRun.artifact?.data as Record<string, unknown> | undefined)?.recipients as string[] | undefined) ||
     []
@@ -317,6 +330,69 @@ export function ReportDeliveryCard({
                     Open Google Doc
                     <ExternalLink className="h-3 w-3" />
                   </a>
+                  {createdFileUrl ? (
+                    <a
+                      href={createdFileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 flex items-center gap-1 text-xs text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
+                    >
+                      Open Drive file
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+              {workspaceId && (reportMarkdown || executiveSummary || createdDocUrl) ? (
+                <div className="space-y-2">
+                  <OutcomeGoLiveCta
+                    kind="drive_save"
+                    workspaceId={workspaceId}
+                    companyId={companyId}
+                    liveActionLabel="Save to Drive"
+                    payload={{
+                      title: reportTitle.trim() || `${moduleTitle} Report`,
+                      folder_name: 'Marqq Exports',
+                      report_title: reportTitle.trim() || `${moduleTitle} Report`,
+                      report_markdown: reportMarkdown,
+                      summary: executiveSummary || reportMarkdown.slice(0, 2000),
+                      content: reportMarkdown || executiveSummary,
+                      file_url: createdFileUrl || undefined,
+                    }}
+                  />
+                  <OutcomeGoLiveCta
+                    kind="drive_share"
+                    workspaceId={workspaceId}
+                    companyId={companyId}
+                    liveActionLabel="Share Drive link"
+                    payload={{
+                      title: reportTitle.trim() || `${moduleTitle} Report`,
+                      folder_name: 'Marqq Exports',
+                      share_type: 'anyone',
+                      role: 'reader',
+                      report_title: reportTitle.trim() || `${moduleTitle} Report`,
+                      report_markdown: reportMarkdown,
+                      summary: executiveSummary || reportMarkdown.slice(0, 2000),
+                      content: reportMarkdown || executiveSummary,
+                      file_url: createdFileUrl || undefined,
+                    }}
+                  />
+                  <OutcomeGoLiveCta
+                    kind="sheets_push"
+                    workspaceId={workspaceId}
+                    companyId={companyId}
+                    liveActionLabel="Push report meta to Sheet"
+                    payload={{
+                      spreadsheet_title: 'Marqq Reports Log',
+                      worksheet_name: 'Reports',
+                      source: 'report_center',
+                      lead_name: reportTitle.trim() || `${moduleTitle} Report`,
+                      company: moduleTitle,
+                      summary: executiveSummary || reportMarkdown.slice(0, 1500),
+                      lead_status: 'report_ready',
+                      next_action: createdDocUrl || createdFileUrl || 'Review report',
+                    }}
+                  />
                 </div>
               ) : null}
               <details className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
