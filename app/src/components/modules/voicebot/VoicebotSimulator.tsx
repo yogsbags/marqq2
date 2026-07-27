@@ -3,6 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  browserSpeechRecognitionSupported,
+  startBrowserSpeechRecognition,
+  type BrowserSpeechSession,
+} from '@/lib/browserSpeechRecognition'
 import { toast } from 'sonner'
 
 type DialogueResponse = {
@@ -28,6 +33,7 @@ export function VoicebotSimulator() {
   const [working, setWorking] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
+  const speechSessionRef = useRef<BrowserSpeechSession | null>(null)
 
   const [transcript, setTranscript] = useState('')
   const [assistantText, setAssistantText] = useState('')
@@ -35,6 +41,7 @@ export function VoicebotSimulator() {
   const [manualText, setManualText] = useState('')
 
   const canUseMediaRecorder = useMemo(() => typeof window !== 'undefined' && 'MediaRecorder' in window, [])
+  const canUseBrowserStt = useMemo(() => browserSpeechRecognitionSupported(), [])
 
   async function startRecording() {
     if (!canUseMediaRecorder) {
@@ -49,6 +56,7 @@ export function VoicebotSimulator() {
       chunksRef.current = []
       const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' })
       mediaRecorderRef.current = mr
+      speechSessionRef.current = startBrowserSpeechRecognition(language)
       mr.ondataavailable = (ev) => {
         if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data)
       }
@@ -70,25 +78,36 @@ export function VoicebotSimulator() {
     mr.stop()
     await new Promise((r) => setTimeout(r, 250))
     const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-    await runSttAndRespond(blob)
+    let browserTranscript = ''
+    try {
+      browserTranscript = (await speechSessionRef.current?.stop()) || ''
+    } catch {
+      browserTranscript = ''
+    } finally {
+      speechSessionRef.current = null
+    }
+    await runSttAndRespond(blob, browserTranscript)
   }
 
-  async function runSttAndRespond(blob: Blob) {
+  async function runSttAndRespond(blob: Blob, preferredTranscript = '') {
     setWorking(true)
     try {
-      const audioBase64 = await blobToBase64(blob)
-      const sttResp = await fetch('/api/voicebot/stt', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          audioBase64,
-          mimeType: blob.type || 'audio/webm',
-          language
+      let text = preferredTranscript.trim()
+      if (!text) {
+        const audioBase64 = await blobToBase64(blob)
+        const sttResp = await fetch('/api/voicebot/stt', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            audioBase64,
+            mimeType: blob.type || 'audio/webm',
+            language
+          })
         })
-      })
-      const sttJson = await sttResp.json().catch(() => ({}))
-      if (!sttResp.ok) throw new Error(sttJson?.error || sttJson?.details || 'STT failed')
-      const text = String(sttJson?.transcript || '').trim()
+        const sttJson = await sttResp.json().catch(() => ({}))
+        if (!sttResp.ok) throw new Error(sttJson?.error || sttJson?.details || 'STT failed')
+        text = String(sttJson?.transcript || '').trim()
+      }
       setTranscript(text)
       if (!text) throw new Error('No transcript detected')
 
@@ -202,6 +221,9 @@ export function VoicebotSimulator() {
           )}
           <Badge className={canUseMediaRecorder ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-900'}>
             {canUseMediaRecorder ? 'Mic ready' : 'Mic unsupported'}
+          </Badge>
+          <Badge className={canUseBrowserStt ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}>
+            {canUseBrowserStt ? 'Client STT first' : 'Server STT fallback'}
           </Badge>
           {working ? <Badge className="bg-orange-100 text-orange-800">Working…</Badge> : null}
         </div>

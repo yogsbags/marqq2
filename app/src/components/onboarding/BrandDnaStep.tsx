@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Link2, Loader2, Mic, Pencil, Square, Trash2, Upload } from 'lucide-react';
 import type { BrandDna, BrandDnaKnowledgeFile, BrandDnaVoiceNote } from './types';
+import {
+  startBrowserSpeechRecognition,
+  type BrowserSpeechSession,
+} from '@/lib/browserSpeechRecognition';
 
 interface BrandDnaStepProps {
   brandDna: BrandDna | null;
@@ -76,6 +80,7 @@ function VoiceInputPanel({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const speechSessionRef = useRef<BrowserSpeechSession | null>(null);
 
   async function startRecording() {
     if (typeof window === 'undefined' || !('MediaRecorder' in window)) {
@@ -99,6 +104,7 @@ function VoiceInputPanel({
           : '';
       const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       mediaRecorderRef.current = mr;
+      speechSessionRef.current = startBrowserSpeechRecognition('en');
       mr.ondataavailable = (ev) => {
         if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data);
       };
@@ -129,18 +135,28 @@ function VoiceInputPanel({
       if (!blob.size) throw new Error('No audio captured — try again.');
 
       const audioBase64 = await fileToBase64(blob);
-      const sttResp = await fetch('/api/voicebot/stt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          audioBase64,
-          mimeType: blob.type || 'audio/webm',
-          language: 'en',
-        }),
-      });
-      const sttJson = await sttResp.json().catch(() => ({}));
-      if (!sttResp.ok) throw new Error(sttJson?.error || sttJson?.details || 'Transcription failed');
-      const transcript = String(sttJson?.transcript || '').trim();
+      let transcript = '';
+      try {
+        transcript = (await speechSessionRef.current?.stop())?.trim() || '';
+      } catch {
+        transcript = '';
+      } finally {
+        speechSessionRef.current = null;
+      }
+      if (!transcript) {
+        const sttResp = await fetch('/api/voicebot/stt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioBase64,
+            mimeType: blob.type || 'audio/webm',
+            language: 'en',
+          }),
+        });
+        const sttJson = await sttResp.json().catch(() => ({}));
+        if (!sttResp.ok) throw new Error(sttJson?.error || sttJson?.details || 'Transcription failed');
+        transcript = String(sttJson?.transcript || '').trim();
+      }
       setLiveTranscript(transcript);
       if (!transcript) throw new Error('No speech detected — try speaking a bit longer.');
 
@@ -185,6 +201,7 @@ function VoiceInputPanel({
       setError(err instanceof Error ? err.message : 'Voice capture failed');
     } finally {
       setWorking(false);
+      speechSessionRef.current = null;
       mediaRecorderRef.current = null;
       chunksRef.current = [];
     }

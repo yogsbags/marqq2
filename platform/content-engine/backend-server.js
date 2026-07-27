@@ -4341,8 +4341,10 @@ app.use((req, res, next) => {
 
   next();
 });
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Voice STT and similar flows send base64-encoded media inside JSON bodies.
+// Raise parser limits above Express defaults so short recordings do not 413.
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: false, limit: "15mb" }));
 
 function pickSafeKpiApiRow(row) {
   return KPI_ROUTE_FIELDS.reduce((safeRow, field) => {
