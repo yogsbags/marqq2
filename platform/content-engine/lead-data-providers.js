@@ -198,33 +198,97 @@ function mapHunterEmailToLead(entry, domainHint = '') {
   }
 }
 
-async function fetchApollo(apiKey, url, options = {}) {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'x-api-key': apiKey,
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-      accept: 'application/json',
-      ...(options.headers || {}),
-    },
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const base = data?.error || data?.error_message || data?.message || `Apollo API failed: ${res.status}`
-    console.error(`[lead-data:apollo] ${res.status} from ${url}:`, JSON.stringify(data).slice(0, 500))
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(`${formatApolloConnectionError(base)} (Apollo said: ${String(base).slice(0, 200)})`)
-    }
-    throw new Error(base)
+function apolloResultData(result) {
+  return result?.result?.data || result?.result || {}
+}
+
+function apolloPeopleList(result) {
+  const data = apolloResultData(result)
+  if (Array.isArray(data.people)) return data.people
+  if (Array.isArray(data.contacts)) return data.contacts
+  if (Array.isArray(result?.result?.people)) return result.result.people
+  if (Array.isArray(result?.result?.contacts)) return result.result.contacts
+  return []
+}
+
+function apolloOrganizationsList(result) {
+  const data = apolloResultData(result)
+  if (Array.isArray(data.organizations)) return data.organizations
+  if (Array.isArray(data.accounts)) return data.accounts
+  if (Array.isArray(result?.result?.organizations)) return result.result.organizations
+  if (Array.isArray(result?.result?.accounts)) return result.result.accounts
+  return []
+}
+
+function apolloNormalizeSearchArgs(params = {}, { limit = 25, requireVerifiedEmail = false } = {}) {
+  const countryMap = { IN: 'India', US: 'United States' }
+  const country = countryMap[String(params.country || 'IN').toUpperCase()] || String(params.country || 'India')
+  const titles = asList(params.designation_keywords || params.titles).slice(0, 8)
+  const personLocations = [...asList(params.cities), ...asList(params.states), country].filter(Boolean).slice(0, 5)
+  const domains = asList(params.domains).map(normalizeDomain).filter(Boolean).slice(0, 20)
+  const companies = asList(params.companies).slice(0, 10)
+  const industries = asList(params.industries).map((entry) => entry.replace(/_/g, ' ')).filter(Boolean)
+  const seniorities = asList(params.seniorities).slice(0, 8)
+
+  const args = {
+    page: 1,
+    per_page: Math.min(Math.max(Number(limit) || 25, 1), 100),
   }
-  return data
+  if (titles.length) args.person_titles = titles
+  if (personLocations.length) args.person_locations = personLocations
+  if (domains.length) args.q_organization_domains = domains
+  if (seniorities.length) args.person_seniorities = seniorities
+  if (requireVerifiedEmail) args.contact_email_status = ['verified']
+
+  const keywordParts = [...industries, ...companies].filter(Boolean)
+  if (keywordParts.length) args.q_keywords = keywordParts.join(' ')
+  return args
+}
+
+async function apolloEnrichDiscoveredPeople(people = [], entityIds = [], filters = {}) {
+  const enriched = []
+  const requireVerifiedEmail = Boolean(filters.requireVerifiedEmail)
+  const requirePhone = Boolean(filters.requirePhone)
+  const requireLinkedin = Boolean(filters.requireLinkedin)
+
+  for (const person of people) {
+    if (enriched.length >= (filters.limit || people.length || 0)) break
+
+    const payload = {
+      linkedin_url: person.linkedin_url || null,
+      email: person.email || null,
+      first_name: person.first_name || null,
+      last_name: person.last_name || null,
+      organization_name: person.organization?.name || person.organization_name || null,
+      domain: normalizeDomain(person.organization?.primary_domain || person.organization?.website_url || person.website_url || ''),
+      reveal_personal_emails: false,
+      reveal_phone_number: false,
+    }
+    Object.keys(payload).forEach((key) => payload[key] == null || payload[key] === '' ? delete payload[key] : null)
+
+    let resolved = person
+    if (Object.keys(payload).length) {
+      const enrich = await executeComposioActionForEntities('APOLLO_PEOPLE_ENRICHMENT', payload, entityIds)
+      if (!enrich.error) {
+        const data = apolloResultData(enrich)
+        resolved = data.person || data.match || person
+      } else {
+        console.warn('[lead-data:apollo] people enrichment failed; using discovery row:', enrich.error)
+      }
+    }
+
+    if (requireVerifiedEmail && !apolloHasVerifiedEmail(resolved)) continue
+    if (requireLinkedin && !resolved.linkedin_url) continue
+    if (requirePhone && !(apolloPersonHasVerifiedPhone(resolved) || apolloHasVerifiedDirectPhone(resolved))) continue
+    enriched.push(resolved)
+  }
+
+  return enriched
 }
 
 async function apolloFindLeads(params, entityIds) {
   const connected = await getConnectedAccountApiKeyForEntities('apollo', entityIds)
-  const apolloApiKey = connected.api_key || null
-  if (!apolloApiKey) {
+  if (!connected.api_key) {
     return {
       status: 'error',
       provider: 'apollo',
@@ -234,104 +298,26 @@ async function apolloFindLeads(params, entityIds) {
     }
   }
 
-  const countryMap = { IN: 'India', US: 'United States' }
-  const country = countryMap[String(params.country || 'IN').toUpperCase()] || String(params.country || 'India')
   const industries = asList(params.industries).map((entry) => entry.replace(/_/g, ' '))
   const titleKeywords = asList(params.designation_keywords || params.titles)
-  const cities = asList(params.cities)
-  const states = asList(params.states)
   const limit = Math.min(Math.max(Number(params.limit) || 100, 1), 100)
   const requireVerifiedEmail = Boolean(params.require_verified_email)
   const requirePhone = Boolean(params.require_phone)
   const requireLinkedin = Boolean(params.require_linkedin)
 
   try {
-    const needsStrictContact = requireVerifiedEmail || requirePhone || requireLinkedin
-    const pageSize = Math.min(100, Math.max(limit, needsStrictContact ? Math.min(100, limit * 2) : limit))
-    const collectTarget = needsStrictContact ? Math.min(100, Math.max(limit * 3, limit)) : limit
-    const peopleIds = []
-    const seenIds = new Set()
-    let page = 1
-    let phoneStatusFilterSupported = true
+    const searchArgs = apolloNormalizeSearchArgs(params, { limit, requireVerifiedEmail })
+    const peopleSearch = await executeComposioActionForEntities('APOLLO_PEOPLE_SEARCH', searchArgs, entityIds)
+    if (peopleSearch.error) throw new Error(peopleSearch.error)
 
-    while (peopleIds.length < collectTarget && page <= 5) {
-      const peopleParams = new URLSearchParams({
-        per_page: String(pageSize),
-        page: String(page),
-      })
-      for (const title of titleKeywords.slice(0, 8)) peopleParams.append('person_titles[]', title)
-      for (const location of [...cities, ...states, country].slice(0, 5)) {
-        peopleParams.append('person_locations[]', location)
-      }
-      const qKeywords = industries.join(' ')
-      if (qKeywords) peopleParams.set('q_keywords', qKeywords)
-      // Apollo people search: verified emails only when email contact channel selected
-      if (requireVerifiedEmail) {
-        peopleParams.append('contact_email_status[]', 'verified')
-      }
-      // Apollo people search: verified phone / direct dial when phone contact channel selected
-      if (requirePhone && phoneStatusFilterSupported) {
-        peopleParams.append('contact_phone_status[]', 'verified')
-      }
-
-      let peopleSearch
-      try {
-        peopleSearch = await fetchApollo(
-          apolloApiKey,
-          `https://api.apollo.io/api/v1/mixed_people/api_search?${peopleParams.toString()}`,
-          { method: 'POST' },
-        )
-      } catch (err) {
-        // Older plans / schemas may reject contact_phone_status — retry without it once.
-        if (requirePhone && phoneStatusFilterSupported && /422|phone_status|invalid/i.test(String(err.message || ''))) {
-          phoneStatusFilterSupported = false
-          console.warn('[lead-data:apollo] contact_phone_status rejected; falling back to has_direct_phone=Yes filter:', err.message)
-          continue
-        }
-        throw err
-      }
-
-      const batch = Array.isArray(peopleSearch.people) ? peopleSearch.people : []
-      if (!batch.length) break
-
-      for (const person of batch) {
-        if (!person?.id || seenIds.has(person.id)) continue
-        // Fill fetch count with only people that satisfy selected contact filters
-        if (requireVerifiedEmail && !(person.has_email === true || person.has_email === 'true')) continue
-        if (requirePhone && !apolloHasVerifiedDirectPhone(person)) continue
-        seenIds.add(person.id)
-        peopleIds.push(person.id)
-        if (peopleIds.length >= collectTarget) break
-      }
-
-      const totalPages = Number(peopleSearch.pagination?.total_pages || peopleSearch.total_pages || 0)
-      if (totalPages && page >= totalPages) break
-      if (batch.length < pageSize) break
-      page += 1
-    }
-
-    if (peopleIds.length > 0) {
-      const enrichData = await fetchApollo(apolloApiKey, 'https://api.apollo.io/api/v1/people/bulk_match', {
-        method: 'POST',
-        body: JSON.stringify({
-          details: peopleIds.slice(0, Math.min(100, peopleIds.length)).map((id) => ({ id })),
-          reveal_personal_emails: false,
-          // Phone reveal needs a webhook for async delivery; search already constrained to verified direct dial.
-          reveal_phone_number: false,
-        }),
-      })
-      let people = enrichData.matches || []
-      if (requireVerifiedEmail) {
-        people = people.filter((person) => apolloHasVerifiedEmail(person))
-      }
-      if (requireLinkedin) {
-        people = people.filter((person) => Boolean(person.linkedin_url))
-      }
-      if (requirePhone) {
-        people = people.filter((person) => apolloPersonHasVerifiedPhone(person) || apolloHasVerifiedDirectPhone(person))
-      }
-      people = people.slice(0, limit)
-      const leads = people.map(mapApolloPersonToLead).filter((lead) => lead.company || lead.full_name)
+    const discovered = apolloPeopleList(peopleSearch)
+    if (discovered.length > 0) {
+      const enrichedPeople = await apolloEnrichDiscoveredPeople(
+        discovered,
+        entityIds,
+        { limit, requireVerifiedEmail, requirePhone, requireLinkedin },
+      )
+      const leads = enrichedPeople.map(mapApolloPersonToLead).filter((lead) => lead.company || lead.full_name)
       return {
         status: 'completed',
         provider: 'apollo',
@@ -373,20 +359,23 @@ async function apolloFindLeads(params, entityIds) {
 
   const accountQueries = industries.length
     ? industries
-    : [titleKeywords[0], states[0], cities[0], country].filter(Boolean)
+    : [titleKeywords[0], params.country].filter(Boolean)
 
   try {
     const accountMap = new Map()
     for (const query of accountQueries) {
       if (accountMap.size >= limit) break
-      const accountData = await fetchApollo(apolloApiKey, 'https://api.apollo.io/api/v1/mixed_companies/search', {
-        method: 'POST',
-        body: JSON.stringify({
+      const accountData = await executeComposioActionForEntities(
+        'APOLLO_ORGANIZATION_SEARCH',
+        {
           per_page: Math.max(1, Math.min(10, limit - accountMap.size)),
+          page: 1,
           q_organization_name: query,
-        }),
-      })
-      for (const account of accountData.accounts || []) {
+        },
+        entityIds,
+      )
+      if (accountData.error) throw new Error(accountData.error)
+      for (const account of apolloOrganizationsList(accountData)) {
         const key = account.primary_domain || account.domain || account.name
         if (!key || accountMap.has(key)) continue
         accountMap.set(key, account)
@@ -587,8 +576,7 @@ export async function findLeads(params = {}, companyId = null, entityIds = []) {
 
 async function apolloEnrichLead(params, entityIds) {
   const connected = await getConnectedAccountApiKeyForEntities('apollo', entityIds)
-  const apiKey = connected.api_key || process.env.APOLLO_API_KEY || null
-  if (!apiKey) {
+  if (!connected.api_key) {
     return {
       status: 'error',
       provider: 'apollo',
@@ -598,28 +586,30 @@ async function apolloEnrichLead(params, entityIds) {
     }
   }
 
-  const res = await fetch('https://api.apollo.io/v1/people/match', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'x-api-key': apiKey },
-    body: JSON.stringify({
-      api_key: apiKey,
-      email: params.email || null,
-      domain: params.domain || null,
-      first_name: params.first_name || null,
-      last_name: params.last_name || null,
-      reveal_personal_emails: false,
-    }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok || data.error) {
+  const payload = {
+    email: params.email || null,
+    domain: normalizeDomain(params.domain) || null,
+    first_name: params.first_name || null,
+    last_name: params.last_name || null,
+    name: params.full_name || null,
+    organization_name: params.company || null,
+    linkedin_url: params.linkedin_url || null,
+    reveal_personal_emails: false,
+    reveal_phone_number: false,
+  }
+  Object.keys(payload).forEach((key) => payload[key] == null || payload[key] === '' ? delete payload[key] : null)
+
+  const res = await executeComposioActionForEntities('APOLLO_PEOPLE_ENRICHMENT', payload, entityIds)
+  if (res.error) {
     return {
       status: 'error',
       provider: 'apollo',
-      error: data.error || data.message || `Apollo enrich failed: ${res.status}`,
+      error: formatApolloConnectionError(res.error),
       person: null,
       organization: null,
     }
   }
+  const data = apolloResultData(res)
   return {
     status: 'completed',
     provider: 'apollo',
@@ -904,31 +894,37 @@ export function deriveOutreachSignals(person = {}, company = {}) {
   return signals.slice(0, 8)
 }
 
-async function apolloFetchCompany(apiKey, { domain, companyName } = {}) {
-  if (!apiKey) return null
+async function apolloFetchCompany(entityIds, { domain, companyName } = {}) {
   const q = companyName || domain
   if (!q && !domain) return null
 
   if (domain) {
-    try {
-      const url = `https://api.apollo.io/api/v1/organizations/enrich?domain=${encodeURIComponent(domain)}`
-      const data = await fetchApollo(apiKey, url, { method: 'GET' })
+    const enrich = await executeComposioActionForEntities(
+      'APOLLO_ORGANIZATION_ENRICHMENT',
+      { domain: normalizeDomain(domain) },
+      entityIds,
+    )
+    if (!enrich.error) {
+      const data = apolloResultData(enrich)
       if (data?.organization) return data.organization
-    } catch (err) {
-      console.warn('[lead-data:apollo] org enrich failed:', err.message)
+    } else {
+      console.warn('[lead-data:apollo] org enrich failed:', enrich.error)
     }
   }
 
   try {
-    const search = await fetchApollo(apiKey, 'https://api.apollo.io/api/v1/mixed_companies/search', {
-      method: 'POST',
-      body: JSON.stringify({
+    const search = await executeComposioActionForEntities(
+      'APOLLO_ORGANIZATION_SEARCH',
+      {
         per_page: 1,
+        page: 1,
         q_organization_name: q,
-        ...(domain ? { q_organization_domains_list: [domain] } : {}),
-      }),
-    })
-    return (search.accounts || search.organizations || [])[0] || null
+        ...(domain ? { q_organization_domains_list: [normalizeDomain(domain)] } : {}),
+      },
+      entityIds,
+    )
+    if (search.error) throw new Error(search.error)
+    return apolloOrganizationsList(search)[0] || null
   } catch (err) {
     console.warn('[lead-data:apollo] company search failed:', err.message)
     return null
@@ -1105,9 +1101,8 @@ export async function enrichProspectContext(params = {}, companyId = null, entit
 
   // Apollo company enrich when person match lacked org detail
   const apolloKeyResult = await getConnectedAccountApiKeyForEntities('apollo', ids)
-  const apolloKey = apolloKeyResult.api_key || process.env.APOLLO_API_KEY || null
-  if (apolloKey && (!rawOrg || !rawOrg.short_description)) {
-    const apolloOrg = await apolloFetchCompany(apolloKey, { domain, companyName })
+  if (apolloKeyResult.api_key && (!rawOrg || !rawOrg.short_description)) {
+    const apolloOrg = await apolloFetchCompany(ids, { domain, companyName })
     if (apolloOrg) {
       rawOrg = { ...(typeof rawOrg === 'object' && rawOrg ? rawOrg : {}), ...apolloOrg }
       sources.push('apollo_organization')

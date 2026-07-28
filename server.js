@@ -162,6 +162,15 @@ function startVoicebotAgent() {
     return null
   }
 
+  const missing = ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET']
+    .filter((key) => !String(process.env[key] || '').trim())
+  if (missing.length) {
+    console.log(
+      `[voicebot-agent] disabled (missing ${missing.join(', ')}; set all LiveKit credentials to enable)`,
+    )
+    return null
+  }
+
   const agentScript = path.join(__dirname, 'platform', 'voicebot', 'agent.js')
   const child = spawn(process.execPath, [agentScript, 'start'], {
     env: { ...process.env },
