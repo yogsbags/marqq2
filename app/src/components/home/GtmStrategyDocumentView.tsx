@@ -35,6 +35,10 @@ function downloadBlob(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url)
 }
 
+function displaySectionLabel(section?: Pick<GtmStrategyDocSection, 'title' | 'channel'> | null) {
+  return String(section?.title || section?.channel || '').replace(/^#/, '')
+}
+
 function strategyToHtml(doc: GtmStrategyDocument) {
   const esc = (s: string) =>
     String(s || '')
@@ -45,7 +49,7 @@ function strategyToHtml(doc: GtmStrategyDocument) {
     .map(
       (s) => `
       <section style="margin:32px 0;page-break-inside:avoid">
-        <h2 style="font-size:18px;margin:0 0 8px">${esc(s.channel || s.title)}</h2>
+        <h2 style="font-size:18px;margin:0 0 8px">${esc(displaySectionLabel(s))}</h2>
         <p style="color:#555;margin:0 0 12px">${esc(s.summary)}</p>
         <p style="line-height:1.65;white-space:pre-wrap">${esc(s.body)}</p>
         ${(s.bullets || []).length ? `<ul>${s.bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
@@ -150,7 +154,7 @@ export function GtmStrategyDocumentView({
         strategy.executiveSummary,
         '',
         ...(strategy.sections || []).flatMap((s) => [
-          `## ${s.channel || s.title}`,
+          `## ${displaySectionLabel(s)}`,
           '',
           s.summary,
           '',
@@ -344,7 +348,7 @@ export function GtmStrategyDocumentView({
                   )}
                 >
                   <Hash className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                  <span className="truncate">{(s.channel || s.title).replace(/^#/, '')}</span>
+                  <span className="truncate">{displaySectionLabel(s)}</span>
                 </button>
               )
             })}
@@ -355,7 +359,7 @@ export function GtmStrategyDocumentView({
         <div className="flex min-w-0 flex-col bg-background">
           <div className="flex items-center gap-2 border-b border-border/50 px-4 py-2.5">
             <Hash className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">{(active?.channel || active?.title || '').replace(/^#/, '')}</h3>
+            <h3 className="text-sm font-semibold">{displaySectionLabel(active)}</h3>
           </div>
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
             {active?.summary && (

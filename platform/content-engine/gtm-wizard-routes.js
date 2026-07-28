@@ -1022,6 +1022,76 @@ function buildDeterministicStrategy(moduleRow) {
   };
 }
 
+function buildStrategyContextMemo(profile = {}) {
+  const lines = []
+  const push = (label, value) => {
+    const text = Array.isArray(value) ? value.filter(Boolean).join(", ") : String(value || "").trim()
+    if (text) lines.push(`- ${label}: ${text}`)
+  }
+
+  lines.push("Locked GTM facts:")
+  push("Offer", profileLabel(profile, "offer.one_liner") || profileLabel(profile, "module.one_sentence_desc"))
+  push("Category", profileLabel(profile, "offer.category"))
+  push("Business model", profileLabel(profile, "offer.business_model"))
+  push("Pricing", profileLabel(profile, "offer.pricing_strategy"))
+  push("Top benefits", profileLabel(profile, "offer.top_benefits"))
+  push("Validation", profileLabel(profile, "offer.validation_evidence"))
+  push("Stage", profileLabel(profile, "market.business_stage"))
+  push("Geography", profileLabel(profile, "market.geography"))
+  push("Market timing", profileLabel(profile, "market.market_timing"))
+  push("ICP", profileLabel(profile, "audience.icp"))
+  push("Persona", profileLabel(profile, "audience.persona"))
+  push("JTBD", profileLabel(profile, "audience.jtbd"))
+  push("Buying triggers", profileLabel(profile, "audience.buying_triggers"))
+  push("Not a fit", profileLabel(profile, "audience.not_a_fit"))
+  push("Core pain", profileLabel(profile, "problem.core_pain"))
+  push("Status quo", profileLabel(profile, "problem.status_quo"))
+  push("Cost of inaction", profileLabel(profile, "problem.cost_of_inaction"))
+  push("Differentiation", profileLabel(profile, "positioning.differentiation"))
+  push("Competitors", profileLabel(profile, "positioning.competitors"))
+  push("Proof", profileLabel(profile, "positioning.proof"))
+  push("Why deals are lost", profileLabel(profile, "positioning.why_lose"))
+  push("Messaging to avoid", profileLabel(profile, "positioning.messaging_avoid"))
+  push("Distribution", profileLabel(profile, "distribution.distribution_strategy"))
+  push("Discovery channels", profileLabel(profile, "distribution.discovery_channels"))
+  push("GTM motion", profileLabel(profile, "distribution.gtm_motion"))
+  push("Resources", profileLabel(profile, "distribution.resources_available"))
+  push("Content strategy", profileLabel(profile, "content.content_strategy"))
+  push("Social strategy", profileLabel(profile, "content.social_media_strategy"))
+  push("Lead qualification", profileLabel(profile, "leads.lead_qualification"))
+  push("TAT / outreach segment", profileLabel(profile, "leads.tat_outreach_segment"))
+  push("Sales objections", profileLabel(profile, "sales.objections"))
+  push("Buying cycle", profileLabel(profile, "sales.buying_cycle"))
+  push("Sales process", profileLabel(profile, "sales.sales_process"))
+  push("Primary goal", profileLabel(profile, "goals.priority_90d"))
+  push("Target", profileLabel(profile, "goals.quantified_target"))
+  push("Timeline", profileLabel(profile, "goals.timeline_target"))
+  push("Channel bet", profileLabel(profile, "goals.channel_bet"))
+  push("Budget band", profileLabel(profile, "goals.budget_band"))
+  push("Baseline", profileLabel(profile, "goals.success_baseline"))
+  push("Strategy depth", profileLabel(profile, "goals.strategy_depth"))
+
+  const contradictions = []
+  const icp = String(profileLabel(profile, "audience.icp") || "").toLowerCase()
+  const motion = String(profileLabel(profile, "distribution.distribution_strategy") || profileLabel(profile, "goals.channel_bet") || "").toLowerCase()
+  const social = String(profileLabel(profile, "content.social_media_strategy") || "").toLowerCase()
+  if (/(consumer|patient|individual|b2c)/.test(icp) && /(sales|outbound|apollo|linkedin)/.test(`${motion} ${social}`)) {
+    contradictions.push("The ICP reads consumer/B2C, but parts of the route-to-market imply B2B outbound. Resolve which segment is the true beachhead and treat the other as secondary.")
+  }
+  if (!profileLabel(profile, "goals.quantified_target")) {
+    contradictions.push("No quantified target is locked yet. Recommend a concrete numeric target and explain what to instrument first.")
+  }
+  if (!profileLabel(profile, "offer.validation_evidence")) {
+    contradictions.push("Validation evidence is weak or missing. The plan should bias toward proof-gathering before scale.")
+  }
+  if (contradictions.length) {
+    lines.push("", "Known gaps / contradictions to resolve in the strategy:")
+    contradictions.forEach((item) => lines.push(`- ${item}`))
+  }
+
+  return lines.join("\n")
+}
+
 async function generateStrategyWithLlm(groq, moduleRow) {
   const profile = moduleRow.profile || {};
   const fallback = buildDeterministicStrategy(moduleRow);
@@ -1036,11 +1106,12 @@ async function generateStrategyWithLlm(groq, moduleRow) {
   const skillPack = resolveSkillPack("gtm_strategy_doc");
   const skillIds = Array.from(new Set([...(skillPack.primary || []), ...(skillPack.secondary || [])].filter(Boolean)));
   const skillPlaybook = await loadMarketingSkillsForTask("gtm_strategy_doc");
+  const contextMemo = buildStrategyContextMemo(profile);
 
   try {
     const completion = await groq.chat.completions.create({
-      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-      temperature: 0.35,
+      model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+      temperature: 0.45,
       max_tokens: 8000,
       response_format: { type: "json_object" },
       messages: [
@@ -1063,10 +1134,11 @@ The locked profile is CONTEXT only. Your job is to produce RECOMMENDATIONS:
 - concrete plays, milestones, owners (roles), and measurement
 - tradeoffs and contingencies
 If you mention an input, immediately follow with what you recommend because of it.
+If a section sounds like a recap, it is wrong.
 
 Hard requirements:
 1. executiveSummary (document field) + executive_summary section: restate win condition in 2 sentences, then strategic bets and what NOT to do.
-2. Produce ALL required section ids in order. Each section needs: summary (1–2 sentences of recommendation), 4–7 action bullets, body (2–5 sentences of actionable guidance).
+2. Produce ALL required section ids in order. Each section needs: summary (1–2 sentences of recommendation), 4–7 action bullets, body (4–8 sentences of actionable guidance).
 3. market_analysis: beachhead market, sequencing, timing — not a generic TAM essay.
 4. target_customer: operational ICP activation + disqualifiers.
 5. product_strategy: time-to-value path and packaging implications for GTM.
@@ -1085,6 +1157,10 @@ Hard requirements:
 18. Every section must explain how it moves ${quantified} by ${timeline}.
 19. Prefer India/GCC/US realism when geography appears in profile; do not invent fake logos or fake numbers.
 20. If critical fields are missing, call out the gap and recommend what to decide — still give a best-effort plan.
+21. Every section must include at least one hard choice, tradeoff, or explicit deprioritization.
+22. Bullets must be action-oriented and specific; avoid generic bullets like "develop a comprehensive plan" or "establish a framework".
+23. nextSteps must be the immediate next 5 actions for the next 14 days, not generic operating principles.
+24. Do not repeat the same recommendation across multiple sections unless the section explains a different implication of that choice.
 
 ${skillPlaybook ? `${skillPlaybook}\n\n` : ""}Return ONLY JSON:
 {
@@ -1098,7 +1174,12 @@ Each section.channel must match the defs (e.g. "#executive-summary").`,
         },
         {
           role: "user",
-          content: `Module: ${moduleRow.name}\nLocked profile JSON (context only — recommend, do not echo):\n${JSON.stringify(profile).slice(0, 16000)}`,
+          content: `Module: ${moduleRow.name}
+
+${contextMemo}
+
+Locked profile JSON (context only — recommend, do not echo):
+${JSON.stringify(profile).slice(0, 16000)}`,
         },
       ],
     });
