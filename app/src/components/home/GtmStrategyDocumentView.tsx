@@ -45,16 +45,27 @@ function strategyToHtml(doc: GtmStrategyDocument) {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-  const sections = (doc.sections || [])
-    .map(
-      (s) => `
+  const sections = doc.sections || []
+  const hasExecSection = sections.some((s) => s.id === 'executive_summary')
+  const sectionsHtml = sections
+    .map((s) => {
+      const isExec = s.id === 'executive_summary'
+      const lead =
+        isExec && doc.executiveSummary
+          ? doc.executiveSummary
+          : s.summary
+      const body =
+        isExec && doc.executiveSummary && String(s.body || '').trim() === String(doc.executiveSummary).trim()
+          ? ''
+          : s.body
+      return `
       <section style="margin:32px 0;page-break-inside:avoid">
         <h2 style="font-size:18px;margin:0 0 8px">${esc(displaySectionLabel(s))}</h2>
-        <p style="color:#555;margin:0 0 12px">${esc(s.summary)}</p>
-        <p style="line-height:1.65;white-space:pre-wrap">${esc(s.body)}</p>
+        ${lead ? `<p style="color:#555;margin:0 0 12px">${esc(lead)}</p>` : ''}
+        ${body ? `<p style="line-height:1.65;white-space:pre-wrap">${esc(body)}</p>` : ''}
         ${(s.bullets || []).length ? `<ul>${s.bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
       </section>`
-    )
+    })
     .join('')
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><title>${esc(doc.title)}</title>
@@ -65,8 +76,8 @@ function strategyToHtml(doc: GtmStrategyDocument) {
 </style></head><body>
 <h1>${esc(doc.title)}</h1>
 <p class="meta">Generated ${esc(doc.generatedAt || '')}</p>
-<p>${esc(doc.executiveSummary)}</p>
-${sections}
+${hasExecSection ? '' : `<p>${esc(doc.executiveSummary)}</p>`}
+${sectionsHtml}
 </body></html>`
 }
 
@@ -146,23 +157,35 @@ export function GtmStrategyDocumentView({
   }
 
   const exportMarkdown = () => {
+    const sections = strategy.sections || []
+    const hasExecSection = sections.some((s) => s.id === 'executive_summary')
     const content =
       md ||
       [
         `# ${strategy.title}`,
         '',
-        strategy.executiveSummary,
-        '',
-        ...(strategy.sections || []).flatMap((s) => [
-          `## ${displaySectionLabel(s)}`,
-          '',
-          s.summary,
-          '',
-          s.body,
-          '',
-          ...(s.bullets || []).map((b) => `- ${b}`),
-          '',
-        ]),
+        ...(hasExecSection || !strategy.executiveSummary
+          ? []
+          : [strategy.executiveSummary, '']),
+        ...sections.flatMap((s) => {
+          const isExec = s.id === 'executive_summary'
+          const lead =
+            isExec && strategy.executiveSummary ? strategy.executiveSummary : s.summary
+          const body =
+            isExec &&
+            strategy.executiveSummary &&
+            String(s.body || '').trim() === String(strategy.executiveSummary).trim()
+              ? ''
+              : s.body
+          return [
+            `## ${displaySectionLabel(s)}`,
+            '',
+            ...(lead ? [lead, ''] : []),
+            ...(body ? [body, ''] : []),
+            ...(s.bullets || []).map((b) => `- ${b}`),
+            '',
+          ]
+        }),
       ].join('\n')
     downloadBlob(`${strategy.title || 'gtm-strategy'}.md`, content, 'text/markdown;charset=utf-8')
     toast.success('Downloaded markdown')
@@ -362,12 +385,34 @@ export function GtmStrategyDocumentView({
             <h3 className="text-sm font-semibold">{displaySectionLabel(active)}</h3>
           </div>
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-            {active?.summary && (
-              <p className="text-sm font-medium leading-6 text-foreground">{active.summary}</p>
-            )}
-            {active?.body && (
-              <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{active.body}</p>
-            )}
+            {(() => {
+              const isExec = active?.id === 'executive_summary'
+              const lead =
+                isExec && strategy.executiveSummary ? strategy.executiveSummary : active?.summary
+              const body =
+                isExec &&
+                strategy.executiveSummary &&
+                String(active?.body || '').trim() === String(strategy.executiveSummary).trim()
+                  ? ''
+                  : isExec && strategy.executiveSummary && active?.summary === strategy.executiveSummary
+                    ? active?.body
+                    : active?.body
+              // For executive_summary: show doc-level summary once, then body (skip duplicate summary line)
+              const showSectionSummary =
+                !isExec && Boolean(active?.summary)
+              return (
+                <>
+                  {(isExec ? lead : showSectionSummary ? active?.summary : null) && (
+                    <p className="text-sm font-medium leading-6 text-foreground">
+                      {isExec ? lead : active?.summary}
+                    </p>
+                  )}
+                  {body && (
+                    <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{body}</p>
+                  )}
+                </>
+              )
+            })()}
             {(active?.bullets || []).length > 0 && (
               <ul className="space-y-2">
                 {active!.bullets.map((b, i) => (

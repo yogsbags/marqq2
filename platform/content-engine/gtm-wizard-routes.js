@@ -1137,7 +1137,7 @@ If you mention an input, immediately follow with what you recommend because of i
 If a section sounds like a recap, it is wrong.
 
 Hard requirements:
-1. executiveSummary (document field) + executive_summary section: restate win condition in 2 sentences, then strategic bets and what NOT to do.
+1. executiveSummary (document field) is the ONLY short win-condition blurb (2 sentences: target + strategic bets / what NOT to do). The executive_summary section must NOT repeat that blurb — its summary should be one recommendation sentence, then bullets/body with actions. Do not write the same paragraph twice.
 2. Produce ALL required section ids in order. Each section needs: summary (1–2 sentences of recommendation), 4–7 action bullets, body (4–8 sentences of actionable guidance).
 3. market_analysis: beachhead market, sequencing, timing — not a generic TAM essay.
 4. target_customer: operational ICP activation + disqualifiers.
@@ -1248,21 +1248,41 @@ ${JSON.stringify(profile).slice(0, 16000)}`,
   }
 }
 
+function strategySectionLabel(section) {
+  return String(section?.title || section?.channel || "")
+    .replace(/^#/, "")
+    .trim();
+}
+
 function strategyToMarkdown(doc) {
   const lines = [
     `# ${doc.title}`,
     "",
     `_Generated ${doc.generatedAt || new Date().toISOString()}_`,
     "",
-    "## Executive summary",
-    doc.executiveSummary || "",
-    "",
   ];
-  for (const s of doc.sections || []) {
-    lines.push(`## ${s.channel || s.title}`);
+
+  // Prefer the dedicated executive_summary section when present so the doc-level
+  // executiveSummary field is not printed again as a duplicate heading.
+  const sections = Array.isArray(doc.sections) ? doc.sections : [];
+  const hasExecSection = sections.some((s) => s?.id === "executive_summary");
+  if (!hasExecSection && doc.executiveSummary) {
+    lines.push("## Executive summary", doc.executiveSummary, "");
+  }
+
+  for (const s of sections) {
+    lines.push(`## ${strategySectionLabel(s) || "Section"}`);
     lines.push("");
-    if (s.summary) lines.push(s.summary, "");
-    if (s.body) lines.push(s.body, "");
+    // If the section summary merely restates the doc-level summary, keep one copy.
+    if (s.id === "executive_summary" && doc.executiveSummary) {
+      lines.push(doc.executiveSummary, "");
+      if (s.body && String(s.body).trim() !== String(doc.executiveSummary).trim()) {
+        lines.push(s.body, "");
+      }
+    } else {
+      if (s.summary) lines.push(s.summary, "");
+      if (s.body) lines.push(s.body, "");
+    }
     for (const b of s.bullets || []) lines.push(`- ${b}`);
     lines.push("");
   }

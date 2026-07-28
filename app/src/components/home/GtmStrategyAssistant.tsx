@@ -490,7 +490,9 @@ export function GtmStrategyAssistant({ onDeployAgent, onOpenWorkflow }: GtmStrat
             <div className="space-y-4">
               <div className="space-y-1">
                 <div className="text-base font-semibold text-gray-900 dark:text-gray-100">{strategy.title}</div>
-                <div className="text-sm text-muted-foreground">{strategy.executiveSummary}</div>
+                {!strategy.sections?.some((s) => s.id === 'executive_summary') && strategy.executiveSummary ? (
+                  <div className="text-sm text-muted-foreground">{strategy.executiveSummary}</div>
+                ) : null}
               </div>
 
               {strategy.assumptions?.length ? (
@@ -509,7 +511,11 @@ export function GtmStrategyAssistant({ onDeployAgent, onOpenWorkflow }: GtmStrat
                   <Card key={section.id} className="shadow-sm">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm">{section.title}</CardTitle>
-                      <CardDescription className="text-xs">{section.summary}</CardDescription>
+                      <CardDescription className="text-xs">
+                        {section.id === 'executive_summary' && strategy.executiveSummary
+                          ? strategy.executiveSummary
+                          : section.summary}
+                      </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
