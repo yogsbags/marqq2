@@ -8152,7 +8152,12 @@ app.post('/api/outreach/runs', async (req, res) => {
     });
   } catch (err) {
     console.error('[outreach/runs]', err);
-    return res.status(500).json({ error: err.message || 'Failed to fetch prospects' });
+    const message = String(err?.message || 'Failed to fetch prospects');
+    let status = 500;
+    if (/workspaceId is required/i.test(message)) status = 400;
+    else if (/No lead data connector connected|authorization failed|connection is missing or stale|No Hunter API key found/i.test(message)) status = 409;
+    else if (/No prospects matched|Hunter needs company domains|returned no people matching contact filters|returned no matching contacts/i.test(message)) status = 422;
+    return res.status(status).json({ error: message });
   }
 });
 

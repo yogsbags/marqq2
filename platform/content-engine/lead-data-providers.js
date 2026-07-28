@@ -534,11 +534,55 @@ export async function findLeads(params = {}, companyId = null, entityIds = []) {
   if (!resolved.provider) {
     return { status: 'error', error: resolved.error, leads: [], count: 0, connected: resolved.connected }
   }
+  const preferred = resolved.provider
+  const attemptOrder = [preferred, ...resolved.connected.filter((id) => id !== preferred)]
+  const attempts = []
+  let firstCompleted = null
+  let lastError = null
 
-  if (resolved.provider === 'hunter') {
-    return hunterFindLeads(params, ids)
+  for (const providerId of attemptOrder) {
+    const result = providerId === 'hunter'
+      ? await hunterFindLeads({ ...params, provider: providerId }, ids)
+      : await apolloFindLeads({ ...params, provider: providerId }, ids)
+
+    attempts.push({
+      provider: providerId,
+      status: result?.status || 'error',
+      count: Number(result?.count) || 0,
+      message: result?.message || null,
+      error: result?.error || null,
+    })
+
+    if (result?.status === 'completed') {
+      if ((Number(result.count) || 0) > 0 || (Array.isArray(result.leads) && result.leads.length > 0)) {
+        return {
+          ...result,
+          connected: resolved.connected,
+          attemptedProviders: attempts,
+        }
+      }
+      if (!firstCompleted) firstCompleted = result
+      continue
+    }
+
+    if (result?.status === 'error') {
+      lastError = result
+    }
   }
-  return apolloFindLeads(params, ids)
+
+  if (firstCompleted) {
+    return {
+      ...firstCompleted,
+      connected: resolved.connected,
+      attemptedProviders: attempts,
+    }
+  }
+
+  return {
+    ...(lastError || { status: 'error', provider: preferred, error: 'Lead search failed', leads: [], count: 0 }),
+    connected: resolved.connected,
+    attemptedProviders: attempts,
+  }
 }
 
 async function apolloEnrichLead(params, entityIds) {

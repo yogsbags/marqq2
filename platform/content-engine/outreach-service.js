@@ -553,8 +553,14 @@ export async function createOutreachRun({
   const leads = Array.isArray(search.leads) ? search.leads : []
   if (!leads.length) {
     const label = leadProviderLabel(search.provider)
+    const attempted = Array.isArray(search.attemptedProviders)
+      ? search.attemptedProviders
+          .map((entry) => leadProviderLabel(entry?.provider))
+          .filter(Boolean)
+      : []
+    const attemptNote = attempted.length > 1 ? ` Tried ${attempted.join(' then ')}.` : ''
     throw new Error(
-      `No prospects matched your filters in ${label}. Try broader titles, add company domains (helps Hunter), or switch lead-data provider in Settings.`,
+      `No prospects matched your filters in ${label}.${attemptNote} Try broader titles, add company domains (helps Hunter), or switch lead-data provider in Settings.`,
     )
   }
 
