@@ -332,6 +332,48 @@ export function evaluateTaskConnectors(
 }
 
 export const GTM_TASK_AUTORUN_KEY = 'marqq_gtm_task_autorun';
+/** Keep GTM wizard reachable on #main after deploying a direction into a task channel */
+export const GTM_WIZARD_RESUME_KEY = 'marqq_gtm_wizard_resume';
+
+export function markGtmWizardResume() {
+  try {
+    sessionStorage.setItem(GTM_WIZARD_RESUME_KEY, '1');
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearGtmWizardResume() {
+  try {
+    sessionStorage.removeItem(GTM_WIZARD_RESUME_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function shouldResumeGtmWizard(): boolean {
+  try {
+    return (
+      sessionStorage.getItem('marqq_gtm_wizard_pending') === '1' ||
+      sessionStorage.getItem(GTM_WIZARD_RESUME_KEY) === '1'
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function returnToGtmWizard(onModuleSelect?: (moduleId: string | null) => void) {
+  markGtmWizardResume();
+  try {
+    if (window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  } catch {
+    /* ignore */
+  }
+  onModuleSelect?.(null);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
 export type GtmTaskAutorunPayload = {
   channelId: string;

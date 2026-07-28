@@ -32,6 +32,8 @@ import {
   evaluateTaskConnectors,
   getCiTaskByPage,
   GTM_TASK_AUTORUN_KEY,
+  returnToGtmWizard,
+  shouldResumeGtmWizard,
   type GtmTaskAutorunPayload,
 } from '@/lib/gtmTaskRegistry'
 import { skillsForCiPage } from '@/lib/marketingSkillMap'
@@ -859,16 +861,37 @@ export function CompanyIntelligenceFlow({
 
       <div className="space-y-4">
         {taskChannelMode ? (
-          <TaskAgentCommandDeck
-            agentName={deckAgentName}
-            taskTitle={title}
-            channelTitle={deckChannelTitle}
-            companyName={currentCompany?.companyName || companies.find((c) => c.id === selectedCompanyId)?.companyName}
-            marketingSkills={deckMarketingSkills}
-            runState={deckRunState}
-            summary={deckSummary}
-            onOpenHub={onModuleSelect ? () => onModuleSelect('company-intelligence') : undefined}
-          />
+          <div className="space-y-3">
+            {(shouldResumeGtmWizard() || Boolean(onModuleSelect)) && (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-orange-500/20 bg-orange-500/[0.06] px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">Opened from GTM Wizard</p>
+                  <p className="text-xs text-muted-foreground">
+                    Return to #main to pick another direction from your locked profile.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 border-orange-500/30 text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950/30"
+                  onClick={() => returnToGtmWizard(onModuleSelect)}
+                >
+                  Back to GTM
+                </Button>
+              </div>
+            )}
+            <TaskAgentCommandDeck
+              agentName={deckAgentName}
+              taskTitle={title}
+              channelTitle={deckChannelTitle}
+              companyName={currentCompany?.companyName || companies.find((c) => c.id === selectedCompanyId)?.companyName}
+              marketingSkills={deckMarketingSkills}
+              runState={deckRunState}
+              summary={deckSummary}
+              onOpenHub={onModuleSelect ? () => onModuleSelect('company-intelligence') : undefined}
+            />
+          </div>
         ) : (
           <div className="rounded-[30px] border border-border/70 bg-gradient-to-br from-orange-500/[0.08] via-background to-amber-500/[0.05] px-5 py-5 shadow-sm">
             <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-orange-500">

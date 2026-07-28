@@ -3,6 +3,7 @@ import { storeGtmContext } from '@/lib/gtmContext';
 import {
   getGtmTaskDestination,
   GTM_TASK_AUTORUN_KEY,
+  markGtmWizardResume,
   type GtmTaskAutorunPayload,
 } from '@/lib/gtmTaskRegistry';
 
@@ -18,6 +19,9 @@ export function deployGtmTask(
 ): { channelId: string } | null {
   const dest = getGtmTaskDestination(req.target);
   if (!dest) return null;
+
+  // Keep #main able to reopen the wizard after this navigation.
+  markGtmWizardResume();
 
   if (req.context) {
     storeGtmContext(req.target, {

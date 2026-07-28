@@ -1656,7 +1656,10 @@ export function ChatHome({
   const hasHydratedConversationRef = useRef(false);
   const [showGtmWizard, setShowGtmWizard] = useState(() => {
     try {
-      return sessionStorage.getItem('marqq_gtm_wizard_pending') === '1';
+      return (
+        sessionStorage.getItem('marqq_gtm_wizard_pending') === '1' ||
+        sessionStorage.getItem('marqq_gtm_wizard_resume') === '1'
+      );
     } catch {
       return false;
     }
@@ -3483,15 +3486,48 @@ export function ChatHome({
               onDeployAgent={(req: GtmDeployRequest) => {
                 try {
                   sessionStorage.removeItem('marqq_gtm_wizard_pending');
+                  sessionStorage.setItem('marqq_gtm_wizard_resume', '1');
                 } catch {
                   /* ignore */
                 }
-                setShowGtmWizard(false);
                 deployGtmTask(req, onModuleSelect);
               }}
             />
           </div>
         )}
+
+        {!showGtmWizard && scope === 'main' ? (
+          (() => {
+            let canResume = false;
+            try {
+              canResume = sessionStorage.getItem('marqq_gtm_wizard_resume') === '1';
+            } catch {
+              canResume = false;
+            }
+            if (!canResume) return null;
+            return (
+              <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2">
+                <p className="text-xs text-muted-foreground">
+                  Continue picking GTM directions from your locked profile.
+                </p>
+                <button
+                  type="button"
+                  className="rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-700 transition hover:bg-orange-500/15 dark:text-orange-300"
+                  onClick={() => {
+                    try {
+                      sessionStorage.setItem('marqq_gtm_wizard_resume', '1');
+                    } catch {
+                      /* ignore */
+                    }
+                    setShowGtmWizard(true);
+                  }}
+                >
+                  Open GTM Wizard
+                </button>
+              </div>
+            );
+          })()
+        ) : null}
 
         {/* Messages */}
         <ScrollArea className="flex-1 px-4 py-4">

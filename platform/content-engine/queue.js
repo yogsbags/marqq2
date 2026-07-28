@@ -1095,6 +1095,88 @@ function normalizeWebsiteAudit(raw) {
   };
 }
 
+function synthesizeMarketingIdeasSummary(ideas, stageFit, budgetBand) {
+  const names = asArray(ideas)
+    .map((idea) => {
+      const row = asObject(idea);
+      return cleanText(row.name || row.title);
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+  const topWhy = asArray(ideas)
+    .map((idea) => cleanText(asObject(idea).whyItFits || asObject(idea).why))
+    .find(Boolean);
+  const stage = cleanText(stageFit);
+  const budget = cleanText(budgetBand);
+  const lead =
+    names.length > 0
+      ? `Prioritize ${names.join(', ')}${names.length === 3 && asArray(ideas).length > 3 ? ', and related catalog ideas' : ''}.`
+      : 'Prioritize the highest-fit catalog ideas for this GTM stage.';
+  const contextBits = [
+    stage ? `Stage: ${stage}` : '',
+    budget ? `Budget: ${budget}` : '',
+  ].filter(Boolean);
+  const whyBit = topWhy ? ` ${topWhy}` : '';
+  const contextBit = contextBits.length ? ` (${contextBits.join(' · ')})` : '';
+  return compactSentence(`${lead}${whyBit}${contextBit}`.trim());
+}
+
+function normalizeMarketingIdeas(raw) {
+  const data = asObject(raw);
+  const scoresIn = asObject(data.scores);
+  const ideas = asArray(data.ideas).map((idea) => {
+    const row = asObject(idea);
+    return {
+      ideaNumber: Number.isFinite(Number(row.ideaNumber)) ? Number(row.ideaNumber) : null,
+      name: cleanText(row.name || row.title, 'Marketing idea'),
+      category: cleanText(row.category),
+      priority: cleanText(row.priority, 'medium'),
+      whyItFits: cleanText(row.whyItFits || row.why),
+      hooks: uniqueStrings(asArray(row.hooks), 4),
+      angles: uniqueStrings(asArray(row.angles), 3),
+      howToStart: uniqueStrings(asArray(row.howToStart || row.steps), 3),
+      expectedOutcome: cleanText(row.expectedOutcome || row.outcome),
+      resources: cleanText(row.resources),
+      outcomeModule: cleanText(row.outcomeModule || row.outcomeChannel),
+    };
+  }).filter((idea) => idea.name);
+
+  const stageFit = cleanText(data.stageFit || data.stage);
+  const budgetBand = cleanText(data.budgetBand || data.budget);
+  const summary =
+    cleanText(data.summary || data.direction || data.overview) ||
+    synthesizeMarketingIdeasSummary(ideas, stageFit, budgetBand);
+
+  return {
+    scores: {
+      fitScore: clampScore(scoresIn.fitScore),
+      actionability: clampScore(scoresIn.actionability),
+      channelDiversity: clampScore(scoresIn.channelDiversity),
+    },
+    summary,
+    stageFit,
+    budgetBand,
+    ideas,
+    hooksToTest: asArray(data.hooksToTest).map((hook, index) => {
+      if (typeof hook === 'string') return { hook: cleanText(hook), why: '' };
+      const row = asObject(hook);
+      return {
+        hook: cleanText(row.hook || row.text || row.name, `Hook ${index + 1}`),
+        why: cleanText(row.why),
+      };
+    }).filter((hook) => hook.hook),
+    anglesToTest: asArray(data.anglesToTest).map((angle, index) => {
+      if (typeof angle === 'string') return { angle: cleanText(angle), framework: '', hypothesis: '' };
+      const row = asObject(angle);
+      return {
+        angle: cleanText(row.angle || row.text || row.name, `Angle ${index + 1}`),
+        framework: cleanText(row.framework),
+        hypothesis: cleanText(row.hypothesis),
+      };
+    }).filter((angle) => angle.angle),
+  };
+}
+
 function normalizeOpportunities(raw) {
   const data = asObject(raw);
   const scores = buildNormalizedScores(data.scores, {
@@ -1670,7 +1752,7 @@ export function normalizeArtifact(type, raw) {
     case 'opportunities':
       return normalizeOpportunities(raw);
     case 'marketing_ideas':
-      return raw && typeof raw === 'object' ? raw : { ideas: [] };
+      return normalizeMarketingIdeas(raw);
     case 'icps':
       return normalizeIcps(raw);
     case 'client_profiling':

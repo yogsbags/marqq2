@@ -85,6 +85,7 @@ export function MainLayout({
             <ChannelHeader
               channelName={channelInfo.name}
               description={channelInfo.description}
+              selectedModule={selectedModule}
               onModuleSelect={onModuleSelect}
             />
           ) : (

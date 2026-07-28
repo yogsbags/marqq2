@@ -24,6 +24,24 @@ function asStringArray(value: unknown): string[] {
     .filter(Boolean)
 }
 
+function synthesizeDirectionSummary(ideas: any[], stage: string, budgetBand: unknown): string {
+  const names = ideas
+    .map((idea) => String(idea?.name || idea?.title || '').trim())
+    .filter(Boolean)
+    .slice(0, 3)
+  const topWhy = ideas
+    .map((idea) => String(idea?.whyItFits || idea?.why || '').trim())
+    .find(Boolean)
+  const budget = String(budgetBand || '').trim()
+  if (!names.length && !topWhy && !stage && !budget) return ''
+
+  const lead = names.length
+    ? `Prioritize ${names.join(', ')}${names.length === 3 && ideas.length > 3 ? ', and related catalog ideas' : ''}.`
+    : 'Prioritize the highest-fit catalog ideas for this GTM stage.'
+  const context = [stage ? `Stage: ${stage}` : '', budget ? `Budget: ${budget}` : ''].filter(Boolean).join(' · ')
+  return `${lead}${topWhy ? ` ${topWhy}` : ''}${context ? ` (${context})` : ''}`.trim()
+}
+
 /** Map marketing-ideas skill categories → Marqq outcome modules / CI channels */
 export function outcomePathForIdea(idea: {
   category?: string
@@ -110,12 +128,14 @@ export function MarketingIdeasPage({ artifact, companyId, companyName, websiteUr
     )
   }
 
-  const summary = String(data.summary || '')
   const stage = String(data.stageFit || data.stage || '')
   const scores = asObj(data.scores)
   const ideas: any[] = Array.isArray(data.ideas) ? data.ideas : []
   const hooksBank: any[] = Array.isArray(data.hooksToTest) ? data.hooksToTest : []
   const anglesBank: any[] = Array.isArray(data.anglesToTest) ? data.anglesToTest : []
+  const summary =
+    String(data.summary || data.direction || data.overview || '').trim() ||
+    synthesizeDirectionSummary(ideas, stage, data.budgetBand)
 
   const fit = Number.isFinite(Number(scores?.fitScore))
     ? clampDisplayScore(scores.fitScore)
