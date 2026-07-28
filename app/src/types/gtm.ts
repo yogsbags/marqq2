@@ -67,6 +67,11 @@ export interface GtmStrategyDocument {
   sections: GtmStrategyDocSection[];
   nextSteps: string[];
   model?: string | null;
+  skill_alignment?: {
+    task_key: string;
+    skills: string[];
+    playbook_loaded: boolean;
+  };
 }
 
 export interface GtmStrategyResponse {

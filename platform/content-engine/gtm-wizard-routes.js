@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { loadMarketingSkillsForTask, resolveSkillPack } from "./lib/artifactMarketingSkills.js";
 
 /** In-flight quiet prep per workspace — starts on onboarding URL, merges later answers. */
 const quietPrepByWorkspace = new Map();
@@ -1032,6 +1033,9 @@ async function generateStrategyWithLlm(groq, moduleRow) {
   const channelBet = profileLabel(profile, "goals.channel_bet") || "unset";
   const budget = profileLabel(profile, "goals.budget_band") || "unset";
   const depth = profileLabel(profile, "goals.strategy_depth") || "full_strategic";
+  const skillPack = resolveSkillPack("gtm_strategy_doc");
+  const skillIds = Array.from(new Set([...(skillPack.primary || []), ...(skillPack.secondary || [])].filter(Boolean)));
+  const skillPlaybook = await loadMarketingSkillsForTask("gtm_strategy_doc");
 
   try {
     const completion = await groq.chat.completions.create({
@@ -1082,7 +1086,7 @@ Hard requirements:
 19. Prefer India/GCC/US realism when geography appears in profile; do not invent fake logos or fake numbers.
 20. If critical fields are missing, call out the gap and recommend what to decide — still give a best-effort plan.
 
-Return ONLY JSON:
+${skillPlaybook ? `${skillPlaybook}\n\n` : ""}Return ONLY JSON:
 {
   "title": string,
   "executiveSummary": string,
@@ -1144,6 +1148,11 @@ Each section.channel must match the defs (e.g. "#executive-summary").`,
         ? parsed.nextSteps.map(String)
         : fallback.nextSteps,
       model: completion.model || null,
+      skill_alignment: {
+        task_key: "gtm_strategy_doc",
+        skills: skillIds,
+        playbook_loaded: Boolean(skillPlaybook),
+      },
       goalAlignment: {
         objective,
         quantified_target: quantified,

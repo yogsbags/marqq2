@@ -96,6 +96,14 @@ export const ARTIFACT_MARKETING_SKILLS = {
     primary: ["marketing-ideas", "launch-strategy"],
     secondary: ["product-marketing-context"],
   },
+  gtm_strategy: {
+    primary: ["product-marketing-context", "launch-strategy", "pricing-strategy"],
+    secondary: ["sales-enablement", "content-strategy", "copywriting"],
+  },
+  gtm_strategy_doc: {
+    primary: ["product-marketing-context", "launch-strategy", "pricing-strategy"],
+    secondary: ["sales-enablement", "content-strategy", "copywriting"],
+  },
   website_audit: {
     primary: ["page-cro"],
     secondary: ["copywriting", "form-cro"],
