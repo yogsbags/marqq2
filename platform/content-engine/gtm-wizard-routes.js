@@ -37,6 +37,13 @@ export const GTM_INTERVIEW_SECTIONS = [
         type: "single_select",
         allowCustomAnswer: true,
       },
+      {
+        id: "one_sentence_desc",
+        question: "In one sentence, what does this offer do?",
+        helperText: "Plain language — what a stranger would understand.",
+        type: "single_select",
+        allowCustomAnswer: true,
+      },
     ],
   },
   {
@@ -82,6 +89,66 @@ export const GTM_INTERVIEW_SECTIONS = [
           { value: "custom_enterprise", label: "Custom / enterprise quotes" },
         ],
       },
+      {
+        id: "top_benefits",
+        question: "What are the top benefits customers get?",
+        helperText: "Select the outcomes buyers actually pay for.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+      },
+      {
+        id: "validation_evidence",
+        question: "What evidence do you have that customers want this?",
+        helperText: "Select all that apply — honesty beats optimism.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "paying_customers", label: "Paying customers", recommended: true },
+          { value: "pilots_waitlist", label: "Pilots / waitlist / LOIs" },
+          { value: "interviews_usage", label: "User interviews / usage data" },
+          { value: "no_validation", label: "No strong validation yet" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "market",
+    title: "Market",
+    description: "Stage, geography, and timing for this GTM.",
+    questions: [
+      {
+        id: "business_stage",
+        question: "What stage is the business / offer at?",
+        type: "single_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "pre_launch", label: "Idea / pre-launch" },
+          { value: "mvp", label: "MVP" },
+          { value: "early_traction", label: "Early traction", recommended: true },
+          { value: "growth", label: "Growth" },
+          { value: "mature_expand", label: "Mature / expanding to a new market" },
+        ],
+      },
+      {
+        id: "geography",
+        question: "Which geographies should this GTM cover first?",
+        helperText: "Select all priority markets.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "india", label: "India", recommended: true },
+          { value: "gcc_mea", label: "GCC / Middle East" },
+          { value: "us_na", label: "US / North America" },
+          { value: "global_english", label: "Global English-speaking" },
+        ],
+      },
+      {
+        id: "market_timing",
+        question: "Why is now the right time to push this GTM?",
+        helperText: "Timing wedge — regulation, category shift, budget cycles, etc.",
+        type: "single_select",
+        allowCustomAnswer: true,
+      },
     ],
   },
   {
@@ -122,6 +189,20 @@ export const GTM_INTERVIEW_SECTIONS = [
           { value: "90_180d", label: "This half (90–180 days)" },
           { value: "6_12m", label: "6–12 month horizon" },
         ],
+      },
+      {
+        id: "buying_triggers",
+        question: "What typically triggers a buyer to start looking?",
+        helperText: "Events that create urgency — select all that apply.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+      },
+      {
+        id: "not_a_fit",
+        question: "Who is explicitly not a good fit?",
+        helperText: "Disqualifiers protect CAC and sales time.",
+        type: "multi_select",
+        allowCustomAnswer: true,
       },
     ],
   },
@@ -190,6 +271,20 @@ export const GTM_INTERVIEW_SECTIONS = [
         type: "multi_select",
         allowCustomAnswer: true,
       },
+      {
+        id: "why_lose",
+        question: "Why do buyers sometimes choose a competitor instead?",
+        helperText: "Honest loss reasons sharpen positioning.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+      },
+      {
+        id: "messaging_avoid",
+        question: "What claims or topics should messaging avoid?",
+        helperText: "Compliance, overpromises, or brand risks.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+      },
     ],
   },
   {
@@ -221,6 +316,48 @@ export const GTM_INTERVIEW_SECTIONS = [
           { value: "case_studies_deck", label: "Case studies / sales deck" },
           { value: "demo_video", label: "Demo / product video" },
           { value: "thin_assets", label: "Thin or outdated assets only" },
+        ],
+      },
+      {
+        id: "discovery_channels",
+        question: "How do customers currently discover you?",
+        helperText: "Select every real discovery path today.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "search", label: "Search / SEO" },
+          { value: "referrals", label: "Referrals / word of mouth", recommended: true },
+          { value: "paid", label: "Paid advertising" },
+          { value: "outbound", label: "Sales outreach" },
+          { value: "social_content", label: "Social / content" },
+          { value: "partners_events", label: "Partners / events" },
+        ],
+      },
+      {
+        id: "gtm_motion",
+        question: "What type of GTM motion do you prefer?",
+        type: "single_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "product_led", label: "Product-led / self-serve" },
+          { value: "sales_led", label: "Sales-led", recommended: true },
+          { value: "marketing_led", label: "Marketing-led" },
+          { value: "partner_led", label: "Partner-led" },
+          { value: "hybrid", label: "Hybrid" },
+        ],
+      },
+      {
+        id: "resources_available",
+        question: "What internal resources can execute this plan?",
+        helperText: "Select what you actually have — not aspirational org charts.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "founder_led", label: "Founder-led sales / marketing", recommended: true },
+          { value: "sales_team", label: "Sales team / SDRs" },
+          { value: "marketing_team", label: "Marketing team" },
+          { value: "agency_external", label: "Agency / freelancers" },
+          { value: "paid_budget", label: "Paid media budget" },
         ],
       },
     ],
@@ -318,6 +455,45 @@ export const GTM_INTERVIEW_SECTIONS = [
     ],
   },
   {
+    id: "sales",
+    title: "Sales",
+    description: "How deals are won — cycle, objections, and handoff.",
+    questions: [
+      {
+        id: "objections",
+        question: "What are the most common objections before purchase?",
+        helperText: "Select every objection sales hears regularly.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+      },
+      {
+        id: "buying_cycle",
+        question: "How long does a typical buying decision take?",
+        type: "single_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "under_7d", label: "Under 7 days" },
+          { value: "2_4w", label: "2–4 weeks", recommended: true },
+          { value: "1_3m", label: "1–3 months" },
+          { value: "3m_plus", label: "3+ months / committee buy" },
+        ],
+      },
+      {
+        id: "sales_process",
+        question: "What does your sales process look like today?",
+        helperText: "Select the closest fit — or describe your stages.",
+        type: "multi_select",
+        allowCustomAnswer: true,
+        fixedOptions: [
+          { value: "inbound_demo_close", label: "Inbound → demo → close", recommended: true },
+          { value: "outbound_sequence", label: "Outbound sequence → discovery → proposal" },
+          { value: "self_serve_assist", label: "Self-serve with sales assist" },
+          { value: "partner_sourced", label: "Partner-sourced opportunities" },
+        ],
+      },
+    ],
+  },
+  {
     id: "goals",
     title: "Goals",
     description: "Define the objective, put a number on it, then set the timeline.",
@@ -388,6 +564,25 @@ export const GTM_INTERVIEW_SECTIONS = [
           { value: "50l_plus", label: "₹50L+ / $60k+" },
         ],
       },
+      {
+        id: "success_baseline",
+        question: "What is your current baseline for the primary metric?",
+        helperText: "Where you are starting from — even a rough number helps.",
+        type: "single_select",
+        allowCustomAnswer: true,
+      },
+      {
+        id: "strategy_depth",
+        question: "How detailed should the GTM strategy document be?",
+        type: "single_select",
+        allowCustomAnswer: false,
+        fixedOptions: [
+          { value: "practical_90d", label: "Practical 90-day execution plan", recommended: true },
+          { value: "full_strategic", label: "Full strategic plan (all sections)" },
+          { value: "executive_only", label: "Executive summary + priorities" },
+          { value: "launch_plan", label: "Launch-focused plan" },
+        ],
+      },
     ],
   },
 ];
@@ -448,20 +643,35 @@ export const EXECUTE_TASK_CATALOG = [
 
 const STRATEGY_SECTION_DEFS = [
   { id: "executive_summary", title: "Executive summary", channel: "#executive-summary" },
-  { id: "positioning_icp", title: "Positioning & ICP", channel: "#positioning-icp" },
-  { id: "offer_pricing", title: "Offer & pricing", channel: "#offer-pricing" },
-  { id: "channels", title: "Channels & distribution", channel: "#channels" },
-  { id: "content_messaging", title: "Content & messaging", channel: "#content-messaging" },
-  { id: "demand_leads", title: "Demand & lead engine", channel: "#demand-leads" },
-  { id: "roadmap_90d", title: "90-day roadmap", channel: "#90-day-roadmap" },
-  { id: "kpis", title: "KPIs & measurement", channel: "#kpis" },
-  { id: "risks", title: "Risks & assumptions", channel: "#risks" },
+  { id: "market_analysis", title: "Market analysis", channel: "#market-analysis" },
+  { id: "target_customer", title: "Target customer", channel: "#target-customer" },
+  { id: "product_strategy", title: "Product strategy", channel: "#product-strategy" },
+  { id: "positioning_messaging", title: "Positioning & messaging", channel: "#positioning-messaging" },
+  { id: "pricing_monetization", title: "Pricing & monetization", channel: "#pricing-monetization" },
+  { id: "distribution_channels", title: "Distribution & channels", channel: "#distribution-channels" },
+  { id: "marketing_strategy", title: "Marketing strategy", channel: "#marketing-strategy" },
+  { id: "sales_strategy", title: "Sales strategy", channel: "#sales-strategy" },
+  { id: "customer_success", title: "Customer success & retention", channel: "#customer-success" },
+  { id: "launch_plan", title: "Launch plan", channel: "#launch-plan" },
+  { id: "operations_execution", title: "Operations & execution", channel: "#operations" },
+  { id: "financial_plan", title: "Financial plan", channel: "#financial-plan" },
+  { id: "measurement_optimization", title: "Measurement & optimization", channel: "#measurement" },
+  { id: "risks_contingencies", title: "Risks & contingencies", channel: "#risks" },
+  { id: "timeline_roadmap", title: "Timeline & roadmap", channel: "#timeline-roadmap" },
 ];
 
 function profileLabel(profile, path) {
   const [section, key] = String(path).split(".");
   const val = profile?.[section]?.[key];
   return val ? String(val) : "";
+}
+
+function sectionRecommendation(summary, bullets, body) {
+  return {
+    summary: String(summary || "").trim(),
+    bullets: (bullets || []).map(String).filter(Boolean).slice(0, 8),
+    body: String(body || "").trim(),
+  };
 }
 
 /**
@@ -518,15 +728,26 @@ function kpiFrameworkForGoal(objectiveRaw, quantified, timeline, budgetBand) {
 function buildDeterministicStrategy(moduleRow) {
   const profile = moduleRow.profile || {};
   const name = moduleRow.name || profile.module?.name || "Module";
-  const oneLiner = profileLabel(profile, "offer.one_liner") || profileLabel(profile, "positioning.elevator_pitch");
+  const oneLiner =
+    profileLabel(profile, "offer.one_liner") ||
+    profileLabel(profile, "module.one_sentence_desc") ||
+    profileLabel(profile, "positioning.elevator_pitch");
   const icp = profileLabel(profile, "audience.icp");
   const priority = profileLabel(profile, "goals.priority_90d");
   const quantified = profileLabel(profile, "goals.quantified_target");
   const timeline = profileLabel(profile, "goals.timeline_target");
-  const channel = profileLabel(profile, "goals.channel_bet") || profileLabel(profile, "distribution.distribution_strategy");
+  const channel =
+    profileLabel(profile, "goals.channel_bet") ||
+    profileLabel(profile, "distribution.distribution_strategy");
   const positioning =
     profileLabel(profile, "positioning.positioning_statement") ||
     profileLabel(profile, "positioning.elevator_pitch");
+  const stage = profileLabel(profile, "market.business_stage");
+  const geo = profileLabel(profile, "market.geography");
+  const motion = profileLabel(profile, "distribution.gtm_motion");
+  const budget = profileLabel(profile, "goals.budget_band");
+  const objections = profileLabel(profile, "sales.objections");
+  const buyingCycle = profileLabel(profile, "sales.buying_cycle");
 
   const sections = STRATEGY_SECTION_DEFS.map((def) => {
     const base = {
@@ -537,113 +758,228 @@ function buildDeterministicStrategy(moduleRow) {
       bullets: [],
       body: "",
     };
+
     switch (def.id) {
-      case "executive_summary":
-        return {
-          ...base,
-          summary: `${name}: ${oneLiner || "GTM plan from locked interview."}`,
-          bullets: [
-            icp && `ICP: ${icp}`,
+      case "executive_summary": {
+        const rec = sectionRecommendation(
+          `${name}: win ${quantified || "the primary GTM target"}${timeline ? ` within ${timeline}` : ""} via ${channel || "the lead channel"}.`,
+          [
             priority && `Objective: ${priority}`,
             quantified && `Target: ${quantified}`,
-            timeline && `By: ${timeline}`,
-            channel && `Lead channel: ${channel}`,
-          ].filter(Boolean),
-          body: `This GTM strategy is derived from the locked module interview for ${name}. Use each channel below for a deeper cut of the plan.`,
-        };
-      case "positioning_icp":
-        return {
-          ...base,
-          summary: positioning || "Positioning from locked interview answers.",
-          bullets: [
-            profileLabel(profile, "audience.persona") && `Persona: ${profileLabel(profile, "audience.persona")}`,
-            profileLabel(profile, "audience.jtbd") && `JTBD: ${profileLabel(profile, "audience.jtbd")}`,
-            profileLabel(profile, "problem.primary_pain") && `Pain: ${profileLabel(profile, "problem.primary_pain")}`,
-          ].filter(Boolean),
-          body: positioning || "Refine positioning in Company Intel → ICPs.",
-        };
-      case "offer_pricing":
-        return {
-          ...base,
-          summary: profileLabel(profile, "offer.category") || "Offer definition",
-          bullets: [
-            profileLabel(profile, "offer.business_model") && `Model: ${profileLabel(profile, "offer.business_model")}`,
-            profileLabel(profile, "offer.pricing_strategy") && `Pricing: ${profileLabel(profile, "offer.pricing_strategy")}`,
-            oneLiner && `One-liner: ${oneLiner}`,
-          ].filter(Boolean),
-          body: oneLiner || "Offer details locked in the Offer section.",
-        };
-      case "channels":
-        return {
-          ...base,
-          summary: channel || "Channel plan from goals / distribution.",
-          bullets: [
-            profileLabel(profile, "distribution.distribution_strategy"),
-            profileLabel(profile, "distribution.assets"),
-          ].filter(Boolean),
-          body: "Concentrate on one primary channel for 90 days, with one supporting motion.",
-        };
-      case "content_messaging":
-        return {
-          ...base,
-          summary: profileLabel(profile, "content.content_strategy") || "Content & social plan",
-          bullets: [
-            profileLabel(profile, "positioning.elevator_pitch"),
-            profileLabel(profile, "content.content_strategy"),
-          ].filter(Boolean),
-          body: "Translate positioning into weekly content pillars and reusable hooks.",
-        };
-      case "demand_leads":
-        return {
-          ...base,
-          summary: quantified
-            ? `Lead engine to deliver ${quantified}${timeline ? ` by ${timeline}` : ""}`
-            : profileLabel(profile, "leads.lead_management") || "Lead engine",
-          bullets: [
-            quantified && `Capacity plan toward ${quantified}`,
-            profileLabel(profile, "leads.scoring"),
-            profileLabel(profile, "leads.tat_outreach_segment"),
-            profileLabel(profile, "leads.qualification"),
-          ].filter(Boolean),
-          body: quantified
-            ? `Design scoring, TAT, and outreach so pipeline volume can reach ${quantified}${timeline ? ` within ${timeline}` : ""}. Score → route → outreach with Instantly / LinkedIn / WhatsApp once connectors are live.`
-            : "Score → route → outreach with Instantly / LinkedIn / WhatsApp once connectors are live.",
-        };
-      case "roadmap_90d":
-        return {
-          ...base,
-          summary: [priority, quantified].filter(Boolean).join(" → ") || "Execution roadmap",
-          bullets: [
-            quantified && `Target: ${quantified}`,
             timeline && `Deadline: ${timeline}`,
-            "Phase 1: message-market proof and ICP activation",
-            "Phase 2: concentrate primary channel + creative tests",
-            "Phase 3: scale what works; cut what does not",
-          ].filter(Boolean),
-          body: `Objective: ${priority || "Set from Goals section"}. Quantified target: ${quantified || "TBD"}. Timeline: ${timeline || profileLabel(profile, "audience.target_timeline") || "TBD"}.`,
-        };
-      case "kpis": {
-        const metricMap = kpiFrameworkForGoal(priority, quantified, timeline, profileLabel(profile, "goals.budget_band"));
+            channel && `Lead motion: ${channel}`,
+            budget && `Budget band: ${budget}`,
+            `Strategic bet: concentrate ${motion || "the preferred GTM motion"} on ${icp || "the ICP"} in ${geo || "priority geos"}.`,
+          ],
+          `This is an execution strategy, not a restatement of the interview. Recommended focus: prove message-market fit for ${icp || "the ICP"}, put ${channel || "one primary channel"} on a weekly measurement loop, and protect unit economics inside ${budget || "the stated budget"}. Kill secondary work that does not move ${quantified || "the quantified target"}.`
+        );
+        return { ...base, ...rec };
+      }
+      case "market_analysis": {
+        const rec = sectionRecommendation(
+          `Prioritize ${geo || "the stated geography"} at ${stage || "current"} stage — time-box expansion.`,
+          [
+            stage && `Stage implication: ${stage} → favor ${/pre_launch|mvp/i.test(stage) ? "validation and design partners" : "repeatable acquisition"}`,
+            geo && `Beachhead geo: ${geo}`,
+            profileLabel(profile, "market.market_timing") && `Timing wedge: ${profileLabel(profile, "market.market_timing")}`,
+            "Recommendation: size the beachhead narrowly; expand only after CAC/payback holds for 2 cycles",
+            "Ignore vanity TAM until SOM conversion path is proven",
+          ],
+          `Treat market analysis as a sequencing decision. Start where ${name} can win reference customers quickly (${geo || "priority markets"}), then expand. Do not dilute budget across geos before the primary channel hits the ${quantified || "target"} trajectory.`
+        );
+        return { ...base, ...rec };
+      }
+      case "target_customer": {
+        const rec = sectionRecommendation(
+          `Activate ${icp || "the ICP"} first; explicitly exclude poor-fit segments.`,
+          [
+            icp && `Primary ICP: ${icp}`,
+            profileLabel(profile, "audience.persona") && `Champion / DM: ${profileLabel(profile, "audience.persona")}`,
+            profileLabel(profile, "audience.jtbd") && `JTBD: ${profileLabel(profile, "audience.jtbd")}`,
+            profileLabel(profile, "audience.buying_triggers") && `Triggers: ${profileLabel(profile, "audience.buying_triggers")}`,
+            profileLabel(profile, "audience.not_a_fit") && `Disqualify: ${profileLabel(profile, "audience.not_a_fit")}`,
+            "Recommendation: build one outbound/inbound list definition and one nurture path only for this ICP",
+          ],
+          `Recommendation: make ICP operational — list filters, disqualifiers, and a single first-touch offer. Do not run broad acquisition until this ICP converts at an acceptable CPL/CAC.`
+        );
+        return { ...base, ...rec };
+      }
+      case "product_strategy": {
+        const rec = sectionRecommendation(
+          oneLiner || "Lead with the job-to-be-done and the proof buyers need before they switch.",
+          [
+            profileLabel(profile, "offer.category") && `Category: ${profileLabel(profile, "offer.category")}`,
+            profileLabel(profile, "offer.top_benefits") && `Benefits to emphasize: ${profileLabel(profile, "offer.top_benefits")}`,
+            profileLabel(profile, "offer.validation_evidence") && `Proof level: ${profileLabel(profile, "offer.validation_evidence")}`,
+            "Recommendation: package a 1–2 week time-to-value path (demo → first win)",
+            "Ship only features that shorten that path for the beachhead ICP",
+          ],
+          `Product GTM recommendation: position ${name} around the fastest path to the buyer’s job (${profileLabel(profile, "audience.jtbd") || "stated JTBD"}). Defer roadmap items that do not improve conversion or retention for the beachhead.`
+        );
+        return { ...base, ...rec };
+      }
+      case "positioning_messaging": {
+        const rec = sectionRecommendation(
+          positioning || "Own one sharp difference; make the elevator pitch and proof inseparable.",
+          [
+            profileLabel(profile, "positioning.differentiation") && `Difference: ${profileLabel(profile, "positioning.differentiation")}`,
+            profileLabel(profile, "positioning.competitors") && `Compare against: ${profileLabel(profile, "positioning.competitors")}`,
+            profileLabel(profile, "positioning.why_lose") && `Close loss reasons: ${profileLabel(profile, "positioning.why_lose")}`,
+            profileLabel(profile, "positioning.messaging_avoid") && `Avoid: ${profileLabel(profile, "positioning.messaging_avoid")}`,
+            "Recommendation: one homepage narrative, three proof-backed claims, five reusable hooks",
+          ],
+          `Messaging recommendation: lead with ${profileLabel(profile, "positioning.elevator_pitch") || "the locked elevator pitch"}, support with ${profileLabel(profile, "positioning.proof") || "available proof"}, and explicitly counter ${profileLabel(profile, "positioning.why_lose") || "known loss reasons"}.`
+        );
+        return { ...base, ...rec };
+      }
+      case "pricing_monetization": {
+        const rec = sectionRecommendation(
+          profileLabel(profile, "offer.pricing_strategy") || "Align packaging to willingness-to-pay and sales motion.",
+          [
+            profileLabel(profile, "offer.business_model") && `Model: ${profileLabel(profile, "offer.business_model")}`,
+            profileLabel(profile, "offer.pricing_strategy") && `Packaging: ${profileLabel(profile, "offer.pricing_strategy")}`,
+            "Recommendation: publish a clear entry offer + expansion path",
+            "Gate enterprise custom pricing behind qualification to protect sales time",
+            "Instrument trial/demo → paid conversion as a weekly KPI",
+          ],
+          `Monetization recommendation: keep packaging simple enough for ${motion || "the GTM motion"} to sell without a custom deck every time. Use pricing experiments only after ICP messaging converts.`
+        );
+        return { ...base, ...rec };
+      }
+      case "distribution_channels": {
+        const rec = sectionRecommendation(
+          `Concentrate on ${channel || "one primary channel"} for 90 days; treat others as support.`,
+          [
+            channel && `Primary bet: ${channel}`,
+            motion && `Motion: ${motion}`,
+            profileLabel(profile, "distribution.discovery_channels") && `Current discovery: ${profileLabel(profile, "distribution.discovery_channels")}`,
+            profileLabel(profile, "distribution.resources_available") && `Resourcing: ${profileLabel(profile, "distribution.resources_available")}`,
+            "Recommendation: weekly channel scorecard — spend, leading KPI, CAC/CPL, kill/keep",
+          ],
+          `Channel recommendation: do not multi-channel until ${channel || "the lead channel"} produces a repeatable CPL/CAC path to ${quantified || "the target"}. Use partners/social only as assist unless they are already the discovery engine.`
+        );
+        return { ...base, ...rec };
+      }
+      case "marketing_strategy": {
+        const rec = sectionRecommendation(
+          "Demand system: capture intent on the lead channel, nurture to sales-ready, prove with content.",
+          [
+            profileLabel(profile, "content.content_strategy") && `Content priority: ${profileLabel(profile, "content.content_strategy")}`,
+            profileLabel(profile, "content.social_media_strategy") && `Social role: ${profileLabel(profile, "content.social_media_strategy")}`,
+            "Recommendation: 1 pillar campaign, 3 hooks, 2 CTAs — not a content calendar dump",
+            "Paid only after organic/creative proof or with a strict CAC ceiling",
+            `Everything maps to ${quantified || "the quantified target"}`,
+          ],
+          `Marketing recommendation: build one campaign spine around the ICP pain and ${channel || "lead channel"}. Content exists to lower CAC and raise conversion — cut assets that do not feed pipeline.`
+        );
+        return { ...base, ...rec };
+      }
+      case "sales_strategy": {
+        const rec = sectionRecommendation(
+          `Sales process must match ${buyingCycle || "the buying cycle"} and neutralize top objections.`,
+          [
+            profileLabel(profile, "sales.sales_process") && `Process: ${profileLabel(profile, "sales.sales_process")}`,
+            buyingCycle && `Cycle: ${buyingCycle}`,
+            objections && `Objection plan: ${objections}`,
+            profileLabel(profile, "leads.lead_qualification") && `Qualify with: ${profileLabel(profile, "leads.lead_qualification")}`,
+            "Recommendation: one discovery script, one proposal template, SLA on follow-up TAT",
+          ],
+          `Sales recommendation: standardize stages and objection handling so conversion rate — not just lead volume — moves ${quantified || "the target"}. Enforce TAT from ${profileLabel(profile, "leads.tat_outreach_segment") || "the locked outreach segment"}.`
+        );
+        return { ...base, ...rec };
+      }
+      case "customer_success": {
+        const rec = sectionRecommendation(
+          "Retention is a GTM lever — design onboarding to first value in under 14 days.",
+          [
+            "Recommendation: define activation event and time-to-value",
+            "Health score from usage + support + billing risk",
+            "Expansion play only after activation is stable",
+            "Feed wins back into proof/messaging weekly",
+          ],
+          "CS recommendation: treat onboarding as part of acquisition economics. Poor activation inflates effective CAC even if marketing CPL looks healthy."
+        );
+        return { ...base, ...rec };
+      }
+      case "launch_plan": {
+        const rec = sectionRecommendation(
+          `Phased launch aimed at ${quantified || "the target"}${timeline ? ` by ${timeline}` : ""}.`,
+          [
+            "Pre-launch: ICP list, landing/message, tracking, sales enablement",
+            "Launch: concentrate primary channel + weekly creative/message tests",
+            "Post-launch: double down on winners; cut losers within 2 cycles",
+            profileLabel(profile, "distribution.marketing_assets") && `Asset gap fill: ${profileLabel(profile, "distribution.marketing_assets")}`,
+          ],
+          "Launch recommendation: ship a thin, measurable launch — not a big-bang campaign. Success is learning speed toward the quantified goal."
+        );
+        return { ...base, ...rec };
+      }
+      case "operations_execution": {
+        const rec = sectionRecommendation(
+          "Owner, workflow, and stack clarity — or the plan will stall.",
+          [
+            profileLabel(profile, "distribution.resources_available") && `Owners/resources: ${profileLabel(profile, "distribution.resources_available")}`,
+            "Recommendation: RACI for content, ads, outreach, and CRM hygiene",
+            "Stack: analytics + CRM + outreach/ads connectors before scale",
+            "Weekly GTM standup with a single scorecard",
+          ],
+          "Ops recommendation: assign one accountable owner per motion. No orphaned channels. Instrument before you spend."
+        );
+        return { ...base, ...rec };
+      }
+      case "financial_plan": {
+        const rec = sectionRecommendation(
+          `Spend within ${budget || "the budget band"} under a CAC/CLTV ceiling.`,
+          [
+            budget && `Budget band: ${budget}`,
+            "Recommendation: allocate 60–70% to primary channel, 20% tests, 10–20% creative/ops",
+            "Set max CAC from assumed CLTV / payback before scaling paid",
+            "Scenario plan: base / stretch / cut if CAC breaches ceiling",
+          ],
+          `Finance recommendation: treat ${budget || "budget"} as a constraint that forces focus. Do not fund secondary channels until primary path shows payback.`
+        );
+        return { ...base, ...rec };
+      }
+      case "measurement_optimization": {
+        const metricMap = kpiFrameworkForGoal(priority, quantified, timeline, budget);
         return {
           ...base,
           summary: quantified
-            ? `Primary KPI: ${quantified}${timeline ? ` by ${timeline}` : ""}`
-            : "Measurement system for this GTM",
+            ? `Primary outcome: ${quantified}${timeline ? ` by ${timeline}` : ""}`
+            : "Instrument the north-star metric before scaling",
           bullets: metricMap.bullets,
           body: metricMap.body,
         };
       }
-      case "risks":
-        return {
-          ...base,
-          summary: "Assumptions to pressure-test",
-          bullets: [
-            "ICP clarity may still need field validation",
-            "Primary channel capacity / creative quality",
-            "Sales / outreach TAT and follow-up discipline",
+      case "risks_contingencies": {
+        const rec = sectionRecommendation(
+          "Pre-commit kill criteria and contingency pivots.",
+          [
+            "Risk: ICP too broad → tighten filters after 2 weeks of data",
+            "Risk: channel capacity/creative fatigue → rotate hooks, not the whole strategy",
+            objections && `Risk: unresolved objections (${objections}) → update battlecards`,
+            "Contingency: if CAC > ceiling for 2 cycles, cut spend 50% and rebuild message/offer",
+            "Contingency: if inbound stalls, shift capacity to outbound on same ICP",
           ],
-          body: "Treat this document as a living plan — update after first measurement cycle.",
-        };
+          "Risk recommendation: write kill/scale rules now. A living GTM plan changes channel mix; it should not quietly burn budget."
+        );
+        return { ...base, ...rec };
+      }
+      case "timeline_roadmap": {
+        const rec = sectionRecommendation(
+          [priority, quantified].filter(Boolean).join(" → ") || "90-day execution roadmap",
+          [
+            quantified && `Target: ${quantified}`,
+            timeline && `Deadline: ${timeline}`,
+            "Days 1–30: message/ICP proof + tracking + first channel sprint",
+            "Days 31–60: concentrate winners; stand up sales/CS SLAs",
+            "Days 61–90: scale primary path; cut or freeze secondary work",
+            "Owners and weekly milestones required for each phase",
+          ],
+          `Roadmap recommendation: every milestone must move ${quantified || "the quantified target"}. If an activity cannot be tied to that number, deprioritize it.`
+        );
+        return { ...base, ...rec };
+      }
       default:
         return base;
     }
@@ -657,10 +993,11 @@ function buildDeterministicStrategy(moduleRow) {
           ? `Win condition: ${priority} — hit ${quantified}${timeline ? ` within ${timeline}` : ""}.`
           : sections[0]?.summary,
         channel && `Lead with ${channel}.`,
-        profileLabel(profile, "goals.budget_band") && `Budget band: ${profileLabel(profile, "goals.budget_band")}.`,
+        budget && `Budget band: ${budget}.`,
+        "This document recommends sequenced actions — not a restatement of interview answers.",
       ]
         .filter(Boolean)
-        .join(" ") || sections[0]?.summary || "",
+        .join(" "),
     generatedAt: new Date().toISOString(),
     moduleId: moduleRow.id,
     moduleName: name,
@@ -670,17 +1007,16 @@ function buildDeterministicStrategy(moduleRow) {
         ? `Instrument tracking so ${quantified}${timeline ? ` by ${timeline}` : ""} is measurable weekly`
         : "Set a quantified target in Goals before scaling",
       "Build ICP brief for activation lists",
-      channel
-        ? `Concentrate the first sprint on ${channel}`
-        : "Lock primary channel plan",
+      channel ? `Concentrate the first sprint on ${channel}` : "Lock primary channel plan",
       "Connect Instantly / ads / analytics to make outcomes live",
+      "Review kill criteria after the first two measurement cycles",
     ],
     goalAlignment: {
       objective: priority || null,
       quantified_target: quantified || null,
       timeline_target: timeline || null,
       channel_bet: channel || null,
-      budget_band: profileLabel(profile, "goals.budget_band") || null,
+      budget_band: budget || null,
     },
   };
 }
@@ -695,17 +1031,18 @@ async function generateStrategyWithLlm(groq, moduleRow) {
   const timeline = profileLabel(profile, "goals.timeline_target") || "unset";
   const channelBet = profileLabel(profile, "goals.channel_bet") || "unset";
   const budget = profileLabel(profile, "goals.budget_band") || "unset";
+  const depth = profileLabel(profile, "goals.strategy_depth") || "full_strategic";
 
   try {
     const completion = await groq.chat.completions.create({
       model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-      temperature: 0.3,
-      max_tokens: 4500,
+      temperature: 0.35,
+      max_tokens: 8000,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content: `You are a senior GTM strategist. Given a locked GTM interview profile, produce a board-ready strategy document that is explicitly designed to HIT the quantified goal.
+          content: `You are a senior GTM strategist writing a board-ready go-to-market strategy document.
 
 North-star goal (must drive every section):
 - Objective: ${objective}
@@ -713,19 +1050,37 @@ North-star goal (must drive every section):
 - Timeline: ${timeline}
 - Lead channel bet: ${channelBet}
 - Budget band: ${budget}
+- Requested depth: ${depth}
+
+CRITICAL — do NOT reiterate interview inputs as the strategy.
+The locked profile is CONTEXT only. Your job is to produce RECOMMENDATIONS:
+- what to do next, in what order
+- what to prioritize vs cut
+- concrete plays, milestones, owners (roles), and measurement
+- tradeoffs and contingencies
+If you mention an input, immediately follow with what you recommend because of it.
 
 Hard requirements:
-1. executiveSummary must restate the objective + quantified target + timeline in the first 2 sentences.
-2. Every section must explain how that work contributes to reaching ${quantified} by ${timeline} — not generic GTM advice.
-3. roadmap_90d / execution sections must break the target into phased milestones that sum toward ${quantified}.
-4. kpis section MUST explain metric roles relative to the goal:
-   - Quantified target = success outcome
-   - CPM = upstream paid reach efficiency (critical for awareness; diagnostic for demand)
-   - CAC / CPL = unit cost to acquire (primary for leads/sales; secondary for awareness)
-   - CLTV / LTV = sets max allowable CAC (CAC must stay below CLTV / payback); primary for retention
-   Explicitly state which metric is primary vs diagnostic for objective=${objective}.
-5. Channel / demand / content sections must prioritize ${channelBet} and justify spend within ${budget}.
-6. If quantified_target or timeline_target is missing in the profile, call that out as a gap and recommend setting them before scale.
+1. executiveSummary (document field) + executive_summary section: restate win condition in 2 sentences, then strategic bets and what NOT to do.
+2. Produce ALL required section ids in order. Each section needs: summary (1–2 sentences of recommendation), 4–7 action bullets, body (2–5 sentences of actionable guidance).
+3. market_analysis: beachhead market, sequencing, timing — not a generic TAM essay.
+4. target_customer: operational ICP activation + disqualifiers.
+5. product_strategy: time-to-value path and packaging implications for GTM.
+6. positioning_messaging: claims, hooks, proof plan, competitive counters.
+7. pricing_monetization: packaging/offer recommendations tied to motion and CAC.
+8. distribution_channels: concentrate primary channel; supporting motions secondary.
+9. marketing_strategy: campaign spine, demand gen, content role toward the target.
+10. sales_strategy: process, objection handling, qualification SLAs.
+11. customer_success: activation, retention, expansion as GTM levers.
+12. launch_plan: pre / launch / post phases with milestones.
+13. operations_execution: owners, workflows, stack readiness.
+14. financial_plan: budget allocation, CAC/CLTV ceilings, scenarios.
+15. measurement_optimization: primary vs diagnostic metrics (CPM/CAC/CLTV roles vs objective=${objective}).
+16. risks_contingencies: kill criteria and pivots.
+17. timeline_roadmap: phased plan that sums toward ${quantified} by ${timeline}.
+18. Every section must explain how it moves ${quantified} by ${timeline}.
+19. Prefer India/GCC/US realism when geography appears in profile; do not invent fake logos or fake numbers.
+20. If critical fields are missing, call out the gap and recommend what to decide — still give a best-effort plan.
 
 Return ONLY JSON:
 {
@@ -735,12 +1090,11 @@ Return ONLY JSON:
   "nextSteps": string[]
 }
 Required section ids (in order): ${STRATEGY_SECTION_DEFS.map((s) => s.id).join(", ")}.
-Each section.channel must look like a Slack channel (e.g. "#positioning-icp").
-Be specific to the profile — no generic filler.`,
+Each section.channel must match the defs (e.g. "#executive-summary").`,
         },
         {
           role: "user",
-          content: `Module: ${moduleRow.name}\nLocked profile JSON:\n${JSON.stringify(profile).slice(0, 14000)}`,
+          content: `Module: ${moduleRow.name}\nLocked profile JSON (context only — recommend, do not echo):\n${JSON.stringify(profile).slice(0, 16000)}`,
         },
       ],
     });
@@ -749,26 +1103,46 @@ Be specific to the profile — no generic filler.`,
     if (!parsed?.sections?.length) return fallback;
 
     const byId = new Map((parsed.sections || []).map((s) => [s.id, s]));
+    // Back-compat aliases from older 9-section docs
+    const aliases = {
+      positioning_icp: "positioning_messaging",
+      offer_pricing: "pricing_monetization",
+      channels: "distribution_channels",
+      content_messaging: "marketing_strategy",
+      demand_leads: "sales_strategy",
+      roadmap_90d: "timeline_roadmap",
+      kpis: "measurement_optimization",
+      risks: "risks_contingencies",
+    };
+    for (const [from, to] of Object.entries(aliases)) {
+      if (!byId.has(to) && byId.has(from)) byId.set(to, byId.get(from));
+    }
+
     const sections = STRATEGY_SECTION_DEFS.map((def) => {
       const s = byId.get(def.id) || {};
+      const fb = fallback.sections.find((x) => x.id === def.id) || {};
       return {
         id: def.id,
         title: s.title || def.title,
         channel: s.channel || def.channel,
-        summary: String(s.summary || ""),
-        bullets: Array.isArray(s.bullets) ? s.bullets.map(String).filter(Boolean) : [],
-        body: String(s.body || s.summary || ""),
+        summary: String(s.summary || fb.summary || ""),
+        bullets: Array.isArray(s.bullets) && s.bullets.length
+          ? s.bullets.map(String).filter(Boolean)
+          : fb.bullets || [],
+        body: String(s.body || s.summary || fb.body || ""),
       };
     });
 
     return {
       title: String(parsed.title || fallback.title),
-      executiveSummary: String(parsed.executiveSummary || sections[0]?.summary || ""),
+      executiveSummary: String(parsed.executiveSummary || sections[0]?.summary || fallback.executiveSummary || ""),
       generatedAt: new Date().toISOString(),
       moduleId: moduleRow.id,
       moduleName: moduleRow.name,
       sections,
-      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.map(String) : fallback.nextSteps,
+      nextSteps: Array.isArray(parsed.nextSteps) && parsed.nextSteps.length
+        ? parsed.nextSteps.map(String)
+        : fallback.nextSteps,
       model: completion.model || null,
       goalAlignment: {
         objective,

@@ -99,12 +99,14 @@ export type GtmModuleStatus = 'draft' | 'in_progress' | 'ready' | 'archived';
 export type GtmInterviewSectionId =
   | 'module'
   | 'offer'
+  | 'market'
   | 'audience'
   | 'problem'
   | 'positioning'
   | 'distribution'
   | 'content'
   | 'leads'
+  | 'sales'
   | 'goals';
 
 export interface GtmSectionAnswer {
@@ -122,14 +124,16 @@ export interface GtmSectionStateEntry {
 }
 
 export interface GtmModuleProfile {
-  module?: { type?: GtmModuleType; name?: string };
+  module?: { type?: GtmModuleType; name?: string; one_sentence_desc?: string };
   offer?: Record<string, string>;
+  market?: Record<string, string>;
   audience?: Record<string, string>;
   problem?: Record<string, string>;
   positioning?: Record<string, string>;
   distribution?: Record<string, string>;
   content?: Record<string, string>;
   leads?: Record<string, string>;
+  sales?: Record<string, string>;
   goals?: Record<string, string>;
   locked_sections?: string[];
   inferences?: {

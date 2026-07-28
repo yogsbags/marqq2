@@ -391,12 +391,14 @@ export function GtmModuleWizard({
       const order = [
         'module',
         'offer',
+        'market',
         'audience',
         'problem',
         'positioning',
         'distribution',
         'content',
         'leads',
+        'sales',
         'goals',
       ];
       const next =
