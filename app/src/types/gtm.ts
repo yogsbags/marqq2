@@ -52,10 +52,11 @@ export interface GtmStrategySection {
 export interface GtmStrategyDocSection {
   id: string;
   title: string;
-  channel: string;
+  channel?: string;
   summary: string;
   bullets: string[];
   body: string;
+  subsections?: Array<{ title: string; body: string; bullets?: string[] }>;
 }
 
 export interface GtmStrategyDocument {

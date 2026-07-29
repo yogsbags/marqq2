@@ -5,8 +5,10 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import {
+  approveInterviewStrategySection,
   createGtmModule,
   executeGtmTask,
+  generateInterviewStrategySection,
   getExecuteOptions,
   getGtmModule,
   getGtmPrepStatus,
@@ -29,12 +31,16 @@ import type {
 } from '@/types/gtm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { GtmStrategyDocumentView } from '@/components/home/GtmStrategyDocumentView';
+import { GtmStrategySectionReview } from '@/components/gtm/GtmStrategySectionReview';
 import {
   GTM_WIZARD_INTERVIEW_SECTION_IDS,
+  interviewGenerateMeta,
   loadGtmAutoSections,
+  type GtmAutoSectionDraft,
 } from '@/lib/gtmAutoSections';
 
-type WizardPhase = 'prep' | 'interview' | 'execute' | 'strategy' | 'done';
+type WizardPhase = 'prep' | 'interview' | 'sectionReview' | 'execute' | 'strategy' | 'done';
 
 type ChatLine =
   | { id: string; role: 'assistant' | 'user'; type: 'text'; text: string }
@@ -116,13 +122,21 @@ export function GtmModuleWizard({
       id: 'intro',
       role: 'assistant',
       type: 'text',
-      text: 'We will build a go-to-market profile step by step. Agents stay quiet until you lock each section and pick one task to run.',
+      text: 'Answer a few GTM questions. After each section we generate the matching strategy draft for you to review — then assemble the full document.',
     },
   ]);
   const [executeOptions, setExecuteOptions] = useState<GtmExecuteOption[]>([]);
   const [strategyDoc, setStrategyDoc] = useState<GtmStrategyDocument | null>(null);
   const [strategyMarkdown, setStrategyMarkdown] = useState<string>('');
   const [modules, setModules] = useState<GtmModule[]>([]);
+  const [reviewQueue, setReviewQueue] = useState<
+    Array<{ id: string; title: string; cta: string; blurb: string }>
+  >([]);
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewDraft, setReviewDraft] = useState<GtmAutoSectionDraft | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [approvedDrafts, setApprovedDrafts] = useState<GtmAutoSectionDraft[]>([]);
 
   const currentQuestion = questions[questionIndex] || null;
   const canLock = useMemo(
@@ -232,7 +246,7 @@ export function GtmModuleWizard({
         pushChat({
           role: 'assistant',
           type: 'text',
-          text: 'Profile locked. Pick a direction — generate the full GTM strategy document, or run one focused task.',
+          text: 'Inputs complete. Generate the full GTM strategy document from all approved sections.',
         });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to load execute options');
@@ -388,7 +402,7 @@ export function GtmModuleWizard({
       pushChat({
         role: 'assistant',
         type: 'text',
-        text: 'Context ready. We’ll lock only the GTM inputs we still need — module, offer, audience, and goals. Strategy sections from onboarding stay as drafts.',
+        text: 'Context ready. We’ll ask only module, offer, audience, and goals — then generate each related strategy section for review.',
       });
 
       // Persist onboarding auto strategy drafts onto the module profile
@@ -404,6 +418,7 @@ export function GtmModuleWizard({
               autoStrategySections: autoDrafts,
             }).catch(() => null);
             if (patched?.module) readyModule = patched.module;
+            setApprovedDrafts(autoDrafts);
           } catch {
             /* ignore */
           }
@@ -512,7 +527,7 @@ export function GtmModuleWizard({
       pushChat({
         role: 'assistant',
         type: 'system',
-        text: 'Section complete. Lock it to continue to the next section.',
+        text: 'Section answers ready. Generate the strategy draft to continue.',
       });
     }
   };
@@ -544,27 +559,150 @@ export function GtmModuleWizard({
     advanceAfterAnswer(currentQuestion, { value: text, label: text });
   };
 
-  const handleLock = async () => {
+  const currentGenerateMeta = interviewGenerateMeta(sectionId || '');
+
+  const startReviewQueue = async (
+    queue: Array<{ id: string; title: string; cta: string; blurb: string }>,
+  ) => {
+    if (!module || !sectionId) return;
+    setReviewQueue(queue);
+    setReviewIndex(0);
+    setPhase('sectionReview');
+    setReviewDraft(null);
+    setReviewError(null);
+    setReviewLoading(true);
+    try {
+      const first = queue[0];
+      const res = await generateInterviewStrategySection({
+        moduleId: module.id,
+        interviewSectionId: sectionId,
+        strategySectionId: first.id,
+        answers,
+        priorSections: approvedDrafts,
+      });
+      setModule(res.module);
+      setProgress(res.progress);
+      setReviewDraft(res.section);
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : 'Generation failed');
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const handleGenerateCta = async () => {
     if (!module || !sectionId || sectionId === 'execute' || !canLock) return;
+    const meta = interviewGenerateMeta(sectionId);
+    if (!meta.outputs.length) {
+      setBusy(true);
+      try {
+        const result = await lockGtmSection(sectionId, module.id, answers);
+        setModule(result.module);
+        setProgress(result.progress);
+        pushChat({
+          role: 'assistant',
+          type: 'system',
+          text: `Saved “${sectionTitle}”.`,
+        });
+        if (result.nextSectionId === 'execute' || result.progress.allLocked) {
+          await enterExecute(result.module);
+        } else if (result.nextSectionId) {
+          await loadQuestionsFor(result.module, result.nextSectionId);
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to continue');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    pushChat({
+      role: 'assistant',
+      type: 'system',
+      text: `${meta.cta}…`,
+    });
+    await startReviewQueue(meta.outputs);
+  };
+
+  const regenerateCurrentReview = async () => {
+    if (!module || !sectionId || !reviewQueue[reviewIndex]) return;
+    setReviewLoading(true);
+    setReviewError(null);
+    try {
+      const target = reviewQueue[reviewIndex];
+      const res = await generateInterviewStrategySection({
+        moduleId: module.id,
+        interviewSectionId: sectionId,
+        strategySectionId: target.id,
+        answers,
+        priorSections: approvedDrafts,
+      });
+      setModule(res.module);
+      setReviewDraft(res.section);
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : 'Generation failed');
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const handleReviewLooksGood = async () => {
+    if (!module || !sectionId || !reviewDraft) return;
     setBusy(true);
     try {
-      const result = await lockGtmSection(sectionId, module.id, answers);
+      const isLast = reviewIndex >= reviewQueue.length - 1;
+      const result = await approveInterviewStrategySection({
+        moduleId: module.id,
+        section: { ...reviewDraft, approvedAt: new Date().toISOString() },
+        interviewSectionId: sectionId,
+        answers,
+        lockInterview: isLast,
+      });
       setModule(result.module);
       setProgress(result.progress);
+      const nextApproved = [
+        ...approvedDrafts.filter((s) => s.id !== reviewDraft.id),
+        result.section,
+      ];
+      setApprovedDrafts(nextApproved);
+
+      if (!isLast) {
+        const nextIdx = reviewIndex + 1;
+        setReviewIndex(nextIdx);
+        setReviewDraft(null);
+        setReviewLoading(true);
+        setReviewError(null);
+        const target = reviewQueue[nextIdx];
+        const res = await generateInterviewStrategySection({
+          moduleId: result.module.id,
+          interviewSectionId: sectionId,
+          strategySectionId: target.id,
+          answers,
+          priorSections: nextApproved,
+        });
+        setModule(res.module);
+        setReviewDraft(res.section);
+        setReviewLoading(false);
+        return;
+      }
+
+      setPhase('interview');
+      setReviewQueue([]);
+      setReviewDraft(null);
       pushChat({
         role: 'assistant',
         type: 'system',
-        text: `Locked “${sectionTitle}”.`,
+        text: `Approved strategy drafts for “${sectionTitle}”.`,
       });
-      toast.success(`${sectionTitle} locked`);
 
-      if (result.nextSectionId === 'execute' || result.progress.allLocked) {
+      if (result.nextSectionId === 'execute' || result.allLocked) {
         await enterExecute(result.module);
       } else if (result.nextSectionId) {
         await loadQuestionsFor(result.module, result.nextSectionId);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to lock section');
+      toast.error(err instanceof Error ? err.message : 'Failed to approve section');
+      setReviewLoading(false);
     } finally {
       setBusy(false);
     }
@@ -608,7 +746,7 @@ export function GtmModuleWizard({
         pushChat({
           role: 'assistant',
           type: 'text',
-          text: 'GTM strategy document ready. Browse sections as channels, export PDF/Doc, or open in Google Docs if connected.',
+          text: 'GTM strategy document ready — all approved sections assembled with executive summary. Export PDF/Doc or open in Google Docs.',
         });
         return;
       }
@@ -666,8 +804,8 @@ export function GtmModuleWizard({
           <div>
             <CardTitle className="text-lg">GTM Wizard</CardTitle>
             <CardDescription>
-              Sequential profile for {module?.name || activeWorkspace?.name || 'your offer'} — lock
-              each section, then run one task.
+              Answer module, offer, audience, and goals — generate each strategy draft for review, then
+              assemble the full GTM document.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -779,9 +917,11 @@ export function GtmModuleWizard({
             className="sticky bottom-0 z-10 space-y-3 rounded-lg border border-foreground/15 bg-background/95 p-3 shadow-sm backdrop-blur"
           >
             <div>
-              <p className="text-sm font-medium">{sectionTitle} complete</p>
+              <p className="text-sm font-medium">{sectionTitle} answers ready</p>
               <p className="text-sm text-muted-foreground">
-                Lock this section to continue — you can unlock later if you need to edit.
+                {currentGenerateMeta.outputs.length
+                  ? 'Generate the strategy draft from these answers, review it like Brand DNA, then continue.'
+                  : 'Continue to the next set of questions.'}
               </p>
             </div>
             <ul className="space-y-1 text-xs text-muted-foreground">
@@ -795,9 +935,9 @@ export function GtmModuleWizard({
               type="button"
               className="w-full"
               disabled={busy || !canLock}
-              onClick={() => void handleLock()}
+              onClick={() => void handleGenerateCta()}
             >
-              Lock {sectionTitle || 'section'}
+              {currentGenerateMeta.cta}
             </Button>
           </div>
         )}
@@ -911,7 +1051,27 @@ export function GtmModuleWizard({
           </div>
         )}
 
-        {phase === 'strategy' && strategyDoc && module && (
+        {phase === 'sectionReview' && reviewQueue[reviewIndex] && (
+        <GtmStrategySectionReview
+          overlay
+          title={reviewQueue[reviewIndex].title}
+          blurb={reviewQueue[reviewIndex].blurb}
+          stepLabel={`Strategy draft · ${reviewIndex + 1}/${reviewQueue.length}`}
+          draft={reviewDraft}
+          loading={reviewLoading}
+          error={reviewError}
+          onRetry={() => void regenerateCurrentReview()}
+          onChange={setReviewDraft}
+          onBack={() => {
+            setPhase('interview');
+            setReviewQueue([]);
+            setReviewDraft(null);
+          }}
+          onLooksGood={() => void handleReviewLooksGood()}
+        />
+      )}
+
+      {phase === 'strategy' && strategyDoc && module && (
           <GtmStrategyDocumentView
             moduleId={module.id}
             workspaceId={workspaceId || module.workspace_id || module.company_id}

@@ -178,6 +178,56 @@ export async function getExecuteOptions(moduleId: string): Promise<{
   return readJsonOrThrow(res);
 }
 
+export async function generateInterviewStrategySection(input: {
+  moduleId: string;
+  interviewSectionId: string;
+  strategySectionId: string;
+  answers: Record<string, GtmSectionAnswer>;
+  priorSections?: Array<Record<string, unknown>>;
+}): Promise<{
+  section: import('@/lib/gtmAutoSections').GtmAutoSectionDraft;
+  module: GtmModule;
+  progress: GtmWizardProgress;
+}> {
+  const res = await fetch(`/api/gtm/modules/${input.moduleId}/strategy-sections/generate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      interviewSectionId: input.interviewSectionId,
+      strategySectionId: input.strategySectionId,
+      answers: input.answers,
+      priorSections: input.priorSections,
+    }),
+  });
+  return readJsonOrThrow(res);
+}
+
+export async function approveInterviewStrategySection(input: {
+  moduleId: string;
+  section: import('@/lib/gtmAutoSections').GtmAutoSectionDraft;
+  interviewSectionId?: string;
+  answers?: Record<string, GtmSectionAnswer>;
+  lockInterview?: boolean;
+}): Promise<{
+  module: GtmModule;
+  progress: GtmWizardProgress;
+  section: import('@/lib/gtmAutoSections').GtmAutoSectionDraft;
+  nextSectionId: string | null;
+  allLocked: boolean;
+}> {
+  const res = await fetch(`/api/gtm/modules/${input.moduleId}/strategy-sections/approve`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      section: input.section,
+      interviewSectionId: input.interviewSectionId,
+      answers: input.answers,
+      lockInterview: Boolean(input.lockInterview),
+    }),
+  });
+  return readJsonOrThrow(res);
+}
+
 export async function executeGtmTask(
   moduleId: string,
   taskId: string

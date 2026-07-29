@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { connectComposioConnector, formatConnectorError } from '@/lib/composio'
 import { isConnectorActive, connectorLabel } from '@/lib/connectorMeta'
 import {
-  Hash, FileText, Download, ExternalLink, Loader2, ArrowLeft, Link2, CheckCircle2,
+  FileText, Download, ExternalLink, Loader2, ArrowLeft, Link2, CheckCircle2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { GtmStrategyDocument, GtmStrategyDocSection } from '@/types/gtm'
@@ -49,7 +49,6 @@ function strategyToHtml(doc: GtmStrategyDocument) {
   const hasExecSection = sections.some((s) => s.id === 'executive_summary')
   const sectionsHtml = sections
     .map((s) => {
-      const isExec = s.id === 'executive_summary'
       const lead =
         isExec && doc.executiveSummary
           ? doc.executiveSummary
@@ -58,12 +57,22 @@ function strategyToHtml(doc: GtmStrategyDocument) {
         isExec && doc.executiveSummary && String(s.body || '').trim() === String(doc.executiveSummary).trim()
           ? ''
           : s.body
+      const subs = (s.subsections || [])
+        .map(
+          (sub) => `
+        <h3 style="font-size:15px;margin:18px 0 6px">${esc(sub.title)}</h3>
+        ${sub.body ? `<p style="line-height:1.65;white-space:pre-wrap">${esc(sub.body)}</p>` : ''}
+        ${(sub.bullets || []).length ? `<ul>${sub.bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
+      `,
+        )
+        .join('')
       return `
       <section style="margin:32px 0;page-break-inside:avoid">
         <h2 style="font-size:18px;margin:0 0 8px">${esc(displaySectionLabel(s))}</h2>
         ${lead ? `<p style="color:#555;margin:0 0 12px">${esc(lead)}</p>` : ''}
         ${body ? `<p style="line-height:1.65;white-space:pre-wrap">${esc(body)}</p>` : ''}
         ${(s.bullets || []).length ? `<ul>${s.bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
+        ${subs}
       </section>`
     })
     .join('')
@@ -275,7 +284,7 @@ export function GtmStrategyDocumentView({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{strategy.title}</p>
           <p className="text-[11px] text-muted-foreground">
-            Slack-style channels · each section opens for a detailed view
+            Full strategy · {strategy.sections?.length || 0} sections
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -351,11 +360,12 @@ export function GtmStrategyDocumentView({
       </div>
 
       <div className="grid min-h-[420px] md:grid-cols-[220px_1fr]">
-        {/* Channel list */}
-        <aside className="border-r border-border/60 bg-[#3f0e40] text-white/90 dark:bg-[#1a0b1c]">
+        <aside className="border-r border-border/60 bg-muted/30">
           <div className="px-3 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">Channels</p>
-            <p className="mt-1 truncate text-xs font-medium text-white/80">{strategy.moduleName || 'GTM'}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Sections
+            </p>
+            <p className="mt-1 truncate text-xs font-medium">{strategy.moduleName || 'GTM'}</p>
           </div>
           <nav className="space-y-0.5 px-2 pb-3">
             {(strategy.sections || []).map((s) => {
@@ -367,10 +377,11 @@ export function GtmStrategyDocumentView({
                   onClick={() => setActiveId(s.id)}
                   className={cn(
                     'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition',
-                    selected ? 'bg-white/15 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    selected
+                      ? 'bg-foreground text-background'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   )}
                 >
-                  <Hash className="h-3.5 w-3.5 shrink-0 opacity-70" />
                   <span className="truncate">{displaySectionLabel(s)}</span>
                 </button>
               )
@@ -378,10 +389,9 @@ export function GtmStrategyDocumentView({
           </nav>
         </aside>
 
-        {/* Channel detail */}
         <div className="flex min-w-0 flex-col bg-background">
           <div className="flex items-center gap-2 border-b border-border/50 px-4 py-2.5">
-            <Hash className="h-4 w-4 text-muted-foreground" />
+            <FileText className="h-4 w-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold">{displaySectionLabel(active)}</h3>
           </div>
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
@@ -397,9 +407,7 @@ export function GtmStrategyDocumentView({
                   : isExec && strategy.executiveSummary && active?.summary === strategy.executiveSummary
                     ? active?.body
                     : active?.body
-              // For executive_summary: show doc-level summary once, then body (skip duplicate summary line)
-              const showSectionSummary =
-                !isExec && Boolean(active?.summary)
+              const showSectionSummary = !isExec && Boolean(active?.summary)
               return (
                 <>
                   {(isExec ? lead : showSectionSummary ? active?.summary : null) && (
@@ -423,8 +431,26 @@ export function GtmStrategyDocumentView({
                 ))}
               </ul>
             )}
+            {(active?.subsections || []).map((sub, i) => (
+              <div key={`sub-${i}`} className="space-y-2 border-t border-border/40 pt-4">
+                <h4 className="text-sm font-semibold">{sub.title}</h4>
+                {sub.body ? (
+                  <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{sub.body}</p>
+                ) : null}
+                {(sub.bullets || []).length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {sub.bullets!.map((b, j) => (
+                      <li key={j} className="flex gap-2 text-sm leading-6">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500/70" />
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ))}
             {!active && (
-              <p className="text-sm text-muted-foreground">Select a channel to read that section.</p>
+              <p className="text-sm text-muted-foreground">Select a section to read it.</p>
             )}
           </div>
 

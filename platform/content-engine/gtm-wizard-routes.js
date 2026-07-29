@@ -599,87 +599,89 @@ export const GTM_SECTION_ORDER = GTM_INTERVIEW_SECTIONS.map((s) => s.id).filter(
 );
 
 export const GTM_AUTO_STRATEGY_SECTIONS = [
-  { id: "executive_summary", title: "Executive summary", channel: "#executive-summary" },
-  { id: "market_analysis", title: "Market analysis", channel: "#market-analysis" },
-  { id: "positioning_messaging", title: "Positioning & messaging", channel: "#positioning-messaging" },
-  { id: "distribution_channels", title: "Distribution & channels", channel: "#distribution-channels" },
-  { id: "marketing_strategy", title: "Marketing strategy", channel: "#marketing-strategy" },
-  { id: "sales_strategy", title: "Sales strategy", channel: "#sales-strategy" },
-  { id: "launch_plan", title: "Launch plan", channel: "#launch-plan" },
-  { id: "measurement_optimization", title: "Measurement & optimization", channel: "#measurement" },
-  { id: "risks_contingencies", title: "Risks & contingencies", channel: "#risks" },
-  { id: "timeline_roadmap", title: "Timeline & roadmap", channel: "#timeline-roadmap" },
+  { id: "executive_summary", title: "Executive summary" },
+  { id: "market_analysis", title: "Market analysis" },
+  { id: "positioning_messaging", title: "Positioning & messaging" },
+  { id: "distribution_channels", title: "Distribution & channels" },
+  { id: "marketing_strategy", title: "Marketing strategy" },
+  { id: "sales_strategy", title: "Sales strategy" },
+  { id: "launch_plan", title: "Launch plan" },
+  { id: "measurement_optimization", title: "Measurement & optimization" },
+  { id: "risks_contingencies", title: "Risks & contingencies" },
+  { id: "timeline_roadmap", title: "Timeline & roadmap" },
+];
+
+/** Interview section → strategy sections generated after answers (Brand DNA review). */
+export const GTM_INTERVIEW_STRATEGY_OUTPUTS = {
+  module: { cta: "Continue", outputs: [] },
+  offer: {
+    cta: "Generate Product Strategy",
+    outputs: [
+      { id: "product_strategy", title: "Product strategy" },
+      { id: "pricing_monetization", title: "Pricing & monetization" },
+    ],
+  },
+  audience: {
+    cta: "Generate ICP",
+    outputs: [{ id: "target_customer", title: "Target customer" }],
+  },
+  goals: {
+    cta: "Generate Financial Plan",
+    outputs: [
+      { id: "financial_plan", title: "Financial plan" },
+      { id: "customer_success", title: "Customer success" },
+      { id: "operations_execution", title: "Operations & execution" },
+    ],
+  },
+};
+
+export const GTM_FULL_STRATEGY_SECTION_ORDER = [
+  "executive_summary",
+  "market_analysis",
+  "target_customer",
+  "product_strategy",
+  "positioning_messaging",
+  "pricing_monetization",
+  "distribution_channels",
+  "marketing_strategy",
+  "sales_strategy",
+  "customer_success",
+  "launch_plan",
+  "operations_execution",
+  "financial_plan",
+  "measurement_optimization",
+  "risks_contingencies",
+  "timeline_roadmap",
 ];
 
 export const EXECUTE_TASK_CATALOG = [
   {
     id: "gtm_strategy_doc",
     title: "Generate GTM strategy document",
-    description: "Full strategy report from your locked profile — view by section, export PDF/Doc, or open in Google Docs.",
+    description:
+      "Assemble all approved strategy sections into one comprehensive document with executive summary.",
     agentTarget: null,
     kind: "document",
-  },
-  {
-    id: "marketing_ideas",
-    title: "Marketing ideas",
-    description: "Stage-fit growth plays with hooks, angles, and CTAs into Paid Ads, Social, Content, Email, and more.",
-    agentTarget: "company_intel_marketing_ideas",
-    kind: "agent",
-  },
-  {
-    id: "icp_brief",
-    title: "Build ICP brief",
-    description: "Turn locked audience answers into a usable ICP card.",
-    agentTarget: "company_intel_icp",
-    kind: "agent",
-  },
-  {
-    id: "competitors",
-    title: "Competitor landscape",
-    description: "Map alternatives and where you win/lose.",
-    agentTarget: "company_intel_competitors",
-    kind: "agent",
-  },
-  {
-    id: "channel_plan",
-    title: "90-day channel plan",
-    description: "Rank channels and draft the first campaign idea.",
-    agentTarget: "company_intel_channel_strategy",
-    kind: "agent",
-  },
-  {
-    id: "content_messaging",
-    title: "Content & messaging starter",
-    description: "Outline content pillars and core message angles.",
-    agentTarget: "company_intel_content_strategy",
-    kind: "agent",
-  },
-  {
-    id: "lead_magnet",
-    title: "Lead magnet outline",
-    description: "Propose a lead magnet matched to ICP pains.",
-    agentTarget: "company_intel_lead_magnets",
-    kind: "agent",
   },
 ];
 
 const STRATEGY_SECTION_DEFS = [
-  { id: "executive_summary", title: "Executive summary", channel: "#executive-summary" },
-  { id: "market_analysis", title: "Market analysis", channel: "#market-analysis" },
-  { id: "target_customer", title: "Target customer", channel: "#target-customer" },
-  { id: "product_strategy", title: "Product strategy", channel: "#product-strategy" },
-  { id: "positioning_messaging", title: "Positioning & messaging", channel: "#positioning-messaging" },
-  { id: "pricing_monetization", title: "Pricing & monetization", channel: "#pricing-monetization" },
-  { id: "distribution_channels", title: "Distribution & channels", channel: "#distribution-channels" },
-  { id: "marketing_strategy", title: "Marketing strategy", channel: "#marketing-strategy" },
-  { id: "sales_strategy", title: "Sales strategy", channel: "#sales-strategy" },
-  { id: "customer_success", title: "Customer success & retention", channel: "#customer-success" },
-  { id: "launch_plan", title: "Launch plan", channel: "#launch-plan" },
-  { id: "operations_execution", title: "Operations & execution", channel: "#operations" },
-  { id: "financial_plan", title: "Financial plan", channel: "#financial-plan" },
-  { id: "measurement_optimization", title: "Measurement & optimization", channel: "#measurement" },
-  { id: "risks_contingencies", title: "Risks & contingencies", channel: "#risks" },
-  { id: "timeline_roadmap", title: "Timeline & roadmap", channel: "#timeline-roadmap" },
+  { id: "executive_summary", title: "Executive summary" },
+  { id: "market_analysis", title: "Market analysis" },
+  { id: "target_customer", title: "Target customer" },
+  { id: "product_strategy", title: "Product strategy" },
+  { id: "positioning_messaging", title: "Positioning & messaging" },
+  { id: "pricing_monetization", title: "Pricing & monetization" },
+  { id: "distribution_channels", title: "Distribution & channels" },
+  { id: "marketing_strategy", title: "Marketing strategy" },
+  { id: "sales_strategy", title: "Sales strategy" },
+  { id: "customer_success", title: "Customer success & retention" },
+  { id: "launch_plan", title: "Launch plan" },
+  { id: "operations_execution", title: "Operations & execution" },
+  { id: "financial_plan", title: "Financial plan" },
+  { id: "measurement_optimization", title: "Measurement & optimization" },
+  { id: "risks_contingencies", title: "Risks & contingencies" },
+  { id: "timeline_roadmap", title: "Timeline & roadmap" },
 ];
 
 function profileLabel(profile, path) {
@@ -775,7 +777,7 @@ function buildDeterministicStrategy(moduleRow) {
     const base = {
       id: def.id,
       title: def.title,
-      channel: def.channel,
+      channel: "",
       summary: "",
       bullets: [],
       body: "",
@@ -1191,7 +1193,7 @@ ${skillPlaybook ? `${skillPlaybook}\n\n` : ""}Return ONLY JSON:
   "nextSteps": string[]
 }
 Required section ids (in order): ${STRATEGY_SECTION_DEFS.map((s) => s.id).join(", ")}.
-Each section.channel must match the defs (e.g. "#executive-summary").`,
+Do not include Slack channel headers or #channel fields.`,
         },
         {
           role: "user",
@@ -1230,7 +1232,7 @@ ${JSON.stringify(profile).slice(0, 16000)}`,
       return {
         id: def.id,
         title: s.title || def.title,
-        channel: s.channel || def.channel,
+        channel: "",
         summary: String(s.summary || fb.summary || ""),
         bullets: Array.isArray(s.bullets) && s.bullets.length
           ? s.bullets.map(String).filter(Boolean)
@@ -1283,18 +1285,14 @@ function strategyToMarkdown(doc) {
     "",
   ];
 
-  // Prefer the dedicated executive_summary section when present so the doc-level
-  // executiveSummary field is not printed again as a duplicate heading.
   const sections = Array.isArray(doc.sections) ? doc.sections : [];
   const hasExecSection = sections.some((s) => s?.id === "executive_summary");
   if (!hasExecSection && doc.executiveSummary) {
-    lines.push("## Executive summary", doc.executiveSummary, "");
+    lines.push("## Executive summary", "", doc.executiveSummary, "");
   }
 
   for (const s of sections) {
-    lines.push(`## ${strategySectionLabel(s) || "Section"}`);
-    lines.push("");
-    // If the section summary merely restates the doc-level summary, keep one copy.
+    lines.push(`## ${strategySectionLabel(s) || "Section"}`, "");
     if (s.id === "executive_summary" && doc.executiveSummary) {
       lines.push(doc.executiveSummary, "");
       if (s.body && String(s.body).trim() !== String(doc.executiveSummary).trim()) {
@@ -1305,6 +1303,14 @@ function strategyToMarkdown(doc) {
       if (s.body) lines.push(s.body, "");
     }
     for (const b of s.bullets || []) lines.push(`- ${b}`);
+    if ((s.bullets || []).length) lines.push("");
+    for (const sub of s.subsections || []) {
+      const subTitle = String(sub?.title || "").trim();
+      if (subTitle) lines.push(`### ${subTitle}`, "");
+      if (sub?.body) lines.push(String(sub.body).trim(), "");
+      for (const b of sub?.bullets || []) lines.push(`- ${b}`);
+      if ((sub?.bullets || []).length) lines.push("");
+    }
     lines.push("");
   }
   if (doc.nextSteps?.length) {
@@ -1838,6 +1844,238 @@ function progressPayload(moduleRow) {
  * @param {import('express').Express} app
  * @param {object} deps
  */
+
+function normalizeStrategySection(raw, def) {
+  const subsections = (Array.isArray(raw?.subsections) ? raw.subsections : [])
+    .map((sub) => ({
+      title: String(sub?.title || "").trim(),
+      body: String(sub?.body || "").trim(),
+      bullets: (Array.isArray(sub?.bullets) ? sub.bullets : [])
+        .map((b) => String(b || "").trim())
+        .filter(Boolean)
+        .slice(0, 8),
+    }))
+    .filter((sub) => sub.title || sub.body);
+  return {
+    id: def.id,
+    title: String(raw?.title || def.title).trim() || def.title,
+    summary: String(raw?.summary || "").trim(),
+    bullets: (Array.isArray(raw?.bullets) ? raw.bullets : [])
+      .map((b) => String(b || "").trim())
+      .filter(Boolean)
+      .slice(0, 10),
+    body: String(raw?.body || "").trim(),
+    subsections,
+  };
+}
+
+function mergeApprovedStrategySections(existing, incoming) {
+  const map = new Map();
+  for (const s of existing || []) {
+    if (s?.id) map.set(s.id, s);
+  }
+  for (const s of incoming || []) {
+    if (s?.id) map.set(s.id, s);
+  }
+  return GTM_FULL_STRATEGY_SECTION_ORDER.map((id) => {
+    const def = STRATEGY_SECTION_DEFS.find((d) => d.id === id);
+    const raw = map.get(id);
+    if (!raw) return null;
+    return normalizeStrategySection(raw, def || { id, title: id });
+  }).filter(Boolean);
+}
+
+async function generateOneStrategySection(groq, {
+  sectionId,
+  moduleRow,
+  answers,
+  interviewSectionId,
+  priorSections,
+}) {
+  const def = STRATEGY_SECTION_DEFS.find((s) => s.id === sectionId);
+  if (!def) throw new Error(`Unknown strategy section "${sectionId}"`);
+  const profile = moduleRow?.profile || {};
+  const fallback = {
+    id: def.id,
+    title: def.title,
+    summary: `Recommended ${def.title.toLowerCase()} based on locked interview answers.`,
+    bullets: [
+      "Translate answers into concrete next plays",
+      "Name owners (roles) and a measurement loop",
+      "Call out one hard trade-off",
+      "Tie actions to the quantified GTM target",
+    ],
+    body: `${def.title} should operationalize the interview answers into an executable plan with clear prioritization.`,
+    subsections: [
+      {
+        title: "Priorities",
+        body: "Focus on the highest-leverage motions first; defer secondary work until the primary path works.",
+        bullets: [],
+      },
+    ],
+  };
+  if (!groq) return fallback;
+
+  const completion = await groq.chat.completions.create({
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+    temperature: 0.4,
+    max_tokens: 2200,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: `You are a senior GTM strategist. Generate ONE comprehensive strategy section for user review.
+
+Return STRICT JSON:
+{
+  "id": "${def.id}",
+  "title": "${def.title}",
+  "summary": "1-2 sentence recommendation",
+  "bullets": ["4-7 action bullets"],
+  "body": "5-10 sentences of actionable guidance",
+  "subsections": [{ "title": string, "body": string, "bullets": string[] }]
+}
+
+Rules:
+- Include 2-4 named subsections (not Slack channels).
+- Recommendations, not interview recap.
+- No #channel headers.
+- Specific plays, tradeoffs, owners (roles), measurement.
+- Stay consistent with prior approved sections.`,
+      },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            strategySectionId: def.id,
+            interviewSectionId: interviewSectionId || null,
+            moduleName: moduleRow?.name,
+            profile,
+            answers: answers || {},
+            priorApprovedSections: (priorSections || []).map((s) => ({
+              id: s.id,
+              title: s.title,
+              summary: s.summary,
+              bullets: s.bullets,
+            })),
+          },
+          null,
+          2
+        ).slice(0, 18000),
+      },
+    ],
+  });
+  const parsed = parseJsonLoose(completion.choices?.[0]?.message?.content || "");
+  return normalizeStrategySection(parsed || fallback, def);
+}
+
+async function assembleStrategyFromApprovedDrafts(groq, moduleRow) {
+  const drafts = Array.isArray(moduleRow?.profile?.auto_strategy_sections)
+    ? moduleRow.profile.auto_strategy_sections
+    : [];
+  const byId = new Map(drafts.map((s) => [s.id, s]));
+  const missing = GTM_FULL_STRATEGY_SECTION_ORDER.filter((id) => !byId.has(id));
+
+  // Fill any gaps with LLM (or deterministic fallback)
+  if (missing.length && groq) {
+    try {
+      const completion = await groq.chat.completions.create({
+        model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+        temperature: 0.35,
+        max_tokens: 5000,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `Assemble a board-ready GTM strategy document from approved section drafts.
+Return JSON:
+{
+  "title": string,
+  "executiveSummary": string,
+  "sections": [{ "id", "title", "summary", "bullets", "body", "subsections": [{ "title", "body", "bullets" }] }],
+  "nextSteps": string[]
+}
+Rules:
+- Include ALL 16 section ids in order: ${GTM_FULL_STRATEGY_SECTION_ORDER.join(", ")}.
+- Prefer approved drafts verbatim when present; expand missing ones comprehensively with 2-4 subsections each.
+- executiveSummary: 2-4 sentences win condition + bets + what NOT to do.
+- No Slack #channel headers anywhere.
+- nextSteps: 5 immediate actions for the next 14 days.`,
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              {
+                moduleName: moduleRow.name,
+                profile: moduleRow.profile || {},
+                approvedDrafts: drafts,
+                missingSectionIds: missing,
+              },
+              null,
+              2
+            ).slice(0, 20000),
+          },
+        ],
+      });
+      const parsed = parseJsonLoose(completion.choices?.[0]?.message?.content || "");
+      if (parsed?.sections?.length) {
+        const map = new Map(parsed.sections.map((s) => [s.id, s]));
+        for (const [id, draft] of byId.entries()) {
+          // Keep user-approved drafts authoritative
+          map.set(id, draft);
+        }
+        const sections = GTM_FULL_STRATEGY_SECTION_ORDER.map((id) => {
+          const def = STRATEGY_SECTION_DEFS.find((d) => d.id === id);
+          return normalizeStrategySection(map.get(id) || byId.get(id) || {}, def);
+        });
+        const exec = sections.find((s) => s.id === "executive_summary");
+        return {
+          title: String(parsed.title || `${moduleRow.name} GTM Strategy`).trim(),
+          executiveSummary: String(
+            parsed.executiveSummary || exec?.summary || exec?.body || ""
+          ).trim(),
+          generatedAt: new Date().toISOString(),
+          moduleId: moduleRow.id,
+          moduleName: moduleRow.name,
+          sections,
+          nextSteps: Array.isArray(parsed.nextSteps)
+            ? parsed.nextSteps.map(String).filter(Boolean).slice(0, 8)
+            : [],
+          model: completion.model || null,
+        };
+      }
+    } catch (err) {
+      console.warn("[gtm-wizard] assembleStrategy failed:", err.message);
+    }
+  }
+
+  const sections = GTM_FULL_STRATEGY_SECTION_ORDER.map((id) => {
+    const def = STRATEGY_SECTION_DEFS.find((d) => d.id === id);
+    const draft = byId.get(id);
+    if (draft) return normalizeStrategySection(draft, def);
+    return normalizeStrategySection(
+      {
+        summary: `${def.title} pending — complete interview generates or regenerate.`,
+        bullets: ["Return to wizard or regenerate this section"],
+        body: "",
+        subsections: [],
+      },
+      def
+    );
+  });
+  const exec = sections.find((s) => s.id === "executive_summary");
+  return {
+    title: `${moduleRow.name} GTM Strategy`,
+    executiveSummary: String(exec?.summary || exec?.body || "").trim(),
+    generatedAt: new Date().toISOString(),
+    moduleId: moduleRow.id,
+    moduleName: moduleRow.name,
+    sections,
+    nextSteps: [],
+    model: null,
+  };
+}
+
 export function registerGtmWizardRoutes(app, deps) {
   const {
     groq,
@@ -2705,7 +2943,7 @@ export function registerGtmWizardRoutes(app, deps) {
 
       // Document task: generate strategy and return it (no agent deploy)
       if (task.kind === "document" || task.id === "gtm_strategy_doc") {
-        const strategy = await generateStrategyWithLlm(groq, moduleRow);
+        const strategy = await assembleStrategyFromApprovedDrafts(groq, moduleRow);
         const { data: updated, error } = await c
           .from("gtm_modules")
           .update({
@@ -2947,7 +3185,7 @@ export function registerGtmWizardRoutes(app, deps) {
       const fallback = {
         id: def.id,
         title: def.title,
-        channel: def.channel,
+        channel: "",
         summary: `Recommended ${def.title.toLowerCase()} for ${company} based on available brand context.`,
         bullets: [
           `Focus ${def.title.toLowerCase()} on the beachhead ICP and 90-day pipeline goal.`,
@@ -2976,11 +3214,12 @@ Return STRICT JSON only:
 {
   "id": "${def.id}",
   "title": "${def.title}",
-  "channel": "${def.channel}",
   "summary": "1-2 sentence recommendation (not a recap)",
   "bullets": ["4-6 action bullets"],
-  "body": "4-7 sentences of actionable guidance"
+  "body": "4-7 sentences of actionable guidance",
+  "subsections": [{ "title": string, "body": string, "bullets": string[] }]
 }
+Include 2-4 subsections with concrete detail. No Slack #channel headers.
 
 Rules:
 - This is a RECOMMENDATION the user can edit — specific plays, tradeoffs, owners (roles), measurement.
@@ -3041,16 +3280,27 @@ Rules:
         }
       }
 
+      const subsections = (Array.isArray(parsed?.subsections) ? parsed.subsections : [])
+        .map((sub) => ({
+          title: String(sub?.title || "").trim(),
+          body: String(sub?.body || "").trim(),
+          bullets: (Array.isArray(sub?.bullets) ? sub.bullets : [])
+            .map((b) => String(b || "").trim())
+            .filter(Boolean)
+            .slice(0, 6),
+        }))
+        .filter((sub) => sub.title || sub.body);
+
       const section = {
         id: def.id,
         title: String(parsed?.title || def.title).trim() || def.title,
-        channel: def.channel,
         summary: String(parsed?.summary || fallback.summary).trim(),
         bullets: (Array.isArray(parsed?.bullets) ? parsed.bullets : fallback.bullets)
           .map((b) => String(b || "").trim())
           .filter(Boolean)
           .slice(0, 8),
         body: String(parsed?.body || fallback.body).trim(),
+        subsections,
       };
 
       if (!section.summary || !section.bullets.length) {
@@ -3060,6 +3310,183 @@ Rules:
       res.json({
         section,
         model: completion.model || process.env.GROQ_MODEL || null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  /**
+   * After interview answers: generate one strategy section for Brand DNA-style review.
+   * Saves draft answers onto the module (unlocked) so generation has context.
+   */
+  app.post("/api/gtm/modules/:id/strategy-sections/generate", async (req, res) => {
+    try {
+      const { interviewSectionId, strategySectionId, answers, priorSections } = req.body || {};
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+
+      const def = STRATEGY_SECTION_DEFS.find((s) => s.id === strategySectionId);
+      if (!def) {
+        return res.status(400).json({
+          error: `Unknown strategy section "${strategySectionId}"`,
+          allowed: STRATEGY_SECTION_DEFS.map((s) => s.id),
+        });
+      }
+
+      // Persist draft answers for this interview section (not locked yet)
+      let working = moduleRow;
+      if (interviewSectionId && answers && typeof answers === "object") {
+        const sectionState = { ...(moduleRow.section_state || {}) };
+        sectionState[interviewSectionId] = {
+          ...(sectionState[interviewSectionId] || {}),
+          locked: Boolean(sectionState[interviewSectionId]?.locked),
+          answers: {
+            ...(sectionState[interviewSectionId]?.answers || {}),
+            ...answers,
+          },
+        };
+        const profile = { ...(moduleRow.profile || {}) };
+        profile[interviewSectionId] = {
+          ...(profile[interviewSectionId] || {}),
+        };
+        for (const [qid, ans] of Object.entries(answers)) {
+          profile[interviewSectionId][qid] = String(ans?.label || ans?.value || "").trim();
+        }
+        const { data, error } = await c
+          .from("gtm_modules")
+          .update({ section_state: sectionState, profile, status: "in_progress" })
+          .eq("id", moduleRow.id)
+          .select("*")
+          .single();
+        if (error) throw error;
+        working = data;
+      }
+
+      const approved = Array.isArray(priorSections)
+        ? priorSections
+        : working.profile?.auto_strategy_sections || [];
+
+      const section = await generateOneStrategySection(groq, {
+        sectionId: strategySectionId,
+        moduleRow: working,
+        answers: answers || {},
+        interviewSectionId,
+        priorSections: approved,
+      });
+
+      res.json({
+        section,
+        module: working,
+        progress: progressPayload(working),
+        interviewMeta: GTM_INTERVIEW_STRATEGY_OUTPUTS[interviewSectionId] || null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  /** Persist an approved strategy section draft onto the module profile. */
+  app.post("/api/gtm/modules/:id/strategy-sections/approve", async (req, res) => {
+    try {
+      const { section, interviewSectionId, answers, lockInterview } = req.body || {};
+      if (!section?.id) return res.status(400).json({ error: "section is required" });
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+
+      const def = STRATEGY_SECTION_DEFS.find((s) => s.id === section.id) || {
+        id: section.id,
+        title: section.title || section.id,
+      };
+      const normalized = {
+        ...normalizeStrategySection(section, def),
+        approvedAt: new Date().toISOString(),
+      };
+
+      const merged = mergeApprovedStrategySections(
+        moduleRow.profile?.auto_strategy_sections || [],
+        [normalized]
+      );
+
+      const profile = {
+        ...(moduleRow.profile || {}),
+        auto_strategy_sections: merged,
+      };
+      const sectionState = { ...(moduleRow.section_state || {}) };
+      let nextSectionId = null;
+      let lockedAll = allInterviewLocked(sectionState);
+
+      if (lockInterview && interviewSectionId) {
+        const idef = sectionDef(interviewSectionId);
+        if (!idef) return res.status(400).json({ error: "Unknown interview section" });
+        const mergedAnswers = {
+          ...(sectionState[interviewSectionId]?.answers || {}),
+          ...(answers || {}),
+        };
+        const normalizedAnswers = {};
+        for (const q of idef.questions) {
+          const a = mergedAnswers[q.id];
+          if (!a || !(a.value || a.label || typeof a === "string")) {
+            return res.status(400).json({
+              error: `Missing answer for question "${q.id}"`,
+            });
+          }
+          normalizedAnswers[q.id] = {
+            value: String(a.value ?? a).trim(),
+            label: String(a.label ?? a.value ?? a).trim(),
+          };
+        }
+        const idx = GTM_SECTION_ORDER.indexOf(interviewSectionId);
+        for (let i = 0; i < idx; i++) {
+          if (!sectionState[GTM_SECTION_ORDER[i]]?.locked) {
+            return res.status(409).json({
+              error: `Lock prior section "${GTM_SECTION_ORDER[i]}" first`,
+            });
+          }
+        }
+        sectionState[interviewSectionId] = {
+          locked: true,
+          locked_at: new Date().toISOString(),
+          answers: normalizedAnswers,
+        };
+        profile[interviewSectionId] = {
+          ...(profile[interviewSectionId] || {}),
+        };
+        for (const [qid, ans] of Object.entries(normalizedAnswers)) {
+          profile[interviewSectionId][qid] = ans.label || ans.value;
+        }
+        profile.locked_sections = GTM_SECTION_ORDER.filter((id) => sectionState[id]?.locked);
+        lockedAll = allInterviewLocked(sectionState);
+        const followingIdx = GTM_SECTION_ORDER.indexOf(interviewSectionId);
+        const following =
+          followingIdx >= 0 && followingIdx < GTM_SECTION_ORDER.length - 1
+            ? GTM_SECTION_ORDER[followingIdx + 1]
+            : null;
+        nextSectionId = lockedAll ? "execute" : following;
+      }
+
+      const { data, error } = await c
+        .from("gtm_modules")
+        .update({
+          profile,
+          section_state: sectionState,
+          status: lockedAll ? "ready" : "in_progress",
+        })
+        .eq("id", moduleRow.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+
+      res.json({
+        module: data,
+        progress: progressPayload(data),
+        section: normalized,
+        nextSectionId,
+        allLocked: lockedAll,
       });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
