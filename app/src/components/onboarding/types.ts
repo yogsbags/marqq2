@@ -1,4 +1,4 @@
-export type Phase = 'welcome' | 'form' | 'review' | 'activate' | 'done';
+export type Phase = 'welcome' | 'form' | 'review' | 'brandVoiceReview' | 'activate' | 'done';
 
 export type PrimaryGoal = 'leads' | 'conversion' | 'content' | 'market' | 'budget';
 
@@ -30,6 +30,11 @@ export interface BrandDna {
   colors: string[];
   brandTagline: string;
   toneOfVoice: string;
+  brandVoice?: {
+    tone: string[];
+    dosList: string[];
+    dontsList: string[];
+  };
   /** Optional uploads from onboarding Brand DNA review */
   knowledgeBaseFiles?: BrandDnaKnowledgeFile[];
   /** Voice briefs recorded during Brand DNA step */

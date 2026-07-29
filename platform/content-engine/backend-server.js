@@ -4780,7 +4780,11 @@ app.post("/api/agents/context", async (req, res) => {
 
   const dna = brandDna && typeof brandDna === "object" ? brandDna : null;
   const dnaBlock = dna
-    ? `\n\n## Brand DNA\n**Tagline**: ${dna.brandTagline || "—"}\n**Summary**: ${dna.businessSummary || "—"}\n**Tone of Voice**: ${dna.toneOfVoice || "—"}\n**Fonts**: ${Array.isArray(dna.fonts) ? dna.fonts.join(", ") : "—"}\n**Colors**: ${Array.isArray(dna.colors) ? dna.colors.join(", ") : "—"}\n**Logo**: ${dna.logoUrl || "—"}\n**Voice notes**: ${
+    ? `\n\n## Brand DNA\n**Tagline**: ${dna.brandTagline || "—"}\n**Summary**: ${dna.businessSummary || "—"}\n**Tone of Voice**: ${dna.toneOfVoice || "—"}\n**Brand Voice Guidelines**: ${
+        dna.brandVoice && typeof dna.brandVoice === "object"
+          ? `Tone: ${Array.isArray(dna.brandVoice?.tone) ? dna.brandVoice.tone.join(", ") : "—"}\nDo's: ${Array.isArray(dna.brandVoice?.dosList) ? dna.brandVoice.dosList.join(", ") : "—"}\nDon'ts: ${Array.isArray(dna.brandVoice?.dontsList) ? dna.brandVoice.dontsList.join(", ") : "—"}`
+          : "—"
+      }\n**Fonts**: ${Array.isArray(dna.fonts) ? dna.fonts.join(", ") : "—"}\n**Colors**: ${Array.isArray(dna.colors) ? dna.colors.join(", ") : "—"}\n**Logo**: ${dna.logoUrl || "—"}\n**Voice notes**: ${
         Array.isArray(dna.voiceNotes) && dna.voiceNotes.length
           ? dna.voiceNotes.map((n, i) => `\n### Voice note ${i + 1}\n${n.transcript || "—"}`).join("\n")
           : "—"

@@ -3,6 +3,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { ActivationStep } from './ActivationStep';
 import { AgentGrid } from './AgentGrid';
 import { BrandDnaStep } from './BrandDnaStep';
+import { BrandVoiceStep } from './BrandVoiceStep';
 import { STEPS } from './constants';
 import { FormStep } from './FormStep';
 import { WelcomeStep } from './WelcomeStep';
@@ -59,10 +60,21 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
               error={brandDnaError}
               workspaceId={activeWorkspace?.id}
               onChange={(next) => setBrandDna(next)}
-              onConfirm={handleActivate}
+              onConfirm={() => setPhase('brandVoiceReview')}
               onBack={handleBack}
               onSkip={handleActivate}
               onRetry={retryBrandDna}
+            />
+          )}
+
+          {phase === 'brandVoiceReview' && (
+            <BrandVoiceStep
+              brandDna={brandDna}
+              workspaceId={activeWorkspace?.id}
+              onBack={handleBack}
+              onSkip={handleActivate}
+              onConfirm={handleActivate}
+              onBrandDnaUpdate={(next) => setBrandDna(next)}
             />
           )}
 
