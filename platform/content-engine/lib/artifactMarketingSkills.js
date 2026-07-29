@@ -34,14 +34,16 @@ export const DEFAULT_SKILL_PACK = {
 /** @type {Record<string, SkillPack>} */
 export const ARTIFACT_MARKETING_SKILLS = {
   icps: {
-    primary: ["product-marketing-context", "customer-research"],
+    primary: ["icp-definer", "persona-definer", "product-marketing-context"],
+    secondary: ["deep-company-analyser", "customer-research", "pain-identifier", "trigger-finder"],
   },
   icp_definition: {
-    primary: ["product-marketing-context", "customer-research"],
+    primary: ["icp-definer", "persona-definer", "product-marketing-context"],
+    secondary: ["deep-company-analyser", "customer-research", "pain-identifier", "trigger-finder"],
   },
   client_profiling: {
-    primary: ["customer-research"],
-    secondary: ["product-marketing-context"],
+    primary: ["deep-company-analyser", "customer-research"],
+    secondary: ["persona-definer", "pain-identifier", "product-marketing-context"],
   },
   partner_profiling: {
     primary: ["marketing-ideas", "referral-program"],
@@ -51,11 +53,12 @@ export const ARTIFACT_MARKETING_SKILLS = {
     primary: ["competitor-alternatives"],
   },
   positioning_messaging: {
-    primary: ["product-marketing-context", "copywriting"],
+    primary: ["product-marketing-context", "offer-definer", "copywriting"],
+    secondary: ["campaign-angle-finder", "pain-identifier", "copywriting-refiner"],
   },
   sales_enablement: {
-    primary: ["sales-enablement"],
-    secondary: ["copywriting", "competitor-alternatives"],
+    primary: ["sales-enablement", "offer-definer"],
+    secondary: ["pain-identifier", "copywriting", "competitor-alternatives", "trigger-finder"],
   },
   pricing_intelligence: {
     primary: ["pricing-strategy"],
@@ -93,16 +96,16 @@ export const ARTIFACT_MARKETING_SKILLS = {
     secondary: ["analytics-tracking"],
   },
   marketing_strategy: {
-    primary: ["marketing-ideas", "launch-strategy"],
-    secondary: ["product-marketing-context"],
+    primary: ["gtm-action-thinker", "marketing-ideas", "launch-strategy", "icp-definer"],
+    secondary: ["product-marketing-context", "offer-definer", "campaign-angle-finder"],
   },
   gtm_strategy: {
-    primary: ["product-marketing-context", "launch-strategy", "pricing-strategy"],
-    secondary: ["sales-enablement", "content-strategy", "copywriting"],
+    primary: ["product-marketing-context", "gtm-action-thinker", "launch-strategy", "icp-definer"],
+    secondary: ["offer-definer", "trigger-finder", "campaign-angle-finder", "pricing-strategy", "sales-enablement"],
   },
   gtm_strategy_doc: {
-    primary: ["product-marketing-context", "launch-strategy", "pricing-strategy"],
-    secondary: ["sales-enablement", "content-strategy", "copywriting"],
+    primary: ["product-marketing-context", "gtm-action-thinker", "launch-strategy", "icp-definer"],
+    secondary: ["offer-definer", "trigger-finder", "campaign-angle-finder", "pricing-strategy", "sales-enablement"],
   },
   website_audit: {
     primary: ["page-cro"],
@@ -149,12 +152,12 @@ export const ARTIFACT_MARKETING_SKILLS = {
 /** @type {Record<string, SkillPack>} */
 export const MODULE_MARKETING_SKILLS = {
   "lead-intelligence": {
-    primary: ["cold-email", "revops"],
-    secondary: ["form-cro", "signup-flow-cro"],
+    primary: ["icp-definer", "outbound-campaign-architect", "cold-email"],
+    secondary: ["persona-definer", "trigger-finder", "revops", "form-cro", "signup-flow-cro"],
   },
   lead_intelligence: {
-    primary: ["cold-email", "revops"],
-    secondary: ["form-cro", "signup-flow-cro"],
+    primary: ["icp-definer", "outbound-campaign-architect", "cold-email"],
+    secondary: ["persona-definer", "trigger-finder", "revops", "form-cro", "signup-flow-cro"],
   },
   "budget-optimization": {
     primary: ["ads-meta", "paid-ads", "analytics-tracking"],
@@ -300,16 +303,35 @@ export const MODULE_MARKETING_SKILLS = {
     secondary: ["form-cro"],
   },
   icp_build: {
-    primary: ["product-marketing-context", "customer-research"],
+    primary: ["icp-definer", "persona-definer", "product-marketing-context"],
+    secondary: ["deep-company-analyser", "customer-research", "pain-identifier"],
   },
   // Lead Outreach module + ICP → Launch Outreach deploy task_type
   "lead-outreach": {
-    primary: ["cold-email"],
-    secondary: ["email-sequence", "copywriting"],
+    primary: ["outbound-campaign-architect", "copywriting-first-touch", "cold-email"],
+    secondary: [
+      "copywriting-vp-sequence",
+      "copywriting-manager-sequence",
+      "copywriting-ic-sequence",
+      "linkedin-outbound-angle",
+      "copywriting-analyzer",
+      "copywriting-refiner",
+      "campaign-angle-finder",
+      "email-sequence",
+    ],
   },
   lead_outreach: {
-    primary: ["cold-email"],
-    secondary: ["email-sequence", "copywriting"],
+    primary: ["outbound-campaign-architect", "copywriting-first-touch", "cold-email"],
+    secondary: [
+      "copywriting-vp-sequence",
+      "copywriting-manager-sequence",
+      "copywriting-ic-sequence",
+      "linkedin-outbound-angle",
+      "copywriting-analyzer",
+      "copywriting-refiner",
+      "campaign-angle-finder",
+      "email-sequence",
+    ],
   },
   // Paid Ads module + ICP cohort → Create Paid Ads deploy / Zara runs
   // ads-meta = Claude Ads / Nouriva Meta deep playbook (Andromeda, Pixel/CAPI, creative diversity)
@@ -342,32 +364,40 @@ export const MODULE_MARKETING_SKILLS = {
  */
 export const OUTREACH_CHANNEL_MARKETING_SKILLS = {
   email: {
-    primary: ["cold-email"],
-    secondary: ["email-sequence", "copywriting"],
+    primary: ["copywriting-first-touch", "cold-email"],
+    secondary: [
+      "outbound-campaign-architect",
+      "copywriting-vp-sequence",
+      "copywriting-manager-sequence",
+      "copywriting-ic-sequence",
+      "copywriting-analyzer",
+      "copywriting-refiner",
+      "email-sequence",
+    ],
   },
   linkedin_dm: {
-    primary: ["social-content", "copywriting"],
-    secondary: ["cold-email", "marketing-psychology"],
+    primary: ["linkedin-outbound-angle", "copywriting"],
+    secondary: ["outbound-campaign-architect", "cold-email", "social-content", "marketing-psychology"],
   },
   linkedin: {
-    primary: ["social-content", "copywriting"],
-    secondary: ["cold-email", "marketing-psychology"],
+    primary: ["linkedin-outbound-angle", "copywriting"],
+    secondary: ["outbound-campaign-architect", "cold-email", "social-content", "marketing-psychology"],
   },
   whatsapp_dm: {
     primary: ["copywriting", "marketing-psychology"],
-    secondary: ["cold-email"],
+    secondary: ["cold-email", "copywriting-refiner"],
   },
   whatsapp: {
     primary: ["copywriting", "marketing-psychology"],
-    secondary: ["cold-email"],
+    secondary: ["cold-email", "copywriting-refiner"],
   },
   voicebot_script: {
     primary: ["sales-enablement", "copywriting"],
-    secondary: ["marketing-psychology"],
+    secondary: ["offer-definer", "marketing-psychology"],
   },
   voicebot: {
     primary: ["sales-enablement", "copywriting"],
-    secondary: ["marketing-psychology"],
+    secondary: ["offer-definer", "marketing-psychology"],
   },
 };
 

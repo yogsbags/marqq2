@@ -29,14 +29,14 @@ export const CI_PAGE_SKILLS: Record<CompanyIntelPageId, SkillPack> = {
   },
   client_profiling: {
     agentName: 'isha',
-    marketingSkills: ['customer-research', 'product-marketing-context'],
+    marketingSkills: ['deep-company-analyser', 'customer-research', 'persona-definer', 'product-marketing-context'],
     // Stronger with CRM, but crawl + GTM still usable
     requiredConnectors: [],
     optionalConnectors: ['hubspot', 'salesforce', 'apollo', 'ga4'],
   },
   icps: {
     agentName: 'neel',
-    marketingSkills: ['product-marketing-context', 'customer-research'],
+    marketingSkills: ['icp-definer', 'persona-definer', 'product-marketing-context', 'deep-company-analyser'],
     // ICPs come from site crawl + onboarding/GTM context — no connector required
     requiredConnectors: [],
     optionalConnectors: ['hubspot', 'apollo', 'ga4'],
@@ -87,13 +87,13 @@ export const CI_PAGE_SKILLS: Record<CompanyIntelPageId, SkillPack> = {
   },
   marketing_strategy: {
     agentName: 'neel',
-    marketingSkills: ['marketing-ideas', 'launch-strategy', 'product-marketing-context'],
+    marketingSkills: ['gtm-action-thinker', 'marketing-ideas', 'launch-strategy', 'icp-definer', 'product-marketing-context'],
     requiredConnectors: [],
     optionalConnectors: ['ga4', 'gsc', 'hubspot'],
   },
   positioning_messaging: {
     agentName: 'neel',
-    marketingSkills: ['product-marketing-context', 'copywriting'],
+    marketingSkills: ['product-marketing-context', 'offer-definer', 'copywriting', 'campaign-angle-finder'],
     requiredConnectors: [],
     optionalConnectors: ['gsc', 'ga4'],
   },
@@ -118,7 +118,7 @@ export const CI_PAGE_SKILLS: Record<CompanyIntelPageId, SkillPack> = {
   },
   sales_enablement: {
     agentName: 'sam',
-    marketingSkills: ['sales-enablement', 'copywriting'],
+    marketingSkills: ['sales-enablement', 'offer-definer', 'pain-identifier', 'copywriting'],
     // Battlecards from competitors + positioning still work; CRM enriches objections
     requiredConnectors: [],
     optionalConnectors: ['hubspot', 'salesforce', 'apollo'],
@@ -159,7 +159,7 @@ export const AGENT_TARGET_SKILLS: Record<AgentTarget, SkillPack> = {
   company_intel_marketing_ideas: CI_PAGE_SKILLS.marketing_ideas,
   lead_intelligence: {
     agentName: 'arjun',
-    marketingSkills: ['cold-email', 'revops', 'form-cro', 'signup-flow-cro'],
+    marketingSkills: ['icp-definer', 'outbound-campaign-architect', 'cold-email', 'trigger-finder', 'revops'],
     // At least one lead-data provider (Apollo or Hunter) — soft pool in workflowRequirements
     requiredConnectors: ['apollo', 'hunter'],
     optionalConnectors: ['instantly', 'hubspot', 'salesforce', 'gmail'],
@@ -188,7 +188,14 @@ export const MODULE_SKILLS: Record<string, SkillPack> = {
   'lead-intelligence': AGENT_TARGET_SKILLS.lead_intelligence,
   'lead-outreach': {
     agentName: 'sam',
-    marketingSkills: ['cold-email', 'copywriting', 'email-sequence'],
+    marketingSkills: [
+      'outbound-campaign-architect',
+      'copywriting-first-touch',
+      'cold-email',
+      'copywriting-vp-sequence',
+      'copywriting-analyzer',
+      'linkedin-outbound-angle',
+    ],
     requiredConnectors: ['instantly'],
     optionalConnectors: ['apollo', 'hunter', 'gmail', 'hubspot'],
   },
