@@ -45,7 +45,84 @@ const GENERIC_FONTS = new Set([
   "fangsong",
   "-apple-system",
   "blinkmacsystemfont",
+  "arial",
+  "helvetica",
+  "helvetica neue",
+  "times",
+  "times new roman",
+  "georgia",
+  "courier",
+  "courier new",
+  "verdana",
+  "tahoma",
+  "trebuchet ms",
+  "segoe ui",
+  "roboto", // often a system/UI default on Android; still allow if only font — filtered by role weight below
 ]);
+
+/** Named brand typefaces we still keep even if also common system fonts. */
+const ALLOWED_COMMON_BRAND_FONTS = new Set([
+  "roboto",
+  "georgia",
+  "helvetica neue",
+]);
+
+function cleanFontToken(raw) {
+  return String(raw || "")
+    .replace(/!important/gi, "")
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isGenericFontName(name) {
+  const lower = cleanFontToken(name).toLowerCase();
+  if (!lower) return true;
+  if (ALLOWED_COMMON_BRAND_FONTS.has(lower)) return false;
+  return GENERIC_FONTS.has(lower);
+}
+
+function normalizeFontFamilyList(familyCss) {
+  return String(familyCss || "")
+    .split(",")
+    .map(cleanFontToken)
+    .filter((name) => name && !isGenericFontName(name));
+}
+
+function pickVisualFonts(samples = []) {
+  const weighted = new Map();
+  const bump = (name, weight) => {
+    const cleaned = cleanFontToken(name);
+    if (!cleaned || isGenericFontName(cleaned)) return;
+    const key = cleaned.toLowerCase();
+    const prev = weighted.get(key);
+    if (!prev || weight > prev.weight) {
+      weighted.set(key, { name: cleaned, weight });
+    } else {
+      weighted.set(key, { name: prev.name, weight: prev.weight + weight * 0.25 });
+    }
+  };
+
+  for (const sample of samples) {
+    const role = String(sample?.role || "");
+    const fonts = normalizeFontFamilyList(sample?.fontFamily);
+    const roleWeight =
+      /h1|heading/i.test(role) ? 20 :
+      /h2|h3/i.test(role) ? 14 :
+      /body|p|paragraph/i.test(role) ? 12 :
+      /nav/i.test(role) ? 8 :
+      /button|cta/i.test(role) ? 6 :
+      4;
+    // Prefer the primary face in the stack.
+    if (fonts[0]) bump(fonts[0], roleWeight);
+    if (fonts[1]) bump(fonts[1], Math.max(2, roleWeight / 3));
+  }
+
+  return [...weighted.values()]
+    .sort((a, b) => b.weight - a.weight)
+    .map((f) => f.name)
+    .slice(0, 3);
+}
 
 function normalizeWebsiteUrl(url) {
   try {
@@ -168,6 +245,34 @@ function luminance(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+function saturation(hex) {
+  const h = expandShortHex(hex).slice(1);
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === 0) return 0;
+  return (max - min) / max;
+}
+
+function rgbStringToHex(value) {
+  const m = String(value || "").match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (!m) return null;
+  const r = Number(m[1]);
+  const g = Number(m[2]);
+  const b = Number(m[3]);
+  if (![r, g, b].every((n) => Number.isFinite(n))) return null;
+  return `#${[r, g, b].map((n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function isBoringNeutral(hex) {
+  const s = saturation(hex);
+  const l = luminance(hex);
+  // Near-gray or near black/white with no chroma — keep only if we need a bg/text slot.
+  return s < 0.12 && l > 0.08 && l < 0.92;
+}
+
 function pickBrandColors(hexes, themeColor) {
   const counts = new Map();
   for (const raw of hexes) {
@@ -194,19 +299,224 @@ function pickBrandColors(hexes, themeColor) {
     .slice(0, 3);
 }
 
+/**
+ * Prefer rendered UI colors (computed styles + viewport screenshot accents)
+ * over raw HTML hex scraping, which picks up builder/widget CSS noise.
+ */
+function pickVisualBrandColors({ themeColor, computed = [], screenshotAccents = [] } = {}) {
+  const weighted = new Map();
+  const bump = (hex, weight) => {
+    if (!hex) return;
+    const h = expandShortHex(hex);
+    if (!/^#[0-9a-f]{6}$/.test(h)) return;
+    weighted.set(h, (weighted.get(h) || 0) + weight);
+  };
+
+  if (themeColor) bump(themeColor, 12);
+
+  for (const sample of computed) {
+    const role = String(sample?.role || "");
+    const color = rgbStringToHex(sample?.color);
+    const bg = rgbStringToHex(sample?.backgroundColor);
+    const roleWeight =
+      /button|cta|theme/i.test(role) ? 14 :
+      /heading|h1|nav/i.test(role) ? 8 :
+      /body|section|header/i.test(role) ? 6 :
+      3;
+    if (bg && bg !== "#000000" && bg !== "#ffffff") bump(bg, roleWeight + (saturation(bg) > 0.25 ? 6 : 0));
+    if (color && color !== "#000000" && color !== "#ffffff") {
+      bump(color, roleWeight + (saturation(color) > 0.35 ? 8 : 0));
+    }
+    // Keep pure black/white as palette anchors when they dominate UI.
+    if (bg === "#000000" || bg === "#ffffff") bump(bg, 4);
+    if (color === "#000000" || color === "#ffffff") bump(color, 3);
+  }
+
+  for (const hex of screenshotAccents) bump(hex, 5);
+
+  const ranked = [...weighted.entries()]
+    .sort((a, b) => b[1] - a[1] || saturation(b[0]) - saturation(a[0]))
+    .map(([hex]) => hex);
+
+  if (!ranked.length) return null;
+
+  const dark =
+    ranked.find((h) => luminance(h) < 0.25) ||
+    ranked.find((h) => luminance(h) < 0.4) ||
+    "#000000";
+  const accent =
+    ranked.find((h) => h !== dark && saturation(h) >= 0.35) ||
+    ranked.find((h) => h !== dark && !isBoringNeutral(h) && luminance(h) >= 0.25 && luminance(h) <= 0.85) ||
+    ranked.find((h) => h !== dark) ||
+    "#04d9d8";
+  const light =
+    ranked.find((h) => h !== dark && h !== accent && luminance(h) >= 0.75) ||
+    ranked.find((h) => h !== dark && h !== accent && saturation(h) >= 0.35) ||
+    ranked.find((h) => h !== dark && h !== accent) ||
+    "#ffffff";
+
+  return [dark, accent, light].map((h) => expandShortHex(h)).slice(0, 3);
+}
+
+async function resolvePlaywrightChromium() {
+  try {
+    const pe = await import("playwright-extra");
+    const stealthMod = await import("puppeteer-extra-plugin-stealth");
+    const stealth = stealthMod.default || stealthMod;
+    pe.chromium.use(stealth());
+    return pe.chromium;
+  } catch {
+    try {
+      const pw = await import("playwright");
+      return pw.chromium;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Headless render: sample computed UI colors + fonts (+ screenshot accents).
+ * Returns null when Playwright/Chromium is unavailable.
+ */
+async function extractVisualBrandSignals(websiteUrl, themeColor = null) {
+  if (process.env.BRAND_DNA_DISABLE_SCREENSHOT === "1") return null;
+  const chromium = await resolvePlaywrightChromium();
+  if (!chromium) return null;
+
+  let browser;
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    });
+    const page = await browser.newPage({
+      viewport: { width: 1440, height: 900 },
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    });
+    await page.goto(websiteUrl, { waitUntil: "domcontentloaded", timeout: 25000 });
+    await page.waitForTimeout(2500);
+
+    const computed = await page.evaluate(() => {
+      const pick = (role, el) => {
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return {
+          role,
+          color: cs.color,
+          backgroundColor: cs.backgroundColor,
+          fontFamily: cs.fontFamily,
+        };
+      };
+      const q = (sel) => document.querySelector(sel);
+      const samples = [
+        pick("body", document.body),
+        pick("header", q("header, [data-ux='Header'], .widget-header")),
+        pick("section", q("section, [data-ux='Section']")),
+        pick("h1", q("h1")),
+        pick("h2", q("h2")),
+        pick("h3", q("h3")),
+        pick("p", q("p")),
+        pick("nav", q("nav a, a[data-typography='NavAlpha'], a[data-ux='NavLink']")),
+        pick("cta", q("[data-ux='Button'], a[data-aid*='BUTTON'], button, a.btn, .btn")),
+      ].filter(Boolean);
+
+      for (const el of Array.from(document.querySelectorAll("a, button")).slice(0, 40)) {
+        const cs = getComputedStyle(el);
+        const bg = cs.backgroundColor;
+        if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+          samples.push({
+            role: "cta",
+            color: cs.color,
+            backgroundColor: bg,
+            fontFamily: cs.fontFamily,
+          });
+        }
+      }
+      return samples;
+    });
+
+    const shot = await page.screenshot({ type: "png", fullPage: false });
+    const screenshotAccents = await sampleScreenshotAccents(shot);
+    const colors = pickVisualBrandColors({ themeColor, computed, screenshotAccents });
+    const fonts = pickVisualFonts(computed);
+    if ((!colors || colors.length < 3) && !fonts.length) return null;
+    return {
+      colors: colors && colors.length >= 3 ? colors : null,
+      fonts: fonts.length ? fonts : null,
+    };
+  } catch (err) {
+    console.warn("[brand-dna] visual brand extract failed:", err?.message || err);
+    return null;
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+/** @deprecated use extractVisualBrandSignals */
+async function extractColorsFromScreenshot(websiteUrl, themeColor = null) {
+  const visual = await extractVisualBrandSignals(websiteUrl, themeColor);
+  return visual?.colors || null;
+}
+
+/** Sample saturated accent hexes from a viewport PNG (optional sharp). */
+async function sampleScreenshotAccents(pngBuffer) {
+  try {
+    const sharpMod = await import("sharp").catch(() => null);
+    const sharp = sharpMod?.default || sharpMod;
+    if (!sharp) return [];
+    const buf = Buffer.isBuffer(pngBuffer) ? pngBuffer : Buffer.from(pngBuffer);
+    const { data, info } = await sharp(buf).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+    const { width, height } = info;
+    const buckets = new Map();
+    const bump = (r, g, b) => {
+      const rq = Math.round(r / 16) * 16;
+      const gq = Math.round(g / 16) * 16;
+      const bq = Math.round(b / 16) * 16;
+      const hex = `#${[rq, gq, bq].map((n) => Math.min(255, n).toString(16).padStart(2, "0")).join("")}`;
+      const s = saturation(hex);
+      const l = luminance(hex);
+      if (s < 0.35 || l < 0.12 || l > 0.9) return;
+      buckets.set(hex, (buckets.get(hex) || 0) + 1);
+    };
+    const bands = [
+      [0, Math.min(110, height)],
+      [Math.max(0, height - 220), height],
+    ];
+    for (const [y0, y1] of bands) {
+      for (let y = y0; y < y1; y += 6) {
+        for (let x = 0; x < width; x += 6) {
+          const i = (y * width + x) * 4;
+          if (data[i + 3] < 200) continue;
+          bump(data[i], data[i + 1], data[i + 2]);
+        }
+      }
+    }
+    return [...buckets.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([hex]) => hex);
+  } catch {
+    return [];
+  }
+}
+
 function extractFonts(html) {
   const fonts = [];
   let match;
+  FONT_FAMILY_RE.lastIndex = 0;
   while ((match = FONT_FAMILY_RE.exec(html)) !== null) {
-    const parts = String(match[1] || "")
-      .split(",")
-      .map((p) => p.trim().replace(/^["']|["']$/g, ""))
-      .filter(Boolean);
+    const parts = normalizeFontFamilyList(match[1]);
     for (const part of parts) {
-      const lower = part.toLowerCase();
-      if (GENERIC_FONTS.has(lower)) continue;
-      if (!fonts.some((f) => f.toLowerCase() === lower)) fonts.push(part);
-      if (fonts.length >= 4) return fonts;
+      if (!fonts.some((f) => f.toLowerCase() === part.toLowerCase())) fonts.push(part);
+      if (fonts.length >= 3) return fonts;
     }
   }
   return fonts;
@@ -274,6 +584,28 @@ export async function scrapeBrandSignals(websiteUrl) {
     const h1 = stripHtml((html.match(H1_RE) || [])[1] || "");
     const themeColor = (html.match(THEME_COLOR_RE) || [])[1] || null;
     const hexes = html.match(HEX_RE) || [];
+    const htmlColors = pickBrandColors(hexes, themeColor);
+    const htmlFonts = extractFonts(html);
+    let colors = htmlColors;
+    let fonts = htmlFonts;
+    let colorSource = "html-hex";
+    let fontSource = "html-css";
+    try {
+      const visual = await extractVisualBrandSignals(
+        normalized,
+        themeColor ? expandShortHex(themeColor) : null,
+      );
+      if (visual?.colors?.length >= 3) {
+        colors = visual.colors;
+        colorSource = "screenshot";
+      }
+      if (visual?.fonts?.length) {
+        fonts = visual.fonts;
+        fontSource = "screenshot";
+      }
+    } catch (err) {
+      console.warn("[brand-dna] visual brand signals skipped:", err?.message || err);
+    }
     return {
       websiteUrl: normalized,
       title,
@@ -281,8 +613,10 @@ export async function scrapeBrandSignals(websiteUrl) {
       siteName,
       h1,
       logoUrl: extractLogoUrl(html, normalized),
-      colors: pickBrandColors(hexes, themeColor),
-      fonts: extractFonts(html),
+      colors,
+      colorSource,
+      fonts: fonts.length ? fonts : ["Inter", "Georgia"],
+      fontSource,
       themeColor: themeColor ? expandShortHex(themeColor) : null,
     };
   } finally {
