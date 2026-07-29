@@ -24,13 +24,12 @@ import { tracedLLM } from '../../langfuse.js';
 import { generateSocialImage } from './contentCreation.js';
 import {
   executeComposioAction,
-  getConnectedAccountToken,
+  metaGraphProxy,
 } from '../../mcp-router.js';
 import { getPreferredMetaAdAccountId } from '../../connector-preferences.js';
 
 const LOOP_AUTOMATION_ID = 'manage_paid_ads_loop';
 const DEFAULT_CRON = '0 */6 * * *';
-const GRAPH = 'https://graph.facebook.com/v19.0';
 
 /** Executable thresholds from ads-budget / ads-creative / paid-ads / ab-test-setup */
 export const SKILL_RULES = {
@@ -403,7 +402,7 @@ Generate exactly ${count} variations. Each variation MUST include a distinct "ho
 }
 
 async function createMetaAdVariant({
-  access_token,
+  companyId,
   adAccountId,
   pageId,
   adsetId,
@@ -422,48 +421,53 @@ async function createMetaAdVariant({
   };
   if (imageUrl) linkData.picture = imageUrl;
 
-  const c3 = await fetch(`${GRAPH}/${adAccountId}/adcreatives`, {
+  const c3 = await metaGraphProxy(companyId, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    path: `/${adAccountId}/adcreatives`,
+    body: {
       name: `${campaignName} — ${variation.angle || 'variant'}`,
       object_story_spec: { page_id: pageId, link_data: linkData },
-      access_token,
-    }),
+    },
   });
-  const c3d = await c3.json();
-  if (c3d.error) return { ok: false, error: c3d.error.message, step: 'creative' };
+  if (c3.error) return { ok: false, error: c3.error, step: 'creative' };
+  const creativeId = c3.result?.id;
+  if (!creativeId) return { ok: false, error: 'Creative missing id', step: 'creative' };
 
-  const c4 = await fetch(`${GRAPH}/${adAccountId}/ads`, {
+  const c4 = await metaGraphProxy(companyId, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    path: `/${adAccountId}/ads`,
+    body: {
       name: `${campaignName} — A/B ${variation.angle || 'v'}`,
       adset_id: adsetId,
-      creative: { creative_id: c3d.id },
+      creative: { creative_id: creativeId },
       status,
-      access_token,
-    }),
+    },
   });
-  const c4d = await c4.json();
-  if (c4d.error) return { ok: false, error: c4d.error.message, step: 'ad', creative_id: c3d.id };
+  if (c4.error) return { ok: false, error: c4.error, step: 'ad', creative_id: creativeId };
+  const adId = c4.result?.id;
+  if (!adId) return { ok: false, error: 'Ad missing id', step: 'ad', creative_id: creativeId };
 
-  return { ok: true, creative_id: c3d.id, ad_id: c4d.id, angle: variation.angle, headline: variation.headline };
+  return { ok: true, creative_id: creativeId, ad_id: adId, angle: variation.angle, headline: variation.headline };
 }
 
-async function pauseMetaAd(access_token, adId) {
-  const r = await fetch(`${GRAPH}/${adId}`, {
+async function pauseMetaAd(companyId, adId) {
+  const r = await metaGraphProxy(companyId, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'PAUSED', access_token }),
+    path: `/${adId}`,
+    body: { status: 'PAUSED' },
   });
-  return r.json();
+  if (r.error) return { error: { message: r.error } };
+  return r.result || { success: true };
 }
 
-async function scaleMetaAdsetBudget(access_token, adsetId, scaleFactor, budgetCap) {
-  const budgetRes = await fetch(`${GRAPH}/${adsetId}?fields=daily_budget,name&access_token=${access_token}`);
-  const budgetData = await budgetRes.json();
-  if (budgetData.error) return { ok: false, error: budgetData.error.message };
+async function scaleMetaAdsetBudget(companyId, adsetId, scaleFactor, budgetCap) {
+  const budgetRes = await metaGraphProxy(companyId, {
+    method: 'GET',
+    path: `/${adsetId}`,
+    query: { fields: 'daily_budget,name' },
+  });
+  if (budgetRes.error) return { ok: false, error: budgetRes.error };
+  const budgetData = budgetRes.result || {};
   const currentBudget = parseInt(budgetData.daily_budget || 0, 10);
   const newBudget = budgetCap
     ? Math.min(Math.round(currentBudget * scaleFactor), budgetCap)
@@ -471,21 +475,16 @@ async function scaleMetaAdsetBudget(access_token, adsetId, scaleFactor, budgetCa
   if (newBudget <= currentBudget) {
     return { ok: true, action: 'at_cap', budget_before: currentBudget, budget_after: currentBudget, name: budgetData.name };
   }
-  const r = await fetch(`${GRAPH}/${adsetId}`, {
+  const r = await metaGraphProxy(companyId, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ daily_budget: newBudget, access_token }),
+    path: `/${adsetId}`,
+    body: { daily_budget: newBudget },
   });
-  const d = await r.json();
-  if (d.error) return { ok: false, error: d.error.message };
+  if (r.error) return { ok: false, error: r.error };
   return { ok: true, action: 'scaled', budget_before: currentBudget, budget_after: newBudget, name: budgetData.name };
 }
 
 async function resolveMetaAuth(params, companyId) {
-  const tokenResult = await getConnectedAccountToken('meta_ads', companyId);
-  if (tokenResult.error) throw new Error(tokenResult.error);
-  const access_token = tokenResult.access_token;
-
   let adAccountId = String(params.ad_account_id || getPreferredMetaAdAccountId(companyId) || '').trim();
   if (adAccountId && !adAccountId.startsWith('act_')) adAccountId = `act_${adAccountId}`;
   if (!adAccountId) throw new Error('Meta ad_account_id required');
@@ -493,15 +492,18 @@ async function resolveMetaAuth(params, companyId) {
   let pageId = params.page_id || null;
   if (!pageId) {
     try {
-      const pages = await fetch(`${GRAPH}/me/accounts?fields=id,name&access_token=${access_token}`);
-      const pdata = await pages.json();
-      pageId = pdata?.data?.[0]?.id || null;
+      const pages = await metaGraphProxy(companyId, {
+        method: 'GET',
+        path: '/me/accounts',
+        query: { fields: 'id,name', limit: 25 },
+      });
+      pageId = pages?.result?.data?.[0]?.id || null;
     } catch {
       pageId = null;
     }
   }
 
-  return { access_token, adAccountId, pageId };
+  return { companyId, adAccountId, pageId };
 }
 
 /**
@@ -509,7 +511,6 @@ async function resolveMetaAuth(params, companyId) {
  */
 async function processMetaCampaign(enrollment, ctx) {
   const {
-    access_token,
     companyId,
     dryRun,
     autoOptimize,
@@ -712,7 +713,7 @@ async function processMetaCampaign(enrollment, ctx) {
       });
       if (!decision.kill) continue;
       if (!dryRun) {
-        const d = await pauseMetaAd(access_token, ad.ad_id);
+        const d = await pauseMetaAd(companyId, ad.ad_id);
         if (d.error) {
           report.paused_ads.push({ ad_id: ad.ad_id, name: ad.name, action: 'pause_failed', error: d.error.message, reasons: decision.reasons });
           continue;
@@ -768,7 +769,7 @@ async function processMetaCampaign(enrollment, ctx) {
         report.actions.push(`Would scale ad set ${as.name} by ${Math.round((safeScaleFactor - 1) * 100)}% (20% Rule)`);
         continue;
       }
-      const scaled = await scaleMetaAdsetBudget(access_token, as.id, safeScaleFactor, budgetCap);
+      const scaled = await scaleMetaAdsetBudget(companyId, as.id, safeScaleFactor, budgetCap);
       report.scaled_adsets.push({ adset_id: as.id, name: as.name, ...scaled, skill: 'ads-budget' });
       if (scaled.ok && scaled.action === 'scaled') {
         enrollment.last_scaled_at[as.id] = new Date().toISOString();
@@ -824,7 +825,7 @@ async function processMetaCampaign(enrollment, ctx) {
         }
 
         const created = await createMetaAdVariant({
-          access_token,
+          companyId,
           adAccountId,
           pageId,
           adsetId,
@@ -846,7 +847,7 @@ async function processMetaCampaign(enrollment, ctx) {
           report.actions.push(`Would pause fatigued ${ad.name}`);
           continue;
         }
-        const d = await pauseMetaAd(access_token, ad.ad_id);
+        const d = await pauseMetaAd(companyId, ad.ad_id);
         if (!d.error) report.actions.push(`Paused fatigued ${ad.name}`);
       }
     } else {

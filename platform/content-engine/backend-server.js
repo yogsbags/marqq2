@@ -69,7 +69,7 @@ import { detectCompanyAnomalies } from "./anomaly-detector.js";
 import { canAccessModule, requiredPlanForModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers, computeNextRun } from "./automations/registry.js";
-import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector, getConnectedAccountToken } from "./mcp-router.js";
+import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector, metaGraphProxy, CONNECTOR_APP_MAP } from "./mcp-router.js";
 import {
   createOutreachRun,
   getOutreachRun,
@@ -11211,38 +11211,20 @@ app.get("/api/analytics/meta-ads/accounts", async (req, res) => {
 
   try {
     let accounts = [];
-    try {
-      const accountId = await resolveAnalyticsAccountId(companyId, "meta_ads", apiKey);
-      const result = await runComposioAction(accountId, "FACEBOOKADS_GET_AD_ACCOUNTS", {}, apiKey);
-      const raw = result?.data || result?.accounts || result?.ad_accounts || [];
-      accounts = raw.map(a => ({
-        id: String(a.id || a.account_id || a).startsWith("act_")
-          ? String(a.id || a.account_id || a)
-          : `act_${a.id || a.account_id || a}`,
-        displayName: a.name || a.account_name || `Ad Account ${a.id || a}`,
-        currency: a.currency || null,
-        status: a.account_status ?? a.status ?? null,
-      })).filter(a => a.id && a.id !== "act_");
-    } catch (composioErr) {
-      console.warn("[meta-ads/accounts] Composio list failed, trying Graph API:", composioErr.message);
-    }
-
-    // Fallback: direct Graph API (same path as Meta automations)
-    if (!accounts.length) {
-      const tokenResult = await getConnectedAccountToken("meta_ads", companyId);
-      if (tokenResult.error) throw new Error(tokenResult.error);
-      const r = await fetch(
-        `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status,currency&limit=50&access_token=${tokenResult.access_token}`
-      );
-      const data = await r.json();
-      if (data.error) throw new Error(data.error.message);
-      accounts = (data.data || []).map(a => ({
-        id: String(a.id || "").startsWith("act_") ? String(a.id) : `act_${a.id}`,
-        displayName: a.name || `Ad Account ${a.id}`,
-        currency: a.currency || null,
-        status: a.account_status ?? null,
-      })).filter(a => a.id && a.id !== "act_");
-    }
+    // Prefer Composio proxy Graph call — connected-account tokens are masked.
+    const listed = await metaGraphProxy(companyId, {
+      method: "GET",
+      path: "/me/adaccounts",
+      query: { fields: "id,name,account_status,currency", limit: 50 },
+    });
+    if (listed.error) throw new Error(listed.error);
+    const raw = listed.result?.data || [];
+    accounts = raw.map((a) => ({
+      id: String(a.id || "").startsWith("act_") ? String(a.id) : `act_${a.id}`,
+      displayName: a.name || `Ad Account ${a.id}`,
+      currency: a.currency || null,
+      status: a.account_status ?? null,
+    })).filter((a) => a.id && a.id !== "act_");
 
     const preferred = getPreferredMetaAdAccountId(companyId);
     res.json({ accounts, preferred: preferred || null, needsSelection: accounts.length > 1 && !preferred });
@@ -11299,17 +11281,36 @@ const COMPOSIO_V3_BASE = "https://backend.composio.dev/api/v3";
 
 /** Resolve a Composio connected_account_id for (entityId, toolkitSlug). */
 async function resolveAnalyticsAccountId(entityId, toolkitSlug, apiKey) {
+  // Map Marqq connector ids / legacy slugs → Composio toolkit slug
+  const toolkit =
+    CONNECTOR_APP_MAP[toolkitSlug] ||
+    ({
+      meta_ads: "metaads",
+      linkedin_ads: "linkedinads",
+      google_ads: "googleads",
+      google_analytics: "google_analytics",
+      google_search_console: "google_search_console",
+      ga4: "google_analytics",
+      gsc: "google_search_console",
+    }[toolkitSlug] || toolkitSlug);
+
   const res = await fetch(
-    `${COMPOSIO_V3_BASE}/connected_accounts?user_id=${encodeURIComponent(entityId)}&toolkit_slug=${encodeURIComponent(toolkitSlug)}&limit=10`,
+    `${COMPOSIO_V3_BASE}/connected_accounts?user_id=${encodeURIComponent(entityId)}&toolkit_slug=${encodeURIComponent(toolkit)}&limit=50`,
     { headers: { "x-api-key": apiKey } }
   );
-  if (!res.ok) throw new Error(`account lookup ${toolkitSlug}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`account lookup ${toolkit}: HTTP ${res.status}`);
   const data = await res.json();
-  const account = (data.items || []).find(
-    item => item.status === "ACTIVE" &&
-      (item.user_id === entityId || item.clientUniqueUserId === entityId || item.metadata?.userId === entityId)
-  );
-  if (!account?.id) throw new Error(`No active ${toolkitSlug} for ${entityId}`);
+  const normalize = (s) => String(s || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const want = normalize(toolkit);
+  const account = (data.items || [])
+    .filter((item) =>
+      item.status === "ACTIVE" &&
+      item.id &&
+      (item.user_id === entityId || item.clientUniqueUserId === entityId || item.metadata?.userId === entityId) &&
+      normalize(item.toolkit?.slug || item.toolkit_slug || item.appName) === want
+    )
+    .sort((a, b) => Date.parse(b.updated_at || b.created_at || 0) - Date.parse(a.updated_at || a.created_at || 0))[0];
+  if (!account?.id) throw new Error(`No active ${toolkit} connection for user ${entityId}. Connect it in Settings → Accounts.`);
   return account.id;
 }
 

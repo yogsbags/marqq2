@@ -955,10 +955,128 @@ export async function upsertComposioTrigger(slug, { userId = 'default', triggerC
   }
 }
 
+/** True when Composio has redacted/masked a credential (e.g. "EAAb..." / "REDACTED"). */
+export function isMaskedComposioSecret(value) {
+  const s = String(value || '').trim()
+  if (!s) return true
+  if (/^REDACTED$/i.test(s)) return true
+  if (s.includes('...')) return true
+  // Real Meta/LinkedIn OAuth tokens are long; masked stubs are short prefixes.
+  if (s.length < 32) return true
+  return false
+}
+
+/**
+ * Call a provider API through Composio Proxy Execute.
+ * Use this instead of extracting access_token from connected-account details —
+ * Composio now masks OAuth tokens in API responses.
+ *
+ * @param {object} opts
+ * @param {string} [opts.connectorId]  Marqq connector id (e.g. meta_ads)
+ * @param {string} [opts.toolkit]      Composio toolkit slug (e.g. metaads)
+ * @param {string} opts.userId
+ * @param {string} [opts.method]
+ * @param {string} opts.endpoint       Relative path ("/me/adaccounts") or absolute URL
+ * @param {Record<string,string|number|boolean>} [opts.query]
+ * @param {object|null} [opts.body]
+ */
+export async function executeComposioProxy({
+  connectorId = null,
+  toolkit = null,
+  userId = 'default',
+  method = 'GET',
+  endpoint,
+  query = {},
+  body = null,
+} = {}) {
+  const apiKey = process.env.COMPOSIO_API_KEY
+  if (!apiKey) return { error: 'COMPOSIO_API_KEY not configured' }
+
+  const toolkitSlug = toolkit || CONNECTOR_APP_MAP[connectorId] || null
+  if (!toolkitSlug) return { error: `Unknown connector/toolkit: ${connectorId || toolkit}` }
+  if (!endpoint) return { error: 'endpoint is required' }
+
+  try {
+    const connectedAccountId = await resolveConnectedAccountId(toolkitSlug, userId, apiKey)
+    const parameters = Object.entries(query || {}).map(([name, value]) => ({
+      name,
+      type: 'query',
+      value: value == null ? '' : String(value),
+    }))
+
+    const payload = {
+      connected_account_id: connectedAccountId,
+      endpoint: String(endpoint),
+      method: String(method || 'GET').toUpperCase(),
+      parameters,
+    }
+    if (body != null && payload.method !== 'GET' && payload.method !== 'HEAD') {
+      payload.body = body
+    }
+
+    const res = await fetch(`${COMPOSIO_V3}/tools/execute/proxy`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return {
+        error: composioErrorText(data?.error?.message || data?.error || data?.message || data),
+        connectedAccountId,
+        raw: data,
+      }
+    }
+
+    const providerStatus = Number(data?.status || data?.data?.status || 200)
+    const providerData = data?.data?.data !== undefined && data?.status != null
+      ? data.data
+      : (data?.data ?? data)
+    const providerError =
+      providerData?.error?.message ||
+      providerData?.error ||
+      (providerStatus >= 400 ? `Provider HTTP ${providerStatus}` : null)
+    if (providerError) {
+      return {
+        error: composioErrorText(providerError),
+        connectedAccountId,
+        status: providerStatus,
+        raw: data,
+      }
+    }
+
+    return {
+      ok: true,
+      result: providerData,
+      status: providerStatus,
+      connectedAccountId,
+      headers: data?.headers || data?.data?.headers || null,
+    }
+  } catch (err) {
+    return { error: err.message }
+  }
+}
+
+/** Convenience: Meta Marketing Graph via Composio proxy (no raw token needed). */
+export async function metaGraphProxy(userId, { method = 'GET', path, query = {}, body = null } = {}) {
+  const endpoint = String(path || '').startsWith('http')
+    ? String(path)
+    : String(path || '').startsWith('/')
+      ? String(path)
+      : `/${String(path || '').replace(/^\/+/, '')}`
+  return executeComposioProxy({
+    connectorId: 'meta_ads',
+    userId,
+    method,
+    endpoint,
+    query,
+    body,
+  })
+}
+
 // ─── Get OAuth access token for a connected account ──────────────────────────
-// Returns the live access_token from Composio's stored credentials.
-// Composio handles refresh automatically — the token in data.access_token is
-// always valid at fetch time for ACTIVE connections.
+// Prefer executeComposioProxy / executeComposioAction — Composio masks tokens.
+// This helper still returns a token when unmasked; otherwise a clear error.
 
 export async function getConnectedAccountToken(connectorId, userId) {
   const apiKey = process.env.COMPOSIO_API_KEY
@@ -986,8 +1104,20 @@ export async function getConnectedAccountToken(connectorId, userId) {
     if (!detailRes.ok) return { error: `Failed to fetch account details: ${detailRes.status}` }
     const detail = await detailRes.json()
 
-    const token = detail.data?.access_token || detail.params?.access_token
-    if (!token) return { error: `No access_token found for ${connectorId} — account may need reconnection` }
+    const token =
+      detail.data?.access_token ||
+      detail.params?.access_token ||
+      detail.state?.val?.access_token ||
+      null
+    if (!token || isMaskedComposioSecret(token)) {
+      return {
+        error:
+          `Composio masks the ${connectorId} OAuth token — use Composio tool/proxy execution instead of raw API calls. ` +
+          `If you need a raw token, disable "Mask Connected Account Secrets" in the Composio project settings.`,
+        account_id: acct.id,
+        masked: true,
+      }
+    }
 
     return { access_token: token, account_id: acct.id }
   } catch (err) {

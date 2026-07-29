@@ -20,6 +20,7 @@ import {
   getConnectedAccountApiKey,
   getConnectedAccountApiKeyForEntities,
   formatApolloConnectionError,
+  metaGraphProxy,
 } from '../mcp-router.js';
 import { routeLeads, routingSummary, groupByChannel, explainRouting } from './channelRouter.js';
 import { getPreferredMetaAdAccountId, getPreferredGoogleAdsCustomerId } from '../connector-preferences.js';
@@ -1415,29 +1416,31 @@ const directApiHandlers = {
   // the stored token + direct Graph API calls.
 
   /**
-   * Resolve ad account ID and Facebook Page ID via Composio actions.
-   * Returns { adAccountId, pageId } — pageId may be null if no page found.
+   * Resolve ad account ID and Facebook Page ID via Composio proxy.
+   * Composio masks OAuth tokens, so we never call Graph with a raw access_token.
+   * Returns { adAccountId, pageId, connectedAccountId }.
    */
   async _metaSetup(params, companyId) {
     let adAccountId = params.ad_account_id;
     let pageId = params.page_id || null;
-
-    // Use direct Graph API for account/page discovery (no Composio actions for these)
-    const tokenResult = await getConnectedAccountToken('meta_ads', companyId);
-    if (tokenResult.error) throw new Error(`Meta Ads not connected: ${tokenResult.error}`);
-    const { access_token } = tokenResult;
+    let connectedAccountId = null;
 
     if (!adAccountId) {
       adAccountId = getPreferredMetaAdAccountId(companyId) || null;
     }
 
     if (!adAccountId) {
-      const r = await fetch(
-        `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&limit=50&access_token=${access_token}`
-      );
-      const data = await r.json();
-      if (data.error) throw new Error(`Meta adaccounts error: ${data.error.message}`);
-      const accounts = data.data || [];
+      const listed = await metaGraphProxy(companyId, {
+        method: 'GET',
+        path: '/me/adaccounts',
+        query: { fields: 'id,name,account_status', limit: 50 },
+      });
+      if (listed.error) throw new Error(`Meta adaccounts error: ${listed.error}`);
+      connectedAccountId = listed.connectedAccountId || null;
+      const accounts = listed.result?.data || listed.result?.accounts || [];
+      if (!Array.isArray(accounts) || !accounts.length) {
+        throw new Error('No Meta ad accounts found for this connection. Check Meta Business Manager access.');
+      }
       if (accounts.length > 1) {
         const labels = accounts
           .slice(0, 8)
@@ -1447,7 +1450,7 @@ const directApiHandlers = {
           `Multiple Meta ad accounts found (${accounts.length}). Choose one in Settings → Accounts → Meta Ads${labels ? `: ${labels}` : ''}.`
         );
       }
-      const active = accounts.find(a => a.account_status === 1) || accounts[0];
+      const active = accounts.find((a) => a.account_status === 1) || accounts[0];
       if (!active?.id) throw new Error('No active Meta ad account found. Connect Meta Ads in Settings → Accounts.');
       adAccountId = active.id.startsWith('act_') ? active.id : `act_${active.id}`;
     } else if (!String(adAccountId).startsWith('act_')) {
@@ -1455,19 +1458,22 @@ const directApiHandlers = {
     }
 
     if (!pageId) {
-      const r = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name&access_token=${access_token}`
-      );
-      const data = await r.json();
-      const pages = data.data || [];
-      // Prefer a page whose name matches the ad account name
-      const acctName = (adAccountId || '').toLowerCase();
-      const matched = pages.find(p => p.name && acctName.includes(p.name.toLowerCase().split(' ')[0]));
-      if (matched) pageId = matched.id;
-      else if (pages.length) pageId = pages[0].id;
+      const pagesRes = await metaGraphProxy(companyId, {
+        method: 'GET',
+        path: '/me/accounts',
+        query: { fields: 'id,name', limit: 25 },
+      });
+      if (!pagesRes.error) {
+        connectedAccountId = connectedAccountId || pagesRes.connectedAccountId || null;
+        const pages = pagesRes.result?.data || [];
+        const acctName = (adAccountId || '').toLowerCase();
+        const matched = pages.find((p) => p.name && acctName.includes(p.name.toLowerCase().split(' ')[0]));
+        if (matched) pageId = matched.id;
+        else if (pages.length) pageId = pages[0].id;
+      }
     }
 
-    return { adAccountId, pageId, access_token };
+    return { adAccountId, pageId, connectedAccountId };
   },
 
   async create_meta_campaign(params, companyId) {
@@ -1477,9 +1483,9 @@ const directApiHandlers = {
     if (!params.primary_text)  return { status: 'error', error: 'primary_text is required' };
     if (!params.link_url)      return { status: 'error', error: 'link_url is required' };
 
-    let adAccountId, pageId, access_token;
+    let adAccountId, pageId;
     try {
-      ({ adAccountId, pageId, access_token } = await directApiHandlers._metaSetup(params, companyId));
+      ({ adAccountId, pageId } = await directApiHandlers._metaSetup(params, companyId));
     } catch (e) {
       return { status: 'error', error: e.message };
     }
@@ -1519,30 +1525,27 @@ const directApiHandlers = {
       ...(params.targeting && typeof params.targeting === 'object' ? params.targeting : {}),
       ...(publisherPlatforms ? { publisher_platforms: publisherPlatforms } : {}),
     };
-    const GRAPH = 'https://graph.facebook.com/v19.0';
 
-    // 1. Create Campaign (direct Graph API — Composio schema validation is outdated for objectives)
-    const c1 = await fetch(`${GRAPH}/${adAccountId}/campaigns`, {
+    // Graph mutations go through Composio proxy (tokens are masked in connected-account API).
+    const c1 = await metaGraphProxy(companyId, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      path: `/${adAccountId}/campaigns`,
+      body: {
         name: params.campaign_name,
         objective,
         status: campaignStatus,
         special_ad_categories: [],
         is_adset_budget_sharing_enabled: false,
-        access_token,
-      }),
+      },
     });
-    const c1d = await c1.json();
-    if (c1d.error) return { status: 'error', error: `Campaign: ${c1d.error.message}`, step: 'campaign' };
-    const campaignId = c1d.id;
+    if (c1.error) return { status: 'error', error: `Campaign: ${c1.error}`, step: 'campaign' };
+    const campaignId = c1.result?.id;
+    if (!campaignId) return { status: 'error', error: 'Campaign: missing id in Meta response', step: 'campaign', raw: c1.result };
 
-    // 2. Create Ad Set
-    const c2 = await fetch(`${GRAPH}/${adAccountId}/adsets`, {
+    const c2 = await metaGraphProxy(companyId, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      path: `/${adAccountId}/adsets`,
+      body: {
         name: `${params.campaign_name} — Ad Set`,
         campaign_id: campaignId,
         daily_budget: params.daily_budget,
@@ -1551,14 +1554,12 @@ const directApiHandlers = {
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
         targeting,
         status: campaignStatus,
-        access_token,
-      }),
+      },
     });
-    const c2d = await c2.json();
-    if (c2d.error) return { status: 'error', error: `Ad Set: ${c2d.error.message}`, step: 'adset', campaign_id: campaignId };
-    const adsetId = c2d.id;
+    if (c2.error) return { status: 'error', error: `Ad Set: ${c2.error}`, step: 'adset', campaign_id: campaignId };
+    const adsetId = c2.result?.id;
+    if (!adsetId) return { status: 'error', error: 'Ad Set: missing id in Meta response', step: 'adset', campaign_id: campaignId };
 
-    // 3. Create Ad Creative
     if (!pageId) {
       return {
         status: 'error',
@@ -1574,34 +1575,31 @@ const directApiHandlers = {
     };
     if (params.image_url) linkData.picture = params.image_url;
 
-    const c3 = await fetch(`${GRAPH}/${adAccountId}/adcreatives`, {
+    const c3 = await metaGraphProxy(companyId, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      path: `/${adAccountId}/adcreatives`,
+      body: {
         name: `${params.campaign_name} — Creative`,
         object_story_spec: { page_id: pageId, link_data: linkData },
-        access_token,
-      }),
+      },
     });
-    const c3d = await c3.json();
-    if (c3d.error) return { status: 'error', error: `Creative: ${c3d.error.message}`, step: 'creative', campaign_id: campaignId, adset_id: adsetId };
-    const creativeId = c3d.id;
+    if (c3.error) return { status: 'error', error: `Creative: ${c3.error}`, step: 'creative', campaign_id: campaignId, adset_id: adsetId };
+    const creativeId = c3.result?.id;
+    if (!creativeId) return { status: 'error', error: 'Creative: missing id in Meta response', step: 'creative', campaign_id: campaignId, adset_id: adsetId };
 
-    // 4. Create Ad
-    const c4 = await fetch(`${GRAPH}/${adAccountId}/ads`, {
+    const c4 = await metaGraphProxy(companyId, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      path: `/${adAccountId}/ads`,
+      body: {
         name: `${params.campaign_name} — Ad`,
         adset_id: adsetId,
         creative: { creative_id: creativeId },
         status: campaignStatus,
-        access_token,
-      }),
+      },
     });
-    const c4d = await c4.json();
-    if (c4d.error) return { status: 'error', error: `Ad: ${c4d.error.message}`, step: 'ad', campaign_id: campaignId, adset_id: adsetId, creative_id: creativeId };
-    const adId = c4d.id;
+    if (c4.error) return { status: 'error', error: `Ad: ${c4.error}`, step: 'ad', campaign_id: campaignId, adset_id: adsetId, creative_id: creativeId };
+    const adId = c4.result?.id;
+    if (!adId) return { status: 'error', error: 'Ad: missing id in Meta response', step: 'ad', campaign_id: campaignId, adset_id: adsetId, creative_id: creativeId };
 
     let loop_enrollment = null;
     if (params.skip_loop_enrollment !== true && params.skip_loop_enrollment !== 'true') {
@@ -1873,7 +1871,16 @@ const directApiHandlers = {
     if (!dailyMajor) return { status: 'error', error: 'daily_budget is required (e.g. 500 for ₹500/day)' };
 
     const tokenResult = await getConnectedAccountToken('linkedin_ads', companyId);
-    if (tokenResult.error) return { status: 'error', error: tokenResult.error };
+    if (tokenResult.error) {
+      if (tokenResult.masked) {
+        return {
+          status: 'error',
+          error:
+            'LinkedIn Ads is connected, but Composio masks the OAuth token. Use Composio LinkedIn Ads tools/proxy, or disable "Mask Connected Account Secrets" in Composio project settings.',
+        };
+      }
+      return { status: 'error', error: tokenResult.error };
+    }
     const accessToken = tokenResult.access_token;
     const linkedinVersion = process.env.LINKEDIN_API_VERSION || '202501';
     const headers = {
@@ -2063,12 +2070,7 @@ const directApiHandlers = {
 
   async optimize_meta_roas(params, companyId) {
     // Use Composio METAADS_GET_INSIGHTS for performance data;
-    // direct Graph API (via stored token) for status/budget updates
-    // since Composio has no UPDATE_AD or UPDATE_AD_SET actions.
-    const tokenResult = await getConnectedAccountToken('meta_ads', companyId);
-    if (tokenResult.error) return { status: 'error', error: tokenResult.error };
-    const { access_token } = tokenResult;
-
+    // Graph mutations go through Composio proxy (tokens are masked).
     let adAccountId;
     try {
       ({ adAccountId } = await directApiHandlers._metaSetup(params, companyId));
@@ -2134,36 +2136,40 @@ const directApiHandlers = {
     const paused_ads = [], scaled_adsets = [];
     let actions_taken = 0;
 
-    // 4. Pause low-ROAS ads via direct Graph API (no Composio UPDATE_AD action)
+    // 4. Pause low-ROAS ads via Composio proxy
     for (const ad of toPause) {
       if (!dryRun) {
-        const r = await fetch(`https://graph.facebook.com/v19.0/${ad.ad_id}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'PAUSED', access_token }),
+        const r = await metaGraphProxy(companyId, {
+          method: 'POST',
+          path: `/${ad.ad_id}`,
+          body: { status: 'PAUSED' },
         });
-        const d = await r.json();
-        if (d.error) { paused_ads.push({ ad_id: ad.ad_id, name: ad.ad_name, roas: ad.roas, spend: ad.spend, action: 'pause_failed', error: d.error.message }); continue; }
+        if (r.error) { paused_ads.push({ ad_id: ad.ad_id, name: ad.ad_name, roas: ad.roas, spend: ad.spend, action: 'pause_failed', error: r.error }); continue; }
       }
       paused_ads.push({ ad_id: ad.ad_id, name: ad.ad_name, roas: ad.roas?.toFixed(2), spend: ad.spend, action: dryRun ? 'would_pause' : 'paused' });
       actions_taken++;
     }
 
-    // 5. Scale winning adsets via direct Graph API (no Composio UPDATE_AD_SET action)
+    // 5. Scale winning adsets via Composio proxy
     for (const as of adsetIdsToScale) {
-      const budgetRes  = await fetch(`https://graph.facebook.com/v19.0/${as.id}?fields=daily_budget,name&access_token=${access_token}`);
-      const budgetData = await budgetRes.json();
-      if (budgetData.error) continue;
+      const budgetRes = await metaGraphProxy(companyId, {
+        method: 'GET',
+        path: `/${as.id}`,
+        query: { fields: 'daily_budget,name' },
+      });
+      if (budgetRes.error) continue;
+      const budgetData = budgetRes.result || {};
       const currentBudget = parseInt(budgetData.daily_budget || 0);
       const newBudget     = budgetCap ? Math.min(Math.round(currentBudget * scaleFactor), budgetCap) : Math.round(currentBudget * scaleFactor);
       const avgRoas       = (as.roas_values.reduce((a, b) => a + b, 0) / as.roas_values.length).toFixed(2);
 
       if (!dryRun && newBudget > currentBudget) {
-        const r = await fetch(`https://graph.facebook.com/v19.0/${as.id}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ daily_budget: newBudget, access_token }),
+        const r = await metaGraphProxy(companyId, {
+          method: 'POST',
+          path: `/${as.id}`,
+          body: { daily_budget: newBudget },
         });
-        const d = await r.json();
-        if (d.error) { scaled_adsets.push({ adset_id: as.id, name: as.name, avg_roas: avgRoas, action: 'scale_failed', error: d.error.message }); continue; }
+        if (r.error) { scaled_adsets.push({ adset_id: as.id, name: as.name, avg_roas: avgRoas, action: 'scale_failed', error: r.error }); continue; }
       }
       scaled_adsets.push({ adset_id: as.id, name: as.name, avg_roas: avgRoas, budget_before: currentBudget, budget_after: newBudget, action: dryRun ? 'would_scale' : (newBudget > currentBudget ? 'scaled' : 'at_cap') });
       if (newBudget > currentBudget) actions_taken++;
