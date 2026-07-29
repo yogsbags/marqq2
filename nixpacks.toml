@@ -1,11 +1,13 @@
 # Chromium shared libs for Brand DNA visual extraction (Playwright).
+# Ubuntu 24.04 (Noble) renamed several libs with a t64 suffix — libasound2 is
+# a virtual package and must be requested as libasound2t64.
 [phases.setup]
 aptPkgs = [
   "libnss3",
   "libnspr4",
-  "libatk1.0-0",
-  "libatk-bridge2.0-0",
-  "libcups2",
+  "libatk1.0-0t64",
+  "libatk-bridge2.0-0t64",
+  "libcups2t64",
   "libdrm2",
   "libxkbcommon0",
   "libxcomposite1",
@@ -13,7 +15,7 @@ aptPkgs = [
   "libxfixes3",
   "libxrandr2",
   "libgbm1",
-  "libasound2",
+  "libasound2t64",
   "libpango-1.0-0",
   "libcairo2",
   "libx11-xcb1",
