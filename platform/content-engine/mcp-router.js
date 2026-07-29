@@ -717,8 +717,10 @@ async function resolveConnectedAccountId(toolkit, userId, apiKey, { bypassCache 
     return _caIdCache.get(cacheKey)
   }
 
+  // Composio's toolkit_slug filter is unreliable (often returns mixed toolkits /
+  // other users). Fetch by user_id and filter client-side instead.
   const res = await fetch(
-    `${COMPOSIO_V3}/connected_accounts?user_id=${encodeURIComponent(userId)}&toolkit_slug=${toolkit}&limit=10`,
+    `${COMPOSIO_V3}/connected_accounts?user_id=${encodeURIComponent(userId)}&limit=50`,
     { headers: { 'x-api-key': apiKey } }
   )
   if (!res.ok) throw new Error(`Composio connected_accounts lookup failed: ${res.status}`)
@@ -830,6 +832,25 @@ export async function executeComposioActionForEntities(actionSlug, inputParams =
   let lastResult = { error: 'No Composio connection found' }
   for (const userId of candidates) {
     const result = await executeComposioAction(actionSlug, inputParams, userId)
+    if (!result.error) return { ...result, composioUserId: userId }
+    lastResult = { ...result, composioUserId: userId }
+    if (!isComposioMissingConnectionError(result.error)) return lastResult
+  }
+  return lastResult
+}
+
+/**
+ * Try Composio proxy execute across workspace/company entity IDs.
+ */
+export async function executeComposioProxyForEntities(opts = {}, entityIds = []) {
+  const candidates = composioEntityCandidates(...entityIds)
+  if (!candidates.length) {
+    return { error: 'workspaceId or companyId is required for Composio' }
+  }
+
+  let lastResult = { error: 'No Composio connection found' }
+  for (const userId of candidates) {
+    const result = await executeComposioProxy({ ...opts, userId })
     if (!result.error) return { ...result, composioUserId: userId }
     lastResult = { ...result, composioUserId: userId }
     if (!isComposioMissingConnectionError(result.error)) return lastResult

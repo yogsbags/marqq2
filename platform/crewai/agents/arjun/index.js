@@ -18,31 +18,86 @@ const crypto = require('crypto');
 // ── Composio V3 helpers ───────────────────────────────────────────────────────
 
 const COMPOSIO_BASE = 'https://backend.composio.dev/api/v3';
+const APOLLO_PEOPLE_API_SEARCH = 'https://api.apollo.io/api/v1/mixed_people/api_search';
+
+function normalizeToolkitSlug(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 async function resolveConnectedAccountId(entityId, toolkit, apiKey) {
+  // Prefer v3 user_id listing; Composio toolkit filters are unreliable.
   const res = await fetch(
-    `${COMPOSIO_BASE}/connectedAccounts?entityId=${encodeURIComponent(entityId)}&toolkit=${toolkit}&status=ACTIVE`,
+    `${COMPOSIO_BASE}/connected_accounts?user_id=${encodeURIComponent(entityId)}&limit=50`,
     { headers: { 'x-api-key': apiKey } }
   );
   if (!res.ok) throw new Error(`Composio account lookup failed: ${res.status}`);
   const data = await res.json();
-  const accounts = data?.items ?? data?.connectedAccounts ?? [];
+  const want = normalizeToolkitSlug(toolkit);
+  const accounts = (data?.items || []).filter((item) => {
+    const slug = normalizeToolkitSlug(item?.toolkit?.slug || item?.toolkit_slug || item?.appName);
+    const uid = item?.user_id || item?.userId || item?.clientUniqueUserId;
+    return item?.status === 'ACTIVE' && slug === want && String(uid || '') === String(entityId);
+  });
   if (!accounts.length) throw new Error(`No active ${toolkit} account for entity ${entityId}`);
+  accounts.sort((a, b) => Date.parse(b.updated_at || b.created_at || 0) - Date.parse(a.updated_at || a.created_at || 0));
   return accounts[0].id;
 }
 
+async function executeComposioProxy(entityId, toolkit, { method = 'GET', endpoint, body = null } = {}, apiKey) {
+  const accountId = await resolveConnectedAccountId(entityId, toolkit, apiKey);
+  const payload = {
+    connected_account_id: accountId,
+    endpoint,
+    method: String(method || 'GET').toUpperCase(),
+    parameters: [],
+  };
+  if (body != null && payload.method !== 'GET' && payload.method !== 'HEAD') payload.body = body;
+  const res = await fetch(`${COMPOSIO_BASE}/tools/execute/proxy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Composio proxy failed (${res.status}): ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  if (data?.successful === false) {
+    throw new Error(data?.error || data?.data?.message || 'Composio proxy action failed');
+  }
+  return data?.data ?? data?.result ?? data;
+}
+
 async function executeComposioTool(entityId, toolkit, toolSlug, args, apiKey) {
+  // Composio's APOLLO_PEOPLE_SEARCH still hits Apollo's deprecated people/search
+  // endpoint and returns 422. Use the current People API Search via proxy.
+  if (toolSlug === 'APOLLO_PEOPLE_SEARCH') {
+    return executeComposioProxy(
+      entityId,
+      toolkit,
+      { method: 'POST', endpoint: APOLLO_PEOPLE_API_SEARCH, body: args },
+      apiKey,
+    );
+  }
+
   const accountId = await resolveConnectedAccountId(entityId, toolkit, apiKey);
   const res = await fetch(`${COMPOSIO_BASE}/tools/execute/${toolSlug}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-    body: JSON.stringify({ entityId, connectedAccountId: accountId, input: args }),
+    body: JSON.stringify({
+      user_id: entityId,
+      connected_account_id: accountId,
+      arguments: args,
+    }),
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Composio tool ${toolSlug} failed (${res.status}): ${text.slice(0, 200)}`);
   }
   const data = await res.json();
+  if (data?.successful === false) {
+    throw new Error(data?.error || data?.data?.message || `Composio tool ${toolSlug} failed`);
+  }
   return data?.data ?? data?.result ?? data;
 }
 

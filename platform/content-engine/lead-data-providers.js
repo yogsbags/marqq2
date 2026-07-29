@@ -7,8 +7,10 @@
  */
 import {
   executeComposioActionForEntities,
+  executeComposioProxyForEntities,
   formatApolloConnectionError,
   getConnectedAccountApiKeyForEntities,
+  isMaskedComposioSecret,
 } from './mcp-router.js'
 import { getConnectorPreferences } from './connector-preferences.js'
 
@@ -27,6 +29,9 @@ export const LEAD_DATA_PROVIDER_META = {
     capabilities: ['domain_search', 'email_finder', 'enrich'],
   },
 }
+
+/** Apollo People API Search — Composio's APOLLO_PEOPLE_SEARCH tool still hits the deprecated endpoint. */
+const APOLLO_PEOPLE_API_SEARCH = 'https://api.apollo.io/api/v1/mixed_people/api_search'
 
 function asList(value) {
   if (Array.isArray(value)) return value.map((v) => String(v || '').trim()).filter(Boolean)
@@ -208,6 +213,9 @@ function apolloPeopleList(result) {
   if (Array.isArray(data.contacts)) return data.contacts
   if (Array.isArray(result?.result?.people)) return result.result.people
   if (Array.isArray(result?.result?.contacts)) return result.result.contacts
+  // Composio proxy returns { data: { people: [...] } } or { people: [...] }
+  if (Array.isArray(data?.data?.people)) return data.data.people
+  if (Array.isArray(result?.people)) return result.people
   return []
 }
 
@@ -217,6 +225,7 @@ function apolloOrganizationsList(result) {
   if (Array.isArray(data.accounts)) return data.accounts
   if (Array.isArray(result?.result?.organizations)) return result.result.organizations
   if (Array.isArray(result?.result?.accounts)) return result.result.accounts
+  if (Array.isArray(data?.data?.organizations)) return data.data.organizations
   return []
 }
 
@@ -236,13 +245,43 @@ function apolloNormalizeSearchArgs(params = {}, { limit = 25, requireVerifiedEma
   }
   if (titles.length) args.person_titles = titles
   if (personLocations.length) args.person_locations = personLocations
-  if (domains.length) args.q_organization_domains = domains
+  // People API Search (/mixed_people/api_search) expects q_organization_domains_list.
+  // Sending both *_list and legacy q_organization_domains returns 422.
+  if (domains.length) args.q_organization_domains_list = domains
   if (seniorities.length) args.person_seniorities = seniorities
   if (requireVerifiedEmail) args.contact_email_status = ['verified']
 
   const keywordParts = [...industries, ...companies].filter(Boolean)
   if (keywordParts.length) args.q_keywords = keywordParts.join(' ')
   return args
+}
+
+/**
+ * People search via Apollo's current People API endpoint through Composio proxy.
+ * Composio's APOLLO_PEOPLE_SEARCH tool still calls the deprecated /people/search
+ * route, which returns HTTP 422 "Invalid request parameters".
+ */
+async function apolloPeopleApiSearch(searchArgs, entityIds) {
+  const proxy = await executeComposioProxyForEntities(
+    {
+      connectorId: 'apollo',
+      method: 'POST',
+      endpoint: APOLLO_PEOPLE_API_SEARCH,
+      body: searchArgs,
+    },
+    entityIds,
+  )
+  if (proxy.error) return proxy
+
+  // Normalize to the same shape executeComposioAction returns so apolloPeopleList works.
+  const payload = proxy.result?.data || proxy.result || {}
+  return {
+    ok: true,
+    result: payload,
+    composioUserId: proxy.composioUserId,
+    connectedAccountId: proxy.connectedAccountId,
+    source: 'apollo_people_api_search',
+  }
 }
 
 async function apolloEnrichDiscoveredPeople(people = [], entityIds = [], filters = {}) {
@@ -255,14 +294,22 @@ async function apolloEnrichDiscoveredPeople(people = [], entityIds = [], filters
     if (enriched.length >= (filters.limit || people.length || 0)) break
 
     const payload = {
+      id: person.id || null,
       linkedin_url: person.linkedin_url || null,
       email: person.email || null,
       first_name: person.first_name || null,
-      last_name: person.last_name || null,
+      last_name: person.last_name || person.last_name_obfuscated || null,
       organization_name: person.organization?.name || person.organization_name || null,
       domain: normalizeDomain(person.organization?.primary_domain || person.organization?.website_url || person.website_url || ''),
       reveal_personal_emails: false,
       reveal_phone_number: false,
+    }
+    // Obfuscated last names (e.g. "Bh***a") confuse enrichment — prefer id-only when present.
+    if (person.id && payload.last_name && String(payload.last_name).includes('*')) {
+      delete payload.last_name
+      delete payload.first_name
+      delete payload.organization_name
+      delete payload.domain
     }
     Object.keys(payload).forEach((key) => payload[key] == null || payload[key] === '' ? delete payload[key] : null)
 
@@ -271,7 +318,17 @@ async function apolloEnrichDiscoveredPeople(people = [], entityIds = [], filters
       const enrich = await executeComposioActionForEntities('APOLLO_PEOPLE_ENRICHMENT', payload, entityIds)
       if (!enrich.error) {
         const data = apolloResultData(enrich)
-        resolved = data.person || data.match || person
+        const matched = data.person || data.match || data?.data?.person || null
+        if (matched) {
+          resolved = {
+            ...person,
+            ...matched,
+            // Preserve discovery flags when enrichment omits them
+            has_email: matched.has_email ?? person.has_email,
+            has_direct_phone: matched.has_direct_phone ?? person.has_direct_phone,
+            organization: matched.organization || person.organization,
+          }
+        }
       } else {
         console.warn('[lead-data:apollo] people enrichment failed; using discovery row:', enrich.error)
       }
@@ -287,8 +344,10 @@ async function apolloEnrichDiscoveredPeople(people = [], entityIds = [], filters
 }
 
 async function apolloFindLeads(params, entityIds) {
+  // Apollo credentials are often masked in Composio responses; connection presence
+  // is enough because we execute via Composio tools/proxy rather than raw REST.
   const connected = await getConnectedAccountApiKeyForEntities('apollo', entityIds)
-  if (!connected.api_key) {
+  if (!connected.api_key && connected.error) {
     return {
       status: 'error',
       provider: 'apollo',
@@ -296,6 +355,9 @@ async function apolloFindLeads(params, entityIds) {
       leads: [],
       count: 0,
     }
+  }
+  if (connected.api_key && isMaskedComposioSecret(connected.api_key)) {
+    console.warn('[lead-data:apollo] Composio returned a masked Apollo API key; using tool/proxy execution')
   }
 
   const industries = asList(params.industries).map((entry) => entry.replace(/_/g, ' '))
@@ -307,8 +369,17 @@ async function apolloFindLeads(params, entityIds) {
 
   try {
     const searchArgs = apolloNormalizeSearchArgs(params, { limit, requireVerifiedEmail })
-    const peopleSearch = await executeComposioActionForEntities('APOLLO_PEOPLE_SEARCH', searchArgs, entityIds)
-    if (peopleSearch.error) throw new Error(peopleSearch.error)
+    // Prefer current People API Search via proxy. Fall back to Composio tool only
+    // if proxy fails for a non-422 reason (kept for forward-compat if Composio updates).
+    let peopleSearch = await apolloPeopleApiSearch(searchArgs, entityIds)
+    if (peopleSearch.error) {
+      const toolFallback = await executeComposioActionForEntities('APOLLO_PEOPLE_SEARCH', searchArgs, entityIds)
+      if (!toolFallback.error) {
+        peopleSearch = toolFallback
+      } else {
+        throw new Error(peopleSearch.error || toolFallback.error)
+      }
+    }
 
     const discovered = apolloPeopleList(peopleSearch)
     if (discovered.length > 0) {
@@ -321,7 +392,7 @@ async function apolloFindLeads(params, entityIds) {
       return {
         status: 'completed',
         provider: 'apollo',
-        source: 'apollo_people_search',
+        source: peopleSearch.source || 'apollo_people_search',
         count: leads.length,
         leads,
         message: leads.length
