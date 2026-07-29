@@ -103,21 +103,65 @@ export function GtmStrategySectionReview({
             </div>
           ) : null}
 
-          {draft.proposedNorthStar !== undefined ? (
-            <div className="mb-3 rounded-2xl border border-[#FF6521]/35 bg-[#FF6521]/10 px-5 py-4">
-              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#FF6521]/90">
-                North-star target (edit before Looks good)
-              </p>
-              <textarea
-                value={draft.proposedNorthStar || ''}
-                onChange={(e) => patch({ proposedNorthStar: e.target.value })}
-                rows={2}
-                className="w-full resize-none bg-transparent text-[15px] font-medium leading-snug text-white outline-none placeholder:text-white/30"
-                placeholder="e.g. 25 qualified discovery calls in 90 days"
-              />
-              <p className="mt-2 text-[11px] text-white/40">
-                AI proposed this for your timeline. Confirming Looks good locks it as the goal every later agent optimizes toward.
-              </p>
+          {draft.proposedNorthStar !== undefined || draft.proposedGoalSystem ? (
+            <div className="mb-3 space-y-3 rounded-2xl border border-[#FF6521]/35 bg-[#FF6521]/10 px-5 py-4">
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#FF6521]/90">
+                  North Star Metric (edit before Looks good)
+                </p>
+                <textarea
+                  value={draft.proposedNorthStar || draft.proposedGoalSystem?.quantified_target || ''}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    patch({
+                      proposedNorthStar: v,
+                      proposedGoalSystem: draft.proposedGoalSystem
+                        ? { ...draft.proposedGoalSystem, quantified_target: v }
+                        : draft.proposedGoalSystem,
+                    })
+                  }}
+                  rows={2}
+                  className="w-full resize-none bg-transparent text-[15px] font-medium leading-snug text-white outline-none placeholder:text-white/30"
+                  placeholder="Concrete number + unit + timeline for THIS business outcome"
+                />
+              </div>
+              {draft.proposedGoalSystem?.metric_definition ? (
+                <div>
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                    Definition
+                  </p>
+                  <textarea
+                    value={draft.proposedGoalSystem.metric_definition || ''}
+                    onChange={(e) =>
+                      patch({
+                        proposedGoalSystem: {
+                          ...draft.proposedGoalSystem,
+                          metric_definition: e.target.value,
+                        },
+                      })
+                    }
+                    rows={2}
+                    className="w-full resize-none bg-transparent text-[13px] leading-snug text-white/80 outline-none"
+                  />
+                </div>
+              ) : null}
+              {draft.proposedGoalSystem?.business_archetype ||
+              (draft.proposedGoalSystem?.rejects_as_nsm || []).length ? (
+                <p className="text-[11px] text-white/40">
+                  {draft.proposedGoalSystem?.business_archetype
+                    ? `Archetype: ${draft.proposedGoalSystem.business_archetype}. `
+                    : ''}
+                  {(draft.proposedGoalSystem?.rejects_as_nsm || []).length
+                    ? `Do not optimize: ${(draft.proposedGoalSystem?.rejects_as_nsm || [])
+                        .slice(0, 3)
+                        .join('; ')}.`
+                    : ''}
+                </p>
+              ) : (
+                <p className="text-[11px] text-white/40">
+                  AI inferred this from your business model. Looks good locks it for every later agent.
+                </p>
+              )}
             </div>
           ) : null}
 

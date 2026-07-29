@@ -281,3 +281,67 @@ export async function executeGtmTask(
   });
   return readJsonOrThrow(res);
 }
+
+export async function getGtmControlLoop(moduleId: string): Promise<{
+  controlLoop: import('@/types/gtm').GtmControlLoopState;
+  goalSystem: import('@/types/gtm').GtmStrategyGoalAlignment;
+  module?: GtmModule;
+}> {
+  const res = await fetch(`/api/gtm/modules/${moduleId}/control-loop`);
+  return readJsonOrThrow(res);
+}
+
+export async function measureGtmControlLoop(
+  moduleId: string,
+  input: { period?: number; actual: number; funnelActuals?: unknown[] }
+): Promise<{ controlLoop: import('@/types/gtm').GtmControlLoopState }> {
+  const res = await fetch(`/api/gtm/modules/${moduleId}/control-loop/measure`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return readJsonOrThrow(res);
+}
+
+export async function diagnoseGtmControlLoop(
+  moduleId: string,
+  notes?: string
+): Promise<{
+  diagnosis: import('@/types/gtm').GtmControlLoopState['lastDiagnosis'];
+  controlLoop: import('@/types/gtm').GtmControlLoopState;
+}> {
+  const res = await fetch(`/api/gtm/modules/${moduleId}/control-loop/diagnose`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ notes }),
+  });
+  return readJsonOrThrow(res);
+}
+
+export async function proposeGtmInterventions(moduleId: string): Promise<{
+  interventions: import('@/types/gtm').GtmControlIntervention[];
+  controlLoop: import('@/types/gtm').GtmControlLoopState;
+}> {
+  const res = await fetch(`/api/gtm/modules/${moduleId}/control-loop/interventions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  return readJsonOrThrow(res);
+}
+
+export async function decideGtmIntervention(
+  moduleId: string,
+  interventionId: string,
+  decision: 'approved' | 'rejected' | 'executing' | 'done'
+): Promise<{ controlLoop: import('@/types/gtm').GtmControlLoopState }> {
+  const res = await fetch(
+    `/api/gtm/modules/${moduleId}/control-loop/interventions/${encodeURIComponent(interventionId)}/decide`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision }),
+    }
+  );
+  return readJsonOrThrow(res);
+}

@@ -707,15 +707,18 @@ export function GtmModuleWizard({
       let nextAnswers = answers;
       if (
         sectionId === 'goals' &&
-        reviewDraft.proposedNorthStar?.trim()
+        (reviewDraft.proposedNorthStar?.trim() || reviewDraft.proposedGoalSystem)
       ) {
-        const proposed = reviewDraft.proposedNorthStar.trim();
+        const proposed =
+          reviewDraft.proposedNorthStar?.trim() ||
+          reviewDraft.proposedGoalSystem?.quantified_target?.trim() ||
+          '';
         const existing = answers.quantified_target;
         const weak =
           !existing?.label ||
           /ai_recommend|let marqq|tbd|unset|not sure/i.test(existing.label) ||
           existing.label.length < 4;
-        if (weak) {
+        if (proposed && weak) {
           nextAnswers = {
             ...answers,
             quantified_target: { value: 'ai_proposed', label: proposed },
@@ -1154,15 +1157,28 @@ export function GtmModuleWizard({
 
       {phase === 'strategy' && strategyDoc && module && (
         <div className="space-y-4">
-          {strategyDoc.goalAlignment?.quantified_target ? (
+          {strategyDoc.goalAlignment?.quantified_target ||
+          strategyDoc.goalAlignment?.north_star_metric ? (
             <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm">
-              <p className="font-medium">North-star target</p>
+              <p className="font-medium">
+                {strategyDoc.goalAlignment.north_star_metric || 'North-star target'}
+              </p>
+              {strategyDoc.goalAlignment.metric_definition ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {strategyDoc.goalAlignment.metric_definition}
+                </p>
+              ) : null}
               <p className="mt-1 text-muted-foreground">
                 {strategyDoc.goalAlignment.quantified_target}
                 {strategyDoc.goalAlignment.timeline_target
                   ? ` · by ${strategyDoc.goalAlignment.timeline_target}`
                   : ''}
               </p>
+              {strategyDoc.goalAlignment.business_archetype ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Archetype: {strategyDoc.goalAlignment.business_archetype}
+                </p>
+              ) : null}
               {(strategyDoc.goalAlignment.sectionTargets || []).length > 0 ? (
                 <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
                   {strategyDoc.goalAlignment.sectionTargets!.slice(0, 6).map((t) => (

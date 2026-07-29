@@ -8,6 +8,23 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadMarketingSkillsForTask, resolveSkillPack } from "./lib/artifactMarketingSkills.js";
+import {
+  NORTH_STAR_PRINCIPLES,
+  normalizeGoalSystem,
+  goalSystemToQuantifiedLabel,
+  isWeakGoalSystem,
+  proposeGoalSystem,
+  structuralGoalSystemFallback,
+  buildNorthStarContext,
+} from "./lib/gtmNorthStar.js";
+import {
+  bootstrapControlLoop,
+  normalizeControlLoopState,
+  recordMeasurement,
+  diagnoseBottleneck,
+  proposeInterventions,
+  normalizeIntervention,
+} from "./lib/gtmControlLoop.js";
 
 /** In-flight quiet prep per workspace — starts on onboarding URL, merges later answers. */
 const quietPrepByWorkspace = new Map();
@@ -501,21 +518,16 @@ export const GTM_INTERVIEW_SECTIONS = [
     questions: [
       {
         id: "priority_90d",
-        question: "What is the primary marketing objective?",
-        helperText: "Pick the outcome you are optimizing for — timeline and number come next.",
+        question: "What business outcome should Marqq optimize for?",
+        helperText: "AI proposes outcomes from your business model — not generic lead goals. Pick or type your own.",
         type: "multi_select",
         allowCustomAnswer: true,
-        fixedOptions: [
-          { value: "leads", label: "Generate qualified leads", recommended: true },
-          { value: "awareness", label: "Build brand awareness" },
-          { value: "conversion", label: "Improve conversion rates" },
-          { value: "retention", label: "Retain and expand customers" },
-        ],
+        // No fixedOptions — inferred from Brand DNA / offer / audience
       },
       {
         id: "timeline_target",
         question: "By when should we hit the target?",
-        helperText: "Set the deadline first so the AI can propose a realistic number for that window.",
+        helperText: "Set the deadline first so the AI can propose a realistic north-star for that window.",
         type: "single_select",
         allowCustomAnswer: true,
         fixedOptions: [
@@ -527,11 +539,11 @@ export const GTM_INTERVIEW_SECTIONS = [
       },
       {
         id: "quantified_target",
-        question: "What quantified target defines success?",
-        helperText: "AI suggests a realistic north-star for your timeline. Pick one, edit with custom text, or choose “Let Marqq recommend” and refine on the next review.",
+        question: "What North Star Metric should Marqq agents drive?",
+        helperText: "AI proposes an outcome metric for YOUR business archetype (value loop, engagements, matches, production outcomes — not vanity leads). Refine on review if needed.",
         type: "single_select",
         allowCustomAnswer: true,
-        // No fixedOptions — generated from objective + timeline + company context
+        // No fixedOptions — generated from full company context + timeline
       },
       {
         id: "channel_bet",
@@ -1293,14 +1305,33 @@ function strategyToMarkdown(doc) {
     "",
   ];
 
-  const ga = doc.goalAlignment || {};
-  if (ga.quantified_target || ga.timeline_target || (ga.sectionTargets || []).length) {
-    lines.push("## North-star goal", "");
+  const ga = normalizeGoalSystem(doc.goalAlignment || {});
+  if (ga.north_star_metric || ga.quantified_target || ga.timeline_target || (ga.sectionTargets || []).length) {
+    lines.push("## North-star goal system", "");
+    if (ga.business_archetype) lines.push(`**Archetype:** ${ga.business_archetype}`);
+    if (ga.north_star_metric) lines.push(`**North Star Metric:** ${ga.north_star_metric}`);
+    if (ga.metric_definition) lines.push(`**Definition:** ${ga.metric_definition}`);
+    if (ga.ultimate_outcome_metric) lines.push(`**Ultimate outcome:** ${ga.ultimate_outcome_metric}`);
     if (ga.quantified_target) lines.push(`**Target:** ${ga.quantified_target}`);
     if (ga.timeline_target) lines.push(`**Timeline:** ${ga.timeline_target}`);
-    if (ga.priority_90d) lines.push(`**90-day priority:** ${ga.priority_90d}`);
+    if (ga.priority_90d) lines.push(`**Primary outcome:** ${ga.priority_90d}`);
     if (ga.channel_bet) lines.push(`**Channel bet:** ${ga.channel_bet}`);
     lines.push("");
+    if ((ga.metric_tree || []).length) {
+      lines.push("### Metric tree", "");
+      for (const m of ga.metric_tree) lines.push(`- ${m}`);
+      lines.push("");
+    }
+    if ((ga.guardrails || []).length) {
+      lines.push("### Guardrails", "");
+      for (const g of ga.guardrails) lines.push(`- ${g}`);
+      lines.push("");
+    }
+    if ((ga.rejects_as_nsm || []).length) {
+      lines.push("### Do not optimize as NSM", "");
+      for (const r of ga.rejects_as_nsm) lines.push(`- ${r}`);
+      lines.push("");
+    }
     for (const t of ga.sectionTargets || []) {
       lines.push(
         `- ${t.sectionId}: ${t.contribution || t.metric || ""}${t.byWhen ? ` (by ${t.byWhen})` : ""}`
@@ -1700,82 +1731,54 @@ function isWeakQuantifiedTarget(value) {
 }
 
 function fallbackQuantifiedTargetOptions(draftAnswers, profile, sourceContext) {
-  const objective = (
-    answerLabel(draftAnswers, "priority_90d") ||
-    profile?.goals?.priority_90d ||
-    ""
-  ).toLowerCase();
-  const timeline = (
-    answerLabel(draftAnswers, "timeline_target") ||
-    profile?.goals?.timeline_target ||
-    "90 days"
-  );
-  const company =
-    profile?.module?.name ||
-    sourceContext?.onboarding?.company ||
-    "this business";
-  const isAwareness = /aware|reach|brand/.test(objective);
-  const isRetention = /retain|expand|churn|nps/.test(objective);
-  const isConversion = /conversion|cvr|demo/.test(objective);
-  const short = /30/.test(timeline);
-  const long = /half|quarter|2_/.test(timeline);
-
-  if (isAwareness) {
-    const n = short ? "25k" : long ? "250k" : "100k";
-    return [
-      { value: `ai_${n}_reach`, label: `${n} qualified reach / impressions by ${timeline}`, recommended: true },
-      { value: "ai_brand_search_lift", label: `+30% branded search interest by ${timeline}` },
-      { value: "ai_content_followers", label: `2,000 engaged ICP followers by ${timeline}` },
-      { value: "ai_recommend", label: "Let Marqq recommend a realistic target" },
-    ];
-  }
-  if (isRetention) {
-    const n = short ? "5%" : long ? "20%" : "12%";
-    return [
-      { value: `ai_retention_${n}`, label: `${n} improvement in activation / retention by ${timeline}`, recommended: true },
-      { value: "ai_nrr", label: `110%+ net revenue retention by ${timeline}` },
-      { value: "ai_expansion", label: `8 expansion / upsell deals by ${timeline}` },
-      { value: "ai_recommend", label: "Let Marqq recommend a realistic target" },
-    ];
-  }
-  if (isConversion) {
-    const n = short ? "15%" : long ? "40%" : "25%";
-    return [
-      { value: `ai_cvr_${n}`, label: `${n} lift in demo→close or signup→paid by ${timeline}`, recommended: true },
-      { value: "ai_sql_rate", label: `2× MQL→SQL conversion rate by ${timeline}` },
-      { value: "ai_pipeline_win", label: `+10 closed-won deals from existing funnel by ${timeline}` },
-      { value: "ai_recommend", label: "Let Marqq recommend a realistic target" },
-    ];
-  }
-  const leads = short ? "12" : long ? "80" : "25";
+  // No hardcoded vanity metrics — structural placeholders only; LLM should normally answer.
+  const moduleRow = { profile, source_context: sourceContext };
+  const gs = structuralGoalSystemFallback(moduleRow, draftAnswers);
+  const label = goalSystemToQuantifiedLabel(gs) || "Let Marqq recommend a realistic North Star";
   return [
+    { value: "ai_proposed", label, recommended: true },
+    { value: "ai_recommend", label: "Let Marqq recommend a realistic target", recommended: false },
     {
-      value: `ai_${leads}_qualified`,
-      label: `${leads} qualified discovery calls / ICP opportunities for ${company} by ${timeline}`,
-      recommended: true,
+      value: "ai_outcome",
+      label: `Lock an outcome metric for ${profile?.module?.name || "this business"} within ${answerLabel(draftAnswers, "timeline_target") || profile?.goals?.timeline_target || "90 days"}`,
+      recommended: false,
     },
-    { value: "ai_pipeline", label: `₹15L / $18k influenced pipeline by ${timeline}` },
-    { value: "ai_customers", label: `6 paying ICP customers by ${timeline}` },
-    { value: "ai_recommend", label: "Let Marqq recommend a realistic target" },
+    {
+      value: "ai_value_loop",
+      label: "Optimize repeated customer/product value progress (not vanity activity)",
+      recommended: false,
+    },
   ];
 }
 
 async function generateOptionsForQuestion(groq, question, sourceContext, profile, draftAnswers = {}) {
-  if (question.id === "quantified_target") {
-    // Always propose realistic north-star options for the chosen timeline
+  if (question.id === "quantified_target" || question.id === "priority_90d") {
     const labelMax = optionLabelLimit(question.id);
     const objective =
       answerLabel(draftAnswers, "priority_90d") || profile?.goals?.priority_90d || "";
     const timeline =
       answerLabel(draftAnswers, "timeline_target") || profile?.goals?.timeline_target || "90 days";
-    const system = `You generate exactly 4 quantified GTM north-star target options.
+    const isQuant = question.id === "quantified_target";
+    const system = isQuant
+      ? `${NORTH_STAR_PRINCIPLES}
+
+Generate exactly 4 North Star Metric OPTIONS for Marqq agents to drive.
 Return JSON only: {"options":[{"value":"short_slug","label":"Human-readable option text","recommended":true|false}]}
 Rules:
 - Exactly 4 options; at most one recommended:true
-- EVERY option must include a concrete NUMBER and unit (leads, discovery calls, pipeline $, ROAS, conversion %, customers, etc.)
-- Fit the objective (${objective || "primary goal"}) AND the timeline (${timeline}) — do not propose annual targets for a 30-day window
-- Be realistic for an early/mid-stage company, not vanity mega-numbers
+- Infer archetype from context; DO NOT default to leads/discovery calls/ROAS unless that truly fits
+- Each label must be a concrete quantified target: number + unit + by-when fitting timeline (${timeline})
+- Prefer outcome metrics (paid engagements, activated users in product loop, qualified marketplace matches, production outcomes with verified impact, orgs making GTM progress)
 - Option 4 may be value "ai_recommend" with label "Let Marqq recommend a realistic target"
+- Labels max ${labelMax} characters; no markdown`
+      : `${NORTH_STAR_PRINCIPLES}
+
+Generate exactly 4 business-outcome OPTIONS Marqq should optimize for this organization.
+Return JSON only: {"options":[{"value":"short_slug","label":"Human-readable option text","recommended":true|false}]}
+Rules:
+- Exactly 4 options; at most one recommended:true
+- Infer from offer/audience/crawl — not generic marketing templates
+- Prefer customer-value outcomes over vanity marketing language
 - Labels max ${labelMax} characters; no markdown`;
     const user = JSON.stringify({
       question: question.question,
@@ -1783,16 +1786,10 @@ Rules:
       objective,
       timeline,
       draftAnswers,
-      sourceContext: {
-        onboarding: sourceContext?.onboarding || {},
-        crawlDigest: sourceContext?.crawlDigest || {},
-      },
-      lockedProfile: {
-        module: profile?.module,
-        offer: profile?.offer,
-        audience: profile?.audience,
-        goals: profile?.goals,
-      },
+      northStarContext: buildNorthStarContext(
+        { profile, source_context: sourceContext },
+        draftAnswers
+      ),
     });
     try {
       if (groq) {
@@ -1829,9 +1826,34 @@ Rules:
         }
       }
     } catch (err) {
-      console.warn("[gtm-wizard] quantified option generation failed:", err.message);
+      console.warn("[gtm-wizard] north-star option generation failed:", err.message);
     }
-    return fallbackQuantifiedTargetOptions(draftAnswers, profile, sourceContext);
+    if (question.id === "quantified_target") {
+      return fallbackQuantifiedTargetOptions(draftAnswers, profile, sourceContext);
+    }
+    // priority_90d structural fallback — outcome language, no hardcoded lead menu
+    return [
+      {
+        value: "outcome_progress",
+        label: "Measurable progress toward the customer's core business outcome",
+        recommended: true,
+      },
+      {
+        value: "value_loop",
+        label: "Users/clients repeatedly completing the product or service value loop",
+        recommended: false,
+      },
+      {
+        value: "qualified_wins",
+        label: "Qualified paid engagements / matches / production outcomes (as fits the model)",
+        recommended: false,
+      },
+      {
+        value: "ai_recommend",
+        label: "Let Marqq recommend the right outcome",
+        recommended: false,
+      },
+    ];
   }
 
   if (Array.isArray(question.fixedOptions) && question.fixedOptions.length === 4) {
@@ -2047,7 +2069,14 @@ function normalizeStrategySection(raw, def) {
     }))
     .filter((sub) => sub.title || sub.body);
   const id = def.id;
-  const proposedNorthStar = String(raw?.proposedNorthStar || "").trim();
+  const proposedGoalSystem = raw?.proposedGoalSystem
+    ? normalizeGoalSystem(raw.proposedGoalSystem)
+    : null;
+  const proposedNorthStar = String(
+    raw?.proposedNorthStar ||
+      (proposedGoalSystem ? goalSystemToQuantifiedLabel(proposedGoalSystem) : "") ||
+      ""
+  ).trim();
   return {
     id,
     title: String(raw?.title || def.title).trim() || def.title,
@@ -2060,6 +2089,11 @@ function normalizeStrategySection(raw, def) {
     body: String(raw?.body || "").trim(),
     subsections,
     ...(proposedNorthStar ? { proposedNorthStar } : {}),
+    ...(proposedGoalSystem && !isWeakGoalSystem(proposedGoalSystem)
+      ? { proposedGoalSystem }
+      : proposedGoalSystem
+        ? { proposedGoalSystem }
+        : {}),
   };
 }
 
@@ -2097,7 +2131,7 @@ async function generateOneStrategySection(groq, {
       "Translate answers into concrete next plays",
       "Name owners (roles) and a measurement loop",
       "Call out one hard trade-off",
-      "Tie actions to the quantified GTM target",
+      "Tie actions to the North Star Metric",
     ],
     body: `${def.title} should operationalize the interview answers into an executable plan with clear prioritization.`,
     subsections: [
@@ -2108,55 +2142,82 @@ async function generateOneStrategySection(groq, {
       },
     ],
   };
-  const answerTarget = answerLabel(answers, "quantified_target");
-  const profileTarget = profile?.goals?.quantified_target || "";
-  const needsProposedTarget =
+
+  const needsGoalSystem =
     interviewSectionId === "goals" ||
     ["financial_plan", "measurement_optimization", "timeline_roadmap"].includes(def.id);
-  const weakTarget =
-    isWeakQuantifiedTarget(answerTarget) && isWeakQuantifiedTarget(profileTarget);
+
+  let goalSystem =
+    profile.goal_system ||
+    (profile.goals ? normalizeGoalSystem(profile.goals) : null);
+  if (needsGoalSystem && (!goalSystem || isWeakGoalSystem(goalSystem))) {
+    goalSystem =
+      (await proposeGoalSystem(groq, moduleRow, answers || {})) ||
+      structuralGoalSystemFallback(moduleRow, answers || {});
+  } else if (needsGoalSystem && goalSystem) {
+    // Refresh quantified sentence if user asked Marqq to recommend
+    const answerTarget = answerLabel(answers, "quantified_target");
+    if (isWeakQuantifiedTarget(answerTarget) || /ai_recommend|let marqq/i.test(answerTarget)) {
+      goalSystem =
+        (await proposeGoalSystem(groq, moduleRow, answers || {})) ||
+        goalSystem ||
+        structuralGoalSystemFallback(moduleRow, answers || {});
+    }
+  }
+
   const timeline =
+    goalSystem?.timeline_target ||
     answerLabel(answers, "timeline_target") ||
     profile?.goals?.timeline_target ||
     "90 days";
   const objective =
+    goalSystem?.priority_90d ||
     answerLabel(answers, "priority_90d") ||
     profile?.goals?.priority_90d ||
-    "Generate qualified leads";
+    "";
+  const quantifiedLabel = goalSystem
+    ? goalSystemToQuantifiedLabel(goalSystem)
+    : answerLabel(answers, "quantified_target");
 
   if (!groq) {
-    if (needsProposedTarget && weakTarget) {
-      const proposed =
-        fallbackQuantifiedTargetOptions(answers || {}, profile, moduleRow?.source_context)[0]
-          ?.label || `25 qualified discovery calls by ${timeline}`;
-      return normalizeStrategySection(
+    const out = { ...fallback };
+    if (needsGoalSystem && goalSystem) {
+      out.proposedGoalSystem = goalSystem;
+      out.proposedNorthStar = quantifiedLabel;
+      out.subsections = [
         {
-          ...fallback,
-          proposedNorthStar: proposed,
-          subsections: [
-            {
-              title: "North-star target (AI proposed)",
-              body: `Proposed quantified target for ${timeline}: ${proposed}. Edit before Looks good if needed.`,
-              bullets: [proposed],
-            },
-            ...(fallback.subsections || []),
+          title: "North-star system (proposed)",
+          body: [
+            goalSystem.north_star_metric && `Metric: ${goalSystem.north_star_metric}`,
+            goalSystem.metric_definition && `Definition: ${goalSystem.metric_definition}`,
+            quantifiedLabel && `Target: ${quantifiedLabel}`,
+            goalSystem.ultimate_outcome_metric &&
+              `Ultimate outcome: ${goalSystem.ultimate_outcome_metric}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          bullets: [
+            ...(goalSystem.metric_tree || []).slice(0, 4),
+            ...(goalSystem.guardrails || []).slice(0, 3).map((g) => `Guardrail: ${g}`),
           ],
         },
-        def
-      );
+        ...(fallback.subsections || []),
+      ];
     }
-    return fallback;
+    return normalizeStrategySection(out, def);
   }
 
   const completion = await groq.chat.completions.create({
     model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
     temperature: 0.4,
-    max_tokens: 2200,
+    max_tokens: 2400,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
         content: `You are a senior GTM strategist. Generate ONE comprehensive strategy section for user review.
+
+${NORTH_STAR_PRINCIPLES}
 
 Return STRICT JSON:
 {
@@ -2166,17 +2227,27 @@ Return STRICT JSON:
   "bullets": ["4-7 action bullets"],
   "body": "5-10 sentences of actionable guidance",
   "subsections": [{ "title": string, "body": string, "bullets": string[] }],
-  "proposedNorthStar": "concrete quantified target string including number + unit + timeline, or null if already strong"
+  "proposedNorthStar": "concrete quantified target string",
+  "proposedGoalSystem": {
+    "business_archetype": string,
+    "north_star_metric": string,
+    "metric_definition": string,
+    "ultimate_outcome_metric": string|null,
+    "quantified_target": string,
+    "timeline_target": string,
+    "metric_tree": string[],
+    "guardrails": string[],
+    "primary_loop": string[],
+    "rejects_as_nsm": string[]
+  }
 }
 
 Rules:
 - Include 2-4 named subsections (not Slack channels).
-- Always include a subsection titled "Contribution to goal" — state this section's measurable share of the north-star target, by-when, and owner role.
-- If quantified target is missing, weak, TBD, or "Let Marqq recommend": you MUST set proposedNorthStar to a REALISTIC number for objective "${objective}" within timeline "${timeline}" (stage-appropriate, not vanity). Also add a subsection "North-star target (AI proposed)".
-- If a strong quantified target already exists, set proposedNorthStar to that same target (echo it) so the user can still edit before Looks good.
-- Recommendations, not interview recap.
-- No #channel headers.
-- Specific plays, tradeoffs, owners (roles), measurement.
+- Always include "Contribution to goal" tied to the North Star Metric (share of target, by-when, owner role).
+- If a proposedGoalSystem is provided in context, echo/refine it — do not replace with vanity lead metrics.
+- If missing/weak, invent a full proposedGoalSystem from company context (archetype-aware).
+- Recommendations, not interview recap. No #channel headers.
 - Stay consistent with prior approved sections.`,
       },
       {
@@ -2187,12 +2258,13 @@ Rules:
             interviewSectionId: interviewSectionId || null,
             moduleName: moduleRow?.name,
             profile,
-            needsProposedTarget,
-            weakTarget,
+            needsGoalSystem,
+            northStarContext: buildNorthStarContext(moduleRow, answers || {}),
+            proposedGoalSystem: goalSystem,
             northStar: {
-              quantified_target: profileTarget || answerTarget || null,
+              quantified_target: quantifiedLabel || null,
               timeline_target: timeline,
-              priority_90d: objective,
+              priority_90d: objective || null,
               channel_bet:
                 answerLabel(answers, "channel_bet") ||
                 profile?.goals?.channel_bet ||
@@ -2213,18 +2285,21 @@ Rules:
     ],
   });
   const parsed = parseJsonLoose(completion.choices?.[0]?.message?.content || "");
-  const normalized = normalizeStrategySection(parsed || fallback, def);
-  if (needsProposedTarget && !normalized.proposedNorthStar) {
-    if (!weakTarget && (profileTarget || answerTarget) && !isWeakQuantifiedTarget(profileTarget || answerTarget)) {
-      normalized.proposedNorthStar = profileTarget || answerTarget;
-    } else {
-      normalized.proposedNorthStar =
-        fallbackQuantifiedTargetOptions(answers || {}, profile, moduleRow?.source_context)[0]
-          ?.label || `25 qualified discovery calls by ${timeline}`;
-    }
-  }
-  return normalized;
+  const merged = {
+    ...(parsed || fallback),
+    proposedGoalSystem:
+      normalizeGoalSystem(parsed?.proposedGoalSystem || goalSystem || {}, {
+        timeline,
+        objective,
+      }) || goalSystem,
+    proposedNorthStar:
+      String(parsed?.proposedNorthStar || "").trim() ||
+      quantifiedLabel ||
+      goalSystemToQuantifiedLabel(goalSystem),
+  };
+  return normalizeStrategySection(merged, def);
 }
+
 
 async function assembleStrategyFromApprovedDrafts(groq, moduleRow) {
   const drafts = Array.isArray(moduleRow?.profile?.auto_strategy_sections)
@@ -2249,7 +2324,7 @@ Return JSON:
 {
   "title": string,
   "executiveSummary": string,
-  "goalAlignment": { "quantified_target": string, "timeline_target": string, "sectionTargets": [{ "sectionId": string, "metric": string, "contribution": string, "byWhen": string }] },
+  "goalAlignment": { "business_archetype": string, "north_star_metric": string, "metric_definition": string, "ultimate_outcome_metric": string|null, "quantified_target": string, "timeline_target": string, "metric_tree": string[], "guardrails": string[], "primary_loop": string[], "rejects_as_nsm": string[], "sectionTargets": [{ "sectionId": string, "metric": string, "contribution": string, "byWhen": string }] },
   "sections": [{ "id", "title", "summary", "bullets", "body", "subsections": [{ "title", "body", "bullets" }] }],
   "nextSteps": string[]
 }
@@ -2257,11 +2332,10 @@ Rules:
 - Include ALL 16 section ids in order: ${GTM_FULL_STRATEGY_SECTION_ORDER.join(", ")}.
 - Prefer approved drafts verbatim when present; expand missing ones comprehensively with 2-4 subsections each.
 - executiveSummary: 2-4 sentences win condition + bets + what NOT to do.
-- QUANTIFIED NORTH STAR: read goals.quantified_target + goals.timeline_target from the profile.
-  Reverse-engineer every section so it contributes a measurable sub-goal toward that number by that date.
-  Each section MUST include a subsection titled "Contribution to goal" with: metric, number/share of the north-star target, by-when, and owner role.
-  Example: if target is 20 discovery calls in 90 days, sales_strategy might own 12 calls, marketing_strategy 5 inbound, partner channel 3 — they must sum coherently (not duplicate the whole target).
-- Also return "goalAlignment": { "quantified_target": string, "timeline_target": string, "sectionTargets": [{ "sectionId", "metric", "contribution", "byWhen" }] }.
+- NORTH STAR SYSTEM: read profile.goal_system (or goals.quantified_target + timeline). Agents optimize the operational north_star_metric with its metric_definition — NOT vanity leads unless that is truly the archetype.
+  Reverse-engineer every section so it contributes a measurable sub-goal toward quantified_target by timeline_target.
+  Each section MUST include "Contribution to goal" with: metric, share of north-star, by-when, owner role. Sub-goals must sum coherently.
+- Return full goalAlignment including: business_archetype, north_star_metric, metric_definition, ultimate_outcome_metric, quantified_target, timeline_target, metric_tree, guardrails, primary_loop, rejects_as_nsm, sectionTargets[].
 - No Slack #channel headers in section titles/bodies.
 - nextSteps: 5 immediate actions for the next 14 days.`,
           },
@@ -2293,20 +2367,28 @@ Rules:
         });
         const exec = sections.find((s) => s.id === "executive_summary");
         const profileGoals = moduleRow.profile?.goals || {};
+        const lockedSystem = normalizeGoalSystem(
+          parsed?.goalAlignment || moduleRow.profile?.goal_system || profileGoals,
+          {
+            timeline: profileGoals.timeline_target,
+            objective: profileGoals.priority_90d,
+          }
+        );
         const goalAlignment = {
+          ...lockedSystem,
           quantified_target:
-            parsed?.goalAlignment?.quantified_target ||
+            lockedSystem.quantified_target ||
             profileGoals.quantified_target ||
             null,
           timeline_target:
-            parsed?.goalAlignment?.timeline_target ||
+            lockedSystem.timeline_target ||
             profileGoals.timeline_target ||
             null,
-          priority_90d: profileGoals.priority_90d || null,
+          priority_90d: profileGoals.priority_90d || lockedSystem.priority_90d || null,
           channel_bet: profileGoals.channel_bet || null,
           sectionTargets: Array.isArray(parsed?.goalAlignment?.sectionTargets)
             ? parsed.goalAlignment.sectionTargets
-            : [],
+            : lockedSystem.sectionTargets || [],
         };
         return {
           title: String(parsed.title || `${moduleRow.name} GTM Strategy`).trim(),
@@ -2354,13 +2436,13 @@ Rules:
     moduleName: moduleRow.name,
     sections,
     channels: buildStrategyChannels(sections),
-    goalAlignment: {
-      quantified_target: profileGoals.quantified_target || null,
-      timeline_target: profileGoals.timeline_target || null,
-      priority_90d: profileGoals.priority_90d || null,
-      channel_bet: profileGoals.channel_bet || null,
-      sectionTargets: [],
-    },
+    goalAlignment: normalizeGoalSystem(
+      moduleRow.profile?.goal_system || profileGoals,
+      {
+        timeline: profileGoals.timeline_target,
+        objective: profileGoals.priority_90d,
+      }
+    ),
     nextSteps: [],
     model: null,
   };
@@ -2370,7 +2452,9 @@ Rules:
 function buildPostStrategyDeployContext(moduleRow, task) {
   const strategy = moduleRow?.profile?.strategy_document || null;
   const goals = moduleRow?.profile?.goals || {};
-  const ga = strategy?.goalAlignment || {};
+  const ga = normalizeGoalSystem(
+    strategy?.goalAlignment || moduleRow?.profile?.goal_system || goals
+  );
   const quantified = ga.quantified_target || goals.quantified_target || "";
   const timeline = ga.timeline_target || goals.timeline_target || "";
   const sectionTargets = Array.isArray(ga.sectionTargets) ? ga.sectionTargets : [];
@@ -2386,23 +2470,54 @@ function buildPostStrategyDeployContext(moduleRow, task) {
     });
 
   const summary = [
-    `North-star GTM goal: ${quantified || "quantified target TBD"} by ${timeline || "timeline TBD"}.`,
+    ga.north_star_metric
+      ? `North Star Metric: ${ga.north_star_metric}.`
+      : `North-star GTM goal: ${quantified || "quantified target TBD"} by ${timeline || "timeline TBD"}.`,
+    ga.metric_definition ? `Definition: ${ga.metric_definition}` : "",
+    quantified ? `Target: ${quantified}` : "",
     strategy?.executiveSummary ? `Strategy: ${String(strategy.executiveSummary).slice(0, 500)}` : "",
-    "Generate marketing ideas that advance THIS strategy only — do not invent a conflicting ICP, positioning, or channel mix.",
+    "Generate marketing ideas that advance THIS strategy + North Star only — do not invent a conflicting ICP, positioning, channel mix, or vanity metric.",
   ]
     .filter(Boolean)
     .join(" ");
 
   const bullets = [
+    ga.business_archetype && `Archetype: ${ga.business_archetype}`,
     quantified && `Quantified target: ${quantified}`,
     timeline && `Timeline: ${timeline}`,
+    ga.ultimate_outcome_metric && `Ultimate outcome: ${ga.ultimate_outcome_metric}`,
     goals.channel_bet && `Lead channel bet: ${goals.channel_bet}`,
-    goals.priority_90d && `90-day priority: ${goals.priority_90d}`,
+    goals.priority_90d && `Primary outcome: ${goals.priority_90d}`,
+    ...(ga.metric_tree || []).slice(0, 5).map((m, i) => `Metric tree ${i + 1}: ${m}`),
+    ...(ga.guardrails || []).slice(0, 5).map((g) => `Guardrail: ${g}`),
+    ...(ga.rejects_as_nsm || []).slice(0, 4).map((r) => `Do NOT optimize: ${r}`),
     ...sectionLines,
     ...sectionTargets.slice(0, 8).map(
       (t) => `Sub-goal (${t.sectionId}): ${t.contribution || t.metric} by ${t.byWhen || timeline}`
     ),
   ].filter(Boolean);
+
+  const controlLoop = moduleRow?.profile?.control_loop
+    ? normalizeControlLoopState(moduleRow.profile.control_loop, ga)
+    : null;
+  if (controlLoop?.currentPeriod) {
+    bullets.unshift(
+      `Control loop: period ${controlLoop.currentPeriod.period} status=${controlLoop.status} attainment=${controlLoop.currentPeriod.attainmentPct ?? "n/a"}%`
+    );
+    if (controlLoop.recovery?.recommendation && controlLoop.recovery.recommendation !== "on_track") {
+      bullets.push(
+        `Recovery: ${controlLoop.recovery.recommendation} (need ~${controlLoop.recovery.requiredPerPeriod}/period)`
+      );
+    }
+    if (controlLoop.cadence?.principle) {
+      bullets.push(`Cadence: ${controlLoop.cadence.principle}`);
+    }
+    if (controlLoop.cadence?.weekly_course_correction?.length) {
+      bullets.push(
+        `Weekly review: ${controlLoop.cadence.weekly_course_correction.slice(0, 4).join("; ")}`
+      );
+    }
+  }
 
   return {
     sectionId: task.id,
@@ -2413,12 +2528,23 @@ function buildPostStrategyDeployContext(moduleRow, task) {
       title: strategy?.title || null,
       executiveSummary: strategy?.executiveSummary || null,
       goalAlignment: {
+        ...ga,
         quantified_target: quantified || ga.quantified_target || null,
         timeline_target: timeline || ga.timeline_target || null,
         priority_90d: goals.priority_90d || ga.priority_90d || null,
         channel_bet: goals.channel_bet || ga.channel_bet || null,
         sectionTargets,
       },
+      controlLoop: controlLoop
+        ? {
+            status: controlLoop.status,
+            currentPeriod: controlLoop.currentPeriod,
+            recovery: controlLoop.recovery,
+            openInterventions: (controlLoop.interventions || []).filter((i) =>
+              ["proposed", "approved", "executing"].includes(i.status)
+            ),
+          }
+        : null,
       moduleName: moduleRow?.name || null,
       sections: (strategy?.sections || []).map((s) => ({
         id: s.id,
@@ -3363,6 +3489,11 @@ export function registerGtmWizardRoutes(app, deps) {
               },
               strategy_document: strategy,
               strategy_channels: strategy.channels,
+              goal_system: strategy.goalAlignment || moduleRow.profile?.goal_system || null,
+              control_loop: bootstrapControlLoop(
+                strategy.goalAlignment || moduleRow.profile?.goal_system,
+                moduleRow.profile?.control_loop
+              ),
             },
           })
           .eq("id", req.params.id)
@@ -3378,6 +3509,7 @@ export function registerGtmWizardRoutes(app, deps) {
           strategy,
           channels: strategy.channels,
           postStrategyOptions: POST_STRATEGY_TASK_CATALOG,
+          controlLoop: updated?.profile?.control_loop || null,
           module: updated,
           markdown: strategyToMarkdown(strategy),
         });
@@ -3460,6 +3592,187 @@ export function registerGtmWizardRoutes(app, deps) {
     }
   });
 
+  // ── Control loop: Measure → Diagnose → Recommend → Approve → Execute ─────
+  app.get("/api/gtm/modules/:id/control-loop", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const goalSystem =
+        moduleRow.profile?.goal_system ||
+        moduleRow.profile?.strategy_document?.goalAlignment ||
+        moduleRow.profile?.goals ||
+        null;
+      if (!goalSystem) {
+        return res.status(409).json({
+          error: "Lock a North Star goal system before opening the control loop",
+        });
+      }
+      let loop = moduleRow.profile?.control_loop;
+      if (!loop?.checkpointPlan?.checkpoints?.length) {
+        loop = bootstrapControlLoop(goalSystem, loop);
+        const { data, error } = await c
+          .from("gtm_modules")
+          .update({
+            profile: { ...(moduleRow.profile || {}), control_loop: loop, goal_system: normalizeGoalSystem(goalSystem) },
+          })
+          .eq("id", moduleRow.id)
+          .select("*")
+          .single();
+        if (error) throw error;
+        return res.json({
+          controlLoop: loop,
+          goalSystem: normalizeGoalSystem(goalSystem),
+          module: data,
+        });
+      }
+      res.json({
+        controlLoop: normalizeControlLoopState(loop, goalSystem),
+        goalSystem: normalizeGoalSystem(goalSystem),
+        module: moduleRow,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  app.post("/api/gtm/modules/:id/control-loop/measure", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const goalSystem =
+        moduleRow.profile?.goal_system ||
+        moduleRow.profile?.strategy_document?.goalAlignment;
+      if (!goalSystem) return res.status(409).json({ error: "Missing goal_system" });
+
+      const { period, actual, funnelActuals } = req.body || {};
+      const base = bootstrapControlLoop(goalSystem, moduleRow.profile?.control_loop);
+      const next = recordMeasurement(base, goalSystem, { period, actual, funnelActuals });
+      const { data, error } = await c
+        .from("gtm_modules")
+        .update({ profile: { ...(moduleRow.profile || {}), control_loop: next } })
+        .eq("id", moduleRow.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      res.json({ controlLoop: next, module: data });
+    } catch (err) {
+      res.status(400).json({ error: String(err.message || err) });
+    }
+  });
+
+  app.post("/api/gtm/modules/:id/control-loop/diagnose", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const goalSystem =
+        moduleRow.profile?.goal_system ||
+        moduleRow.profile?.strategy_document?.goalAlignment;
+      if (!goalSystem) return res.status(409).json({ error: "Missing goal_system" });
+
+      const loop = bootstrapControlLoop(goalSystem, moduleRow.profile?.control_loop);
+      const diagnosis = await diagnoseBottleneck(groq, {
+        goalSystem,
+        controlLoop: loop,
+        notes: req.body?.notes || null,
+      });
+      const next = {
+        ...loop,
+        lastDiagnosis: diagnosis,
+        funnelActuals: Array.isArray(diagnosis.funnel) ? diagnosis.funnel : loop.funnelActuals,
+        updatedAt: new Date().toISOString(),
+      };
+      const { data, error } = await c
+        .from("gtm_modules")
+        .update({ profile: { ...(moduleRow.profile || {}), control_loop: next } })
+        .eq("id", moduleRow.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      res.json({ diagnosis, controlLoop: next, module: data });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  app.post("/api/gtm/modules/:id/control-loop/interventions", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const goalSystem =
+        moduleRow.profile?.goal_system ||
+        moduleRow.profile?.strategy_document?.goalAlignment;
+      if (!goalSystem) return res.status(409).json({ error: "Missing goal_system" });
+
+      const loop = bootstrapControlLoop(goalSystem, moduleRow.profile?.control_loop);
+      const diagnosis = req.body?.diagnosis || loop.lastDiagnosis;
+      const proposed = await proposeInterventions(groq, {
+        goalSystem,
+        controlLoop: loop,
+        diagnosis,
+      });
+      const next = {
+        ...loop,
+        lastDiagnosis: diagnosis || loop.lastDiagnosis,
+        interventions: [...proposed, ...(loop.interventions || [])].slice(0, 40),
+        updatedAt: new Date().toISOString(),
+      };
+      const { data, error } = await c
+        .from("gtm_modules")
+        .update({ profile: { ...(moduleRow.profile || {}), control_loop: next } })
+        .eq("id", moduleRow.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      res.json({ interventions: proposed, controlLoop: next, module: data });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  app.post("/api/gtm/modules/:id/control-loop/interventions/:interventionId/decide", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const decision = String(req.body?.decision || "").toLowerCase();
+      if (!["approved", "rejected", "executing", "done"].includes(decision)) {
+        return res.status(400).json({ error: "decision must be approved|rejected|executing|done" });
+      }
+      const goalSystem =
+        moduleRow.profile?.goal_system ||
+        moduleRow.profile?.strategy_document?.goalAlignment;
+      const loop = bootstrapControlLoop(goalSystem, moduleRow.profile?.control_loop);
+      const interventions = (loop.interventions || []).map((item) => {
+        if (item.id !== req.params.interventionId) return item;
+        return normalizeIntervention({
+          ...item,
+          status: decision,
+          decidedAt: new Date().toISOString(),
+        });
+      });
+      const next = { ...loop, interventions, updatedAt: new Date().toISOString() };
+      const { data, error } = await c
+        .from("gtm_modules")
+        .update({ profile: { ...(moduleRow.profile || {}), control_loop: next } })
+        .eq("id", moduleRow.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      res.json({ controlLoop: next, module: data });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
   // ── Get / regenerate strategy document ───────────────────────────────────────
   app.get("/api/gtm/modules/:id/strategy", async (req, res) => {
     try {
@@ -3497,6 +3810,11 @@ export function registerGtmWizardRoutes(app, deps) {
             ...(moduleRow.profile || {}),
             strategy_document: strategy,
             strategy_channels: strategy.channels,
+            goal_system: strategy.goalAlignment || moduleRow.profile?.goal_system || null,
+            control_loop: bootstrapControlLoop(
+              strategy.goalAlignment || moduleRow.profile?.goal_system,
+              moduleRow.profile?.control_loop
+            ),
           },
         })
         .eq("id", req.params.id)
@@ -3506,6 +3824,7 @@ export function registerGtmWizardRoutes(app, deps) {
       res.json({
         strategy,
         channels: strategy.channels,
+        controlLoop: updated?.profile?.control_loop || null,
         module: updated,
         markdown: strategyToMarkdown(strategy),
       });
@@ -3863,13 +4182,34 @@ Rules:
         ...(moduleRow.profile || {}),
         auto_strategy_sections: merged,
       };
-      const proposed = String(section?.proposedNorthStar || normalized.proposedNorthStar || "").trim();
+      const proposedSystem = normalizeGoalSystem(
+        section?.proposedGoalSystem || normalized.proposedGoalSystem || profile.goal_system || {}
+      );
+      const proposed = String(
+        section?.proposedNorthStar ||
+          normalized.proposedNorthStar ||
+          goalSystemToQuantifiedLabel(proposedSystem) ||
+          ""
+      ).trim();
+      if (proposedSystem && !isWeakGoalSystem(proposedSystem)) {
+        profile.goal_system = proposedSystem;
+        profile.control_loop = bootstrapControlLoop(proposedSystem, profile.control_loop);
+      }
       if (proposed) {
         profile.goals = { ...(profile.goals || {}) };
         const existing = profile.goals.quantified_target || "";
-        if (isWeakQuantifiedTarget(existing)) {
+        if (isWeakQuantifiedTarget(existing) || /ai_recommend|let marqq/i.test(existing)) {
           profile.goals.quantified_target = proposed;
           profile.goals.quantified_target_source = "ai_proposed";
+        }
+        if (proposedSystem.timeline_target && !profile.goals.timeline_target) {
+          profile.goals.timeline_target = proposedSystem.timeline_target;
+        }
+        if (proposedSystem.north_star_metric) {
+          profile.goals.north_star_metric = proposedSystem.north_star_metric;
+        }
+        if (proposedSystem.metric_definition) {
+          profile.goals.metric_definition = proposedSystem.metric_definition;
         }
       }
       const sectionState = { ...(moduleRow.section_state || {}) };

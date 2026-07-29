@@ -60,16 +60,107 @@ export interface GtmStrategyDocSection {
 }
 
 export interface GtmStrategyGoalAlignment {
+  business_archetype?: string | null;
+  north_star_metric?: string | null;
+  metric_definition?: string | null;
+  ultimate_outcome_metric?: string | null;
   quantified_target?: string | null;
   timeline_target?: string | null;
   priority_90d?: string | null;
   channel_bet?: string | null;
+  baseline?: string | null;
+  target?: string | number | null;
+  measurement_period?: string | null;
+  metric_tree?: string[];
+  guardrails?: string[];
+  primary_loop?: string[];
+  rejects_as_nsm?: string[];
   sectionTargets?: Array<{
     sectionId: string;
     metric?: string;
     contribution?: string;
     byWhen?: string;
   }>;
+}
+
+export type GtmVarianceStatus = 'green' | 'amber' | 'red' | 'critical' | 'pending' | 'unknown';
+
+export interface GtmControlCheckpoint {
+  period: number;
+  label: string;
+  target: number | null;
+  actual: number | null;
+  status: GtmVarianceStatus | string;
+  attainment?: number | null;
+  attainmentPct?: number | null;
+}
+
+export interface GtmControlIntervention {
+  id: string;
+  problem: string;
+  affected_metric: string;
+  current_value?: number | null;
+  target_value?: number | null;
+  hypothesis: string;
+  intervention: string;
+  expected_impact: string;
+  owner: string;
+  duration: string;
+  dependencies?: string[];
+  success_condition: string;
+  rollback_condition: string;
+  requires_human_approval?: boolean;
+  status: 'proposed' | 'approved' | 'rejected' | 'executing' | 'done' | string;
+  createdAt?: string;
+}
+
+export interface GtmControlCadence {
+  principle?: string;
+  real_time_monitoring?: string[];
+  daily_review?: string[];
+  weekly_course_correction?: string[];
+  biweekly_experiment_review?: string[];
+  monthly_resource_review?: string[];
+  quarterly_strategy_review?: string[];
+  metric_review_windows?: Array<{ metric_class: string; review_after: string }>;
+  practical_rules?: string[];
+}
+
+export interface GtmControlLoopState {
+  version?: number;
+  updatedAt?: string;
+  status?: GtmVarianceStatus | string;
+  weeklyCycle?: Array<{ day: string; focus: string }>;
+  cadence?: GtmControlCadence;
+  checkpointPlan?: {
+    periods?: number;
+    unit?: string;
+    endTarget?: number | null;
+    baseline?: number | null;
+    checkpoints: GtmControlCheckpoint[];
+  };
+  currentPeriod?: GtmControlCheckpoint | null;
+  recovery?: {
+    shortfall?: number | null;
+    requiredPerPeriod?: number | null;
+    recommendation?: string;
+    choices?: string[];
+  } | null;
+  lastDiagnosis?: {
+    bottleneck_stage?: string;
+    summary?: string;
+    primary_constraint?: string;
+    reallocation?: string;
+    funnel?: Array<{
+      stage: string;
+      target?: number | null;
+      actual?: number | null;
+      finding?: string;
+    }>;
+  } | null;
+  interventions?: GtmControlIntervention[];
+  humanApprovalRequired?: string[];
+  autoAdjustAllowed?: string[];
 }
 
 export interface GtmStrategyDocument {

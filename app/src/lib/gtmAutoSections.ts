@@ -171,6 +171,8 @@ export interface GtmAutoSectionDraft {
   subsections?: GtmStrategySubsection[];
   /** AI-proposed quantified north-star — editable before Looks good */
   proposedNorthStar?: string;
+  /** Full dynamic goal system (archetype, definition, tree, guardrails) */
+  proposedGoalSystem?: import('@/types/gtm').GtmStrategyGoalAlignment;
   approvedAt?: string;
 }
 

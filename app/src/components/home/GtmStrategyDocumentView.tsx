@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { GtmStrategyDocument, GtmStrategyDocSection } from '@/types/gtm'
+import { GtmControlLoopPanel } from '@/components/home/GtmControlLoopPanel'
 
 type Props = {
   moduleId: string
@@ -375,6 +376,10 @@ export function GtmStrategyDocumentView({
             </Button>
           </div>
         )}
+      </div>
+
+      <div className="border-b border-border/50 px-4 py-3">
+        <GtmControlLoopPanel moduleId={moduleId} goalAlignment={strategy.goalAlignment} />
       </div>
 
       <div className="grid min-h-[480px] md:grid-cols-[240px_1fr]">
