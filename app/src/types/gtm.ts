@@ -66,6 +66,8 @@ export interface GtmStrategyDocument {
   moduleId?: string;
   moduleName?: string;
   sections: GtmStrategyDocSection[];
+  /** Slack-style channels for sidebar (excludes executive summary) */
+  channels?: Array<{ id: string; title: string; channel: string; order: number }>;
   nextSteps: string[];
   model?: string | null;
   skill_alignment?: {

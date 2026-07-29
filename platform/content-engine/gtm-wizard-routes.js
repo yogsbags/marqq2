@@ -1845,6 +1845,22 @@ function progressPayload(moduleRow) {
  * @param {object} deps
  */
 
+function strategyChannelSlug(sectionId) {
+  if (!sectionId || sectionId === "executive_summary") return null;
+  return `#${String(sectionId).replace(/_/g, "-")}`;
+}
+
+function buildStrategyChannels(sections) {
+  return (sections || [])
+    .filter((s) => s?.id && s.id !== "executive_summary")
+    .map((s, index) => ({
+      id: s.id,
+      title: s.title,
+      channel: s.channel || strategyChannelSlug(s.id),
+      order: index + 1,
+    }));
+}
+
 function normalizeStrategySection(raw, def) {
   const subsections = (Array.isArray(raw?.subsections) ? raw.subsections : [])
     .map((sub) => ({
@@ -1856,9 +1872,11 @@ function normalizeStrategySection(raw, def) {
         .slice(0, 8),
     }))
     .filter((sub) => sub.title || sub.body);
+  const id = def.id;
   return {
-    id: def.id,
+    id,
     title: String(raw?.title || def.title).trim() || def.title,
+    channel: strategyChannelSlug(id),
     summary: String(raw?.summary || "").trim(),
     bullets: (Array.isArray(raw?.bullets) ? raw.bullets : [])
       .map((b) => String(b || "").trim())
@@ -2038,6 +2056,7 @@ Rules:
           moduleId: moduleRow.id,
           moduleName: moduleRow.name,
           sections,
+          channels: buildStrategyChannels(sections),
           nextSteps: Array.isArray(parsed.nextSteps)
             ? parsed.nextSteps.map(String).filter(Boolean).slice(0, 8)
             : [],
@@ -2071,6 +2090,7 @@ Rules:
     moduleId: moduleRow.id,
     moduleName: moduleRow.name,
     sections,
+    channels: buildStrategyChannels(sections),
     nextSteps: [],
     model: null,
   };
@@ -2877,47 +2897,20 @@ export function registerGtmWizardRoutes(app, deps) {
       }
 
       const profile = moduleRow.profile || {};
-      const priority = profile.goals?.priority_90d || "";
-      const channel = profile.goals?.channel_bet || "";
-
-      const options = EXECUTE_TASK_CATALOG.map((task, i) => {
-        let recommended = i === 0;
-        if (/lead/i.test(priority) && task.id === "icp_brief") recommended = true;
-        if (/aware|content|seo/i.test(String(channel)) && task.id === "content_messaging") {
-          recommended = true;
-        }
-        if (/paid|sales/i.test(String(channel)) && task.id === "channel_plan") {
-          recommended = true;
-        }
-        return {
-          ...task,
-          recommended,
-          contextSummary: [
-            profile.module?.name,
-            profile.offer?.one_liner,
-            profile.audience?.icp,
-            profile.audience?.target_timeline,
-            profile.positioning?.elevator_pitch || profile.positioning?.positioning_statement,
-            profile.distribution?.distribution_strategy,
-            profile.leads?.tat_outreach_segment,
-            profile.goals?.priority_90d,
-            profile.goals?.quantified_target,
-            profile.goals?.timeline_target,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        };
-      });
-
-      // Ensure only one recommended
-      let seen = false;
-      for (const o of options) {
-        if (o.recommended) {
-          if (seen) o.recommended = false;
-          else seen = true;
-        }
-      }
-      if (!seen && options[0]) options[0].recommended = true;
+      const options = EXECUTE_TASK_CATALOG.map((task) => ({
+        ...task,
+        recommended: true,
+        contextSummary: [
+          profile.module?.name,
+          profile.offer?.one_liner,
+          profile.audience?.icp,
+          profile.goals?.priority_90d,
+          profile.goals?.quantified_target,
+          profile.goals?.timeline_target,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      }));
 
       res.json({ options, progress: progressPayload(moduleRow), profile });
     } catch (err) {
@@ -2944,6 +2937,9 @@ export function registerGtmWizardRoutes(app, deps) {
       // Document task: generate strategy and return it (no agent deploy)
       if (task.kind === "document" || task.id === "gtm_strategy_doc") {
         const strategy = await assembleStrategyFromApprovedDrafts(groq, moduleRow);
+        if (!strategy.channels) {
+          strategy.channels = buildStrategyChannels(strategy.sections);
+        }
         const { data: updated, error } = await c
           .from("gtm_modules")
           .update({
@@ -2958,6 +2954,7 @@ export function registerGtmWizardRoutes(app, deps) {
                 at: new Date().toISOString(),
               },
               strategy_document: strategy,
+              strategy_channels: strategy.channels,
             },
           })
           .eq("id", req.params.id)
@@ -2971,54 +2968,15 @@ export function registerGtmWizardRoutes(app, deps) {
           task,
           agentTarget: null,
           strategy,
+          channels: strategy.channels,
           module: updated,
           markdown: strategyToMarkdown(strategy),
         });
       }
 
-      // Mark active + sync context for agents
-      const { data: updated, error } = await c
-        .from("gtm_modules")
-        .update({
-          active: true,
-          status: "ready",
-          profile: {
-            ...(moduleRow.profile || {}),
-            last_executed_task: {
-              taskId: task.id,
-              agentTarget: task.agentTarget,
-              at: new Date().toISOString(),
-            },
-          },
-        })
-        .eq("id", req.params.id)
-        .select("*")
-        .single();
-      if (error) throw error;
-
-      await syncModuleContextToAgents(
-        { CTX_DIR, writeContextToSupabase },
-        updated
-      );
-
-      res.json({
-        ok: true,
-        kind: "agent",
-        task,
-        agentTarget: task.agentTarget,
-        module: updated,
-        deployContext: {
-          sectionId: task.id,
-          sectionTitle: task.title,
-          summary: task.description,
-          bullets: [
-            updated.profile?.offer?.one_liner,
-            updated.profile?.audience?.icp,
-            updated.profile?.goals?.priority_90d,
-            updated.profile?.goals?.quantified_target,
-            updated.profile?.goals?.timeline_target,
-          ].filter(Boolean),
-        },
+      return res.status(400).json({
+        error: "Only Generate GTM strategy document is available from the wizard",
+        allowed: EXECUTE_TASK_CATALOG.map((t) => t.id),
       });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
@@ -3034,7 +2992,11 @@ export function registerGtmWizardRoutes(app, deps) {
       if (!moduleRow) return res.status(404).json({ error: "Module not found" });
       const strategy = moduleRow.profile?.strategy_document || null;
       if (!strategy) return res.status(404).json({ error: "No strategy document yet — generate first" });
-      res.json({ strategy, markdown: strategyToMarkdown(strategy) });
+      const channels =
+        strategy.channels ||
+        moduleRow.profile?.strategy_channels ||
+        buildStrategyChannels(strategy.sections);
+      res.json({ strategy: { ...strategy, channels }, channels, markdown: strategyToMarkdown(strategy) });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
     }
@@ -3049,20 +3011,27 @@ export function registerGtmWizardRoutes(app, deps) {
       if (!allInterviewLocked(moduleRow.section_state)) {
         return res.status(409).json({ error: "Lock all interview sections first" });
       }
-      const strategy = await generateStrategyWithLlm(groq, moduleRow);
+      const strategy = await assembleStrategyFromApprovedDrafts(groq, moduleRow);
+      if (!strategy.channels) strategy.channels = buildStrategyChannels(strategy.sections);
       const { data: updated, error } = await c
         .from("gtm_modules")
         .update({
           profile: {
             ...(moduleRow.profile || {}),
             strategy_document: strategy,
+            strategy_channels: strategy.channels,
           },
         })
         .eq("id", req.params.id)
         .select("*")
         .single();
       if (error) throw error;
-      res.json({ strategy, module: updated, markdown: strategyToMarkdown(strategy) });
+      res.json({
+        strategy,
+        channels: strategy.channels,
+        module: updated,
+        markdown: strategyToMarkdown(strategy),
+      });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
     }

@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { connectComposioConnector, formatConnectorError } from '@/lib/composio'
 import { isConnectorActive, connectorLabel } from '@/lib/connectorMeta'
 import {
-  FileText, Download, ExternalLink, Loader2, ArrowLeft, Link2, CheckCircle2,
+  FileText, Download, ExternalLink, Loader2, ArrowLeft, Link2, CheckCircle2, Hash,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { GtmStrategyDocument, GtmStrategyDocSection } from '@/types/gtm'
@@ -100,7 +100,15 @@ export function GtmStrategyDocumentView({
   onStrategyUpdate,
 }: Props) {
   const { user } = useAuth()
-  const [activeId, setActiveId] = useState(strategy.sections?.[0]?.id || 'executive_summary')
+  const channelSections = useMemo(
+    () => (strategy.sections || []).filter((s) => s.id !== 'executive_summary'),
+    [strategy.sections],
+  )
+  const execSection = useMemo(
+    () => (strategy.sections || []).find((s) => s.id === 'executive_summary'),
+    [strategy.sections],
+  )
+  const [activeId, setActiveId] = useState<string>('__overview__')
   const [docsConnected, setDocsConnected] = useState(false)
   const [checkingDocs, setCheckingDocs] = useState(Boolean(workspaceId))
   const [connectingDocs, setConnectingDocs] = useState(false)
@@ -108,10 +116,19 @@ export function GtmStrategyDocumentView({
   const [docUrl, setDocUrl] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
 
-  const active: GtmStrategyDocSection | undefined = useMemo(
-    () => strategy.sections?.find((s) => s.id === activeId) || strategy.sections?.[0],
-    [strategy.sections, activeId]
-  )
+  const active: GtmStrategyDocSection | undefined = useMemo(() => {
+    if (activeId === '__overview__') return execSection
+    return channelSections.find((s) => s.id === activeId) || channelSections[0]
+  }, [activeId, channelSections, execSection])
+
+  const channelLabel = (s: Pick<GtmStrategyDocSection, 'id' | 'title' | 'channel'>) => {
+    const raw = String(s.channel || '').trim()
+    if (raw.startsWith('#')) return raw.slice(1)
+    if (raw) return raw.replace(/^#/, '')
+    return String(s.id || s.title || '')
+      .replace(/_/g, '-')
+      .replace(/^#/, '')
+  }
 
   useEffect(() => {
     if (!workspaceId) {
@@ -279,13 +296,13 @@ export function GtmStrategyDocumentView({
         {onBack && (
           <Button type="button" variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack}>
             <ArrowLeft className="h-3.5 w-3.5" />
-            Directions
+            Back
           </Button>
         )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{strategy.title}</p>
           <p className="text-[11px] text-muted-foreground">
-            Full strategy · {strategy.sections?.length || 0} sections
+            Executive summary + {channelSections.length} strategy channels
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -360,17 +377,35 @@ export function GtmStrategyDocumentView({
         )}
       </div>
 
-      <div className="grid min-h-[420px] md:grid-cols-[220px_1fr]">
-        <aside className="border-r border-border/60 bg-muted/30">
+      <div className="grid min-h-[480px] md:grid-cols-[240px_1fr]">
+        <aside className="border-r border-border/60 bg-[#3f0e40] text-white/90 dark:bg-[#1a0b1c]">
           <div className="px-3 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Sections
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
+              Strategy workspace
             </p>
-            <p className="mt-1 truncate text-xs font-medium">{strategy.moduleName || 'GTM'}</p>
+            <p className="mt-1 truncate text-xs font-medium text-white/85">
+              {strategy.moduleName || 'GTM'}
+            </p>
           </div>
           <nav className="space-y-0.5 px-2 pb-3">
-            {(strategy.sections || []).map((s) => {
-              const selected = (active?.id || activeId) === s.id
+            <button
+              type="button"
+              onClick={() => setActiveId('__overview__')}
+              className={cn(
+                'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition',
+                activeId === '__overview__'
+                  ? 'bg-white/15 text-white'
+                  : 'text-white/70 hover:bg-white/10 hover:text-white',
+              )}
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span className="truncate">Executive summary</span>
+            </button>
+            <p className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+              Channels
+            </p>
+            {channelSections.map((s) => {
+              const selected = activeId === s.id
               return (
                 <button
                   key={s.id}
@@ -378,12 +413,11 @@ export function GtmStrategyDocumentView({
                   onClick={() => setActiveId(s.id)}
                   className={cn(
                     'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition',
-                    selected
-                      ? 'bg-foreground text-background'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    selected ? 'bg-white/15 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white',
                   )}
                 >
-                  <span className="truncate">{displaySectionLabel(s)}</span>
+                  <Hash className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  <span className="truncate">{channelLabel(s)}</span>
                 </button>
               )
             })}
@@ -392,79 +426,103 @@ export function GtmStrategyDocumentView({
 
         <div className="flex min-w-0 flex-col bg-background">
           <div className="flex items-center gap-2 border-b border-border/50 px-4 py-2.5">
-            <FileText className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">{displaySectionLabel(active)}</h3>
+            {activeId === '__overview__' ? (
+              <FileText className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <Hash className="h-4 w-4 text-muted-foreground" />
+            )}
+            <h3 className="text-sm font-semibold">
+              {activeId === '__overview__'
+                ? 'Executive summary'
+                : active
+                  ? `#${channelLabel(active)}`
+                  : 'Section'}
+            </h3>
+            {activeId !== '__overview__' && active?.title ? (
+              <span className="truncate text-xs text-muted-foreground">{active.title}</span>
+            ) : null}
           </div>
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-            {(() => {
-              const isExec = active?.id === 'executive_summary'
-              const lead =
-                isExec && strategy.executiveSummary ? strategy.executiveSummary : active?.summary
-              const body =
-                isExec &&
-                strategy.executiveSummary &&
-                String(active?.body || '').trim() === String(strategy.executiveSummary).trim()
-                  ? ''
-                  : isExec && strategy.executiveSummary && active?.summary === strategy.executiveSummary
-                    ? active?.body
-                    : active?.body
-              const showSectionSummary = !isExec && Boolean(active?.summary)
-              return (
-                <>
-                  {(isExec ? lead : showSectionSummary ? active?.summary : null) && (
-                    <p className="text-sm font-medium leading-6 text-foreground">
-                      {isExec ? lead : active?.summary}
-                    </p>
-                  )}
-                  {body && (
-                    <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{body}</p>
-                  )}
-                </>
-              )
-            })()}
-            {(active?.bullets || []).length > 0 && (
-              <ul className="space-y-2">
-                {active!.bullets.map((b, i) => (
-                  <li key={i} className="flex gap-2 text-sm leading-6 text-foreground">
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
-                    <span>{b}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {(active?.subsections || []).map((sub, i) => (
-              <div key={`sub-${i}`} className="space-y-2 border-t border-border/40 pt-4">
-                <h4 className="text-sm font-semibold">{sub.title}</h4>
-                {sub.body ? (
-                  <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{sub.body}</p>
+            {activeId === '__overview__' ? (
+              <>
+                <p className="text-sm font-medium leading-6 text-foreground">
+                  {strategy.executiveSummary || execSection?.summary || 'No executive summary yet.'}
+                </p>
+                {execSection?.body &&
+                String(execSection.body).trim() !== String(strategy.executiveSummary || '').trim() ? (
+                  <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">
+                    {execSection.body}
+                  </p>
                 ) : null}
-                {(sub.bullets || []).length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {sub.bullets!.map((b, j) => (
-                      <li key={j} className="flex gap-2 text-sm leading-6">
-                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500/70" />
+                {(execSection?.bullets || []).length > 0 ? (
+                  <ul className="space-y-2">
+                    {execSection!.bullets.map((b, i) => (
+                      <li key={i} className="flex gap-2 text-sm leading-6 text-foreground">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
                         <span>{b}</span>
                       </li>
                     ))}
                   </ul>
                 ) : null}
-              </div>
-            ))}
-            {!active && (
-              <p className="text-sm text-muted-foreground">Select a section to read it.</p>
+                {(strategy.nextSteps || []).length > 0 ? (
+                  <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      Next steps
+                    </p>
+                    <ul className="mt-2 space-y-1.5">
+                      {strategy.nextSteps.map((n, i) => (
+                        <li key={i} className="text-sm text-foreground">
+                          · {n}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  Open a channel in the sidebar to read each strategy section in order.
+                </p>
+              </>
+            ) : active ? (
+              <>
+                {active.summary ? (
+                  <p className="text-sm font-medium leading-6 text-foreground">{active.summary}</p>
+                ) : null}
+                {active.body ? (
+                  <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{active.body}</p>
+                ) : null}
+                {(active.bullets || []).length > 0 ? (
+                  <ul className="space-y-2">
+                    {active.bullets.map((b, i) => (
+                      <li key={i} className="flex gap-2 text-sm leading-6 text-foreground">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {(active.subsections || []).map((sub, i) => (
+                  <div key={`sub-${i}`} className="space-y-2 border-t border-border/40 pt-4">
+                    <h4 className="text-sm font-semibold">{sub.title}</h4>
+                    {sub.body ? (
+                      <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{sub.body}</p>
+                    ) : null}
+                    {(sub.bullets || []).length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {sub.bullets!.map((b, j) => (
+                          <li key={j} className="flex gap-2 text-sm leading-6">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500/70" />
+                            <span>{b}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Select a channel to read that section.</p>
             )}
           </div>
-
-          {(strategy.nextSteps || []).length > 0 && activeId === strategy.sections?.[0]?.id && (
-            <div className="border-t border-border/50 bg-muted/20 px-5 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Next steps</p>
-              <ul className="mt-1.5 space-y-1">
-                {strategy.nextSteps.map((n, i) => (
-                  <li key={i} className="text-xs text-foreground">· {n}</li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       </div>
     </div>

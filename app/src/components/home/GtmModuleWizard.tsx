@@ -246,7 +246,7 @@ export function GtmModuleWizard({
         pushChat({
           role: 'assistant',
           type: 'text',
-          text: 'Inputs complete. Generate the full GTM strategy document from all approved sections.',
+          text: 'Inputs complete. Generate the GTM strategy document — we’ll open executive summary plus Slack-style channels for every other section.',
         });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to load execute options');
@@ -746,7 +746,7 @@ export function GtmModuleWizard({
         pushChat({
           role: 'assistant',
           type: 'text',
-          text: 'GTM strategy document ready — all approved sections assembled with executive summary. Export PDF/Doc or open in Google Docs.',
+          text: 'GTM strategy ready. Executive summary is open; use the sidebar channels for each section in order. Everything is saved on this module.',
         });
         return;
       }
@@ -1026,26 +1026,30 @@ export function GtmModuleWizard({
         )}
 
         {phase === 'execute' && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {executeOptions.map((opt) => (
+          <div className="space-y-3">
+            {(executeOptions.filter((o) => o.id === 'gtm_strategy_doc').length
+              ? executeOptions.filter((o) => o.id === 'gtm_strategy_doc')
+              : [
+                  {
+                    id: 'gtm_strategy_doc',
+                    title: 'Generate GTM strategy document',
+                    description:
+                      'Assemble all approved sections into one document with executive summary and Slack-style strategy channels.',
+                    recommended: true,
+                    kind: 'document' as const,
+                    agentTarget: null,
+                  },
+                ]
+            ).map((opt) => (
               <button
                 key={opt.id}
                 type="button"
                 disabled={busy}
                 onClick={() => void handleExecute(opt)}
-                className={cn(
-                  'rounded-lg border p-3 text-left transition hover:border-foreground',
-                  opt.recommended && 'border-foreground bg-muted/40',
-                  opt.id === 'gtm_strategy_doc' && 'sm:col-span-2 border-orange-400/50 bg-orange-500/[0.06]'
-                )}
+                className="w-full rounded-lg border border-orange-400/50 bg-orange-500/[0.06] p-4 text-left transition hover:border-orange-400"
               >
                 <p className="text-sm font-semibold">{opt.title}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{opt.description}</p>
-                {opt.recommended && (
-                  <p className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Recommended
-                  </p>
-                )}
               </button>
             ))}
           </div>
