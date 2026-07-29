@@ -29,7 +29,10 @@ import type {
 } from '@/types/gtm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { GtmStrategyDocumentView } from '@/components/home/GtmStrategyDocumentView';
+import {
+  GTM_WIZARD_INTERVIEW_SECTION_IDS,
+  loadGtmAutoSections,
+} from '@/lib/gtmAutoSections';
 
 type WizardPhase = 'prep' | 'interview' | 'execute' | 'strategy' | 'done';
 
@@ -385,24 +388,33 @@ export function GtmModuleWizard({
       pushChat({
         role: 'assistant',
         type: 'text',
-        text: 'Context ready. Let’s lock your GTM module profile section by section.',
+        text: 'Context ready. We’ll lock only the GTM inputs we still need — module, offer, audience, and goals. Strategy sections from onboarding stay as drafts.',
       });
 
-      const order = [
-        'module',
-        'offer',
-        'market',
-        'audience',
-        'problem',
-        'positioning',
-        'distribution',
-        'content',
-        'leads',
-        'sales',
-        'goals',
-      ];
+      // Persist onboarding auto strategy drafts onto the module profile
+      if (workspaceId) {
+        const autoDrafts = loadGtmAutoSections(workspaceId);
+        if (autoDrafts.length) {
+          try {
+            sessionStorage.setItem(
+              `marqq_gtm_auto_sections_${readyModule.id}`,
+              JSON.stringify(autoDrafts),
+            );
+            const patched = await patchGtmModule(readyModule.id, {
+              autoStrategySections: autoDrafts,
+            }).catch(() => null);
+            if (patched?.module) readyModule = patched.module;
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      const order = [...GTM_WIZARD_INTERVIEW_SECTION_IDS];
       const next =
-        readyProgress?.currentSectionId && readyProgress.currentSectionId !== 'execute'
+        readyProgress?.currentSectionId &&
+        readyProgress.currentSectionId !== 'execute' &&
+        (order as readonly string[]).includes(readyProgress.currentSectionId)
           ? readyProgress.currentSectionId
           : order.find((id) => !readyModule?.section_state?.[id]?.locked) || null;
 

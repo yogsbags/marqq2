@@ -28,7 +28,9 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
             ? 'Ready for GTM'
             : phase === 'review'
               ? 'Brand DNA'
-              : 'Your AI Team'}
+              : phase === 'gtmAutoReview'
+                ? 'GTM drafts'
+                : 'Your AI Team'}
       </div>
 
       {/* Agent cards — 2 column grid */}
@@ -36,7 +38,7 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
         {AGENTS.map((agent) => {
           const isActive = activatedAgents.has(agent.id);
           const isActivating = activatingAgent === agent.id;
-          const dim = phase === 'welcome' || phase === 'form' || phase === 'review';
+          const dim = phase === 'welcome' || phase === 'form' || phase === 'review' || phase === 'gtmAutoReview';
 
           return (
             <div

@@ -1,4 +1,4 @@
-export type Phase = 'welcome' | 'form' | 'review' | 'activate' | 'done';
+export type Phase = 'welcome' | 'form' | 'review' | 'gtmAutoReview' | 'activate' | 'done';
 
 export type PrimaryGoal = 'leads' | 'conversion' | 'content' | 'market' | 'budget';
 

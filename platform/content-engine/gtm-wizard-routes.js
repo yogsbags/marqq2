@@ -588,7 +588,28 @@ export const GTM_INTERVIEW_SECTIONS = [
   },
 ];
 
-export const GTM_SECTION_ORDER = GTM_INTERVIEW_SECTIONS.map((s) => s.id);
+/**
+ * Wizard only asks sections that need real user input.
+ * Auto strategy sections (market, positioning, sales, …) are reviewed during onboarding.
+ */
+export const GTM_WIZARD_INTERVIEW_SECTION_IDS = ["module", "offer", "audience", "goals"];
+
+export const GTM_SECTION_ORDER = GTM_INTERVIEW_SECTIONS.map((s) => s.id).filter((id) =>
+  GTM_WIZARD_INTERVIEW_SECTION_IDS.includes(id)
+);
+
+export const GTM_AUTO_STRATEGY_SECTIONS = [
+  { id: "executive_summary", title: "Executive summary", channel: "#executive-summary" },
+  { id: "market_analysis", title: "Market analysis", channel: "#market-analysis" },
+  { id: "positioning_messaging", title: "Positioning & messaging", channel: "#positioning-messaging" },
+  { id: "distribution_channels", title: "Distribution & channels", channel: "#distribution-channels" },
+  { id: "marketing_strategy", title: "Marketing strategy", channel: "#marketing-strategy" },
+  { id: "sales_strategy", title: "Sales strategy", channel: "#sales-strategy" },
+  { id: "launch_plan", title: "Launch plan", channel: "#launch-plan" },
+  { id: "measurement_optimization", title: "Measurement & optimization", channel: "#measurement" },
+  { id: "risks_contingencies", title: "Risks & contingencies", channel: "#risks" },
+  { id: "timeline_roadmap", title: "Timeline & roadmap", channel: "#timeline-roadmap" },
+];
 
 export const EXECUTE_TASK_CATALOG = [
   {
@@ -1794,8 +1815,11 @@ function progressPayload(moduleRow) {
   const sectionState = moduleRow.section_state || {};
   const current =
     GTM_SECTION_ORDER.find((id) => !sectionState[id]?.locked) || null;
+  const interviewDefs = GTM_INTERVIEW_SECTIONS.filter((s) =>
+    GTM_WIZARD_INTERVIEW_SECTION_IDS.includes(s.id)
+  );
   return {
-    sections: GTM_INTERVIEW_SECTIONS.map((s) => ({
+    sections: interviewDefs.map((s) => ({
       id: s.id,
       title: s.title,
       description: s.description,
@@ -1935,6 +1959,10 @@ export function registerGtmWizardRoutes(app, deps) {
       }
 
       const profile = { ...(existing.profile || {}) };
+      if (Array.isArray(req.body?.autoStrategySections)) {
+        profile.auto_strategy_sections = req.body.autoStrategySections;
+        patch.profile = profile;
+      }
       if (patch.name || patch.module_type) {
         profile.module = {
           ...(profile.module || {}),
@@ -2873,14 +2901,168 @@ export function registerGtmWizardRoutes(app, deps) {
   // Schema / constants for client
   app.get("/api/gtm/schema", (_req, res) => {
     res.json({
-      sections: GTM_INTERVIEW_SECTIONS.map((s) => ({
+      sections: GTM_INTERVIEW_SECTIONS.filter((s) =>
+        GTM_WIZARD_INTERVIEW_SECTION_IDS.includes(s.id)
+      ).map((s) => ({
         id: s.id,
         title: s.title,
         description: s.description,
         questionIds: s.questions.map((q) => q.id),
       })),
+      autoStrategySections: GTM_AUTO_STRATEGY_SECTIONS,
       executeTasks: EXECUTE_TASK_CATALOG,
       strategyChannels: STRATEGY_SECTION_DEFS,
     });
+  });
+
+  /**
+   * Onboarding: generate one auto strategy section (no interview answers required).
+   * Uses Brand DNA + onboarding + prior approved auto sections.
+   */
+  app.post("/api/gtm/auto-sections/generate", async (req, res) => {
+    try {
+      const {
+        sectionId,
+        companyName,
+        websiteUrl,
+        industry,
+        icp,
+        brandDna,
+        onboarding,
+        priorSections,
+      } = req.body || {};
+
+      const def = GTM_AUTO_STRATEGY_SECTIONS.find((s) => s.id === sectionId);
+      if (!def) {
+        return res.status(400).json({
+          error: `Unknown auto section "${sectionId}"`,
+          allowed: GTM_AUTO_STRATEGY_SECTIONS.map((s) => s.id),
+        });
+      }
+
+      const company = String(companyName || brandDna?.companyName || "Company").trim();
+      const site = String(websiteUrl || brandDna?.websiteUrl || "").trim();
+      const prior = Array.isArray(priorSections) ? priorSections : [];
+
+      const fallback = {
+        id: def.id,
+        title: def.title,
+        channel: def.channel,
+        summary: `Recommended ${def.title.toLowerCase()} for ${company} based on available brand context.`,
+        bullets: [
+          `Focus ${def.title.toLowerCase()} on the beachhead ICP and 90-day pipeline goal.`,
+          "Prefer concrete plays over generic frameworks.",
+          "Call out one hard trade-off or deprioritization.",
+          "Tie every action to qualified pipeline or discovery conversations.",
+        ],
+        body: `${company} should treat ${def.title.toLowerCase()} as an executable recommendation set grounded in Brand DNA and site context${site ? ` (${site})` : ""}. Prioritize high-intent motions, keep spend lean, and defer low-ROI tactics until pipeline is seeded.`,
+      };
+
+      if (!groq) {
+        return res.json({ section: fallback, model: null });
+      }
+
+      const completion = await groq.chat.completions.create({
+        model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+        temperature: 0.4,
+        max_tokens: 1800,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are a senior GTM strategist. Generate ONE strategy section for onboarding review.
+
+Return STRICT JSON only:
+{
+  "id": "${def.id}",
+  "title": "${def.title}",
+  "channel": "${def.channel}",
+  "summary": "1-2 sentence recommendation (not a recap)",
+  "bullets": ["4-6 action bullets"],
+  "body": "4-7 sentences of actionable guidance"
+}
+
+Rules:
+- This is a RECOMMENDATION the user can edit — specific plays, tradeoffs, owners (roles), measurement.
+- Do not ask the user questions. Do not invent fake logos or fake metrics.
+- Prefer India/GCC/US realism when geography appears in context.
+- Include at least one hard choice or explicit deprioritization.
+- Stay consistent with prior approved sections when provided.`,
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              {
+                sectionId: def.id,
+                sectionTitle: def.title,
+                company,
+                websiteUrl: site || null,
+                industry: industry || onboarding?.industry || null,
+                icp: icp || onboarding?.icp || null,
+                onboarding: onboarding || null,
+                brandDna: brandDna
+                  ? {
+                      companyName: brandDna.companyName,
+                      websiteUrl: brandDna.websiteUrl,
+                      brandTagline: brandDna.brandTagline,
+                      businessSummary: brandDna.businessSummary,
+                      toneOfVoice: brandDna.toneOfVoice,
+                      colors: brandDna.colors,
+                      fonts: brandDna.fonts,
+                    }
+                  : null,
+                priorApprovedSections: prior.map((s) => ({
+                  id: s.id,
+                  title: s.title,
+                  summary: s.summary,
+                  bullets: s.bullets,
+                })),
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      });
+
+      const raw = completion.choices?.[0]?.message?.content || "";
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        const start = raw.indexOf("{");
+        const end = raw.lastIndexOf("}");
+        if (start >= 0 && end > start) {
+          try {
+            parsed = JSON.parse(raw.slice(start, end + 1));
+          } catch {
+            parsed = null;
+          }
+        }
+      }
+
+      const section = {
+        id: def.id,
+        title: String(parsed?.title || def.title).trim() || def.title,
+        channel: def.channel,
+        summary: String(parsed?.summary || fallback.summary).trim(),
+        bullets: (Array.isArray(parsed?.bullets) ? parsed.bullets : fallback.bullets)
+          .map((b) => String(b || "").trim())
+          .filter(Boolean)
+          .slice(0, 8),
+        body: String(parsed?.body || fallback.body).trim(),
+      };
+
+      if (!section.summary || !section.bullets.length) {
+        return res.json({ section: fallback, model: completion.model || null });
+      }
+
+      res.json({
+        section,
+        model: completion.model || process.env.GROQ_MODEL || null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
   });
 }

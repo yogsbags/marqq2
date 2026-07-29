@@ -3,6 +3,7 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { ActivationStep } from './ActivationStep';
 import { AgentGrid } from './AgentGrid';
 import { BrandDnaStep } from './BrandDnaStep';
+import { GtmAutoSectionStep } from './GtmAutoSectionStep';
 import { STEPS } from './constants';
 import { FormStep } from './FormStep';
 import { WelcomeStep } from './WelcomeStep';
@@ -14,7 +15,10 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
     activatingAgent, currentStep, canAdvance, handleNext, handleBack,
     handleSkip, handleActivate, brandDna, setBrandDna, brandDnaLoading,
     brandDnaError, retryBrandDna, totalSteps,
+    gtmAutoSections, setGtmAutoSections,
   } = useOnboarding(onComplete);
+
+  const reviewLike = phase === 'review' || phase === 'gtmAutoReview';
 
   return (
     <div className="fixed inset-0 z-[1000] flex bg-[#09090F] font-sans overflow-hidden text-[#EDEDF3]">
@@ -30,7 +34,7 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
       />
 
       <div className="flex-1 flex flex-col justify-start items-start px-6 py-8 md:px-12 md:py-10 lg:px-16 lg:py-12 relative z-10 w-full min-h-0 overflow-y-auto">
-        <div className={`w-full flex flex-col items-start ${phase === 'review' ? 'justify-start pb-10' : 'h-full justify-center'}`}>
+        <div className={`w-full flex flex-col items-start ${reviewLike ? 'justify-start pb-10' : 'h-full justify-center'}`}>
           {phase === 'welcome' && (
             <WelcomeStep
               onStart={() => setPhase('form')}
@@ -59,10 +63,22 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
               error={brandDnaError}
               workspaceId={activeWorkspace?.id}
               onChange={(next) => setBrandDna(next)}
-              onConfirm={handleActivate}
+              onConfirm={() => setPhase('gtmAutoReview')}
               onBack={handleBack}
               onSkip={handleActivate}
               onRetry={retryBrandDna}
+            />
+          )}
+
+          {phase === 'gtmAutoReview' && (
+            <GtmAutoSectionStep
+              brandDna={brandDna}
+              formData={formData}
+              approvedSections={gtmAutoSections}
+              onApprovedChange={setGtmAutoSections}
+              onConfirmAll={handleActivate}
+              onBack={() => setPhase('review')}
+              onSkip={handleActivate}
             />
           )}
 

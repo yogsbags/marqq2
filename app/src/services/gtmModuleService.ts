@@ -70,6 +70,15 @@ export async function patchGtmModule(
     moduleType?: GtmModuleType;
     active?: boolean;
     status?: string;
+    autoStrategySections?: Array<{
+      id: string;
+      title: string;
+      channel?: string;
+      summary: string;
+      bullets: string[];
+      body: string;
+      approvedAt?: string;
+    }>;
   }
 ): Promise<{ module: GtmModule; progress: GtmWizardProgress }> {
   const res = await fetch(`/api/gtm/modules/${id}`, {

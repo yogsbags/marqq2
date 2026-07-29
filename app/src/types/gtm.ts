@@ -104,15 +104,16 @@ export type GtmModuleStatus = 'draft' | 'in_progress' | 'ready' | 'archived';
 export type GtmInterviewSectionId =
   | 'module'
   | 'offer'
-  | 'market'
   | 'audience'
+  | 'goals'
+  // Legacy ids retained for older modules; wizard no longer interviews these
+  | 'market'
   | 'problem'
   | 'positioning'
   | 'distribution'
   | 'content'
   | 'leads'
-  | 'sales'
-  | 'goals';
+  | 'sales';
 
 export interface GtmSectionAnswer {
   value: string;

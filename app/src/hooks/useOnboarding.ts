@@ -6,6 +6,10 @@ import { BrandDna, FormData, Phase } from '../components/onboarding/types';
 import { markUserOnboardedLocal, clearNeedsOnboarding } from '@/lib/onboardingGate';
 import { startGtmPrep } from '@/services/gtmModuleService';
 import { supabase } from '@/lib/supabase';
+import {
+  saveGtmAutoSections,
+  type GtmAutoSectionDraft,
+} from '@/lib/gtmAutoSections';
 
 function normalizeWebsiteUrl(url: string) {
   try {
@@ -30,6 +34,7 @@ export function useOnboarding(onComplete: () => void) {
   const [brandDna, setBrandDna] = useState<BrandDna | null>(null);
   const [brandDnaLoading, setBrandDnaLoading] = useState(false);
   const [brandDnaError, setBrandDnaError] = useState<string | null>(null);
+  const [gtmAutoSections, setGtmAutoSections] = useState<GtmAutoSectionDraft[]>([]);
   const prepStartedForUrlRef = useRef<string | null>(null);
   const brandDnaFetchKeyRef = useRef<string | null>(null);
   const brandDnaReadyRef = useRef(false);
@@ -205,6 +210,9 @@ export function useOnboarding(onComplete: () => void) {
         if (brandDna) {
           localStorage.setItem(`marqq_brand_dna_${activeWorkspace.id}`, JSON.stringify(brandDna));
         }
+        if (gtmAutoSections.length) {
+          saveGtmAutoSections(activeWorkspace.id, gtmAutoSections);
+        }
       } catch {
         /* ignore */
       }
@@ -250,6 +258,10 @@ export function useOnboarding(onComplete: () => void) {
   };
 
   const handleBack = () => {
+    if (phase === 'gtmAutoReview') {
+      setPhase('review');
+      return;
+    }
     if (phase === 'review') {
       setPhase('form');
       return;
@@ -287,6 +299,8 @@ export function useOnboarding(onComplete: () => void) {
     brandDnaLoading,
     brandDnaError,
     retryBrandDna: () => void fetchBrandDna(formData, true),
+    gtmAutoSections,
+    setGtmAutoSections,
     totalSteps: STEPS.length,
   };
 }
