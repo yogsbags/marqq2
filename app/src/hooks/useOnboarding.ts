@@ -250,10 +250,6 @@ export function useOnboarding(onComplete: () => void) {
   };
 
   const handleBack = () => {
-    if (phase === 'brandVoiceReview') {
-      setPhase('review');
-      return;
-    }
     if (phase === 'review') {
       setPhase('form');
       return;
