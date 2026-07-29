@@ -127,6 +127,20 @@ export async function loadSectionQuestions(
   return readJsonOrThrow(res);
 }
 
+export async function refreshQuestionOptions(
+  sectionId: string,
+  moduleId: string,
+  questionId: string,
+  draftAnswers: Record<string, GtmSectionAnswer>
+): Promise<{ questionId: string; options: Array<{ value: string; label: string; recommended?: boolean }> }> {
+  const res = await fetch(`/api/gtm/sections/${sectionId}/question-options`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ moduleId, questionId, draftAnswers }),
+  });
+  return readJsonOrThrow(res);
+}
+
 export async function saveSectionAnswers(
   sectionId: string,
   moduleId: string,
@@ -173,8 +187,20 @@ export async function getExecuteOptions(moduleId: string): Promise<{
   options: GtmExecuteOption[];
   progress: GtmWizardProgress;
   profile: Record<string, unknown>;
+  hasStrategy?: boolean;
+  strategy?: import('@/types/gtm').GtmStrategyDocument | null;
+  postStrategyOptions?: GtmExecuteOption[];
 }> {
   const res = await fetch(`/api/gtm/modules/${moduleId}/execute-options`);
+  return readJsonOrThrow(res);
+}
+
+export async function getPostStrategyOptions(moduleId: string): Promise<{
+  options: GtmExecuteOption[];
+  strategyTitle?: string | null;
+  goalAlignment?: import('@/types/gtm').GtmStrategyGoalAlignment | null;
+}> {
+  const res = await fetch(`/api/gtm/modules/${moduleId}/post-strategy-options`);
   return readJsonOrThrow(res);
 }
 
@@ -244,7 +270,9 @@ export async function executeGtmTask(
     sectionTitle: string;
     summary: string;
     bullets: string[];
+    strategyContext?: Record<string, unknown>;
   };
+  postStrategyOptions?: GtmExecuteOption[];
 }> {
   const res = await fetch(`/api/gtm/modules/${moduleId}/execute`, {
     method: 'POST',

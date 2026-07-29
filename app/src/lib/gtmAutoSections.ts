@@ -169,6 +169,8 @@ export interface GtmAutoSectionDraft {
   bullets: string[];
   body: string;
   subsections?: GtmStrategySubsection[];
+  /** AI-proposed quantified north-star — editable before Looks good */
+  proposedNorthStar?: string;
   approvedAt?: string;
 }
 

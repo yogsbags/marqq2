@@ -103,6 +103,24 @@ export function GtmStrategySectionReview({
             </div>
           ) : null}
 
+          {draft.proposedNorthStar !== undefined ? (
+            <div className="mb-3 rounded-2xl border border-[#FF6521]/35 bg-[#FF6521]/10 px-5 py-4">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#FF6521]/90">
+                North-star target (edit before Looks good)
+              </p>
+              <textarea
+                value={draft.proposedNorthStar || ''}
+                onChange={(e) => patch({ proposedNorthStar: e.target.value })}
+                rows={2}
+                className="w-full resize-none bg-transparent text-[15px] font-medium leading-snug text-white outline-none placeholder:text-white/30"
+                placeholder="e.g. 25 qualified discovery calls in 90 days"
+              />
+              <p className="mt-2 text-[11px] text-white/40">
+                AI proposed this for your timeline. Confirming Looks good locks it as the goal every later agent optimizes toward.
+              </p>
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-3">
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-4">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">

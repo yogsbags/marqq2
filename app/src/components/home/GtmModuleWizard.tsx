@@ -16,6 +16,8 @@ import {
   loadSectionQuestions,
   lockGtmSection,
   patchGtmModule,
+  refreshQuestionOptions,
+  saveSectionAnswers,
   startGtmPrep,
   unlockGtmSection,
 } from '@/services/gtmModuleService';
@@ -126,6 +128,7 @@ export function GtmModuleWizard({
     },
   ]);
   const [executeOptions, setExecuteOptions] = useState<GtmExecuteOption[]>([]);
+  const [postStrategyOptions, setPostStrategyOptions] = useState<GtmExecuteOption[]>([]);
   const [strategyDoc, setStrategyDoc] = useState<GtmStrategyDocument | null>(null);
   const [strategyMarkdown, setStrategyMarkdown] = useState<string>('');
   const [modules, setModules] = useState<GtmModule[]>([]);
@@ -241,12 +244,31 @@ export function GtmModuleWizard({
         setModule(mod);
         setProgress(data.progress);
         setExecuteOptions(data.options);
+        setPostStrategyOptions(data.postStrategyOptions || []);
+
+        if (data.hasStrategy && data.strategy) {
+          setStrategyDoc(data.strategy);
+          setStrategyMarkdown('');
+          setPhase('strategy');
+          setSectionId('execute');
+          const ga = data.strategy.goalAlignment;
+          const targetLine = ga?.quantified_target
+            ? ` North star: ${ga.quantified_target}${ga.timeline_target ? ` by ${ga.timeline_target}` : ''}.`
+            : '';
+          pushChat({
+            role: 'assistant',
+            type: 'text',
+            text: `GTM strategy is locked.${targetLine} Next: marketing ideas (and other plays) reverse-engineered from that target — not a new ICP or strategy.`,
+          });
+          return;
+        }
+
         setPhase('execute');
         setSectionId('execute');
         pushChat({
           role: 'assistant',
           type: 'text',
-          text: 'Inputs complete. Generate the GTM strategy document — we’ll open executive summary plus Slack-style channels for every other section.',
+          text: 'Inputs complete. Generate the GTM strategy document first — quantified target + timeline become the north star; every section gets measurable sub-goals. Marketing ideas unlock after that.',
         });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to load execute options');
@@ -522,6 +544,36 @@ export function GtmModuleWizard({
         type: 'text',
         text: nextQ.question,
       });
+
+      // After timeline (or any prior answer), regenerate quantified options for that window
+      if (
+        module &&
+        sectionId === 'goals' &&
+        nextQ.id === 'quantified_target'
+      ) {
+        void (async () => {
+          try {
+            await saveSectionAnswers(sectionId, module.id, nextAnswers);
+            const refreshed = await refreshQuestionOptions(
+              sectionId,
+              module.id,
+              'quantified_target',
+              nextAnswers
+            );
+            if (refreshed?.options?.length) {
+              setQuestions((prev) =>
+                prev.map((item) =>
+                  item.id === 'quantified_target'
+                    ? { ...item, options: refreshed.options }
+                    : item
+                )
+              );
+            }
+          } catch {
+            /* keep prior options */
+          }
+        })();
+      }
     } else {
       setMultiSelected([]);
       pushChat({
@@ -651,11 +703,31 @@ export function GtmModuleWizard({
     setBusy(true);
     try {
       const isLast = reviewIndex >= reviewQueue.length - 1;
+      // If AI proposed a north-star, fold it into goals answers before lock
+      let nextAnswers = answers;
+      if (
+        sectionId === 'goals' &&
+        reviewDraft.proposedNorthStar?.trim()
+      ) {
+        const proposed = reviewDraft.proposedNorthStar.trim();
+        const existing = answers.quantified_target;
+        const weak =
+          !existing?.label ||
+          /ai_recommend|let marqq|tbd|unset|not sure/i.test(existing.label) ||
+          existing.label.length < 4;
+        if (weak) {
+          nextAnswers = {
+            ...answers,
+            quantified_target: { value: 'ai_proposed', label: proposed },
+          };
+          setAnswers(nextAnswers);
+        }
+      }
       const result = await approveInterviewStrategySection({
         moduleId: module.id,
         section: { ...reviewDraft, approvedAt: new Date().toISOString() },
         interviewSectionId: sectionId,
-        answers,
+        answers: nextAnswers,
         lockInterview: isLast,
       });
       setModule(result.module);
@@ -742,11 +814,16 @@ export function GtmModuleWizard({
         setStrategyDoc(result.strategy);
         setStrategyMarkdown(result.markdown || '');
         setModule(result.module);
+        setPostStrategyOptions(result.postStrategyOptions || []);
         setPhase('strategy');
+        const ga = result.strategy.goalAlignment;
+        const targetLine = ga?.quantified_target
+          ? ` North star locked: ${ga.quantified_target}${ga.timeline_target ? ` by ${ga.timeline_target}` : ''}.`
+          : '';
         pushChat({
           role: 'assistant',
           type: 'text',
-          text: 'GTM strategy ready. Executive summary is open; use the sidebar channels for each section in order. Everything is saved on this module.',
+          text: `GTM strategy ready.${targetLine} Executive summary is open; sidebar channels hold each section’s contribution to that goal. Next step: marketing ideas grounded in this strategy.`,
         });
         return;
       }
@@ -754,7 +831,7 @@ export function GtmModuleWizard({
       pushChat({
         role: 'assistant',
         type: 'text',
-        text: `Starting “${opt.title}”. Opening the workflow with your locked module profile.`,
+        text: `Starting “${opt.title}” from your locked strategy + quantified target.`,
       });
       setPhase('done');
       sessionStorage.removeItem('marqq_gtm_wizard_pending');
@@ -1034,7 +1111,7 @@ export function GtmModuleWizard({
                     id: 'gtm_strategy_doc',
                     title: 'Generate GTM strategy document',
                     description:
-                      'Assemble all approved sections into one document with executive summary and Slack-style strategy channels.',
+                      'Assemble all approved sections into one document with a quantified north-star target, section sub-goals, and Slack-style strategy channels.',
                     recommended: true,
                     kind: 'document' as const,
                     agentTarget: null,
@@ -1076,6 +1153,29 @@ export function GtmModuleWizard({
       )}
 
       {phase === 'strategy' && strategyDoc && module && (
+        <div className="space-y-4">
+          {strategyDoc.goalAlignment?.quantified_target ? (
+            <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm">
+              <p className="font-medium">North-star target</p>
+              <p className="mt-1 text-muted-foreground">
+                {strategyDoc.goalAlignment.quantified_target}
+                {strategyDoc.goalAlignment.timeline_target
+                  ? ` · by ${strategyDoc.goalAlignment.timeline_target}`
+                  : ''}
+              </p>
+              {(strategyDoc.goalAlignment.sectionTargets || []).length > 0 ? (
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                  {strategyDoc.goalAlignment.sectionTargets!.slice(0, 6).map((t) => (
+                    <li key={t.sectionId}>
+                      {t.sectionId}: {t.contribution || t.metric}
+                      {t.byWhen ? ` (${t.byWhen})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+
           <GtmStrategyDocumentView
             moduleId={module.id}
             workspaceId={workspaceId || module.workspace_id || module.company_id}
@@ -1087,7 +1187,33 @@ export function GtmModuleWizard({
             }}
             onStrategyUpdate={(doc) => setStrategyDoc(doc)}
           />
-        )}
+
+          {(postStrategyOptions.length
+            ? postStrategyOptions
+            : [
+                {
+                  id: 'marketing_ideas',
+                  title: 'Marketing ideas',
+                  description:
+                    'Catalog ideas reverse-engineered from your quantified GTM target and locked strategy.',
+                  agentTarget: 'company_intel_marketing_ideas' as AgentTarget,
+                  kind: 'agent' as const,
+                },
+              ]
+          ).map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              disabled={busy}
+              onClick={() => void handleExecute(opt)}
+              className="w-full rounded-lg border border-violet-400/40 bg-violet-500/[0.06] p-4 text-left transition hover:border-violet-400"
+            >
+              <p className="text-sm font-semibold">{opt.title}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{opt.description}</p>
+            </button>
+          ))}
+        </div>
+      )}
 
         {phase === 'done' && (
           <p className="text-sm text-muted-foreground">

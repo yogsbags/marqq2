@@ -29,6 +29,7 @@ export function deployGtmTask(
       sectionTitle: req.context.sectionTitle || '',
       summary: req.context.summary || '',
       bullets: req.context.bullets || [],
+      strategyContext: req.context.strategyContext,
     });
   }
 
@@ -42,6 +43,7 @@ export function deployGtmTask(
       companyId: req.companyId ?? null,
       summary: req.context?.summary || '',
       bullets: req.context?.bullets || [],
+      strategyContext: req.context?.strategyContext,
       autoGenerate: true,
     };
     try {

@@ -59,6 +59,19 @@ export interface GtmStrategyDocSection {
   subsections?: Array<{ title: string; body: string; bullets?: string[] }>;
 }
 
+export interface GtmStrategyGoalAlignment {
+  quantified_target?: string | null;
+  timeline_target?: string | null;
+  priority_90d?: string | null;
+  channel_bet?: string | null;
+  sectionTargets?: Array<{
+    sectionId: string;
+    metric?: string;
+    contribution?: string;
+    byWhen?: string;
+  }>;
+}
+
 export interface GtmStrategyDocument {
   title: string;
   executiveSummary: string;
@@ -68,6 +81,8 @@ export interface GtmStrategyDocument {
   sections: GtmStrategyDocSection[];
   /** Slack-style channels for sidebar (excludes executive summary) */
   channels?: Array<{ id: string; title: string; channel: string; order: number }>;
+  /** North-star target + per-section measurable sub-goals */
+  goalAlignment?: GtmStrategyGoalAlignment;
   nextSteps: string[];
   model?: string | null;
   skill_alignment?: {
@@ -217,5 +232,6 @@ export interface GtmDeployRequest {
     sectionTitle?: string;
     summary?: string;
     bullets?: string[];
+    strategyContext?: Record<string, unknown>;
   };
 }

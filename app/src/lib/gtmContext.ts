@@ -10,6 +10,8 @@ export interface GtmDeployContext {
   sectionTitle: string;
   summary: string;
   bullets: string[];
+  /** Full locked GTM strategy snapshot for post-strategy agents */
+  strategyContext?: Record<string, unknown>;
   timestamp: number;
   agentTarget: string;
 }
@@ -20,10 +22,14 @@ const CONTEXT_TTL = 3600000; // 1 hour
 /**
  * Store GTM context for a specific agent target
  */
-export function storeGtmContext(agentTarget: string, context: Omit<GtmDeployContext, 'timestamp' | 'agentTarget'>) {
+export function storeGtmContext(
+  agentTarget: string,
+  context: Omit<GtmDeployContext, 'timestamp' | 'agentTarget'>
+) {
   try {
     const fullContext: GtmDeployContext = {
       ...context,
+      strategyContext: context.strategyContext,
       agentTarget,
       timestamp: Date.now(),
     };

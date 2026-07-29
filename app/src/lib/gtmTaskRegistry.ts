@@ -384,5 +384,6 @@ export type GtmTaskAutorunPayload = {
   companyId?: string | null;
   summary?: string;
   bullets?: string[];
+  strategyContext?: Record<string, unknown>;
   autoGenerate: boolean;
 };

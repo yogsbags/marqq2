@@ -497,12 +497,12 @@ export const GTM_INTERVIEW_SECTIONS = [
   {
     id: "goals",
     title: "Goals",
-    description: "Define the objective, put a number on it, then set the timeline.",
+    description: "Define the objective and timeline, then lock a quantified north-star target.",
     questions: [
       {
         id: "priority_90d",
         question: "What is the primary marketing objective?",
-        helperText: "Pick the outcome you are optimizing for — numbers and timeline come next.",
+        helperText: "Pick the outcome you are optimizing for — timeline and number come next.",
         type: "multi_select",
         allowCustomAnswer: true,
         fixedOptions: [
@@ -513,24 +513,9 @@ export const GTM_INTERVIEW_SECTIONS = [
         ],
       },
       {
-        id: "quantified_target",
-        question: "What quantified target defines success?",
-        helperText: "Put a number on the objective (volume, rate, or revenue). Type a custom target if none fit.",
-        type: "single_select",
-        allowCustomAnswer: true,
-        fixedOptions: [
-          { value: "50_qualified_leads", label: "50 qualified leads", recommended: true },
-          { value: "200_qualified_leads", label: "200 qualified leads" },
-          { value: "20_pct_conversion_lift", label: "20% conversion-rate lift" },
-          { value: "3x_roas", label: "3× ROAS / payback" },
-          { value: "10k_pipeline", label: "₹10L / $12k pipeline influence" },
-          { value: "100k_reach", label: "100k reach / impressions" },
-        ],
-      },
-      {
         id: "timeline_target",
-        question: "By when should that target be hit?",
-        helperText: "Set the deadline after the number is clear.",
+        question: "By when should we hit the target?",
+        helperText: "Set the deadline first so the AI can propose a realistic number for that window.",
         type: "single_select",
         allowCustomAnswer: true,
         fixedOptions: [
@@ -539,6 +524,14 @@ export const GTM_INTERVIEW_SECTIONS = [
           { value: "90d", label: "90 days", recommended: true },
           { value: "2_quarters", label: "This half / 2 quarters" },
         ],
+      },
+      {
+        id: "quantified_target",
+        question: "What quantified target defines success?",
+        helperText: "AI suggests a realistic north-star for your timeline. Pick one, edit with custom text, or choose “Let Marqq recommend” and refine on the next review.",
+        type: "single_select",
+        allowCustomAnswer: true,
+        // No fixedOptions — generated from objective + timeline + company context
       },
       {
         id: "channel_bet",
@@ -662,6 +655,21 @@ export const EXECUTE_TASK_CATALOG = [
       "Assemble all approved strategy sections into one comprehensive document with executive summary.",
     agentTarget: null,
     kind: "document",
+  },
+];
+
+/**
+ * Available only AFTER strategy_document exists.
+ * Excludes ICP / positioning / channel briefs already covered by the strategy.
+ */
+export const POST_STRATEGY_TASK_CATALOG = [
+  {
+    id: "marketing_ideas",
+    title: "Marketing ideas",
+    description:
+      "Generate catalog ideas that reverse-engineer from your quantified GTM target and locked strategy — not a new strategy.",
+    agentTarget: "company_intel_marketing_ideas",
+    kind: "agent",
   },
 ];
 
@@ -1285,6 +1293,22 @@ function strategyToMarkdown(doc) {
     "",
   ];
 
+  const ga = doc.goalAlignment || {};
+  if (ga.quantified_target || ga.timeline_target || (ga.sectionTargets || []).length) {
+    lines.push("## North-star goal", "");
+    if (ga.quantified_target) lines.push(`**Target:** ${ga.quantified_target}`);
+    if (ga.timeline_target) lines.push(`**Timeline:** ${ga.timeline_target}`);
+    if (ga.priority_90d) lines.push(`**90-day priority:** ${ga.priority_90d}`);
+    if (ga.channel_bet) lines.push(`**Channel bet:** ${ga.channel_bet}`);
+    lines.push("");
+    for (const t of ga.sectionTargets || []) {
+      lines.push(
+        `- ${t.sectionId}: ${t.contribution || t.metric || ""}${t.byWhen ? ` (by ${t.byWhen})` : ""}`
+      );
+    }
+    if ((ga.sectionTargets || []).length) lines.push("");
+  }
+
   const sections = Array.isArray(doc.sections) ? doc.sections : [];
   const hasExecSection = sections.some((s) => s?.id === "executive_summary");
   if (!hasExecSection && doc.executiveSummary) {
@@ -1660,7 +1684,156 @@ Do NOT output feature lists or short product names.`,
   return guides[id] || "Options must directly answer the question. No unrelated feature lists.";
 }
 
-async function generateOptionsForQuestion(groq, question, sourceContext, profile) {
+
+function answerLabel(answers, id) {
+  const a = answers?.[id];
+  if (!a) return "";
+  if (typeof a === "string") return a.trim();
+  return String(a.label || a.value || "").trim();
+}
+
+function isWeakQuantifiedTarget(value) {
+  const v = String(value || "").toLowerCase().trim();
+  if (!v) return true;
+  if (v.length < 3) return true;
+  return /^(unset|tbd|n\/?a|ai_recommend|let marqq|recommend( a realistic)?|not sure|unknown|none|skip)$/i.test(v);
+}
+
+function fallbackQuantifiedTargetOptions(draftAnswers, profile, sourceContext) {
+  const objective = (
+    answerLabel(draftAnswers, "priority_90d") ||
+    profile?.goals?.priority_90d ||
+    ""
+  ).toLowerCase();
+  const timeline = (
+    answerLabel(draftAnswers, "timeline_target") ||
+    profile?.goals?.timeline_target ||
+    "90 days"
+  );
+  const company =
+    profile?.module?.name ||
+    sourceContext?.onboarding?.company ||
+    "this business";
+  const isAwareness = /aware|reach|brand/.test(objective);
+  const isRetention = /retain|expand|churn|nps/.test(objective);
+  const isConversion = /conversion|cvr|demo/.test(objective);
+  const short = /30/.test(timeline);
+  const long = /half|quarter|2_/.test(timeline);
+
+  if (isAwareness) {
+    const n = short ? "25k" : long ? "250k" : "100k";
+    return [
+      { value: `ai_${n}_reach`, label: `${n} qualified reach / impressions by ${timeline}`, recommended: true },
+      { value: "ai_brand_search_lift", label: `+30% branded search interest by ${timeline}` },
+      { value: "ai_content_followers", label: `2,000 engaged ICP followers by ${timeline}` },
+      { value: "ai_recommend", label: "Let Marqq recommend a realistic target" },
+    ];
+  }
+  if (isRetention) {
+    const n = short ? "5%" : long ? "20%" : "12%";
+    return [
+      { value: `ai_retention_${n}`, label: `${n} improvement in activation / retention by ${timeline}`, recommended: true },
+      { value: "ai_nrr", label: `110%+ net revenue retention by ${timeline}` },
+      { value: "ai_expansion", label: `8 expansion / upsell deals by ${timeline}` },
+      { value: "ai_recommend", label: "Let Marqq recommend a realistic target" },
+    ];
+  }
+  if (isConversion) {
+    const n = short ? "15%" : long ? "40%" : "25%";
+    return [
+      { value: `ai_cvr_${n}`, label: `${n} lift in demo→close or signup→paid by ${timeline}`, recommended: true },
+      { value: "ai_sql_rate", label: `2× MQL→SQL conversion rate by ${timeline}` },
+      { value: "ai_pipeline_win", label: `+10 closed-won deals from existing funnel by ${timeline}` },
+      { value: "ai_recommend", label: "Let Marqq recommend a realistic target" },
+    ];
+  }
+  const leads = short ? "12" : long ? "80" : "25";
+  return [
+    {
+      value: `ai_${leads}_qualified`,
+      label: `${leads} qualified discovery calls / ICP opportunities for ${company} by ${timeline}`,
+      recommended: true,
+    },
+    { value: "ai_pipeline", label: `₹15L / $18k influenced pipeline by ${timeline}` },
+    { value: "ai_customers", label: `6 paying ICP customers by ${timeline}` },
+    { value: "ai_recommend", label: "Let Marqq recommend a realistic target" },
+  ];
+}
+
+async function generateOptionsForQuestion(groq, question, sourceContext, profile, draftAnswers = {}) {
+  if (question.id === "quantified_target") {
+    // Always propose realistic north-star options for the chosen timeline
+    const labelMax = optionLabelLimit(question.id);
+    const objective =
+      answerLabel(draftAnswers, "priority_90d") || profile?.goals?.priority_90d || "";
+    const timeline =
+      answerLabel(draftAnswers, "timeline_target") || profile?.goals?.timeline_target || "90 days";
+    const system = `You generate exactly 4 quantified GTM north-star target options.
+Return JSON only: {"options":[{"value":"short_slug","label":"Human-readable option text","recommended":true|false}]}
+Rules:
+- Exactly 4 options; at most one recommended:true
+- EVERY option must include a concrete NUMBER and unit (leads, discovery calls, pipeline $, ROAS, conversion %, customers, etc.)
+- Fit the objective (${objective || "primary goal"}) AND the timeline (${timeline}) — do not propose annual targets for a 30-day window
+- Be realistic for an early/mid-stage company, not vanity mega-numbers
+- Option 4 may be value "ai_recommend" with label "Let Marqq recommend a realistic target"
+- Labels max ${labelMax} characters; no markdown`;
+    const user = JSON.stringify({
+      question: question.question,
+      questionId: question.id,
+      objective,
+      timeline,
+      draftAnswers,
+      sourceContext: {
+        onboarding: sourceContext?.onboarding || {},
+        crawlDigest: sourceContext?.crawlDigest || {},
+      },
+      lockedProfile: {
+        module: profile?.module,
+        offer: profile?.offer,
+        audience: profile?.audience,
+        goals: profile?.goals,
+      },
+    });
+    try {
+      if (groq) {
+        const completion = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          temperature: 0.35,
+          max_tokens: 900,
+        });
+        const raw = completion.choices?.[0]?.message?.content || "";
+        const parsed = parseJsonLoose(raw);
+        const options = Array.isArray(parsed?.options) ? parsed.options : [];
+        const cleaned = options
+          .map((o, i) => ({
+            value: String(o.value || `opt_${i + 1}`).slice(0, 80),
+            label: String(o.label || o.value || `Option ${i + 1}`).slice(0, labelMax),
+            recommended: Boolean(o.recommended),
+          }))
+          .filter((o) => o.label.trim());
+        if (cleaned.length >= 3) {
+          const four = cleaned.slice(0, 4);
+          while (four.length < 4) {
+            four.push({
+              value: "ai_recommend",
+              label: "Let Marqq recommend a realistic target",
+              recommended: false,
+            });
+          }
+          if (!four.some((o) => o.recommended)) four[0].recommended = true;
+          return four;
+        }
+      }
+    } catch (err) {
+      console.warn("[gtm-wizard] quantified option generation failed:", err.message);
+    }
+    return fallbackQuantifiedTargetOptions(draftAnswers, profile, sourceContext);
+  }
+
   if (Array.isArray(question.fixedOptions) && question.fixedOptions.length === 4) {
     return question.fixedOptions;
   }
@@ -1690,6 +1863,7 @@ ${questionOptionGuidance(question)}`;
     question: question.question,
     helperText: question.helperText || "",
     questionId: question.id,
+    draftAnswers,
     sourceContext: {
       onboarding: sourceContext?.onboarding || {},
       crawlDigest: sourceContext?.crawlDigest || {},
@@ -1873,6 +2047,7 @@ function normalizeStrategySection(raw, def) {
     }))
     .filter((sub) => sub.title || sub.body);
   const id = def.id;
+  const proposedNorthStar = String(raw?.proposedNorthStar || "").trim();
   return {
     id,
     title: String(raw?.title || def.title).trim() || def.title,
@@ -1884,6 +2059,7 @@ function normalizeStrategySection(raw, def) {
       .slice(0, 10),
     body: String(raw?.body || "").trim(),
     subsections,
+    ...(proposedNorthStar ? { proposedNorthStar } : {}),
   };
 }
 
@@ -1932,7 +2108,45 @@ async function generateOneStrategySection(groq, {
       },
     ],
   };
-  if (!groq) return fallback;
+  const answerTarget = answerLabel(answers, "quantified_target");
+  const profileTarget = profile?.goals?.quantified_target || "";
+  const needsProposedTarget =
+    interviewSectionId === "goals" ||
+    ["financial_plan", "measurement_optimization", "timeline_roadmap"].includes(def.id);
+  const weakTarget =
+    isWeakQuantifiedTarget(answerTarget) && isWeakQuantifiedTarget(profileTarget);
+  const timeline =
+    answerLabel(answers, "timeline_target") ||
+    profile?.goals?.timeline_target ||
+    "90 days";
+  const objective =
+    answerLabel(answers, "priority_90d") ||
+    profile?.goals?.priority_90d ||
+    "Generate qualified leads";
+
+  if (!groq) {
+    if (needsProposedTarget && weakTarget) {
+      const proposed =
+        fallbackQuantifiedTargetOptions(answers || {}, profile, moduleRow?.source_context)[0]
+          ?.label || `25 qualified discovery calls by ${timeline}`;
+      return normalizeStrategySection(
+        {
+          ...fallback,
+          proposedNorthStar: proposed,
+          subsections: [
+            {
+              title: "North-star target (AI proposed)",
+              body: `Proposed quantified target for ${timeline}: ${proposed}. Edit before Looks good if needed.`,
+              bullets: [proposed],
+            },
+            ...(fallback.subsections || []),
+          ],
+        },
+        def
+      );
+    }
+    return fallback;
+  }
 
   const completion = await groq.chat.completions.create({
     model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
@@ -1951,11 +2165,15 @@ Return STRICT JSON:
   "summary": "1-2 sentence recommendation",
   "bullets": ["4-7 action bullets"],
   "body": "5-10 sentences of actionable guidance",
-  "subsections": [{ "title": string, "body": string, "bullets": string[] }]
+  "subsections": [{ "title": string, "body": string, "bullets": string[] }],
+  "proposedNorthStar": "concrete quantified target string including number + unit + timeline, or null if already strong"
 }
 
 Rules:
 - Include 2-4 named subsections (not Slack channels).
+- Always include a subsection titled "Contribution to goal" — state this section's measurable share of the north-star target, by-when, and owner role.
+- If quantified target is missing, weak, TBD, or "Let Marqq recommend": you MUST set proposedNorthStar to a REALISTIC number for objective "${objective}" within timeline "${timeline}" (stage-appropriate, not vanity). Also add a subsection "North-star target (AI proposed)".
+- If a strong quantified target already exists, set proposedNorthStar to that same target (echo it) so the user can still edit before Looks good.
 - Recommendations, not interview recap.
 - No #channel headers.
 - Specific plays, tradeoffs, owners (roles), measurement.
@@ -1969,6 +2187,17 @@ Rules:
             interviewSectionId: interviewSectionId || null,
             moduleName: moduleRow?.name,
             profile,
+            needsProposedTarget,
+            weakTarget,
+            northStar: {
+              quantified_target: profileTarget || answerTarget || null,
+              timeline_target: timeline,
+              priority_90d: objective,
+              channel_bet:
+                answerLabel(answers, "channel_bet") ||
+                profile?.goals?.channel_bet ||
+                null,
+            },
             answers: answers || {},
             priorApprovedSections: (priorSections || []).map((s) => ({
               id: s.id,
@@ -1984,7 +2213,17 @@ Rules:
     ],
   });
   const parsed = parseJsonLoose(completion.choices?.[0]?.message?.content || "");
-  return normalizeStrategySection(parsed || fallback, def);
+  const normalized = normalizeStrategySection(parsed || fallback, def);
+  if (needsProposedTarget && !normalized.proposedNorthStar) {
+    if (!weakTarget && (profileTarget || answerTarget) && !isWeakQuantifiedTarget(profileTarget || answerTarget)) {
+      normalized.proposedNorthStar = profileTarget || answerTarget;
+    } else {
+      normalized.proposedNorthStar =
+        fallbackQuantifiedTargetOptions(answers || {}, profile, moduleRow?.source_context)[0]
+          ?.label || `25 qualified discovery calls by ${timeline}`;
+    }
+  }
+  return normalized;
 }
 
 async function assembleStrategyFromApprovedDrafts(groq, moduleRow) {
@@ -2010,6 +2249,7 @@ Return JSON:
 {
   "title": string,
   "executiveSummary": string,
+  "goalAlignment": { "quantified_target": string, "timeline_target": string, "sectionTargets": [{ "sectionId": string, "metric": string, "contribution": string, "byWhen": string }] },
   "sections": [{ "id", "title", "summary", "bullets", "body", "subsections": [{ "title", "body", "bullets" }] }],
   "nextSteps": string[]
 }
@@ -2017,7 +2257,12 @@ Rules:
 - Include ALL 16 section ids in order: ${GTM_FULL_STRATEGY_SECTION_ORDER.join(", ")}.
 - Prefer approved drafts verbatim when present; expand missing ones comprehensively with 2-4 subsections each.
 - executiveSummary: 2-4 sentences win condition + bets + what NOT to do.
-- No Slack #channel headers anywhere.
+- QUANTIFIED NORTH STAR: read goals.quantified_target + goals.timeline_target from the profile.
+  Reverse-engineer every section so it contributes a measurable sub-goal toward that number by that date.
+  Each section MUST include a subsection titled "Contribution to goal" with: metric, number/share of the north-star target, by-when, and owner role.
+  Example: if target is 20 discovery calls in 90 days, sales_strategy might own 12 calls, marketing_strategy 5 inbound, partner channel 3 — they must sum coherently (not duplicate the whole target).
+- Also return "goalAlignment": { "quantified_target": string, "timeline_target": string, "sectionTargets": [{ "sectionId", "metric", "contribution", "byWhen" }] }.
+- No Slack #channel headers in section titles/bodies.
 - nextSteps: 5 immediate actions for the next 14 days.`,
           },
           {
@@ -2047,6 +2292,22 @@ Rules:
           return normalizeStrategySection(map.get(id) || byId.get(id) || {}, def);
         });
         const exec = sections.find((s) => s.id === "executive_summary");
+        const profileGoals = moduleRow.profile?.goals || {};
+        const goalAlignment = {
+          quantified_target:
+            parsed?.goalAlignment?.quantified_target ||
+            profileGoals.quantified_target ||
+            null,
+          timeline_target:
+            parsed?.goalAlignment?.timeline_target ||
+            profileGoals.timeline_target ||
+            null,
+          priority_90d: profileGoals.priority_90d || null,
+          channel_bet: profileGoals.channel_bet || null,
+          sectionTargets: Array.isArray(parsed?.goalAlignment?.sectionTargets)
+            ? parsed.goalAlignment.sectionTargets
+            : [],
+        };
         return {
           title: String(parsed.title || `${moduleRow.name} GTM Strategy`).trim(),
           executiveSummary: String(
@@ -2057,6 +2318,7 @@ Rules:
           moduleName: moduleRow.name,
           sections,
           channels: buildStrategyChannels(sections),
+          goalAlignment,
           nextSteps: Array.isArray(parsed.nextSteps)
             ? parsed.nextSteps.map(String).filter(Boolean).slice(0, 8)
             : [],
@@ -2083,6 +2345,7 @@ Rules:
     );
   });
   const exec = sections.find((s) => s.id === "executive_summary");
+  const profileGoals = moduleRow.profile?.goals || {};
   return {
     title: `${moduleRow.name} GTM Strategy`,
     executiveSummary: String(exec?.summary || exec?.body || "").trim(),
@@ -2091,8 +2354,82 @@ Rules:
     moduleName: moduleRow.name,
     sections,
     channels: buildStrategyChannels(sections),
+    goalAlignment: {
+      quantified_target: profileGoals.quantified_target || null,
+      timeline_target: profileGoals.timeline_target || null,
+      priority_90d: profileGoals.priority_90d || null,
+      channel_bet: profileGoals.channel_bet || null,
+      sectionTargets: [],
+    },
     nextSteps: [],
     model: null,
+  };
+}
+
+
+function buildPostStrategyDeployContext(moduleRow, task) {
+  const strategy = moduleRow?.profile?.strategy_document || null;
+  const goals = moduleRow?.profile?.goals || {};
+  const ga = strategy?.goalAlignment || {};
+  const quantified = ga.quantified_target || goals.quantified_target || "";
+  const timeline = ga.timeline_target || goals.timeline_target || "";
+  const sectionTargets = Array.isArray(ga.sectionTargets) ? ga.sectionTargets : [];
+  const sectionLines = (strategy?.sections || [])
+    .filter((s) => s?.id && s.id !== "executive_summary")
+    .slice(0, 12)
+    .map((s) => {
+      const contrib = sectionTargets.find((t) => t.sectionId === s.id);
+      const metric = contrib
+        ? ` [sub-goal: ${contrib.contribution || contrib.metric || ""} by ${contrib.byWhen || timeline}]`
+        : "";
+      return `- ${s.title}: ${String(s.summary || "").slice(0, 180)}${metric}`;
+    });
+
+  const summary = [
+    `North-star GTM goal: ${quantified || "quantified target TBD"} by ${timeline || "timeline TBD"}.`,
+    strategy?.executiveSummary ? `Strategy: ${String(strategy.executiveSummary).slice(0, 500)}` : "",
+    "Generate marketing ideas that advance THIS strategy only — do not invent a conflicting ICP, positioning, or channel mix.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const bullets = [
+    quantified && `Quantified target: ${quantified}`,
+    timeline && `Timeline: ${timeline}`,
+    goals.channel_bet && `Lead channel bet: ${goals.channel_bet}`,
+    goals.priority_90d && `90-day priority: ${goals.priority_90d}`,
+    ...sectionLines,
+    ...sectionTargets.slice(0, 8).map(
+      (t) => `Sub-goal (${t.sectionId}): ${t.contribution || t.metric} by ${t.byWhen || timeline}`
+    ),
+  ].filter(Boolean);
+
+  return {
+    sectionId: task.id,
+    sectionTitle: task.title,
+    summary,
+    bullets,
+    strategyContext: {
+      title: strategy?.title || null,
+      executiveSummary: strategy?.executiveSummary || null,
+      goalAlignment: {
+        quantified_target: quantified || ga.quantified_target || null,
+        timeline_target: timeline || ga.timeline_target || null,
+        priority_90d: goals.priority_90d || ga.priority_90d || null,
+        channel_bet: goals.channel_bet || ga.channel_bet || null,
+        sectionTargets,
+      },
+      moduleName: moduleRow?.name || null,
+      sections: (strategy?.sections || []).map((s) => ({
+        id: s.id,
+        title: s.title,
+        summary: String(s.summary || "").slice(0, 400),
+        contribution:
+          (s.subsections || []).find((sub) =>
+            /contribution to goal/i.test(String(sub.title || ""))
+          )?.body || null,
+      })),
+    },
   };
 }
 
@@ -2579,6 +2916,42 @@ export function registerGtmWizardRoutes(app, deps) {
     }
   });
 
+  // ── Refresh options for one question (e.g. quantified after timeline) ─────
+  app.post("/api/gtm/sections/:sectionId/question-options", async (req, res) => {
+    try {
+      const sectionId = req.params.sectionId;
+      const def = sectionDef(sectionId);
+      if (!def) return res.status(404).json({ error: "Unknown section" });
+
+      const { moduleId, questionId, draftAnswers } = req.body || {};
+      if (!moduleId || !questionId) {
+        return res.status(400).json({ error: "moduleId and questionId are required" });
+      }
+      const q = def.questions.find((item) => item.id === questionId);
+      if (!q) return res.status(404).json({ error: "Unknown question" });
+
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, moduleId);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+
+      const mergedDraft = {
+        ...(moduleRow.section_state?.[sectionId]?.answers || {}),
+        ...(draftAnswers && typeof draftAnswers === "object" ? draftAnswers : {}),
+      };
+      const options = await generateOptionsForQuestion(
+        groq,
+        q,
+        moduleRow.source_context || {},
+        moduleRow.profile || {},
+        mergedDraft
+      );
+      res.json({ questionId, options });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
   // ── Section questions (4 options) ─────────────────────────────────────────
   app.post("/api/gtm/sections/:sectionId/questions", async (req, res) => {
     try {
@@ -2624,7 +2997,8 @@ export function registerGtmWizardRoutes(app, deps) {
           groq,
           q,
           sourceContext,
-          profile
+          profile,
+          draftAnswers
         );
         questions.push({
           id: q.id,
@@ -2897,9 +3271,14 @@ export function registerGtmWizardRoutes(app, deps) {
       }
 
       const profile = moduleRow.profile || {};
-      const options = EXECUTE_TASK_CATALOG.map((task) => ({
+      const hasStrategy = Boolean(profile.strategy_document);
+      const strategyOptions = EXECUTE_TASK_CATALOG.map((task) => ({
         ...task,
-        recommended: true,
+        recommended: !hasStrategy,
+        title: hasStrategy ? "Regenerate GTM strategy document" : task.title,
+        description: hasStrategy
+          ? "Rebuild the full strategy from approved drafts (updates north-star section sub-goals)."
+          : task.description,
         contextSummary: [
           profile.module?.name,
           profile.offer?.one_liner,
@@ -2911,8 +3290,28 @@ export function registerGtmWizardRoutes(app, deps) {
           .filter(Boolean)
           .join(" · "),
       }));
+      const postOptions = hasStrategy
+        ? POST_STRATEGY_TASK_CATALOG.map((task) => ({
+            ...task,
+            recommended: true,
+            contextSummary: [
+              profile.strategy_document?.title,
+              profile.strategy_document?.goalAlignment?.quantified_target,
+              profile.strategy_document?.goalAlignment?.timeline_target,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          }))
+        : [];
 
-      res.json({ options, progress: progressPayload(moduleRow), profile });
+      res.json({
+        options: hasStrategy ? [...postOptions, ...strategyOptions] : strategyOptions,
+        progress: progressPayload(moduleRow),
+        profile,
+        hasStrategy,
+        strategy: hasStrategy ? profile.strategy_document : null,
+        postStrategyOptions: postOptions,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
     }
@@ -2932,10 +3331,19 @@ export function registerGtmWizardRoutes(app, deps) {
       }
 
       const task = EXECUTE_TASK_CATALOG.find((t) => t.id === taskId);
-      if (!task) return res.status(400).json({ error: "Unknown taskId" });
+      const postTaskEarly = POST_STRATEGY_TASK_CATALOG.find((t) => t.id === taskId);
+      if (!task && !postTaskEarly) {
+        return res.status(400).json({
+          error: "Unknown taskId",
+          allowed: [
+            ...EXECUTE_TASK_CATALOG.map((t) => t.id),
+            ...POST_STRATEGY_TASK_CATALOG.map((t) => t.id),
+          ],
+        });
+      }
 
       // Document task: generate strategy and return it (no agent deploy)
-      if (task.kind === "document" || task.id === "gtm_strategy_doc") {
+      if (task && (task.kind === "document" || task.id === "gtm_strategy_doc")) {
         const strategy = await assembleStrategyFromApprovedDrafts(groq, moduleRow);
         if (!strategy.channels) {
           strategy.channels = buildStrategyChannels(strategy.sections);
@@ -2969,14 +3377,83 @@ export function registerGtmWizardRoutes(app, deps) {
           agentTarget: null,
           strategy,
           channels: strategy.channels,
+          postStrategyOptions: POST_STRATEGY_TASK_CATALOG,
           module: updated,
           markdown: strategyToMarkdown(strategy),
         });
       }
 
+      const postTask = postTaskEarly;
+      if (postTask) {
+        if (!moduleRow.profile?.strategy_document) {
+          return res.status(409).json({
+            error: "Generate the GTM strategy document before running post-strategy tasks",
+          });
+        }
+        const deployContext = buildPostStrategyDeployContext(moduleRow, postTask);
+        const { data: updated, error } = await c
+          .from("gtm_modules")
+          .update({
+            active: true,
+            status: "ready",
+            profile: {
+              ...(moduleRow.profile || {}),
+              last_executed_task: {
+                taskId: postTask.id,
+                agentTarget: postTask.agentTarget,
+                kind: "agent",
+                at: new Date().toISOString(),
+              },
+            },
+          })
+          .eq("id", req.params.id)
+          .select("*")
+          .single();
+        if (error) throw error;
+
+        await syncModuleContextToAgents(
+          { CTX_DIR, writeContextToSupabase },
+          updated
+        );
+
+        return res.json({
+          ok: true,
+          kind: "agent",
+          task: postTask,
+          agentTarget: postTask.agentTarget,
+          module: updated,
+          deployContext,
+        });
+      }
+
       return res.status(400).json({
-        error: "Only Generate GTM strategy document is available from the wizard",
-        allowed: EXECUTE_TASK_CATALOG.map((t) => t.id),
+        error: "Unknown task. Generate strategy first, then choose a post-strategy play.",
+        allowed: [
+          ...EXECUTE_TASK_CATALOG.map((t) => t.id),
+          ...POST_STRATEGY_TASK_CATALOG.map((t) => t.id),
+        ],
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  app.get("/api/gtm/modules/:id/post-strategy-options", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      if (!moduleRow.profile?.strategy_document) {
+        return res.status(409).json({
+          error: "Generate GTM strategy first",
+          options: [],
+        });
+      }
+      res.json({
+        options: POST_STRATEGY_TASK_CATALOG,
+        strategyTitle: moduleRow.profile.strategy_document.title || null,
+        goalAlignment: moduleRow.profile.strategy_document.goalAlignment || null,
       });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
@@ -3118,6 +3595,7 @@ export function registerGtmWizardRoutes(app, deps) {
       })),
       autoStrategySections: GTM_AUTO_STRATEGY_SECTIONS,
       executeTasks: EXECUTE_TASK_CATALOG,
+      postStrategyTasks: POST_STRATEGY_TASK_CATALOG,
       strategyChannels: STRATEGY_SECTION_DEFS,
     });
   });
@@ -3385,6 +3863,15 @@ Rules:
         ...(moduleRow.profile || {}),
         auto_strategy_sections: merged,
       };
+      const proposed = String(section?.proposedNorthStar || normalized.proposedNorthStar || "").trim();
+      if (proposed) {
+        profile.goals = { ...(profile.goals || {}) };
+        const existing = profile.goals.quantified_target || "";
+        if (isWeakQuantifiedTarget(existing)) {
+          profile.goals.quantified_target = proposed;
+          profile.goals.quantified_target_source = "ai_proposed";
+        }
+      }
       const sectionState = { ...(moduleRow.section_state || {}) };
       let nextSectionId = null;
       let lockedAll = allInterviewLocked(sectionState);
@@ -3398,16 +3885,31 @@ Rules:
         };
         const normalizedAnswers = {};
         for (const q of idef.questions) {
-          const a = mergedAnswers[q.id];
+          let a = mergedAnswers[q.id];
+          if (
+            q.id === "quantified_target" &&
+            proposed &&
+            (!a || isWeakQuantifiedTarget(String(a?.label || a?.value || a || "")))
+          ) {
+            a = { value: "ai_proposed", label: proposed };
+          }
           if (!a || !(a.value || a.label || typeof a === "string")) {
             return res.status(400).json({
               error: `Missing answer for question "${q.id}"`,
             });
           }
-          normalizedAnswers[q.id] = {
-            value: String(a.value ?? a).trim(),
-            label: String(a.label ?? a.value ?? a).trim(),
-          };
+          const label = String(a.label ?? a.value ?? a).trim();
+          const value = String(a.value ?? a).trim();
+          // Replace placeholder "Let Marqq recommend" with concrete proposed north star
+          if (
+            q.id === "quantified_target" &&
+            proposed &&
+            (isWeakQuantifiedTarget(label) || /ai_recommend|let marqq/i.test(label))
+          ) {
+            normalizedAnswers[q.id] = { value: "ai_proposed", label: proposed };
+          } else {
+            normalizedAnswers[q.id] = { value, label };
+          }
         }
         const idx = GTM_SECTION_ORDER.indexOf(interviewSectionId);
         for (let i = 0; i < idx; i++) {

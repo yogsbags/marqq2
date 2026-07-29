@@ -607,10 +607,18 @@ export function CompanyIntelligenceFlow({
       setCompanyDetails(existingDetails)
       setSelectedCompanyId(companyId)
 
+      const ga = (payload.strategyContext?.goalAlignment || {}) as {
+        quantified_target?: string
+        timeline_target?: string
+      }
       const notes = [
         payload.summary,
         ...(payload.bullets || []),
-        'Use the locked GTM module profile for this company.',
+        payload.strategyContext
+          ? `LOCKED_GTM_STRATEGY_JSON: ${JSON.stringify(payload.strategyContext).slice(0, 12000)}`
+          : '',
+        'Use the locked GTM module profile and strategy for this company.',
+        'Do not invent a conflicting ICP, positioning, or channel mix — execute against the strategy.',
       ]
         .filter(Boolean)
         .join('\n')
@@ -621,13 +629,18 @@ export function CompanyIntelligenceFlow({
         body: JSON.stringify({
           type: payload.artifactType,
           inputs: {
-            goal: payload.summary || 'Increase qualified leads',
+            goal:
+              ga.quantified_target ||
+              payload.summary ||
+              'Increase qualified leads',
             geo: 'India',
-            timeframe: '90 days',
+            timeframe: ga.timeline_target || '90 days',
             channels: ['instagram', 'linkedin', 'youtube', 'whatsapp'],
             notes,
             gtmAgentTarget: payload.agentTarget,
             agentName: payload.agentName,
+            gtmStrategyContext: payload.strategyContext || null,
+            goalAlignment: payload.strategyContext?.goalAlignment || null,
           },
         }),
       })
