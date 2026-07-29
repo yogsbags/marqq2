@@ -30,8 +30,8 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
         activatingAgent={activatingAgent}
       />
 
-      <div className="flex-1 flex flex-col justify-center items-start px-6 py-8 md:px-12 md:py-10 lg:px-16 lg:py-12 relative z-10 w-full overflow-y-auto">
-        <div className="w-full h-full flex flex-col items-start justify-center">
+      <div className="flex-1 flex flex-col justify-start items-start px-6 py-8 md:px-12 md:py-10 lg:px-16 lg:py-12 relative z-10 w-full min-h-0 overflow-y-auto">
+        <div className={`w-full flex flex-col items-start ${phase === 'review' || phase === 'brandVoiceReview' ? 'justify-start pb-10' : 'h-full justify-center'}`}>
           {phase === 'welcome' && (
             <WelcomeStep
               onStart={() => setPhase('form')}

@@ -28,6 +28,75 @@ function normalizeList(items: unknown): string[] {
     .slice(0, 12);
 }
 
+function GuidelineList({
+  label,
+  items,
+  onChangeItem,
+  onRemove,
+  draft,
+  setDraft,
+  onAdd,
+  placeholder,
+}: {
+  label: string;
+  items: string[];
+  onChangeItem: (idx: number, value: string) => void;
+  onRemove: (idx: number) => void;
+  draft: string;
+  setDraft: (v: string) => void;
+  onAdd: () => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-3.5">
+      <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+        {label}
+      </p>
+      <div className="space-y-2">
+        {items.map((t, idx) => (
+          <div key={`${label}-${idx}`} className="flex items-center gap-2">
+            <input
+              value={t}
+              onChange={(e) => onChangeItem(idx, e.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-[12px] leading-snug text-white/75 outline-none"
+            />
+            <button
+              type="button"
+              aria-label={`Remove ${label}`}
+              onClick={() => onRemove(idx)}
+              className="shrink-0 rounded p-1 text-white/35 transition hover:bg-white/5 hover:text-white/80"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onAdd();
+            }
+          }}
+          placeholder={placeholder}
+          className="flex-1 rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-[12px] text-white/80 outline-none placeholder:text-white/25"
+        />
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={!draft.trim()}
+          className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/85 transition hover:bg-white/15 disabled:opacity-40"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function BrandVoiceStep({
   brandDna,
   workspaceId,
@@ -75,8 +144,8 @@ export function BrandVoiceStep({
             content:
               'You are a brand voice strategist. Return STRICT JSON ONLY. No markdown. No extra text. ' +
               'Output schema: { "tone": string[], "dosList": string[], "dontsList": string[] }. ' +
-              'Constraints: each array must have 3-8 items (if insufficient, use fewer but non-empty where possible). ' +
-              'Each string should be actionable and specific (1 short sentence).',
+              'Constraints: each array must have 3-6 short items. Tone items are 1-3 words. ' +
+              'Do/Dont items are one short actionable sentence each.',
           },
           {
             role: 'user',
@@ -116,12 +185,11 @@ export function BrandVoiceStep({
         tone: normalizeList(parsed.tone),
         dosList: normalizeList(parsed.dosList),
         dontsList: normalizeList(parsed.dontsList),
-      } as { tone: string[]; dosList: string[]; dontsList: string[] };
+      };
 
-      // Key variant tolerance (in case LLM outputs different spellings)
       if (!next.dontsList.length) {
         next.dontsList = normalizeList(
-          parsed.dontsList || parsed.dontList || parsed.donts || parsed.dont || parsed.dont_sList,
+          parsed.dontList || parsed.donts || parsed.dont || parsed.dont_sList,
         );
       }
 
@@ -154,7 +222,7 @@ export function BrandVoiceStep({
     onBrandDnaUpdate({
       ...brandDna,
       brandVoice: {
-        tone: tone,
+        tone,
         dosList,
         dontsList,
         ...partial,
@@ -187,54 +255,64 @@ export function BrandVoiceStep({
     setNewDont('');
   }
 
-  function removeAt(listKey: 'tone' | 'dosList' | 'dontsList', idx: number) {
-    if (listKey === 'tone') updateVoice({ tone: tone.filter((_, i) => i !== idx) });
-    if (listKey === 'dosList') updateVoice({ dosList: dosList.filter((_, i) => i !== idx) });
-    if (listKey === 'dontsList') updateVoice({ dontsList: dontsList.filter((_, i) => i !== idx) });
-  }
+  const footer = (
+    <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] bg-[#09090F]/95 pt-4 backdrop-blur-sm">
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-sm text-white/45 transition hover:text-white/80"
+      >
+        Back
+      </button>
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={onSkip}
+          className="text-sm text-white/35 transition hover:text-white/60"
+        >
+          Skip Onboarding
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-white/90"
+        >
+          Looks Good →
+        </button>
+      </div>
+    </div>
+  );
 
   if (!brandDna) {
     return (
-      <div className="w-full max-w-[560px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex w-full max-w-[560px] flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="mb-7 text-center">
           <h1 className="font-syne text-[30px] font-bold tracking-tight text-white md:text-[34px]">
             Review your Brand Voice
           </h1>
           <p className="mt-2 text-sm text-white/45">Brand DNA is missing.</p>
         </div>
-        <div className="mt-8 flex items-center justify-between gap-3">
-          <button type="button" onClick={onBack} className="text-sm text-white/45 transition hover:text-white/80">
-            Back
-          </button>
-          <div className="flex items-center gap-4">
-            <button type="button" onClick={onSkip} className="text-sm text-white/35 transition hover:text-white/60">
-              Skip Onboarding
-            </button>
-            <button type="button" onClick={onConfirm} className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-white/90">
-              Looks Good →
-            </button>
-          </div>
-        </div>
+        {footer}
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-[560px] animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="mb-7 text-center">
+    <div className="flex w-full max-w-[560px] flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="mb-6 shrink-0 text-center">
         <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-[#FF6521]/15">
-          <span className="text-lg leading-none text-[#FF6521]">*</span>
+          <span className="text-lg leading-none text-[#FF6521]">✦</span>
         </div>
         <h1 className="font-syne text-[30px] font-bold tracking-tight text-white md:text-[34px]">
           Review your Brand Voice
         </h1>
         <p className="mt-2 text-sm text-white/45">
-          Tone, do's, and don'ts for consistent messaging across your agents.
+          Tone, do&apos;s, and don&apos;ts your agents will follow when writing.
         </p>
       </div>
 
       {error ? (
-        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+        <div className="mb-4 shrink-0 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
           {error}
           <button
             type="button"
@@ -246,169 +324,64 @@ export function BrandVoiceStep({
         </div>
       ) : null}
 
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-4">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-            Tone (how we sound)
-          </p>
+      {generating && !tone.length && !dosList.length ? (
+        <div className="mb-4 flex items-center gap-2 text-sm text-white/50">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Generating brand voice from your Brand DNA…
+        </div>
+      ) : null}
 
-          <div className="space-y-2">
-            {tone.map((t, idx) => (
-              <div key={`${idx}-${t}`} className="flex items-start gap-2">
-                <textarea
-                  value={t}
-                  onChange={(e) => updateVoice({ tone: tone.map((x, i) => (i === idx ? e.target.value : x)) })}
-                  rows={2}
-                  className="w-full resize-none rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-[12px] leading-relaxed text-white/75 outline-none"
-                />
-                <button
-                  type="button"
-                  aria-label="Remove tone"
-                  onClick={() => removeAt('tone', idx)}
-                  className="mt-1 rounded p-1 text-white/35 transition hover:bg-white/5 hover:text-white/80"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-3 flex gap-2">
-            <input
-              value={newTone}
-              onChange={(e) => setNewTone(e.target.value)}
-              placeholder="Add tone guideline"
-              className="flex-1 rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-[12px] text-white/80 outline-none placeholder:text-white/25"
-            />
-            <button
-              type="button"
-              onClick={addTone}
-              disabled={!newTone.trim()}
-              className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/85 transition hover:bg-white/15 disabled:opacity-40"
-            >
-              Add
-            </button>
-          </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <GuidelineList
+            label="Tone"
+            items={tone}
+            onChangeItem={(idx, value) =>
+              updateVoice({ tone: tone.map((x, i) => (i === idx ? value : x)) })
+            }
+            onRemove={(idx) => updateVoice({ tone: tone.filter((_, i) => i !== idx) })}
+            draft={newTone}
+            setDraft={setNewTone}
+            onAdd={addTone}
+            placeholder="e.g. Approachable"
+          />
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-4">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-            Do (what to say)
-          </p>
-          <div className="space-y-2">
-            {dosList.map((t, idx) => (
-              <div key={`${idx}-${t}`} className="flex items-start gap-2">
-                <textarea
-                  value={t}
-                  onChange={(e) => updateVoice({ dosList: dosList.map((x, i) => (i === idx ? e.target.value : x)) })}
-                  rows={2}
-                  className="w-full resize-none rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-[12px] leading-relaxed text-white/75 outline-none"
-                />
-                <button
-                  type="button"
-                  aria-label="Remove do"
-                  onClick={() => removeAt('dosList', idx)}
-                  className="mt-1 rounded p-1 text-white/35 transition hover:bg-white/5 hover:text-white/80"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <input
-              value={newDo}
-              onChange={(e) => setNewDo(e.target.value)}
-              placeholder="Add do guideline"
-              className="flex-1 rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-[12px] text-white/80 outline-none placeholder:text-white/25"
-            />
-            <button
-              type="button"
-              onClick={addDo}
-              disabled={!newDo.trim()}
-              className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/85 transition hover:bg-white/15 disabled:opacity-40"
-            >
-              Add
-            </button>
-          </div>
-        </div>
+        <GuidelineList
+          label="Do"
+          items={dosList}
+          onChangeItem={(idx, value) =>
+            updateVoice({ dosList: dosList.map((x, i) => (i === idx ? value : x)) })
+          }
+          onRemove={(idx) => updateVoice({ dosList: dosList.filter((_, i) => i !== idx) })}
+          draft={newDo}
+          setDraft={setNewDo}
+          onAdd={addDo}
+          placeholder="Add a do guideline"
+        />
 
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-4">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-            Don't (what to avoid)
-          </p>
-          <div className="space-y-2">
-            {dontsList.map((t, idx) => (
-              <div key={`${idx}-${t}`} className="flex items-start gap-2">
-                <textarea
-                  value={t}
-                  onChange={(e) => updateVoice({ dontsList: dontsList.map((x, i) => (i === idx ? e.target.value : x)) })}
-                  rows={2}
-                  className="w-full resize-none rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-[12px] leading-relaxed text-white/75 outline-none"
-                />
-                <button
-                  type="button"
-                  aria-label="Remove dont"
-                  onClick={() => removeAt('dontsList', idx)}
-                  className="mt-1 rounded p-1 text-white/35 transition hover:bg-white/5 hover:text-white/80"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <input
-              value={newDont}
-              onChange={(e) => setNewDont(e.target.value)}
-              placeholder="Add don't guideline"
-              className="flex-1 rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-[12px] text-white/80 outline-none placeholder:text-white/25"
-            />
-            <button
-              type="button"
-              onClick={addDont}
-              disabled={!newDont.trim()}
-              className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/85 transition hover:bg-white/15 disabled:opacity-40"
-            >
-              Add
-            </button>
-          </div>
-        </div>
-
-        {generating ? (
-          <div className="flex items-center gap-2 text-xs text-white/50">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Generating brand voice...
-          </div>
-        ) : null}
+        <GuidelineList
+          label="Don't"
+          items={dontsList}
+          onChangeItem={(idx, value) =>
+            updateVoice({ dontsList: dontsList.map((x, i) => (i === idx ? value : x)) })
+          }
+          onRemove={(idx) => updateVoice({ dontsList: dontsList.filter((_, i) => i !== idx) })}
+          draft={newDont}
+          setDraft={setNewDont}
+          onAdd={addDont}
+          placeholder="Add a don't guideline"
+        />
       </div>
 
-      <div className="mt-8 flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm text-white/45 transition hover:text-white/80"
-        >
-          Back
-        </button>
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={onSkip}
-            className="text-sm text-white/35 transition hover:text-white/60"
-          >
-            Skip Onboarding
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-white/90"
-          >
-            Looks Good →
-          </button>
+      {generating && (tone.length > 0 || dosList.length > 0) ? (
+        <div className="mt-3 flex items-center gap-2 text-xs text-white/45">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Refreshing…
         </div>
-      </div>
+      ) : null}
+
+      <div className="mt-6 shrink-0">{footer}</div>
     </div>
   );
 }
-
