@@ -43,6 +43,10 @@ export type BrowserSpeechSession = {
   abort: () => void
 }
 
+export type BrowserSpeechOptions = {
+  onPartial?: (text: string) => void
+}
+
 declare global {
   interface Window {
     SpeechRecognition?: BrowserSpeechRecognitionCtor
@@ -83,7 +87,12 @@ export function browserSpeechRecognitionSupported(): boolean {
   return Boolean(getSpeechRecognitionCtor())
 }
 
-export function startBrowserSpeechRecognition(language: SupportedLanguage): BrowserSpeechSession | null {
+const STOP_TIMEOUT_MS = 2500
+
+export function startBrowserSpeechRecognition(
+  language: SupportedLanguage,
+  options: BrowserSpeechOptions = {},
+): BrowserSpeechSession | null {
   const SpeechRecognitionCtor = getSpeechRecognitionCtor()
   if (!SpeechRecognitionCtor) return null
 
@@ -99,15 +108,19 @@ export function startBrowserSpeechRecognition(language: SupportedLanguage): Brow
   let stopResolver: ((value: string) => void) | null = null
   let stopRejecter: ((reason?: unknown) => void) | null = null
   let settled = false
+  let ended = false
+
+  const currentText = () => normalizeTranscript(`${latestFinal} ${latestInterim}`)
 
   const finalize = () => {
-    if (!stopResolver || settled) return
+    if (settled) return
     settled = true
+    ended = true
     if (latestError && !latestFinal && !latestInterim) {
       stopRejecter?.(new Error(mapSpeechError(latestError)))
       return
     }
-    stopResolver(normalizeTranscript(`${latestFinal} ${latestInterim}`))
+    stopResolver?.(currentText())
   }
 
   recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
@@ -121,6 +134,7 @@ export function startBrowserSpeechRecognition(language: SupportedLanguage): Brow
     }
     if (finalText.trim()) latestFinal = normalizeTranscript(`${latestFinal} ${finalText}`)
     latestInterim = normalizeTranscript(interimText)
+    options.onPartial?.(currentText())
   }
 
   recognition.onerror = (event: BrowserSpeechRecognitionErrorEvent) => {
@@ -128,27 +142,64 @@ export function startBrowserSpeechRecognition(language: SupportedLanguage): Brow
   }
 
   recognition.onend = () => {
-    finalize()
+    ended = true
+    // Only settle the stop() promise once the caller asked to stop (or we already have a resolver).
+    if (stopResolver) finalize()
   }
 
-  recognition.start()
+  try {
+    recognition.start()
+  } catch {
+    return null
+  }
 
   return {
     stop: () =>
       new Promise<string>((resolve, reject) => {
-        stopResolver = resolve
-        stopRejecter = reject
+        if (settled) {
+          resolve(currentText())
+          return
+        }
+
+        let timer: number | null = null
+        stopResolver = (value: string) => {
+          if (timer != null) window.clearTimeout(timer)
+          resolve(value)
+        }
+        stopRejecter = (reason?: unknown) => {
+          if (timer != null) window.clearTimeout(timer)
+          reject(reason)
+        }
+
+        if (ended) {
+          finalize()
+          return
+        }
+
+        timer = window.setTimeout(() => {
+          if (settled) return
+          settled = true
+          resolve(currentText())
+          try {
+            recognition.abort()
+          } catch {
+            /* ignore */
+          }
+        }, STOP_TIMEOUT_MS)
+
         try {
           recognition.stop()
         } catch {
-          resolve(normalizeTranscript(`${latestFinal} ${latestInterim}`))
+          if (timer != null) window.clearTimeout(timer)
+          settled = true
+          resolve(currentText())
         }
       }),
     abort: () => {
       try {
         recognition.abort()
       } catch {
-        // ignore abort errors from already-finished sessions
+        /* ignore */
       }
     },
   }

@@ -83,19 +83,44 @@ function pickSrcFromSrcset(srcset) {
   return first || null;
 }
 
+function decodeUriSafe(value) {
+  const raw = String(value || "");
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, " "));
+  } catch {
+    return raw;
+  }
+}
+
 function looksLikeLogoText(value) {
-  return /\b(logo|logotype|brandmark|brand-logo|site-logo|navbar-brand|header-logo)\b/i.test(
-    String(value || ""),
+  const text = decodeUriSafe(value);
+  // Match "logo" as a token even when URL-encoded spaces (%20) glued digits to the word
+  // e.g. "The%20Elevate%20-%20Logo%20Variations.psd.png" → "... Logo Variations..."
+  return /(?:^|[^a-z0-9])(logo|logotype|brandmark|brand-logo|site-logo|navbar-brand|header-logo|imagelogo)(?:[^a-z0-9]|$)/i.test(
+    text,
   );
 }
 
 function looksLikeNonLogoImage(value) {
+  const text = decodeUriSafe(value);
   return /\b(hero|banner|cover|og-image|opengraph|social|thumbnail|thumb|background|bg-|poster|card)\b/i.test(
-    String(value || ""),
+    text,
   );
 }
 
+function isUsableLogoSrc(src) {
+  const value = String(src || "").trim();
+  if (!value) return false;
+  if (/^(chrome-extension|moz-extension|safari-extension|edge-extension|blob|data):/i.test(value)) {
+    return false;
+  }
+  return true;
+}
+
 function scoreLogoCandidate(attrs) {
+  const src = decodeUriSafe(attrs.src || attrs["data-src"] || "");
+  const dataUx = String(attrs["data-ux"] || "");
+  const dataAid = String(attrs["data-aid"] || "");
   const descriptor = [
     attrs.alt,
     attrs.title,
@@ -105,7 +130,12 @@ function scoreLogoCandidate(attrs) {
     attrs.src,
     attrs.srcset,
     attrs["data-src"],
-  ].filter(Boolean).join(" ");
+    dataUx,
+    dataAid,
+  ]
+    .filter(Boolean)
+    .map(decodeUriSafe)
+    .join(" ");
 
   let score = 0;
   if (looksLikeLogoText(attrs.alt)) score += 80;
@@ -113,9 +143,13 @@ function scoreLogoCandidate(attrs) {
   if (looksLikeLogoText(attrs.id)) score += 70;
   if (looksLikeLogoText(attrs.src) || looksLikeLogoText(attrs["data-src"])) score += 55;
   if (looksLikeLogoText(attrs.title) || looksLikeLogoText(attrs["aria-label"])) score += 40;
+  // GoDaddy / common builders mark the header logo explicitly.
+  if (/ImageLogo/i.test(dataUx) || /HEADER_LOGO/i.test(dataAid)) score += 120;
   if (/header|nav|masthead|brand/i.test(descriptor)) score += 15;
-  if (/\.svg(?:[?#]|$)/i.test(attrs.src || attrs["data-src"] || "")) score += 12;
-  if (looksLikeNonLogoImage(descriptor)) score -= 80;
+  if (/\.svg(?:[?#]|$)/i.test(src)) score += 12;
+  if (looksLikeNonLogoImage(descriptor) && !/ImageLogo|HEADER_LOGO/i.test(`${dataUx} ${dataAid}`)) {
+    score -= 80;
+  }
   return score;
 }
 
@@ -184,7 +218,7 @@ function extractLogoUrl(html, baseUrl) {
   for (const tag of html.match(IMG_RE) || []) {
     const attrs = parseAttrs(tag);
     const src = attrs.src || attrs["data-src"] || pickSrcFromSrcset(attrs.srcset || attrs["data-srcset"]);
-    if (!src) continue;
+    if (!isUsableLogoSrc(src)) continue;
     const score = scoreLogoCandidate(attrs);
     if (score > 0) candidates.push({ src, score });
   }
@@ -192,7 +226,7 @@ function extractLogoUrl(html, baseUrl) {
   for (const tag of html.match(SOURCE_RE) || []) {
     const attrs = parseAttrs(tag);
     const src = attrs.src || attrs["data-src"] || pickSrcFromSrcset(attrs.srcset || attrs["data-srcset"]);
-    if (!src) continue;
+    if (!isUsableLogoSrc(src)) continue;
     const score = scoreLogoCandidate(attrs);
     if (score > 40) candidates.push({ src, score: score - 5 });
   }
@@ -201,12 +235,12 @@ function extractLogoUrl(html, baseUrl) {
   if (candidates[0]) return absolutizeUrl(baseUrl, candidates[0].src);
 
   const schemaLogo = (html.match(SCHEMA_LOGO_RE) || html.match(SCHEMA_LOGO_RE_ALT) || [])[1];
-  if (schemaLogo) return absolutizeUrl(baseUrl, schemaLogo);
+  if (isUsableLogoSrc(schemaLogo)) return absolutizeUrl(baseUrl, schemaLogo);
 
   const apple = (html.match(APPLE_ICON_RE) || [])[1];
-  if (apple) return absolutizeUrl(baseUrl, apple);
+  if (isUsableLogoSrc(apple)) return absolutizeUrl(baseUrl, apple);
   const icon = (html.match(ICON_RE) || [])[1];
-  if (icon) return absolutizeUrl(baseUrl, icon);
+  if (isUsableLogoSrc(icon)) return absolutizeUrl(baseUrl, icon);
 
   // Keep social share images as a separate signal, but do not label them logos.
   // og:image is often a hero/banner and caused Brand DNA to show the wrong asset.

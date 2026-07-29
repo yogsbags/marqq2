@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileText, Link2, Loader2, Mic, Pencil, Square, Trash2, Upload } from 'lucide-react';
+import { Eraser, FileText, Link2, Loader2, Mic, Pencil, Square, Trash2, Upload } from 'lucide-react';
 import type { BrandDna, BrandDnaKnowledgeFile, BrandDnaVoiceNote } from './types';
 import {
   startBrowserSpeechRecognition,
   type BrowserSpeechSession,
 } from '@/lib/browserSpeechRecognition';
+
+function appendTranscript(existing: string, next: string) {
+  const prior = existing.trim();
+  const chunk = next.trim();
+  if (!prior) return chunk;
+  if (!chunk) return prior;
+  return `${prior}\n\n${chunk}`;
+}
 
 interface BrandDnaStepProps {
   brandDna: BrandDna | null;
@@ -62,15 +70,14 @@ function VoiceInputPanel({
   workspaceId,
   voiceNotes,
   knowledgeFiles,
-  onVoiceNotesChange,
-  onFilesChange,
+  onUpdate,
   compact = false,
 }: {
   workspaceId?: string | null;
   voiceNotes: BrandDnaVoiceNote[];
   knowledgeFiles: BrandDnaKnowledgeFile[];
-  onVoiceNotesChange: (notes: BrandDnaVoiceNote[]) => void;
-  onFilesChange: (files: BrandDnaKnowledgeFile[]) => void;
+  /** Single callback — never split notes/files across two parent setStates (stale overwrite). */
+  onUpdate: (next: { voiceNotes: BrandDnaVoiceNote[]; knowledgeFiles: BrandDnaKnowledgeFile[] }) => void;
   compact?: boolean;
 }) {
   const [recording, setRecording] = useState(false);
@@ -104,7 +111,10 @@ function VoiceInputPanel({
           : '';
       const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       mediaRecorderRef.current = mr;
-      speechSessionRef.current = startBrowserSpeechRecognition('en');
+      // Live captions are best-effort; final transcript prefers server STT on the recorded blob.
+      speechSessionRef.current = startBrowserSpeechRecognition('en', {
+        onPartial: (text) => setLiveTranscript(text),
+      });
       mr.ondataavailable = (ev) => {
         if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data);
       };
@@ -112,7 +122,7 @@ function VoiceInputPanel({
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
       };
-      mr.start();
+      mr.start(250);
       setRecording(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Microphone permission failed');
@@ -135,15 +145,18 @@ function VoiceInputPanel({
       if (!blob.size) throw new Error('No audio captured — try again.');
 
       const audioBase64 = await fileToBase64(blob);
-      let transcript = '';
+      let browserTranscript = '';
       try {
-        transcript = (await speechSessionRef.current?.stop())?.trim() || '';
+        browserTranscript = (await speechSessionRef.current?.stop())?.trim() || '';
       } catch {
-        transcript = '';
+        browserTranscript = '';
       } finally {
         speechSessionRef.current = null;
       }
-      if (!transcript) {
+
+      // Prefer server STT on the saved blob — browser recognition often fails while MediaRecorder holds the mic.
+      let transcript = '';
+      try {
         const sttResp = await fetch('/api/voicebot/stt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -154,16 +167,26 @@ function VoiceInputPanel({
           }),
         });
         const sttJson = await sttResp.json().catch(() => ({}));
-        if (!sttResp.ok) throw new Error(sttJson?.error || sttJson?.details || 'Transcription failed');
-        transcript = String(sttJson?.transcript || '').trim();
+        if (sttResp.ok) {
+          transcript = String(sttJson?.transcript || '').trim();
+        } else if (!browserTranscript) {
+          throw new Error(sttJson?.error || sttJson?.details || 'Transcription failed');
+        }
+      } catch (err) {
+        if (!browserTranscript) throw err;
       }
+      if (!transcript) transcript = browserTranscript;
       setLiveTranscript(transcript);
       if (!transcript) throw new Error('No speech detected — try speaking a bit longer.');
+
+      // One running brief: later recordings append to the existing transcript.
+      const existing = voiceNotes[0];
+      const combined = appendTranscript(existing?.transcript || '', transcript);
 
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       const audioName = `voice-note-${stamp}.webm`;
       const mdName = `voice-note-${stamp}.md`;
-      const mdBody = `# Brand voice note\n\nRecorded: ${new Date().toLocaleString()}\n\n${transcript}\n`;
+      const mdBody = `# Brand voice note\n\nUpdated: ${new Date().toLocaleString()}\n\n${combined}\n`;
       const mdBase64 = window.btoa(unescape(encodeURIComponent(mdBody)));
 
       const created = await uploadBrandFiles(workspaceId!, [
@@ -181,22 +204,24 @@ function VoiceInputPanel({
           size: mdBody.length,
           base64: mdBase64,
           category: 'voice_transcript',
-          transcript,
+          transcript: combined,
         },
       ]);
 
       const audioFile = created.find((f) => f.name === audioName) || created[0];
       const transcriptFile = created.find((f) => f.name === mdName) || created[1];
       const note: BrandDnaVoiceNote = {
-        id: audioFile?.id || crypto.randomUUID(),
-        transcript,
-        audioFileId: audioFile?.id,
-        audioUrl: audioFile?.url,
-        transcriptFileId: transcriptFile?.id,
-        createdAt: new Date().toISOString(),
+        id: existing?.id || audioFile?.id || crypto.randomUUID(),
+        transcript: combined,
+        audioFileId: audioFile?.id || existing?.audioFileId,
+        audioUrl: audioFile?.url || existing?.audioUrl,
+        transcriptFileId: transcriptFile?.id || existing?.transcriptFileId,
+        createdAt: existing?.createdAt || new Date().toISOString(),
       };
-      onVoiceNotesChange([note, ...voiceNotes]);
-      onFilesChange([...created, ...knowledgeFiles]);
+      onUpdate({
+        voiceNotes: [note],
+        knowledgeFiles: [...created, ...knowledgeFiles],
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Voice capture failed');
     } finally {
@@ -207,27 +232,60 @@ function VoiceInputPanel({
     }
   }
 
-  function removeNote(note: BrandDnaVoiceNote) {
-    onVoiceNotesChange(voiceNotes.filter((n) => n.id !== note.id));
-    const removeIds = new Set([note.audioFileId, note.transcriptFileId].filter(Boolean));
-    if (removeIds.size) {
-      onFilesChange(knowledgeFiles.filter((f) => !removeIds.has(f.id)));
-      if (workspaceId) {
-        for (const id of removeIds) {
-          void fetch(
-            `/api/brand-dna/knowledge-base/${encodeURIComponent(String(id))}?workspaceId=${encodeURIComponent(workspaceId)}`,
-            { method: 'DELETE' },
-          ).catch(() => {});
-        }
-      }
+  function deleteVoiceFiles(ids: Array<string | undefined>) {
+    const removeIds = [...new Set(ids.filter(Boolean) as string[])];
+    if (!removeIds.length || !workspaceId) return;
+    for (const id of removeIds) {
+      void fetch(
+        `/api/brand-dna/knowledge-base/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`,
+        { method: 'DELETE' },
+      ).catch(() => {});
     }
   }
 
-  function updateTranscript(noteId: string, transcript: string) {
-    onVoiceNotesChange(
-      voiceNotes.map((n) => (n.id === noteId ? { ...n, transcript } : n)),
-    );
+  function removeBrief() {
+    const removeIds = voiceNotes.flatMap((n) => [n.audioFileId, n.transcriptFileId]);
+    deleteVoiceFiles(removeIds);
+    const idSet = new Set(removeIds.filter(Boolean));
+    onUpdate({
+      voiceNotes: [],
+      knowledgeFiles: idSet.size
+        ? knowledgeFiles.filter((f) => !idSet.has(f.id))
+        : knowledgeFiles,
+    });
   }
+
+  function clearTranscriptText() {
+    if (!voiceNotes.length) return;
+    onUpdate({
+      voiceNotes: voiceNotes.map((n) => ({ ...n, transcript: '' })),
+      knowledgeFiles,
+    });
+  }
+
+  function updateTranscript(transcript: string) {
+    if (!voiceNotes.length) {
+      onUpdate({
+        voiceNotes: [
+          {
+            id: crypto.randomUUID(),
+            transcript,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        knowledgeFiles,
+      });
+      return;
+    }
+    onUpdate({
+      voiceNotes: [{ ...voiceNotes[0], transcript }, ...voiceNotes.slice(1)],
+      knowledgeFiles,
+    });
+  }
+
+  const brief = voiceNotes[0];
+  const hasTranscript = Boolean(brief?.transcript?.trim());
+  const recordLabel = working ? 'Saving…' : hasTranscript ? 'Add more' : 'Record';
 
   return (
     <div
@@ -241,7 +299,7 @@ function VoiceInputPanel({
             Voice brand brief
           </p>
           <p className={`mt-1 text-white/45 ${compact ? 'text-xs' : 'text-sm'}`}>
-            Record anything about your brand — we store the audio and transcript.
+            Record anything about your brand — new takes append to the same transcript.
           </p>
         </div>
         {!recording ? (
@@ -252,7 +310,7 @@ function VoiceInputPanel({
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40"
           >
             {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
-            {working ? 'Saving…' : 'Record'}
+            {recordLabel}
           </button>
         ) : (
           <button
@@ -267,10 +325,15 @@ function VoiceInputPanel({
       </div>
 
       {recording ? (
-        <p className="mt-2 flex items-center gap-2 text-xs text-red-200/90">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-400" />
-          Listening… speak freely, then tap Stop.
-        </p>
+        <div className="mt-2 space-y-1.5">
+          <p className="flex items-center gap-2 text-xs text-red-200/90">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-400" />
+            {hasTranscript ? 'Appending… speak, then tap Stop.' : 'Listening… speak freely, then tap Stop.'}
+          </p>
+          {liveTranscript ? (
+            <p className="text-xs leading-relaxed text-white/55">{liveTranscript}</p>
+          ) : null}
+        </div>
       ) : null}
 
       {error ? <p className="mt-2 text-xs text-amber-200">{error}</p> : null}
@@ -278,36 +341,46 @@ function VoiceInputPanel({
         <p className="mt-2 text-xs text-white/50">Transcribed: {liveTranscript}</p>
       ) : null}
 
-      {voiceNotes.length ? (
-        <ul className="mt-3 space-y-2">
-          {voiceNotes.map((note, idx) => (
-            <li
-              key={note.id}
-              className="rounded-xl border border-white/8 bg-black/20 px-3 py-2 text-xs text-white/70"
-            >
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="font-medium text-white/80">Voice note {voiceNotes.length - idx}</span>
-                <button
-                  type="button"
-                  onClick={() => removeNote(note)}
-                  className="rounded p-1 text-white/35 transition hover:bg-white/5 hover:text-white/80"
-                  aria-label="Remove voice note"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <textarea
-                value={note.transcript}
-                onChange={(e) => updateTranscript(note.id, e.target.value)}
-                rows={3}
-                className="w-full resize-none rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-[12px] leading-relaxed text-white/75 outline-none placeholder:text-white/25"
-              />
-              {note.audioUrl ? (
-                <audio controls src={note.audioUrl} className="mt-2 h-8 w-full" preload="none" />
-              ) : null}
-            </li>
-          ))}
-        </ul>
+      {brief ? (
+        <div className="mt-3 rounded-xl border border-white/8 bg-black/20 px-3 py-2 text-xs text-white/70">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 font-medium text-white/80">
+              <Pencil className="h-3 w-3 text-white/40" />
+              Transcript
+            </span>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={clearTranscriptText}
+                disabled={!hasTranscript}
+                className="rounded p-1 text-white/35 transition hover:bg-white/5 hover:text-white/80 disabled:opacity-30"
+                aria-label="Clear transcript text"
+                title="Clear text"
+              >
+                <Eraser className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={removeBrief}
+                className="rounded p-1 text-white/35 transition hover:bg-white/5 hover:text-white/80"
+                aria-label="Delete voice brief"
+                title="Delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          <textarea
+            value={brief.transcript}
+            onChange={(e) => updateTranscript(e.target.value)}
+            rows={compact ? 4 : 5}
+            placeholder="Edit your brand brief here, or record to add more…"
+            className="w-full resize-y rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-[12px] leading-relaxed text-white/75 outline-none placeholder:text-white/25"
+          />
+          {brief.audioUrl ? (
+            <audio controls src={brief.audioUrl} className="mt-2 h-8 w-full" preload="none" />
+          ) : null}
+        </div>
       ) : (
         <p className="mt-3 text-xs text-white/30">
           No voice notes yet — describe your product, audience, or brand voice out loud.
@@ -476,16 +549,30 @@ export function BrandDnaStep({
         const files = Array.isArray(json.files) ? (json.files as BrandDnaKnowledgeFile[]) : [];
         if (!files.length) return;
         setPendingFiles(files);
-        const notes: BrandDnaVoiceNote[] = files
-          .filter((f) => f.category === 'voice_note')
-          .map((f) => ({
-            id: f.id,
-            transcript: String((f as BrandDnaKnowledgeFile & { transcript?: string }).transcript || ''),
-            audioFileId: f.id,
-            audioUrl: f.url,
-            createdAt: f.createdAt,
-          }));
-        if (notes.length) setPendingVoiceNotes(notes);
+        type FileWithTranscript = BrandDnaKnowledgeFile & { transcript?: string };
+        const withTx = files as FileWithTranscript[];
+        const transcriptFile = withTx.find((f) => f.category === 'voice_transcript' && f.transcript?.trim());
+        const audioFiles = withTx.filter((f) => f.category === 'voice_note');
+        const latestAudio = audioFiles[0];
+        const combinedFromAudios = audioFiles
+          .map((f) => String(f.transcript || '').trim())
+          .filter(Boolean)
+          .reverse()
+          .join('\n\n');
+        const transcript =
+          String(transcriptFile?.transcript || '').trim() || combinedFromAudios;
+        if (transcript || latestAudio) {
+          setPendingVoiceNotes([
+            {
+              id: latestAudio?.id || transcriptFile?.id || crypto.randomUUID(),
+              transcript,
+              audioFileId: latestAudio?.id,
+              audioUrl: latestAudio?.url,
+              transcriptFileId: transcriptFile?.id,
+              createdAt: latestAudio?.createdAt || transcriptFile?.createdAt || new Date().toISOString(),
+            },
+          ]);
+        }
       } catch {
         /* ignore */
       }
@@ -515,17 +602,29 @@ export function BrandDnaStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- merge pending uploads once DNA arrives
   }, [brandDna?.companyName, pendingFiles.length, pendingVoiceNotes.length]);
 
-  const kbFiles = brandDna?.knowledgeBaseFiles || pendingFiles;
-  const voiceNotes = brandDna?.voiceNotes || pendingVoiceNotes;
+  const kbFiles =
+    brandDna?.knowledgeBaseFiles?.length ? brandDna.knowledgeBaseFiles : pendingFiles;
+  const voiceNotes = brandDna?.voiceNotes?.length ? brandDna.voiceNotes : pendingVoiceNotes;
 
   function setKbFiles(files: BrandDnaKnowledgeFile[]) {
     if (brandDna) onChange({ ...brandDna, knowledgeBaseFiles: files });
     else setPendingFiles(files);
   }
 
-  function setVoiceNotes(notes: BrandDnaVoiceNote[]) {
-    if (brandDna) onChange({ ...brandDna, voiceNotes: notes });
-    else setPendingVoiceNotes(notes);
+  function setVoiceCapture(next: {
+    voiceNotes: BrandDnaVoiceNote[];
+    knowledgeFiles: BrandDnaKnowledgeFile[];
+  }) {
+    if (brandDna) {
+      onChange({
+        ...brandDna,
+        voiceNotes: next.voiceNotes,
+        knowledgeBaseFiles: next.knowledgeFiles,
+      });
+    } else {
+      setPendingVoiceNotes(next.voiceNotes);
+      setPendingFiles(next.knowledgeFiles);
+    }
   }
 
   async function uploadLogo(file: File | null) {
@@ -588,8 +687,7 @@ export function BrandDnaStep({
             workspaceId={workspaceId}
             voiceNotes={voiceNotes}
             knowledgeFiles={kbFiles}
-            onVoiceNotesChange={setVoiceNotes}
-            onFilesChange={setKbFiles}
+            onUpdate={setVoiceCapture}
           />
           <KnowledgeUploadPanel
             workspaceId={workspaceId}
@@ -801,8 +899,9 @@ export function BrandDnaStep({
             workspaceId={workspaceId}
             voiceNotes={voiceNotes}
             knowledgeFiles={kbFiles}
-            onVoiceNotesChange={(notes) => update({ voiceNotes: notes })}
-            onFilesChange={(files) => update({ knowledgeBaseFiles: files })}
+            onUpdate={({ voiceNotes: notes, knowledgeFiles: files }) =>
+              update({ voiceNotes: notes, knowledgeBaseFiles: files })
+            }
             compact
           />
           <KnowledgeUploadPanel
