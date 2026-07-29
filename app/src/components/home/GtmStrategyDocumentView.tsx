@@ -49,6 +49,7 @@ function strategyToHtml(doc: GtmStrategyDocument) {
   const hasExecSection = sections.some((s) => s.id === 'executive_summary')
   const sectionsHtml = sections
     .map((s) => {
+      const isExec = s.id === 'executive_summary'
       const lead =
         isExec && doc.executiveSummary
           ? doc.executiveSummary
