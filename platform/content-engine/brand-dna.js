@@ -447,7 +447,14 @@ async function extractVisualBrandSignals(websiteUrl, themeColor = null) {
       fonts: fonts.length ? fonts : null,
     };
   } catch (err) {
-    console.warn("[brand-dna] visual brand extract failed:", err?.message || err);
+    const msg = String(err?.message || err);
+    if (/Executable doesn't exist|browserType\.launch/i.test(msg)) {
+      console.warn(
+        "[brand-dna] Playwright Chromium missing — using HTML color/font fallback. Run: npx playwright install chromium",
+      );
+    } else {
+      console.warn("[brand-dna] visual brand extract failed:", msg);
+    }
     return null;
   } finally {
     if (browser) {

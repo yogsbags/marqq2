@@ -1,5 +1,8 @@
 [build]
 builder = "nixpacks"
+# Ensure Chromium lands in the image for Brand DNA screenshot color/font extraction.
+# postinstall also runs this; buildCommand is a belt-and-suspenders for Nixpacks caching.
+buildCommand = "npx playwright install chromium && npm run build"
 
 [deploy]
 # Single server on $PORT: serves frontend + proxies backend
@@ -11,3 +14,4 @@ restartPolicyMaxRetries = 10
 # Notes:
 # - The backend listens on http://localhost:3006 inside the container.
 # - The Node server listens on $PORT and proxies /api/* to the backend.
+# - Brand DNA visual extract needs Playwright Chromium (installed at build/postinstall).
