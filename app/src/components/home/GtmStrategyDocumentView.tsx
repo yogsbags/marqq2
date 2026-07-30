@@ -64,7 +64,7 @@ function strategyToHtml(doc: GtmStrategyDocument) {
           (sub) => `
         <h3 style="font-size:15px;margin:18px 0 6px">${esc(sub.title)}</h3>
         ${sub.body ? `<p style="line-height:1.65;white-space:pre-wrap">${esc(sub.body)}</p>` : ''}
-        ${(sub.bullets || []).length ? `<ul>${sub.bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
+        ${(sub.bullets || []).length ? `<ul>${(sub.bullets || []).map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
       `,
         )
         .join('')

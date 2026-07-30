@@ -1,6 +1,6 @@
 /**
  * GTM sections split:
- * - Auto (onboarding Brand-DNA-style review): generated from Brand DNA + crawl/onboarding
+ * - Auto (legacy compatibility): generated from Brand DNA + crawl/onboarding
  * - Interview-backed (Home wizard): questions → Generate X → Brand DNA review
  */
 
@@ -9,46 +9,55 @@ export const GTM_AUTO_STRATEGY_SECTIONS = [
     id: 'market_analysis',
     title: 'Market analysis',
     blurb: 'Beachhead, sequencing, and timing.',
+    bulletsLabel: 'Decisions',
   },
   {
     id: 'positioning_messaging',
     title: 'Positioning & messaging',
     blurb: 'Claims, hooks, proof, and competitive counters.',
+    bulletsLabel: 'Plays',
   },
   {
     id: 'distribution_channels',
     title: 'Distribution & channels',
     blurb: 'Primary motion and supporting channels.',
+    bulletsLabel: 'Plays',
   },
   {
     id: 'marketing_strategy',
     title: 'Marketing strategy',
     blurb: 'Campaign spine and demand gen toward the target.',
+    bulletsLabel: 'Plays',
   },
   {
     id: 'sales_strategy',
     title: 'Sales strategy',
     blurb: 'Cadence, qualification SLAs, and objection handling.',
+    bulletsLabel: 'Plays',
   },
   {
     id: 'launch_plan',
     title: 'Launch plan',
     blurb: 'Pre-launch → launch → post milestones.',
+    bulletsLabel: 'Plays',
   },
   {
     id: 'measurement_optimization',
     title: 'Measurement & optimization',
     blurb: 'Primary KPI and weekly optimization loops.',
+    bulletsLabel: 'Plays',
   },
   {
     id: 'risks_contingencies',
     title: 'Risks & contingencies',
     blurb: 'Kill criteria and pivot options.',
+    bulletsLabel: 'Plays',
   },
   {
     id: 'timeline_roadmap',
     title: 'Timeline & roadmap',
     blurb: 'Week-by-week plan to the quantified target.',
+    bulletsLabel: 'Plays',
   },
 ] as const;
 
@@ -120,10 +129,10 @@ export const GTM_INTERVIEW_STRATEGY_OUTPUTS: Record<
 
 /** Wizard interview sections that still need user input. */
 export const GTM_WIZARD_INTERVIEW_SECTION_IDS = [
+  'goals',
   'module',
   'offer',
   'audience',
-  'goals',
 ] as const;
 
 /** Full strategy doc order (16 sections). */

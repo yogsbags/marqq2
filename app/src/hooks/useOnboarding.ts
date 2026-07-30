@@ -1,7 +1,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useCallback, useRef, useState } from 'react';
-import { AGENTS, STEPS } from '../components/onboarding/constants';
+import { recommendedOnboardingAgentIds, STEPS } from '../components/onboarding/constants';
 import { BrandDna, FormData, Phase } from '../components/onboarding/types';
 import { markUserOnboardedLocal, clearNeedsOnboarding } from '@/lib/onboardingGate';
 import { startGtmPrep } from '@/services/gtmModuleService';
@@ -26,7 +26,7 @@ export function useOnboarding(onComplete: () => void) {
   const [phase, setPhase] = useState<Phase>('welcome');
   const [stepIdx, setStepIdx] = useState(0);
   const [formData, setFormData] = useState<FormData>({
-    company: '', websiteUrl: '', industry: '', icp: '', competitors: '', connectedIntegrations: '', monthlyMarketingBudget: '', primaryGoal: '', goals: '', kpis: '', channels: '',
+    company: '', websiteUrl: '', industry: '', icp: '', competitors: '', connectedIntegrations: '', monthlyMarketingBudget: '', primaryGoal: '', goals: '', kpis: '', channels: '', businessModel: '', geography: '', timelineTarget: '', quantifiedTarget: '', successBaseline: '', guardrails: '',
   });
 
   const [activatedAgents, setActivatedAgents] = useState<Set<string>>(new Set());
@@ -87,6 +87,10 @@ export function useOnboarding(onComplete: () => void) {
         icp: data.icp?.trim() || '',
         competitors: data.competitors?.trim() || '',
         connectedIntegrations: data.connectedIntegrations?.trim() || '',
+        primaryGoal: data.primaryGoal?.trim() || '',
+        timelineTarget: data.timelineTarget?.trim() || '',
+        quantifiedTarget: data.quantifiedTarget?.trim() || '',
+        successBaseline: data.successBaseline?.trim() || '',
       },
     }).catch(() => {
       if (!opts?.mergeOnly) prepStartedForUrlRef.current = null;
@@ -206,6 +210,10 @@ export function useOnboarding(onComplete: () => void) {
           icp: formData.icp?.trim() || '',
           goals: formData.goals?.trim() || '',
           connectedIntegrations: formData.connectedIntegrations?.trim() || '',
+          primaryGoal: formData.primaryGoal?.trim() || '',
+          timelineTarget: formData.timelineTarget?.trim() || '',
+          quantifiedTarget: formData.quantifiedTarget?.trim() || '',
+          successBaseline: formData.successBaseline?.trim() || '',
         }));
         if (brandDna) {
           localStorage.setItem(`marqq_brand_dna_${activeWorkspace.id}`, JSON.stringify(brandDna));
@@ -225,12 +233,13 @@ export function useOnboarding(onComplete: () => void) {
       /* ignore */
     }
 
-    // Visual handoff — paced so each agent lights up clearly.
+    const recommendedAgentIds = recommendedOnboardingAgentIds(formData);
+    // Visual handoff — only the context-relevant roster lights up.
     // Still no network awaits (activation stays snappy even if workspace PATCH lags).
-    for (const agent of AGENTS) {
-      setActivatingAgent(agent.id);
+    for (const agentId of recommendedAgentIds) {
+      setActivatingAgent(agentId);
       await new Promise(r => setTimeout(r, 340));
-      setActivatedAgents(prev => new Set([...prev, agent.id]));
+      setActivatedAgents(prev => new Set([...prev, agentId]));
     }
     setActivatingAgent(null);
 
@@ -258,10 +267,6 @@ export function useOnboarding(onComplete: () => void) {
   };
 
   const handleBack = () => {
-    if (phase === 'gtmAutoReview') {
-      setPhase('review');
-      return;
-    }
     if (phase === 'review') {
       setPhase('form');
       return;
@@ -301,6 +306,7 @@ export function useOnboarding(onComplete: () => void) {
     retryBrandDna: () => void fetchBrandDna(formData, true),
     gtmAutoSections,
     setGtmAutoSections,
+    recommendedAgentIds: recommendedOnboardingAgentIds(formData),
     totalSteps: STEPS.length,
   };
 }

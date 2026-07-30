@@ -2097,9 +2097,9 @@ function OutreachTab({
                       {typeof result.leads_added === 'number' && <div>{result.leads_added} leads queued</div>}
                       {typeof result.sent_count === 'number' && <div>{result.sent_count} messages sent</div>}
                       {(result as { queued_count?: number }).queued_count != null && <div>{(result as { queued_count?: number }).queued_count} calls queued</div>}
-                      {channel === 'voicebot' && Array.isArray((result as { calls?: Array<{ phone?: string; name?: string; status?: string; sid?: string; error?: string }> }).calls) && (
+                      {channel === 'voicebot' && Array.isArray((result as unknown as { calls?: Array<{ phone?: string; name?: string; status?: string; sid?: string; error?: string }> }).calls) && (
                         <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-green-200/70 bg-white/80 p-2 text-foreground dark:border-green-900/30 dark:bg-background/40">
-                          {((result as { calls: Array<{ phone?: string; name?: string; status?: string; sid?: string; error?: string }> }).calls || []).slice(0, 20).map((call, idx) => (
+                          {((result as unknown as { calls?: Array<{ phone?: string; name?: string; status?: string; sid?: string; error?: string }> }).calls || []).slice(0, 20).map((call, idx) => (
                             <div key={`${call.phone || 'call'}-${idx}`} className="flex items-center justify-between gap-2 text-[11px]">
                               <span className="truncate">{call.name || call.phone || 'Lead'}</span>
                               <span className="shrink-0 text-muted-foreground">{call.status}{call.sid ? ` · ${call.sid}` : ''}{call.error ? ` · ${call.error}` : ''}</span>

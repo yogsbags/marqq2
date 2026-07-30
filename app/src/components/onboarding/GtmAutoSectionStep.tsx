@@ -232,7 +232,7 @@ export function GtmAutoSectionStep({
           <textarea
             value={draft.summary}
             onChange={(e) => patchDraft({ summary: e.target.value })}
-            rows={2}
+            rows={meta.id === 'market_analysis' ? 3 : 2}
             className="w-full resize-none bg-transparent font-syne text-lg font-semibold leading-snug text-white outline-none placeholder:text-white/30"
             placeholder="One-line recommendation"
           />
@@ -241,7 +241,7 @@ export function GtmAutoSectionStep({
         <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-              Plays
+              {meta.bulletsLabel || 'Plays'}
             </p>
             <button
               type="button"
@@ -304,7 +304,7 @@ export function GtmAutoSectionStep({
                     setNewBullet('');
                   }
                 }}
-                placeholder="Add a play…"
+                placeholder={meta.id === 'market_analysis' ? 'Add a decision…' : 'Add a play…'}
                 className="flex-1 bg-transparent text-[13px] text-white/80 outline-none placeholder:text-white/25"
               />
               <button

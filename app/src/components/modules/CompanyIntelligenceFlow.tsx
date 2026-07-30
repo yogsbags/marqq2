@@ -888,7 +888,7 @@ export function CompanyIntelligenceFlow({
                   variant="outline"
                   size="sm"
                   className="shrink-0 border-orange-500/30 text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950/30"
-                  onClick={() => returnToGtmWizard(onModuleSelect)}
+                  onClick={() => returnToGtmWizard(onModuleSelect ? (moduleId) => { if (moduleId) onModuleSelect(moduleId); } : undefined)}
                 >
                   Back to GTM
                 </Button>

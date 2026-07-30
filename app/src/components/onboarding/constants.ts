@@ -19,7 +19,7 @@ export const STEPS: OnboardingStep[] = [
   {
     num: '01', label: 'Your Company',
     question: 'Tell us about\nyour company.',
-    sub: 'Company name and website are required. As soon as you continue, Compound starts researching your site in the background so the GTM wizard is ready.',
+    sub: 'Company name and website are required. As soon as you continue, Marqq starts researching your site in the background so the GTM wizard is ready.',
     fields: [
       { key: 'company',    label: 'Company Name',   placeholder: 'e.g. PL Capital',    type: 'input' },
       { key: 'websiteUrl', label: 'Website URL',     placeholder: 'e.g. plcapital.in', type: 'input' },
@@ -28,18 +28,43 @@ export const STEPS: OnboardingStep[] = [
   {
     num: '02', label: 'Your Market',
     question: 'Who are you\nselling to?',
-    sub: 'Your industry and ICP shape every brief Riya writes and every prospect Arjun surfaces.',
+    sub: 'Your industry and ICP shape the research, positioning, channel choices, and agents Marqq recommends.',
     fields: [
       { key: 'industry', label: 'Industry / Niche',        placeholder: 'e.g. WealthTech, India',                               type: 'input' },
       { key: 'icp',      label: 'Ideal Customer Profile',  placeholder: 'e.g. HNI investors, 35–55, Tier 1 cities, ₹10L+ portfolio', type: 'input' },
     ],
   },
   {
-    num: '03', label: 'Connect Accounts',
-    question: 'Connect your\naccounts.',
-    sub: 'Link your marketing channels so your agents can pull live data, track performance, and start working immediately.',
+    num: '03', label: 'Set the outcome',
+    question: 'What should Marqq\nmove first?',
+    sub: 'Give the agents one measurable direction. Marqq will propose the North Star metric and lock the final definition in the GTM wizard.',
+    fields: [
+      { key: 'primaryGoal', label: 'Business outcome', placeholder: 'e.g. Generate qualified hospital operator opportunities', type: 'textarea' },
+      { key: 'timelineTarget', label: 'Target window', placeholder: '', type: 'choice', options: ['Next 30 days', 'Next 60 days', 'Next 90 days', 'Next 2 quarters'] },
+      { key: 'quantifiedTarget', label: 'Target, if known', placeholder: 'e.g. 20 qualified opportunities', type: 'input', optional: true },
+      { key: 'successBaseline', label: 'Current baseline, if known', placeholder: 'e.g. 4 per month', type: 'input', optional: true },
+    ],
+  },
+  {
+    num: '04', label: 'Connect Accounts',
+    question: 'Connect the data\nMarqq should use.',
+    sub: 'Connect what is available now. You can add the rest later; missing data is shown explicitly in the control loop.',
     fields: [
       { key: 'connectedIntegrations', label: 'Integrations', placeholder: '', type: 'integrations', optional: true },
     ],
   },
 ];
+
+/** The onboarding shell shows a recommendation, while the server roster remains authoritative. */
+export function recommendedOnboardingAgentIds(formData: { industry?: string; icp?: string; primaryGoal?: string; businessModel?: string }) {
+  const text = [formData.industry, formData.icp, formData.primaryGoal, formData.businessModel].join(' ').toLowerCase();
+  const ids = new Set(['veena', 'isha', 'neel', 'zara', 'dev', 'priya']);
+  if (/b2b|enterprise|hospital|clinic|consult|agency|saas|operator|sales|lead/.test(text)) {
+    ids.add('arjun'); ids.add('sam'); ids.add('riya');
+  }
+  if (/consumer|d2c|nutrition|health|wellness|app|mobile|ecommerce|conversion/.test(text)) {
+    ids.add('tara'); ids.add('kiran'); ids.add('maya');
+  }
+  if (/seo|search|organic|content/.test(text)) ids.add('maya');
+  return AGENTS.filter((agent) => ids.has(agent.id)).map((agent) => agent.id);
+}

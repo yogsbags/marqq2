@@ -154,7 +154,7 @@ function readLocal(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
 }
 function writeLocal(key: string, value: string) {
-  try { localStorage.setItem(key, value); } catch {}
+  try { localStorage.setItem(key, value); } catch { /* storage may be unavailable */ }
 }
 
 export function getGA4PropertyId(workspaceId: string): string | null {

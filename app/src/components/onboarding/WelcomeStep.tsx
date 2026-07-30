@@ -22,8 +22,9 @@ export function WelcomeStep({ onStart, steps }: WelcomeStepProps) {
 
         <p className="text-[15px] text-white/40 leading-[1.75] mb-11 max-w-[400px]">
           Before your AI team starts working, they need a quick company brief.
-          Answer 3 questions, then complete the GTM wizard on Home — agents only
-          run when you choose a task.
+          Answer a short company, market, and outcome brief, then confirm the
+          data sources. The GTM wizard on Home locks the North Star before any
+          strategy is generated.
         </p>
 
         <div className="flex flex-col gap-3 items-start">

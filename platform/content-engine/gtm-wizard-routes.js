@@ -25,6 +25,13 @@ import {
   proposeInterventions,
   normalizeIntervention,
 } from "./lib/gtmControlLoop.js";
+import {
+  buildAgentRoster,
+  normalizeAgentRoster,
+  proposeAgentRoster,
+  reprioritizeAgentRosterAsync,
+  rosterSummaryLines,
+} from "./lib/gtmAgentRoster.js";
 
 /** In-flight quiet prep per workspace — starts on onboarding URL, merges later answers. */
 const quietPrepByWorkspace = new Map();
@@ -628,17 +635,72 @@ const GTM_AUTO_SECTION_SKILL_KEYS = {
 };
 
 const LAST30_MARKET_ANALYSIS_GUIDE = `## Supplemental skill: last30days (market analysis mode)
-Use a recent-signal market lens for market_analysis:
-- Prioritize what appears urgent, changing, or newly active in the last 30 days over timeless generic segmentation.
-- Look for buying triggers, active debates, launches, hiring, regulation, partnerships, funding, category shifts, and language customers are using right now.
+Use a recent-signal market lens for market_analysis ONLY:
+- Prioritize what appears urgent, changing, or newly active over timeless generic TAM essays.
+- Look for buying triggers, category shifts, regulation, hiring, funding, partnerships, and language buyers use — as SEGMENT signals, not as campaign ideas.
 - Prefer "where we can win now" over broad TAM framing.
-- Separate strong signals from assumptions. If context does not prove a recent wedge, say "likely" or "test first" instead of asserting certainty.
-- Output should answer:
-  1. Which segment / wedge looks most actionable now?
-  2. Why now?
-  3. What second / third segments should follow?
-  4. What should be deprioritized until proof appears?
-- Do not turn this into a channel plan or campaign brief.`;
+- Separate strong signals from assumptions. If context does not prove a recent wedge, say "likely" or "test first".
+- Output MUST answer only:
+  1. Which segment / wedge is the beachhead now?
+  2. Why that segment first (fit + timing)?
+  3. What second / third segments follow, and in what order?
+  4. What geos / verticals / account types to deprioritize until proof appears?
+- FORBIDDEN in market_analysis: ROI calculators, case-study libraries, sales scripts, objection handlers, landing pages, webinars, outreach cadences, ad budgets, pilot onboarding programs, content calendars, or any "build this asset" play. Those belong in later sections.`;
+
+/** Per-section lane instructions for auto-section generation. */
+const AUTO_SECTION_LANE_PROMPTS = {
+  market_analysis: `MARKET ANALYSIS LANE (strict):
+- summary: one complete sentence naming the beachhead segment + why now. Must end with a period. No mid-sentence cutoffs.
+- bullets (exactly 5, labeled by intent — these are MARKET DECISIONS, not marketing plays):
+  1. Beachhead: who (firmographic / persona / geo) — grounded in company ICP/industry if provided
+  2. Why now: timing / buying trigger for that beachhead
+  3. Sequence next: second segment after beachhead proof
+  4. Sequence later: third segment or expansion condition
+  5. Deprioritize: explicit geo/vertical/account type to skip for now + why
+- body: 4–6 complete sentences on sequencing logic and tradeoffs. End with a period. No asset-building prescriptions.
+- subsections (optional, 2–3): titles like "Beachhead", "Sequencing", "Timing", "Deprioritize" — still market layer only.
+- If ICP/industry is thin, stay conditional ("likely beachhead…") — do NOT invent a vertical (e.g. fintech SMBs) without support from company/industry/ICP/Brand DNA.
+- Do NOT invent KPI lifts, CAC, ROI %, or fake "last 30 days" events.`,
+  positioning_messaging: `POSITIONING LANE: value prop, claims, hooks, proof hierarchy, competitive counters. No campaign plans or channel calendars.`,
+  distribution_channels: `DISTRIBUTION LANE: primary GTM motion, supporting channels, sequencing, buyer-fit. No invented budgets or KPI lifts.`,
+  marketing_strategy: `MARKETING LANE: campaign spine, offers, demand narrative, experiments toward the goal. Do not restate the channel list.`,
+  sales_strategy: `SALES LANE: qualification, conversion process, objections, SLAs, stage ownership. Conservative if context is thin.`,
+  launch_plan: `LAUNCH LANE: pre-launch → launch → post milestones. Concrete, time-boxed.`,
+  measurement_optimization: `MEASUREMENT LANE: primary KPI, leading indicators, weekly loop. No vanity metrics.`,
+  risks_contingencies: `RISKS LANE: kill criteria, pivot options, contingency triggers.`,
+  timeline_roadmap: `TIMELINE LANE: week-by-week path to the quantified target. Sequencing, not a content calendar.`,
+};
+
+const MARKET_ANALYSIS_TACTICAL_RE =
+  /\b(roi calculator|case[- ]study library|sales script|objection[- ]handling|landing page|webinar|outreach cadence|ad budget|linkedin ads|content calendar|pilot onboarding|equip the sales|create a rapid|launch a \d+-week)\b/i;
+
+function looksTruncated(text) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  if (/[,:;–—\-]$/.test(t)) return true;
+  if (/\b(a|an|the|and|or|to|for|with|of|as|create|clear)\s*$/i.test(t)) return true;
+  if (t.length > 40 && !/[.!?]"?$/.test(t)) return true;
+  return false;
+}
+
+function marketAnalysisFallback(company, industry, icp, geoHint) {
+  const who = icp || industry || "the stated ICP";
+  return {
+    id: "market_analysis",
+    title: "Market analysis",
+    channel: "",
+    summary: `Beachhead on ${who}${geoHint ? ` in ${geoHint}` : ""} first; expand only after reference proof lands.`,
+    bullets: [
+      `Beachhead: concentrate on ${who} — highest fit with current offer and proof path.`,
+      `Why now: prioritize accounts showing an active buying trigger (budget, stalled roadmap, or transformation mandate) over cold broad lists.`,
+      `Sequence next: adjacent segment sharing the same buyer job after 2–3 beachhead references.`,
+      `Sequence later: secondary geos or verticals only when beachhead CAC/payback holds for 2 cycles.`,
+      `Deprioritize: brand-name enterprise and low-budget tire-kickers until the beachhead motion is repeatable.`,
+    ],
+    body: `${company} should treat market analysis as a sequencing decision, not a campaign brief. Start narrow with ${who}, prove message-market fit and a repeatable path to discovery, then expand. Do not dilute effort across geos or verticals before the beachhead converts. Channel tactics, sales assets, and pilots belong in later GTM sections.`,
+    subsections: [],
+  };
+}
 
 /** Interview section → strategy sections generated after answers (Brand DNA review). */
 export const GTM_INTERVIEW_STRATEGY_OUTPUTS = {
@@ -2543,6 +2605,14 @@ function buildPostStrategyDeployContext(moduleRow, task) {
     }
   }
 
+  const agentRoster = normalizeAgentRoster(moduleRow?.profile?.agent_roster, {
+    goalSystem: ga,
+    controlLoop,
+  });
+  for (const line of rosterSummaryLines(agentRoster)) {
+    bullets.push(line);
+  }
+
   return {
     sectionId: task.id,
     sectionTitle: task.title,
@@ -2558,6 +2628,22 @@ function buildPostStrategyDeployContext(moduleRow, task) {
         priority_90d: goals.priority_90d || ga.priority_90d || null,
         channel_bet: goals.channel_bet || ga.channel_bet || null,
         sectionTargets,
+      },
+      agentRoster: {
+        archetypeKey: agentRoster.archetypeKey,
+        highPriority: agentRoster.highPriority,
+        activated: agentRoster.activated,
+        bottleneck_stage: agentRoster.bottleneck_stage,
+        agents: (agentRoster.agents || [])
+          .filter((a) => a.status === "high_priority" || a.status === "activated")
+          .map((a) => ({
+            id: a.id,
+            name: a.name,
+            status: a.status,
+            mission: a.mission,
+            metric: a.metric,
+            reason: a.reason,
+          })),
       },
       controlLoop: controlLoop
         ? {
@@ -3498,6 +3584,18 @@ export function registerGtmWizardRoutes(app, deps) {
         if (!strategy.channels) {
           strategy.channels = buildStrategyChannels(strategy.sections);
         }
+        const lockedGoal = strategy.goalAlignment || moduleRow.profile?.goal_system || null;
+        const controlLoop = bootstrapControlLoop(lockedGoal, moduleRow.profile?.control_loop);
+        const agentRoster = await proposeAgentRoster(groq, {
+          goalSystem: lockedGoal,
+          controlLoop,
+          previousRoster: moduleRow.profile?.agent_roster,
+          companyContext: {
+            name: moduleRow.name,
+            profile: moduleRow.profile?.brand_dna || moduleRow.profile?.onboarding || null,
+          },
+          strategySummary: strategy.executiveSummary || strategy.title,
+        });
         const { data: updated, error } = await c
           .from("gtm_modules")
           .update({
@@ -3513,11 +3611,9 @@ export function registerGtmWizardRoutes(app, deps) {
               },
               strategy_document: strategy,
               strategy_channels: strategy.channels,
-              goal_system: strategy.goalAlignment || moduleRow.profile?.goal_system || null,
-              control_loop: bootstrapControlLoop(
-                strategy.goalAlignment || moduleRow.profile?.goal_system,
-                moduleRow.profile?.control_loop
-              ),
+              goal_system: lockedGoal,
+              control_loop: controlLoop,
+              agent_roster: agentRoster,
             },
           })
           .eq("id", req.params.id)
@@ -3534,6 +3630,7 @@ export function registerGtmWizardRoutes(app, deps) {
           channels: strategy.channels,
           postStrategyOptions: POST_STRATEGY_TASK_CATALOG,
           controlLoop: updated?.profile?.control_loop || null,
+          agentRoster: updated?.profile?.agent_roster || agentRoster,
           module: updated,
           markdown: strategyToMarkdown(strategy),
         });
@@ -3648,14 +3745,114 @@ export function registerGtmWizardRoutes(app, deps) {
         return res.json({
           controlLoop: loop,
           goalSystem: normalizeGoalSystem(goalSystem),
+          agentRoster: buildAgentRoster({
+            goalSystem,
+            controlLoop: loop,
+            previousRoster: moduleRow.profile?.agent_roster,
+          }),
           module: data,
         });
       }
       res.json({
         controlLoop: normalizeControlLoopState(loop, goalSystem),
         goalSystem: normalizeGoalSystem(goalSystem),
+        agentRoster: normalizeAgentRoster(moduleRow.profile?.agent_roster, {
+          goalSystem,
+          controlLoop: loop,
+        }),
         module: moduleRow,
       });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  app.get("/api/gtm/modules/:id/agent-roster", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const goalSystem =
+        moduleRow.profile?.goal_system ||
+        moduleRow.profile?.strategy_document?.goalAlignment ||
+        moduleRow.profile?.goals ||
+        null;
+      if (!goalSystem) {
+        return res.status(409).json({
+          error: "Lock a North Star / strategy before building the agent roster",
+        });
+      }
+      const loop = moduleRow.profile?.control_loop
+        ? normalizeControlLoopState(moduleRow.profile.control_loop, goalSystem)
+        : bootstrapControlLoop(goalSystem, null);
+      let roster = moduleRow.profile?.agent_roster;
+      if (!roster?.agents?.length) {
+        roster = await proposeAgentRoster(groq, {
+          goalSystem,
+          controlLoop: loop,
+          previousRoster: roster,
+          companyContext: { name: moduleRow.name },
+          strategySummary: moduleRow.profile?.strategy_document?.executiveSummary || null,
+        });
+        const { data, error } = await c
+          .from("gtm_modules")
+          .update({
+            profile: {
+              ...(moduleRow.profile || {}),
+              agent_roster: roster,
+              goal_system: normalizeGoalSystem(goalSystem),
+              control_loop: loop,
+            },
+          })
+          .eq("id", moduleRow.id)
+          .select("*")
+          .single();
+        if (error) throw error;
+        return res.json({ agentRoster: roster, goalSystem: normalizeGoalSystem(goalSystem), module: data });
+      }
+      res.json({
+        agentRoster: normalizeAgentRoster(roster, { goalSystem, controlLoop: loop }),
+        goalSystem: normalizeGoalSystem(goalSystem),
+        module: moduleRow,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  app.post("/api/gtm/modules/:id/agent-roster/refresh", async (req, res) => {
+    try {
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+      const moduleRow = await loadModule(c, req.params.id);
+      if (!moduleRow) return res.status(404).json({ error: "Module not found" });
+      const goalSystem =
+        moduleRow.profile?.goal_system ||
+        moduleRow.profile?.strategy_document?.goalAlignment;
+      if (!goalSystem) return res.status(409).json({ error: "Missing goal_system" });
+      const loop = bootstrapControlLoop(goalSystem, moduleRow.profile?.control_loop);
+      const agentRoster = await proposeAgentRoster(groq, {
+        goalSystem,
+        controlLoop: loop,
+        previousRoster: moduleRow.profile?.agent_roster,
+        companyContext: { name: moduleRow.name },
+        strategySummary: moduleRow.profile?.strategy_document?.executiveSummary || null,
+      });
+      const { data, error } = await c
+        .from("gtm_modules")
+        .update({
+          profile: {
+            ...(moduleRow.profile || {}),
+            agent_roster: agentRoster,
+            control_loop: loop,
+          },
+        })
+        .eq("id", moduleRow.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      res.json({ agentRoster, module: data });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
     }
@@ -3711,14 +3908,30 @@ export function registerGtmWizardRoutes(app, deps) {
         funnelActuals: Array.isArray(diagnosis.funnel) ? diagnosis.funnel : loop.funnelActuals,
         updatedAt: new Date().toISOString(),
       };
+      const agentRoster = await reprioritizeAgentRosterAsync(
+        groq,
+        moduleRow.profile?.agent_roster,
+        {
+          goalSystem,
+          controlLoop: next,
+          companyContext: { name: moduleRow.name },
+          strategySummary: moduleRow.profile?.strategy_document?.executiveSummary || null,
+        }
+      );
       const { data, error } = await c
         .from("gtm_modules")
-        .update({ profile: { ...(moduleRow.profile || {}), control_loop: next } })
+        .update({
+          profile: {
+            ...(moduleRow.profile || {}),
+            control_loop: next,
+            agent_roster: agentRoster,
+          },
+        })
         .eq("id", moduleRow.id)
         .select("*")
         .single();
       if (error) throw error;
-      res.json({ diagnosis, controlLoop: next, module: data });
+      res.json({ diagnosis, controlLoop: next, agentRoster, module: data });
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });
     }
@@ -3827,6 +4040,15 @@ export function registerGtmWizardRoutes(app, deps) {
       }
       const strategy = await assembleStrategyFromApprovedDrafts(groq, moduleRow);
       if (!strategy.channels) strategy.channels = buildStrategyChannels(strategy.sections);
+      const lockedGoal = strategy.goalAlignment || moduleRow.profile?.goal_system || null;
+      const controlLoop = bootstrapControlLoop(lockedGoal, moduleRow.profile?.control_loop);
+      const agentRoster = await proposeAgentRoster(groq, {
+        goalSystem: lockedGoal,
+        controlLoop,
+        previousRoster: moduleRow.profile?.agent_roster,
+        companyContext: { name: moduleRow.name },
+        strategySummary: strategy.executiveSummary || strategy.title,
+      });
       const { data: updated, error } = await c
         .from("gtm_modules")
         .update({
@@ -3834,11 +4056,9 @@ export function registerGtmWizardRoutes(app, deps) {
             ...(moduleRow.profile || {}),
             strategy_document: strategy,
             strategy_channels: strategy.channels,
-            goal_system: strategy.goalAlignment || moduleRow.profile?.goal_system || null,
-            control_loop: bootstrapControlLoop(
-              strategy.goalAlignment || moduleRow.profile?.goal_system,
-              moduleRow.profile?.control_loop
-            ),
+            goal_system: lockedGoal,
+            control_loop: controlLoop,
+            agent_roster: agentRoster,
           },
         })
         .eq("id", req.params.id)
@@ -3849,6 +4069,7 @@ export function registerGtmWizardRoutes(app, deps) {
         strategy,
         channels: strategy.channels,
         controlLoop: updated?.profile?.control_loop || null,
+        agentRoster: updated?.profile?.agent_roster || agentRoster,
         module: updated,
         markdown: strategyToMarkdown(strategy),
       });
@@ -3981,28 +4202,42 @@ export function registerGtmWizardRoutes(app, deps) {
       const supplementalSkillBlock =
         def.id === "market_analysis" ? LAST30_MARKET_ANALYSIS_GUIDE : "";
 
-      fallback = {
-        id: def.id,
-        title: def.title,
-        channel: "",
-        summary: `Recommended ${def.title.toLowerCase()} for ${company} based on available brand context.`,
-        bullets: [
-          `Focus ${def.title.toLowerCase()} on the beachhead ICP and 90-day pipeline goal.`,
-          "Prefer concrete plays over generic frameworks.",
-          "Call out one hard trade-off or deprioritization.",
-          "Tie every action to qualified pipeline or discovery conversations.",
-        ],
-        body: `${company} should treat ${def.title.toLowerCase()} as an executable recommendation set grounded in Brand DNA and site context${site ? ` (${site})` : ""}. Prioritize high-intent motions, keep spend lean, and defer low-ROI tactics until pipeline is seeded.`,
-      };
+      const industryHint = String(industry || onboarding?.industry || "").trim();
+      const icpHint = String(icp || onboarding?.icp || "").trim();
+      fallback =
+        def.id === "market_analysis"
+          ? marketAnalysisFallback(company, industryHint, icpHint, null)
+          : {
+              id: def.id,
+              title: def.title,
+              channel: "",
+              summary: `Recommended ${def.title.toLowerCase()} for ${company} based on available brand context.`,
+              bullets: [
+                `Focus ${def.title.toLowerCase()} on the beachhead ICP and 90-day goal.`,
+                "Prefer concrete decisions over generic frameworks.",
+                "Call out one hard trade-off or deprioritization.",
+                "Stay inside this section's lane — do not steal later sections.",
+              ],
+              body: `${company} should treat ${def.title.toLowerCase()} as an editable recommendation grounded in Brand DNA and site context${site ? ` (${site})` : ""}. Keep spend lean and defer low-ROI work until the beachhead converts.`,
+            };
 
       if (!groq) {
         return res.json({ section: fallback, model: null });
       }
 
+      const lanePrompt = AUTO_SECTION_LANE_PROMPTS[def.id] || "";
+      const isMarket = def.id === "market_analysis";
+      const voiceNotes = Array.isArray(brandDna?.voiceNotes)
+        ? brandDna.voiceNotes
+            .map((n) => String(n?.transcript || "").trim())
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+
       const completion = await groq.chat.completions.create({
         model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
-        temperature: 0.4,
-        max_tokens: 1800,
+        temperature: isMarket ? 0.25 : 0.4,
+        max_tokens: isMarket ? 2800 : 2200,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -4013,36 +4248,26 @@ Return STRICT JSON only:
 {
   "id": "${def.id}",
   "title": "${def.title}",
-  "summary": "1-2 sentence recommendation (not a recap)",
-  "bullets": ["4-6 action bullets"],
-  "body": "4-7 sentences of actionable guidance",
+  "summary": "1-2 COMPLETE sentences (must end with a period)",
+  "bullets": ["4-6 bullets for THIS section's lane only"],
+  "body": "4-7 COMPLETE sentences (must end with a period)",
   "subsections": [{ "title": string, "body": string, "bullets": string[] }]
 }
-Include 2-4 subsections with concrete detail. No Slack #channel headers.
+Include 2-3 short subsections when helpful. No Slack #channel headers.
+CRITICAL: Never truncate mid-sentence. Finish every string with proper punctuation.
 
 ${skillPlaybook || ""}
 ${supplementalSkillBlock || ""}
 
-Rules:
-- This is a RECOMMENDATION the user can edit — specific plays, tradeoffs, owners (roles), measurement.
-- Do not ask the user questions. Do not invent fake logos or fake metrics.
+${lanePrompt}
+
+Global rules:
+- Editable recommendation — specific, with tradeoffs. No questions to the user.
+- Do not invent fake logos, fake metrics, or unsupported verticals.
 - Prefer India/GCC/US realism when geography appears in context.
-- Include at least one hard choice or explicit deprioritization.
-- SECTION-SPECIFIC:
-  - If id = "market_analysis": focus on beachhead segment, why that segment first, sequencing into next segments, timing/buying triggers, and what to deprioritize.
-  - If id = "market_analysis": do NOT prescribe channel tactics like LinkedIn ads, webinars, outreach cadences, landing pages, or budget reallocations here.
-  - If id = "market_analysis": do NOT invent KPI lifts or CAC/ROI deltas unless the user context explicitly provides them.
-  - Keep market_analysis at the market/segment layer; channel and campaign execution belong to distribution_channels or marketing_strategy.
-  - If id = "positioning_messaging": focus on value proposition, claims, proof points, hooks, message hierarchy, and competitive counters.
-  - If id = "positioning_messaging": do NOT prescribe campaign plans, content kits, webinars, landing pages, outreach steps, or media allocation here.
-  - If id = "distribution_channels": focus on primary GTM motion, supporting channels, channel role, sequencing, and why each channel fits the buyer.
-  - If id = "distribution_channels": do NOT invent exact budget reallocations, named tools, outreach cadences, or KPI lifts unless the context explicitly supports them.
-  - If id = "marketing_strategy": focus on campaign spine, demand-gen narrative, offers, funnel motion, experimentation themes, and how marketing supports the north-star goal.
-  - If id = "marketing_strategy": do NOT simply repeat the channel list from distribution_channels, and do NOT invent precise percentages or quarterly KPI deltas unless given in context.
-  - If id = "sales_strategy": focus on qualification logic, conversion process, objection handling, SLAs, follow-up ownership, and stage progression.
-  - If id = "sales_strategy": do NOT fail if company context is thin; return a conservative fallback process recommendation instead of over-specific enterprise playbooks.
-  - Across ALL auto sections: if context is thin, stay directional and conditional rather than asserting unsupported vertical focus or exact numeric outcomes.
-- Stay consistent with prior approved sections when provided.`,
+- Include at least one explicit deprioritization.
+- Stay consistent with prior approved sections.
+- If context is thin, stay conditional rather than asserting certainty.`,
           },
           {
             role: "user",
@@ -4052,8 +4277,8 @@ Rules:
                 sectionTitle: def.title,
                 company,
                 websiteUrl: site || null,
-                industry: industry || onboarding?.industry || null,
-                icp: icp || onboarding?.icp || null,
+                industry: industryHint || null,
+                icp: icpHint || null,
                 onboarding: onboarding || null,
                 brandDna: brandDna
                   ? {
@@ -4062,8 +4287,10 @@ Rules:
                       brandTagline: brandDna.brandTagline,
                       businessSummary: brandDna.businessSummary,
                       toneOfVoice: brandDna.toneOfVoice,
+                      brandVoice: brandDna.brandVoice || null,
                       colors: brandDna.colors,
                       fonts: brandDna.fonts,
+                      voiceNoteTranscripts: voiceNotes,
                     }
                   : null,
                 skillTaskKey,
@@ -4109,7 +4336,7 @@ Rules:
         }))
         .filter((sub) => sub.title || sub.body);
 
-      const section = {
+      let section = {
         id: def.id,
         title: String(parsed?.title || def.title).trim() || def.title,
         summary: String(parsed?.summary || fallback.summary).trim(),
@@ -4123,6 +4350,24 @@ Rules:
 
       if (!section.summary || !section.bullets.length) {
         return res.json({ section: fallback, model: completion.model || null });
+      }
+
+      // Reject truncated or off-lane market_analysis drafts
+      if (isMarket) {
+        const tacticalHits = section.bullets.filter((b) => MARKET_ANALYSIS_TACTICAL_RE.test(b)).length;
+        const truncated =
+          looksTruncated(section.summary) ||
+          looksTruncated(section.body) ||
+          section.bullets.some((b) => looksTruncated(b) && String(b).length > 20);
+        if (tacticalHits >= 2 || truncated) {
+          console.warn(
+            `[gtm-wizard] market_analysis rejected (tactical=${tacticalHits}, truncated=${truncated}) — using structured fallback`
+          );
+          section = {
+            ...marketAnalysisFallback(company, industryHint, icpHint, null),
+            subsections: section.subsections?.length ? section.subsections : [],
+          };
+        }
       }
 
       res.json({

@@ -85,7 +85,7 @@ function getMonthWeeks(anchor: Date): Date[][] {
   const start = new Date(first)
   start.setDate(first.getDate() - first.getDay())
   const weeks: Date[][] = []
-  let cur = new Date(start)
+  const cur = new Date(start)
   while (cur <= last || weeks.length < 4) {
     const week: Date[] = []
     for (let i = 0; i < 7; i++) {

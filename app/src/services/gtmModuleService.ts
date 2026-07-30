@@ -209,7 +209,7 @@ export async function generateInterviewStrategySection(input: {
   interviewSectionId: string;
   strategySectionId: string;
   answers: Record<string, GtmSectionAnswer>;
-  priorSections?: Array<Record<string, unknown>>;
+  priorSections?: unknown[];
 }): Promise<{
   section: import('@/lib/gtmAutoSections').GtmAutoSectionDraft;
   module: GtmModule;
@@ -285,6 +285,7 @@ export async function executeGtmTask(
 export async function getGtmControlLoop(moduleId: string): Promise<{
   controlLoop: import('@/types/gtm').GtmControlLoopState;
   goalSystem: import('@/types/gtm').GtmStrategyGoalAlignment;
+  agentRoster?: import('@/types/gtm').GtmAgentRoster;
   module?: GtmModule;
 }> {
   const res = await fetch(`/api/gtm/modules/${moduleId}/control-loop`);
@@ -309,11 +310,31 @@ export async function diagnoseGtmControlLoop(
 ): Promise<{
   diagnosis: import('@/types/gtm').GtmControlLoopState['lastDiagnosis'];
   controlLoop: import('@/types/gtm').GtmControlLoopState;
+  agentRoster?: import('@/types/gtm').GtmAgentRoster;
 }> {
   const res = await fetch(`/api/gtm/modules/${moduleId}/control-loop/diagnose`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ notes }),
+  });
+  return readJsonOrThrow(res);
+}
+
+export async function getGtmAgentRoster(moduleId: string): Promise<{
+  agentRoster: import('@/types/gtm').GtmAgentRoster;
+  goalSystem?: import('@/types/gtm').GtmStrategyGoalAlignment;
+}> {
+  const res = await fetch(`/api/gtm/modules/${moduleId}/agent-roster`);
+  return readJsonOrThrow(res);
+}
+
+export async function refreshGtmAgentRoster(moduleId: string): Promise<{
+  agentRoster: import('@/types/gtm').GtmAgentRoster;
+}> {
+  const res = await fetch(`/api/gtm/modules/${moduleId}/agent-roster/refresh`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({}),
   });
   return readJsonOrThrow(res);
 }

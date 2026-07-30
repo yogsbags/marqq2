@@ -15,6 +15,19 @@ interface Integration {
   color: string;
 }
 
+function recommendedIntegrationIds(formData: FormData) {
+  const text = [formData.industry, formData.icp, formData.primaryGoal].join(' ').toLowerCase();
+  const ids = new Set<string>(['ga4']);
+  if (/b2b|enterprise|hospital|clinic|saas|lead|sales|operator/.test(text)) {
+    ids.add('hubspot'); ids.add('apollo'); ids.add('linkedin_ads');
+  }
+  if (/consumer|d2c|ecommerce|nutrition|wellness|app|conversion/.test(text)) {
+    ids.add('meta_ads'); ids.add('mailchimp');
+  }
+  if (/paid|ads|acquisition|demand/.test(text)) ids.add('google_ads');
+  return ids;
+}
+
 /** IDs must match Composio connector keys in mcp-router CONNECTOR_APP_MAP */
 const INTEGRATIONS: Integration[] = [
   { id: 'ga4', name: 'Google Analytics 4', icon: 'GA', description: 'Traffic & conversion data', color: '#E37400' },
@@ -41,9 +54,11 @@ interface FormStepProps {
 function IntegrationsGrid({
   value,
   onChange,
+  recommendedIds,
 }: {
   value: string;
   onChange: (val: string) => void;
+  recommendedIds?: Set<string>;
 }) {
   const connected = new Set(value ? value.split(',').filter(Boolean) : []);
   const [connecting, setConnecting] = useState<string | null>(null);
@@ -145,7 +160,8 @@ function IntegrationsGrid({
                 className="font-syne text-[12px] font-semibold leading-tight truncate transition-colors duration-300"
                 style={{ color: isConnected ? '#EDEDF3' : 'rgba(255,255,255,0.45)' }}
               >
-                {integration.name}
+              {integration.name}
+                {recommendedIds?.has(integration.id) && !isConnected ? <span className="ml-1 text-[9px] text-[#FF9A6B]">Recommended</span> : null}
               </div>
               <div className="font-mono text-[9px] tracking-[0.04em] text-white/25 mt-[2px] truncate">
                 {integration.description}
@@ -197,11 +213,12 @@ export function FormStep({
         {currentStep.fields.map((field) => {
           if (field.type === 'integrations') {
             return (
-              <IntegrationsGrid
+                <IntegrationsGrid
                 key={field.key}
                 value={formData[field.key] || ''}
-                onChange={(val) => updateField(field.key, val)}
-              />
+                  onChange={(val) => updateField(field.key, val)}
+                  recommendedIds={recommendedIntegrationIds(formData)}
+                />
             );
           }
 

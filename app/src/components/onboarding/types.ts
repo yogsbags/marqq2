@@ -1,4 +1,4 @@
-export type Phase = 'welcome' | 'form' | 'review' | 'gtmAutoReview' | 'activate' | 'done';
+export type Phase = 'welcome' | 'form' | 'review' | 'activate' | 'done';
 
 export type PrimaryGoal = 'leads' | 'conversion' | 'content' | 'market' | 'budget';
 
@@ -53,6 +53,12 @@ export interface FormData {
   goals: string;        // optional free-text "anything else?"
   kpis: string;         // optional: primary KPIs to track e.g. CAC, LTV, ROAS
   channels: string;     // optional: active marketing channels
+  businessModel: string;
+  geography: string;
+  timelineTarget: string;
+  quantifiedTarget: string;
+  successBaseline: string;
+  guardrails: string;
   [key: string]: string;
 }
 

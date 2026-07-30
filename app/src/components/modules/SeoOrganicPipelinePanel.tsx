@@ -140,7 +140,7 @@ export function SeoOrganicPipelinePanel({
       const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
       const json = res.ok ? await res.json().catch(() => ({})) : {}
       const ids = (json?.connectors ?? [])
-        .filter((c: { id?: string }) => isConnectorActive(c))
+        .filter((c: { id?: string; connected?: boolean; status?: string }) => isConnectorActive(c))
         .map((c: { id: string }) => c.id)
       setConnectedIds(ids)
     } catch {

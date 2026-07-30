@@ -8,13 +8,14 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { Loader2, Activity, AlertTriangle, CheckCircle2, Circle } from 'lucide-react'
 import { toast } from 'sonner'
-import type { GtmControlLoopState, GtmStrategyGoalAlignment } from '@/types/gtm'
+import type { GtmAgentRoster, GtmControlLoopState, GtmStrategyGoalAlignment } from '@/types/gtm'
 import {
   decideGtmIntervention,
   diagnoseGtmControlLoop,
   getGtmControlLoop,
   measureGtmControlLoop,
   proposeGtmInterventions,
+  refreshGtmAgentRoster,
 } from '@/services/gtmModuleService'
 
 type Props = {
@@ -37,9 +38,26 @@ function statusColor(status?: string) {
   }
 }
 
+function agentStatusColor(status?: string) {
+  switch (status) {
+    case 'high_priority':
+      return 'text-orange-700 bg-orange-500/10 border-orange-500/30'
+    case 'activated':
+      return 'text-emerald-700 bg-emerald-500/10 border-emerald-500/30'
+    case 'deprioritized':
+      return 'text-muted-foreground bg-muted/40 border-border/60'
+    case 'dormant':
+    case 'retired':
+      return 'text-muted-foreground/70 bg-transparent border-border/40'
+    default:
+      return 'text-muted-foreground bg-muted/30 border-border/50'
+  }
+}
+
 export function GtmControlLoopPanel({ moduleId, goalAlignment }: Props) {
   const [loop, setLoop] = useState<GtmControlLoopState | null>(null)
   const [goalSystem, setGoalSystem] = useState<GtmStrategyGoalAlignment | null>(goalAlignment || null)
+  const [roster, setRoster] = useState<GtmAgentRoster | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [actualInput, setActualInput] = useState('')
@@ -51,6 +69,7 @@ export function GtmControlLoopPanel({ moduleId, goalAlignment }: Props) {
       const data = await getGtmControlLoop(moduleId)
       setLoop(data.controlLoop)
       setGoalSystem(data.goalSystem)
+      setRoster(data.agentRoster || null)
       const cur = data.controlLoop.currentPeriod
       if (cur?.period) setPeriodInput(String(cur.period))
     } catch (err) {
@@ -89,9 +108,23 @@ export function GtmControlLoopPanel({ moduleId, goalAlignment }: Props) {
     try {
       const data = await diagnoseGtmControlLoop(moduleId)
       setLoop(data.controlLoop)
-      toast.success('Bottleneck diagnosed')
+      if (data.agentRoster) setRoster(data.agentRoster)
+      toast.success('Bottleneck diagnosed — agent priorities updated')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Diagnose failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onRefreshRoster = async () => {
+    setBusy(true)
+    try {
+      const data = await refreshGtmAgentRoster(moduleId)
+      setRoster(data.agentRoster)
+      toast.success('Agent roster refreshed from strategy')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Roster refresh failed')
     } finally {
       setBusy(false)
     }
@@ -246,6 +279,56 @@ export function GtmControlLoopPanel({ moduleId, goalAlignment }: Props) {
           <p className="mt-1 text-muted-foreground">{loop.lastDiagnosis.summary}</p>
           {loop.lastDiagnosis.reallocation ? (
             <p className="mt-1 text-muted-foreground">Reallocate: {loop.lastDiagnosis.reallocation}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Adaptive agent roster */}
+      {roster?.agents?.length ? (
+        <div className="space-y-2 rounded-lg border border-border/60 bg-muted/15 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Adaptive agent roster
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Archetype {roster.archetypeKey || '—'}
+                {roster.source ? ` · ${roster.source}` : ''}
+                {roster.bottleneck_stage ? ` · bottleneck: ${roster.bottleneck_stage}` : ''}
+              </p>
+              {roster.rationale ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">{roster.rationale}</p>
+              ) : null}
+            </div>
+            <Button type="button" size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => void onRefreshRoster()}>
+              Refresh roster
+            </Button>
+          </div>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {roster.agents
+              .filter((a) => a.status === 'high_priority' || a.status === 'activated')
+              .slice(0, 10)
+              .map((a) => (
+                <div
+                  key={a.id}
+                  className={cn('rounded-md border px-2.5 py-1.5 text-[11px]', agentStatusColor(a.status))}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-foreground">
+                      {a.name}
+                      {a.specialist_label ? ` · ${a.specialist_label}` : a.role ? ` · ${a.role}` : ''}
+                    </span>
+                    <span className="shrink-0 text-[10px] uppercase opacity-80">{a.status.replace(/_/g, ' ')}</span>
+                  </div>
+                  {a.mission ? <p className="mt-0.5 text-muted-foreground">{a.mission}</p> : null}
+                  {a.metric ? <p className="mt-0.5 opacity-80">Owns: {a.metric}</p> : null}
+                </div>
+              ))}
+          </div>
+          {(roster.dormant || []).length > 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              Dormant: {(roster.dormant || []).join(', ')}
+            </p>
           ) : null}
         </div>
       ) : null}

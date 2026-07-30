@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Eraser, FileText, Link2, Loader2, Mic, Pencil, Square, Trash2, Upload } from 'lucide-react';
-import type { BrandDna, BrandDnaKnowledgeFile, BrandDnaVoiceNote } from './types';
+import type { BrandDna, BrandDnaKnowledgeFile, BrandDnaVoiceNote, FormData } from './types';
 import {
   startBrowserSpeechRecognition,
   type BrowserSpeechSession,
@@ -24,6 +24,7 @@ interface BrandDnaStepProps {
   onBack: () => void;
   onSkip: () => void;
   onRetry: () => void;
+  formData?: FormData;
 }
 
 const KB_ACCEPT = '.pdf,.pptx,.ppt,.png,.jpg,.jpeg,.webp,.gif,.svg,.txt,.md,.markdown';
@@ -521,6 +522,7 @@ export function BrandDnaStep({
   onBack,
   onSkip,
   onRetry,
+  formData,
 }: BrandDnaStepProps) {
   const [editingColors, setEditingColors] = useState(false);
   const [logoBroken, setLogoBroken] = useState(false);
@@ -712,9 +714,21 @@ export function BrandDnaStep({
           Review your Brand DNA
         </h1>
         <p className="mt-2 text-sm text-white/45">
-          Your brand and influencer agents will be generated from here.
+          Confirm the context Marqq will use. Brand details enrich the strategy; the North Star is locked in the GTM wizard.
         </p>
       </div>
+
+      {formData && (
+        <div className="mb-4 rounded-2xl border border-[#FF6521]/20 bg-[#FF6521]/[0.06] px-4 py-3.5">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#FF9A6B]">GTM brief captured</div>
+          <div className="grid gap-2 text-xs text-white/65 sm:grid-cols-2">
+            <div><span className="text-white/30">Outcome:</span> {formData.primaryGoal || 'Not set'}</div>
+            <div><span className="text-white/30">Window:</span> {formData.timelineTarget || 'Not set'}</div>
+            <div><span className="text-white/30">Target:</span> {formData.quantifiedTarget || 'Marqq will propose one'}</div>
+            <div><span className="text-white/30">Baseline:</span> {formData.successBaseline || 'Not supplied'}</div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">

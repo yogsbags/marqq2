@@ -163,6 +163,49 @@ export interface GtmControlLoopState {
   autoAdjustAllowed?: string[];
 }
 
+export type GtmAgentRosterStatus =
+  | 'dormant'
+  | 'activated'
+  | 'high_priority'
+  | 'deprioritized'
+  | 'retired'
+  | string;
+
+export interface GtmAgentRosterEntry {
+  id: string;
+  name: string;
+  role?: string;
+  tier?: 'core' | 'specialist' | string;
+  capabilities?: string[];
+  status: GtmAgentRosterStatus;
+  score?: number;
+  reason?: string;
+  mission?: string;
+  metric?: string | null;
+  target?: string | null;
+  review_date?: string | null;
+  specialist_label?: string | null;
+  retiredBy?: string | null;
+}
+
+export interface GtmAgentRoster {
+  version?: number;
+  updatedAt?: string;
+  source?: 'llm' | 'rules' | string;
+  rationale?: string | null;
+  archetypeKey?: string;
+  business_archetype?: string | null;
+  north_star_metric?: string | null;
+  quantified_target?: string | null;
+  bottleneck_stage?: string | null;
+  agents: GtmAgentRosterEntry[];
+  highPriority?: string[];
+  activated?: string[];
+  dormant?: string[];
+  humanApprovalRequired?: string[];
+  autoAdjustAllowed?: string[];
+}
+
 export interface GtmStrategyDocument {
   title: string;
   executiveSummary: string;

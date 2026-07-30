@@ -7,11 +7,14 @@ interface AgentGridProps {
   phase: Phase;
   activatedAgents: Set<string>;
   activatingAgent: string | null;
+  recommendedAgentIds?: string[];
 }
 
-export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGridProps) {
+export function AgentGrid({ phase, activatedAgents, activatingAgent, recommendedAgentIds = AGENTS.map((agent) => agent.id) }: AgentGridProps) {
+  const recommended = new Set(recommendedAgentIds);
+  const visibleAgents = AGENTS.filter((agent) => recommended.has(agent.id));
   return (
-    <div className={`w-[500px] flex-shrink-0 border-r border-white/5 flex flex-col px-9 py-11 relative z-10 transition-colors duration-[2000ms] ease-in-out ${phase === 'done'
+    <div className={`w-full lg:w-[500px] max-h-[34vh] lg:max-h-none flex-shrink-0 border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col px-4 py-5 lg:px-9 lg:py-11 relative z-10 transition-colors duration-[2000ms] ease-in-out ${phase === 'done'
         ? 'bg-gradient-to-br from-[#0F1A0E] to-[#090914]'
         : 'bg-gradient-to-br from-[#0E0B1A] to-[#090910]'
       }`}>
@@ -26,19 +29,15 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
           ? 'Assembling team…'
           : phase === 'done'
             ? 'Ready for GTM'
-            : phase === 'review'
-              ? 'Brand DNA'
-              : phase === 'gtmAutoReview'
-                ? 'GTM drafts'
-                : 'Your AI Team'}
+            : phase === 'review' ? 'Context review' : 'Recommended GTM team'}
       </div>
 
       {/* Agent cards — 2 column grid */}
-      <div className="grid grid-cols-3 gap-2 flex-1 content-start">
-        {AGENTS.map((agent) => {
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 flex-1 content-start overflow-y-auto pr-1">
+        {visibleAgents.map((agent) => {
           const isActive = activatedAgents.has(agent.id);
           const isActivating = activatingAgent === agent.id;
-          const dim = phase === 'welcome' || phase === 'form' || phase === 'review' || phase === 'gtmAutoReview';
+          const dim = phase === 'welcome' || phase === 'form' || phase === 'review';
 
           return (
             <div
@@ -109,6 +108,12 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
         })}
       </div>
 
+      {phase !== 'done' && recommendedAgentIds.length < AGENTS.length && (
+        <div className="mt-4 font-mono text-[10px] leading-relaxed text-white/25">
+          {AGENTS.length - recommendedAgentIds.length} specialist{AGENTS.length - recommendedAgentIds.length === 1 ? '' : 's'} remain on standby until Marqq sees a confirmed bottleneck.
+        </div>
+      )}
+
       {/* Done message */}
       {phase === 'done' && (
         <div className="font-mono mt-6 py-3.5 px-4 bg-[#4ADE80]/10 border border-[#4ADE80]/20 rounded-lg animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -116,7 +121,7 @@ export function AgentGrid({ phase, activatedAgents, activatingAgent }: AgentGrid
             <Check className="h-3 w-3 mr-1" /> GTM WIZARD NEXT
           </div>
           <div className="text-white/35 text-[10px]">
-            Agents wait until you lock sections and pick a task
+            Agents work from the locked North Star; specialists activate as the bottleneck changes.
           </div>
         </div>
       )}
