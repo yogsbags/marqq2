@@ -112,8 +112,9 @@ const ROUTING_TOOLS = [
 ];
 
 /**
- * ROUTING GUIDE — derived from platform/crewai/routing/routing_table.json.
- * Maps user goals/keywords to the right agent. Keep in sync with the JSON file.
+ * ROUTING GUIDE — mirrors the active JavaScript agent roster in the backend.
+ * The backend task router is authoritative; this guide keeps chat intent
+ * prompts aligned with the same named agents without a second runtime.
  *
  * Format: "keywords → agentName (role) [connectors if required]"
  */

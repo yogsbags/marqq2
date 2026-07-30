@@ -1038,16 +1038,18 @@ interface ChatHomeProps {
   onConversationsChange?: () => void;
   hideHeader?: boolean;
   scope?: ConversationScope;
+  /** Additional context applied to every request in a scoped workspace chat. */
+  contextPrompt?: string;
 }
 
 // -- Component
 
 /**
- * AGENT_REQUIRED_CONNECTORS — derived from routing_table.json required_connectors.
+ * AGENT_REQUIRED_CONNECTORS — mirrors the active backend task requirements.
  * Maps agentName → minimum connector IDs that must be active for the agent to run
  * live data queries. If none are active the UI shows a ConnectorReadinessCard
  * instead of silently running the agent against empty data.
- * Keep in sync with routing_table.json required_connectors fields.
+ * Keep in sync with the backend task router.
  */
 const AGENT_REQUIRED_CONNECTORS: Record<string, string[]> = {
   maya:  ['gsc'],          // SEO / LLMO — needs Google Search Console or Ahrefs
@@ -1063,7 +1065,7 @@ const AGENT_REQUIRED_CONNECTORS: Record<string, string[]> = {
   tara:  ['ga4'],          // CRO — needs GA4 for conversion data
 };
 
-/** Match routing_table build-sequences: Instantly is required for live outreach. */
+/** Live outreach requires an approved sending connector such as Instantly. */
 function resolveAgentRequiredConnectors(agentName: string, query: string): string[] {
   const base = AGENT_REQUIRED_CONNECTORS[agentName] ?? [];
   const isOutreach = /\b(outreach|cold\s*email|email\s*sequence|build\s*sequence|instantly|lead\s*outreach|prospect(?:ing)?|campaign\s*launch)\b/i.test(
@@ -1175,15 +1177,15 @@ function buildUrlAnalysisSequence(url: string): SequenceAgent[] {
 }
 
 /**
- * buildGoalChainSequence — returns a targeted agent sequence from routing_table.json
+ * buildGoalChainSequence — returns a targeted sequence from active task rules.
  * agent_chain entries. Returns null if the query doesn't match any known chain.
  *
- * Chains defined in routing_table.json:
+ * Active chains:
  *   launch-planning  → ["neel","zara","riya"]   orchestration: sequential
  *   marketing-audit  → ["dev","priya","maya"]    orchestration: parallel (run sequential in chat)
  *
  * Generic full-analysis fallback (any broad audit/strategy query) runs 5 agents.
- * Keep the pattern list here in sync with routing_table.json keywords.
+ * Keep the pattern list here in sync with backend task rules.
  */
 function buildGoalChainSequence(query: string): { introText: string; agents: SequenceAgent[] } | null {
   // Never hijack scheduling / automation intents
@@ -1194,7 +1196,7 @@ function buildGoalChainSequence(query: string): { introText: string; agents: Seq
   const concise = '\n\nProvide 2-3 clear bulleted paragraphs with specific, actionable recommendations. No headers or filler.';
 
   // ── Chain 1: launch-planning (neel → zara → riya) ──────────────────────────
-  // routing_table.json: agent_chain: ["neel","zara","riya"], sequential
+  // Active chain: ["neel","zara","riya"], sequential
   if (/product.?launch|launch.?(strategy|plan|campaign|roadmap|planning)|plan.?(a\s+)?launch|gtm.?plan|go.?to.?market.?(plan|strategy)/i.test(query)) {
     return {
       introText: 'Planning your launch — strategy, campaigns, and content briefing in sequence.',
@@ -1222,8 +1224,8 @@ function buildGoalChainSequence(query: string): { introText: string; agents: Seq
   }
 
   // ── Chain 2: marketing-audit (dev + priya + maya) ──────────────────────────
-  // routing_table.json: agent_chain: ["dev-scorecard","dev-budget","priya"], parallel
-  // Mapped to dev (performance) + priya (competitive) + maya (SEO) in chat
+  // The canonical routing table uses active named agents only. Chat includes
+  // Maya's SEO lens as an additional read-only perspective.
   if (/marketing.?audit|full.?audit|stack.?review|audit.?my.?(marketing|channels|stack|spend)|tech.?stack.?audit/i.test(query)) {
     return {
       introText: 'Running your marketing audit — performance, competitive, and SEO angles.',
@@ -1635,6 +1637,7 @@ export function ChatHome({
   onConversationsChange,
   hideHeader,
   scope = 'main',
+  contextPrompt,
 }: ChatHomeProps) {
   const { activeWorkspace, clearWebsiteUrl } = useWorkspace();
   const { user } = useAuth();
@@ -3129,7 +3132,7 @@ export function ChatHome({
     }
 
     // Goal-chain pre-Veena short-circuit — known multi-agent chains from
-    // routing_table.json can skip the Veena LLM call entirely since we already
+    // The active task rules can skip an extra intent call since we already
     // know which agents to run (saves ~1s latency for launch/audit queries).
     if (!selectedFile) {
       const preChain = buildGoalChainSequence(text.trim());
@@ -3197,7 +3200,9 @@ export function ChatHome({
         content: msg.content,
       }));
 
-      let messageContent = currentInput;
+      let messageContent = contextPrompt?.trim()
+        ? `${contextPrompt.trim()}\n\nUser request: ${currentInput}`
+        : currentInput;
       if (inputAttachments.length) {
         const firstAttachment = inputAttachments[0];
         messageContent += ` [File uploaded: ${firstAttachment.name} (${formatFileSize(firstAttachment.size)})]`;
@@ -3216,9 +3221,10 @@ export function ChatHome({
       let streamedContent = '';
       let streamedReasoning = '';
       setReasoningStreamingId(placeholderId);
+      const scopedContext = [mkgContext, contextPrompt].filter(Boolean).join('\n\n');
       const veena: VeenaResponse = await askVeena(
         chatMessages,
-        mkgContext,
+        scopedContext,
         (token) => {
           streamedContent += token;
           if (streamedContent.length <= token.length) setIsTyping(false);
@@ -3253,7 +3259,7 @@ export function ChatHome({
           return;
         }
 
-        // Goal-chain routing: check routing_table.json agent_chain entries first.
+        // Goal-chain routing: check active task-chain rules first.
         // Matches specific goals (launch-planning, marketing-audit, full-analysis)
         // and runs the right targeted agent sequence, not a generic 5-agent blast.
         const goalChain = buildGoalChainSequence(currentInput);
@@ -3263,7 +3269,7 @@ export function ChatHome({
         }
 
         // Single-agent path — Veena already picked the right specialist.
-        // Check if required connectors are active (from routing_table.json required_connectors).
+        // Check if required connectors are active for this task.
         // If not, show the ConnectorReadinessCard instead of running the agent against empty data.
         const agentRequired = resolveAgentRequiredConnectors(veena.agentName, veena.query || currentInput);
         const agentMissing = agentRequired.filter(c => !activeConnectorIds.includes(c));

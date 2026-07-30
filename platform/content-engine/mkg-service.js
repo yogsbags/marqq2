@@ -1,7 +1,7 @@
 /**
  * MKGService — Marketing Knowledge Graph read/write layer.
  *
- * Disk-first: writes to platform/crewai/memory/{companyId}/mkg.json
+ * Disk-first: writes to platform/agent-runtime/memory/{companyId}/mkg.json
  * Sync: mirrors to Supabase company_mkg table (fire-and-forget, never blocks disk write)
  *
  * Usage:
@@ -20,8 +20,8 @@ import { getSupabaseReadClient, getSupabaseWriteClient } from "./supabase.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// MKG files live at: platform/crewai/memory/{companyId}/mkg.json
-const MKG_ROOT = join(__dirname, "..", "crewai", "memory");
+// MKG files live at: platform/agent-runtime/memory/{companyId}/mkg.json
+const MKG_ROOT = join(__dirname, "..", "agent-runtime", "memory");
 
 const STALE_CONFIDENCE_THRESHOLD = 0.6;
 const STALE_AGE_DAYS = 30;

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENTS_DIR = process.env.TORQQ_AGENTS_DIR
   ? resolve(process.env.TORQQ_AGENTS_DIR)
-  : join(__dirname, "..", "crewai", "agents");
+  : join(__dirname, "..", "agent-runtime", "agents");
 const NOTE_MARKER = "CALIBRATION_NOTE";
 
 function toFiniteNumber(value) {

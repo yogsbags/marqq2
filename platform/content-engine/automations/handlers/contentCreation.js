@@ -707,9 +707,23 @@ Rules from page-cro / copywriting:
           html = `${html.slice(0, firstButtonStart)}<a href="#marqq-lead-magnet" class="marqq-primary-cta">${buttonText}</a>${html.slice(firstButtonEnd + '</button>'.length)}`;
         }
       }
+      // Never publish model placeholders as if they were finished proof.
+      // Use a truthful product-led statement when no approved testimonial or
+      // customer logo exists in the brand context.
+      html = html
+        .replace(/\[Customer Logo\]\s*Trusted by\s*\[Number\]\s*of Indian Food Lovers/gi, 'Nutrition that fits Indian kitchens')
+        .replace(/\[Quote from a satisfied customer about their experience with Nouriva AI\]/gi, 'Nouriva AI helps make healthier eating easier to plan around your preferences and routine.')
+        .replace(/\[Quote from a satisfied customer\]/gi, 'Nouriva AI helps make healthier eating easier to plan around your preferences and routine.')
+        .replace(/\[Customer Name\]/gi, 'Nouriva AI')
+        .replace(/\[Customer logo\]/gi, 'Nouriva AI');
+      // Carry the brand asset into the generated page even when the model
+      // does not add one itself. Nouriva's favicon is the approved logo asset.
+      if (!/favicon\.png/i.test(html)) {
+        html = html.replace(/<header\b[^>]*>/i, '$&<img class="marqq-brand-mark" src="/favicon.png" alt="Nouriva AI" width="56" height="56">');
+      }
       const form = `<section id="marqq-lead-magnet" aria-labelledby="marqq-lead-magnet-title"><h2 id="marqq-lead-magnet-title">Get your free ${attr(leadMagnet)}</h2><p>Enter your details and we’ll send it to you.</p><form data-marqq-lead-form><label>First name<input name="name" autocomplete="given-name" required></label><label>Email<input type="email" name="email" autocomplete="email" required></label><button type="submit">${attr(cta)}</button><p data-marqq-form-status role="status"></p></form><script>(function(){const form=document.querySelector('[data-marqq-lead-form]');if(!form)return;form.addEventListener('submit',async function(event){event.preventDefault();const status=form.querySelector('[data-marqq-form-status]');status.textContent='Saving…';try{const response=await fetch('${attr(captureEndpoint)}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:'${attr(companyId)}',name:form.elements.name.value,email:form.elements.email.value,lead_magnet:'${attr(leadMagnet)}',source:window.location.href})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Could not save your details');status.textContent='You’re in — check your inbox for the download.';form.reset();}catch(error){status.textContent=error.message||'Could not save your details';}});})();</script></section>`;
       html = html.replace(/<\/body>/i, `${form}</body>`);
-      const captureCss = `<style id="marqq-lead-capture-styles">.marqq-primary-cta{display:inline-flex;align-items:center;justify-content:center;padding:.95rem 1.35rem;border-radius:999px;background:#E8A341;color:#0F3D2E;text-decoration:none;font-weight:700;cursor:pointer}.marqq-primary-cta:hover{filter:brightness(.96)}#marqq-lead-magnet{max-width:900px;margin:2rem auto;padding:2rem;border-radius:24px;background:#0F3D2E;color:#FAF7F0}#marqq-lead-magnet form{display:grid;gap:1rem;max-width:680px}#marqq-lead-magnet label{display:grid;gap:.4rem;color:#FAF7F0}#marqq-lead-magnet input{padding:.85rem 1rem;border-radius:10px;border:1px solid #A8C4B5;font:inherit}#marqq-lead-magnet button{width:max-content;padding:.9rem 1.25rem;border:0;border-radius:999px;background:#E8A341;color:#0F3D2E;font:inherit;font-weight:700;cursor:pointer}</style>`;
+      const captureCss = `<style id="marqq-lead-capture-styles">.marqq-brand-mark{display:block;margin:0 auto 1.25rem;border-radius:16px}.marqq-primary-cta{display:inline-flex;align-items:center;justify-content:center;padding:.95rem 1.35rem;border-radius:999px;background:#E8A341;color:#0F3D2E;text-decoration:none;font-weight:700;cursor:pointer}.marqq-primary-cta:hover{filter:brightness(.96)}#marqq-lead-magnet{max-width:900px;margin:2rem auto 4rem;padding:2rem;border-radius:24px;background:#0F3D2E;color:#FAF7F0}#marqq-lead-magnet form{display:grid;gap:1rem;max-width:680px}#marqq-lead-magnet label{display:grid;gap:.4rem;color:#FAF7F0}#marqq-lead-magnet input{padding:.85rem 1rem;border-radius:10px;border:1px solid #A8C4B5;font:inherit}#marqq-lead-magnet button{width:max-content;padding:.9rem 1.25rem;border:0;border-radius:999px;background:#E8A341;color:#0F3D2E;font:inherit;font-weight:700;cursor:pointer}</style>`;
       html = html.replace(/<\/head>/i, `${captureCss}</head>`);
     }
 

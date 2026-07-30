@@ -12,7 +12,9 @@
 import { supabase } from './supabase';
 import type { Conversation, Message } from '@/types/chat';
 
-export type ConversationScope = 'main' | 'veena-dm';
+// Main and DM are the built-in scopes. Section/workspace chats use stable
+// names such as `gtm:<moduleId>:<sectionId>` and share the same persistence path.
+export type ConversationScope = 'main' | 'veena-dm' | (string & {});
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
 

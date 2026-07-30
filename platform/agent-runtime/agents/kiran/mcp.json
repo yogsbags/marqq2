@@ -1,0 +1,6 @@
+{
+  "connectors": ["facebook", "instagram", "linkedin", "twitter", "youtube", "reddit", "mailchimp", "klaviyo", "hubspot", "zoho_crm", "ga4"],
+  "permissions": "read-write",
+  "description": "Kiran owns lifecycle and social engagement across nurture loops, organic channels, and audience response.",
+  "recipes": {}
+}

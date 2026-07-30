@@ -13,7 +13,12 @@ export type PinnedChannel = {
 };
 
 // Module IDs that are ALWAYS shown statically — never stored in pinnedChannels
-export const STATIC_CHANNEL_IDS = new Set(['home', 'main', 'performance-scorecard', 'crm', 'calendar']);
+export const STATIC_CHANNEL_IDS = new Set([
+  'home', 'main', 'performance-scorecard', 'crm', 'calendar',
+  'execution-outreach', 'execution-content', 'execution-blog-seo',
+  'execution-landing-pages', 'execution-lead-magnets', 'execution-social',
+  'execution-dashboard', 'execution-monitoring',
+]);
 
 // Non-channel module IDs that should never be pinned as channels
 export const NON_CHANNEL_IDS = new Set([

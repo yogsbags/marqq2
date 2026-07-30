@@ -11,9 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { getActiveAgentContext } from '@/lib/agentContext'
 import {
   getLeadOutreachCopyTypes,
+  getLeadOutreachEmailSenderConnectors,
   getLeadOutreachRequiredConnectors,
   OUTREACH_CONTACT_CHANNEL_PLAN,
 } from '@/lib/workflowRequirements'
@@ -77,6 +79,12 @@ type OutreachCampaign = {
   sentCount?: number
   replyCount?: number
   runId?: string
+  external_id?: string | null
+  list_id?: string | null
+  sequence_steps?: number
+  scheduled?: boolean
+  mode?: string
+  launch_meta?: { result?: { sequence?: unknown; mode?: string; activated?: boolean } | null }
 }
 
 type OutreachReply = {
@@ -125,6 +133,71 @@ type SentItem = {
   email: string
   sent_at: string
   subject: string
+}
+
+type OutreachAnalytics = {
+  totals?: {
+    sent?: number
+    delivered?: number
+    opened?: number
+    clicked?: number
+    replies?: number
+    positive_replies?: number
+    bounced?: number
+    unsubscribed?: number
+  }
+  rates?: {
+    delivery_rate?: number
+    open_rate?: number
+    click_rate?: number
+    reply_rate?: number
+    positive_reply_rate?: number
+    bounce_rate?: number
+    unsubscribe_rate?: number
+  }
+  by_provider?: Array<{
+    provider: string
+    sent?: number
+    delivered?: number
+    opened?: number
+    clicked?: number
+    replies?: number
+    reply_rate?: number
+  }>
+  attribution_note?: string
+}
+
+type OutreachTargetPacing = {
+  status?: string
+  message?: string
+  metric?: string
+  kind?: string
+  target?: number
+  unit?: string
+  elapsed_pct?: number
+  expected?: number
+  actual?: number
+  attainment_pct?: number | null
+  forecast?: number | null
+  remaining_target?: number
+  remaining_days?: number
+  required_per_day?: number
+  recommendations?: Array<{ id?: string; priority?: string; action?: string; reason?: string; approval_required?: boolean }>
+  llm_review?: {
+    reviewed_at?: string
+    summary?: string
+    diagnosis?: string
+    bottleneck_stage?: string
+    intervention?: {
+      id?: string
+      status?: string
+      intervention?: string
+      expected_impact?: string
+      success_condition?: string
+      rollback_condition?: string
+      requires_human_approval?: boolean
+    } | null
+  } | null
 }
 
 function formatLabel(value?: string) {
@@ -207,6 +280,7 @@ export function LeadOutreachFlow({
   initialDelivery,
 }: LeadOutreachFlowProps = {}) {
   const { activeWorkspace } = useWorkspace()
+  const { user } = useAuth()
   const contactChannels = useMemo(
     () => parseContactChannels(initialContactChannels, initialChannel),
     [initialContactChannels, initialChannel],
@@ -214,6 +288,10 @@ export function LeadOutreachFlow({
   const channel = initialChannel || deriveChannel(contactChannels)
   const requiredLaunchConnectors = useMemo(
     () => getLeadOutreachRequiredConnectors(contactChannels),
+    [contactChannels],
+  )
+  const requiredEmailSenders = useMemo(
+    () => contactChannels.includes('email') ? getLeadOutreachEmailSenderConnectors() : [],
     [contactChannels],
   )
   const expectedCopyTypes = useMemo(
@@ -231,6 +309,15 @@ export function LeadOutreachFlow({
   const [replies, setReplies] = useState<OutreachReply[]>([])
   const [scheduledQueue, setScheduledQueue] = useState<ScheduledItem[]>([])
   const [sentQueue, setSentQueue] = useState<SentItem[]>([])
+  const [analytics, setAnalytics] = useState<OutreachAnalytics | null>(null)
+  const [targetPacing, setTargetPacing] = useState<OutreachTargetPacing | null>(null)
+  const [targetMetricInput, setTargetMetricInput] = useState('qualified replies')
+  const [targetValueInput, setTargetValueInput] = useState('10')
+  const [targetDaysInput, setTargetDaysInput] = useState('30')
+  const [savingTarget, setSavingTarget] = useState(false)
+  const [reviewingTarget, setReviewingTarget] = useState(false)
+  const [trackEmailEngagement, setTrackEmailEngagement] = useState(false)
+  const [heyreachSequenceMode, setHeyreachSequenceMode] = useState<'standard' | 'conservative' | 'connect_only'>('standard')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
   const [streaming, setStreaming] = useState(false)
@@ -509,6 +596,8 @@ export function LeadOutreachFlow({
       setReplies((data.replies || []) as OutreachReply[])
       setScheduledQueue((data.scheduled || []) as ScheduledItem[])
       setSentQueue((data.sent || []) as SentItem[])
+      setAnalytics((data.analytics || null) as OutreachAnalytics | null)
+      setTargetPacing((data.target_pacing || null) as OutreachTargetPacing | null)
 
       if (runId && Array.isArray(data.runs)) {
         const active = data.runs.find((r: { id: string }) => r.id === runId)
@@ -651,6 +740,8 @@ export function LeadOutreachFlow({
           workspaceId,
           companyId,
           companyName,
+          senderName: user?.name || '',
+          trackingEnabled: trackEmailEngagement,
           question,
           channel,
           contact_channels: contactChannels,
@@ -672,15 +763,69 @@ export function LeadOutreachFlow({
       setSubject('')
       setBody('')
       setStreamText('')
-      if (data.suggested_send_at) {
-        setScheduledLocal(toLocalInputValue(data.suggested_send_at))
-      }
+      setScheduledLocal('')
       toast.success(`Loaded ${list.length} prospects from ${data.provider || data.source || 'lead data'} (max 100)`)
       void refreshInbox()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to fetch prospects')
     } finally {
       setFetching(false)
+    }
+  }
+
+  const saveOutreachTarget = async () => {
+    if (!runId) return
+    setSavingTarget(true)
+    try {
+      const res = await fetch(`/api/outreach/runs/${runId}/target`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metric: targetMetricInput, target_value: Number(targetValueInput), timeline_days: Number(targetDaysInput) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+      setTargetPacing(data.target_pacing as OutreachTargetPacing)
+      toast.success('Outreach target saved')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save target')
+    } finally {
+      setSavingTarget(false)
+    }
+  }
+
+  const reviewOutreachTarget = async () => {
+    if (!runId) return
+    setReviewingTarget(true)
+    try {
+      const res = await fetch(`/api/outreach/runs/${runId}/target-pacing/review`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+      await refreshInbox()
+      toast.success('Target review completed')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Target review failed')
+    } finally {
+      setReviewingTarget(false)
+    }
+  }
+
+  const decideOutreachIntervention = async (interventionId: string, decision: 'approved' | 'rejected') => {
+    if (!runId) return
+    setReviewingTarget(true)
+    try {
+      const res = await fetch(`/api/outreach/runs/${runId}/target-pacing/interventions/${encodeURIComponent(interventionId)}/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+      setTargetPacing(data.target_pacing as OutreachTargetPacing)
+      toast.success(decision === 'approved' ? 'Correction approved and queued for execution' : 'Correction rejected')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Intervention decision failed')
+    } finally {
+      setReviewingTarget(false)
     }
   }
 
@@ -922,6 +1067,7 @@ export function LeadOutreachFlow({
           prospectIds: [selected.id],
           activate: delivery === 'live',
           delivery,
+          ...(activeCopyType === 'linkedin_dm' ? { heyreach_sequence_mode: heyreachSequenceMode } : {}),
           companyId: companyId || workspaceId,
           channel_copies: mergedCopies,
         }),
@@ -1029,7 +1175,7 @@ export function LeadOutreachFlow({
             </div>
             <p className="text-xs leading-5 text-orange-100/65">
               Fetch up to 100 prospects, pick one, enrich profile/company/signals, stream channel copy
-              (email / LinkedIn DM / WhatsApp / voicebot), then Go Live to Instantly, HeyReach, WhatsApp, or voicebot.
+              (email / LinkedIn DM / WhatsApp / voicebot), then Go Live to Instantly or Gmail, HeyReach, WhatsApp, or voicebot.
               Gmail draft/send remains optional below.
             </p>
           </CardContent>
@@ -1052,6 +1198,18 @@ export function LeadOutreachFlow({
                 <span className="self-center text-xs text-muted-foreground">{prospects.length} loaded</span>
               ) : null}
             </div>
+            <label className="flex cursor-pointer items-start gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-xs">
+              <input
+                type="checkbox"
+                checked={trackEmailEngagement}
+                onChange={(event) => setTrackEmailEngagement(event.target.checked)}
+                className="mt-0.5 accent-orange-500"
+              />
+              <span>
+                <span className="font-medium">Track email engagement</span>
+                <span className="block text-muted-foreground">Adds an optional Gmail open pixel. Instantly provider metrics are tracked through webhooks.</span>
+              </span>
+            </label>
           </CardContent>
         </Card>
       </section>
@@ -1207,7 +1365,12 @@ export function LeadOutreachFlow({
                     )
                   })}
                   <div className="mt-1">
-                    Required connectors: {requiredLaunchConnectors.map((id) => connectorLabel(id)).join(', ') || '—'}
+                    Required connectors: {[
+                      ...requiredLaunchConnectors.map((id) => connectorLabel(id)),
+                      ...(requiredEmailSenders.length
+                        ? [`one of: ${requiredEmailSenders.map((id) => connectorLabel(id)).join(' or ')}`]
+                        : []),
+                    ].join(', ') || '—'}
                   </div>
                 </div>
 
@@ -1402,7 +1565,7 @@ export function LeadOutreachFlow({
                   workspaceId={workspaceId}
                   companyId={companyId}
                   requiredAllOf={activeCopyType === 'voicebot_script' ? [] : requiredLaunchConnectors}
-                  requiredAnyOf={activeCopyType === 'voicebot_script' ? [] : undefined}
+                  requiredAnyOf={activeCopyType === 'email' ? requiredEmailSenders : (activeCopyType === 'voicebot_script' ? [] : undefined)}
                   liveActionLabel={
                     activeCopyType === 'voicebot_script'
                       ? (delivery === 'live' ? 'Place voice calls' : 'Save voice draft')
@@ -1419,6 +1582,28 @@ export function LeadOutreachFlow({
                   onGoLive={() => goLiveCampaigns()}
                 />
 
+                {activeCopyType === 'linkedin_dm' ? (
+                  <div className="rounded-xl border border-sky-200/70 bg-sky-50/50 px-3 py-2 dark:border-sky-900/40 dark:bg-sky-950/20">
+                    <label className="text-xs font-medium text-foreground" htmlFor="heyreach-sequence-mode">
+                      HeyReach sequence
+                    </label>
+                    <select
+                      id="heyreach-sequence-mode"
+                      value={heyreachSequenceMode}
+                      onChange={(event) => setHeyreachSequenceMode(event.target.value as typeof heyreachSequenceMode)}
+                      disabled={streaming || copyLocked}
+                      className="mt-1 w-full rounded-lg border bg-background px-2.5 py-2 text-xs"
+                    >
+                      <option value="standard">Standard: view → follow → like → connect → message → follow-up</option>
+                      <option value="conservative">Conservative: view → follow → connect → message → follow-up</option>
+                      <option value="connect_only">Connect-only: connection request with note</option>
+                    </select>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Existing connections skip straight to messaging. Replies stop the sequence.
+                    </p>
+                  </div>
+                ) : null}
+
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-muted-foreground">Schedule Gmail send (optional)</div>
                   <Input
@@ -1427,7 +1612,8 @@ export function LeadOutreachFlow({
                     onChange={(e) => setScheduledLocal(e.target.value)}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Default is draft. Instantly campaigns stay inactive until delivery is Live and you click Go Live.
+                    Default is draft. Instantly campaigns stay inactive until delivery is Live and you click Go Live;
+                    Gmail drafts stay unsent unless you explicitly schedule or send live.
                     LinkedIn (HeyReach), WhatsApp, and voicebot only send on Live + Go Live.
                   </p>
                 </div>
@@ -1457,6 +1643,142 @@ export function LeadOutreachFlow({
         </Card>
       </section>
 
+      <section className="rounded-[1.75rem] border border-orange-200/70 bg-card p-4 shadow-sm dark:border-orange-900/40">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Outreach performance</h2>
+            <p className="text-xs text-muted-foreground">Unified events from Gmail, Instantly, and connected channels.</p>
+          </div>
+          <Button type="button" size="sm" variant="ghost" onClick={() => void refreshInbox()} disabled={refreshingInbox}>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+          {[
+            ['Sent', analytics?.totals?.sent || 0, ''],
+            ['Delivered', analytics?.totals?.delivered || 0, analytics?.rates?.delivery_rate],
+            ['Opened', analytics?.totals?.opened || 0, analytics?.rates?.open_rate],
+            ['Clicked', analytics?.totals?.clicked || 0, analytics?.rates?.click_rate],
+            ['Replies', analytics?.totals?.replies || 0, analytics?.rates?.reply_rate],
+            ['Positive', analytics?.totals?.positive_replies || 0, analytics?.rates?.positive_reply_rate],
+            ['Bounced', analytics?.totals?.bounced || 0, analytics?.rates?.bounce_rate],
+            ['Unsubscribed', analytics?.totals?.unsubscribed || 0, analytics?.rates?.unsubscribe_rate],
+          ].map(([label, value, rate]) => (
+            <div key={String(label)} className="rounded-xl border bg-background px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+              <div className="mt-1 text-lg font-semibold">{value}</div>
+              {rate !== '' ? <div className="text-[11px] text-muted-foreground">{Math.round(Number(rate || 0) * 100)}%</div> : null}
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 rounded-xl border border-indigo-200/70 bg-indigo-50/50 p-3 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+          {!targetPacing || targetPacing.status === 'unconfigured' ? (
+            <div>
+              <div className="text-xs font-semibold">Target pacing</div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {targetPacing?.message || 'Outreach pacing will appear after a quantified GTM target is locked.'}
+              </p>
+              {runId ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_7rem_7rem_auto]">
+                  <Input className="h-8 text-xs" value={targetMetricInput} onChange={(event) => setTargetMetricInput(event.target.value)} placeholder="Metric, e.g. qualified replies" />
+                  <Input className="h-8 text-xs" type="number" min="1" value={targetValueInput} onChange={(event) => setTargetValueInput(event.target.value)} placeholder="Target" />
+                  <Input className="h-8 text-xs" type="number" min="1" value={targetDaysInput} onChange={(event) => setTargetDaysInput(event.target.value)} placeholder="Days" />
+                  <Button type="button" size="sm" className="h-8" disabled={savingTarget || !targetMetricInput.trim()} onClick={() => void saveOutreachTarget()}>
+                    {savingTarget ? 'Saving…' : 'Set target'}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs font-semibold">Target pacing · {targetPacing.metric || 'North Star outcome'}</div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {targetPacing.actual ?? 0} / {targetPacing.target ?? '—'} {targetPacing.unit || 'outcomes'} · expected {targetPacing.expected ?? '—'} by today · forecast {targetPacing.forecast ?? '—'}
+                  </p>
+                </div>
+                <span className="rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide">
+                  {String(targetPacing.status || 'unknown').replace(/_/g, ' ')}
+                  {targetPacing.attainment_pct != null ? ` · ${targetPacing.attainment_pct}%` : ''}
+                </span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-950">
+                <div
+                  className="h-full rounded-full bg-indigo-500 transition-all"
+                  style={{ width: `${Math.min(100, Math.max(0, Number(targetPacing.attainment_pct || 0)))}%` }}
+                />
+              </div>
+              {targetPacing.remaining_target != null ? (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  {targetPacing.remaining_target} remaining across {targetPacing.remaining_days ?? '—'} days · required pace {targetPacing.required_per_day ?? '—'} / day
+                </p>
+              ) : null}
+              {targetPacing.recommendations?.length ? (
+                <div className="mt-3 space-y-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Recommended corrections</div>
+                  {targetPacing.recommendations.slice(0, 3).map((item) => (
+                    <div key={item.id || item.action} className="rounded-lg border bg-background/70 px-2.5 py-2 text-[11px]">
+                      <div className="font-medium">{item.action}</div>
+                      {item.reason ? <div className="mt-0.5 text-muted-foreground">{item.reason}</div> : null}
+                      {item.approval_required ? <div className="mt-0.5 text-amber-700 dark:text-amber-400">Approval required before changing execution.</div> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" disabled={reviewingTarget} onClick={() => void reviewOutreachTarget()}>
+                  {reviewingTarget ? 'Reviewing…' : 'Run LLM review'}
+                </Button>
+                {targetPacing.llm_review?.reviewed_at ? (
+                  <span className="text-[10px] text-muted-foreground">
+                    Last reviewed {new Date(targetPacing.llm_review.reviewed_at).toLocaleString()}
+                  </span>
+                ) : null}
+              </div>
+              {targetPacing.llm_review?.summary ? (
+                <div className="mt-3 rounded-lg border border-violet-200/70 bg-violet-50/50 px-2.5 py-2 text-[11px] dark:border-violet-900/40 dark:bg-violet-950/20">
+                  <div className="font-medium">LLM insight{targetPacing.llm_review.bottleneck_stage ? ` · ${targetPacing.llm_review.bottleneck_stage}` : ''}</div>
+                  <div className="mt-0.5 text-muted-foreground">{targetPacing.llm_review.summary}</div>
+                  {targetPacing.llm_review.diagnosis ? <div className="mt-1 text-muted-foreground">{targetPacing.llm_review.diagnosis}</div> : null}
+                  {targetPacing.llm_review.intervention ? (
+                    <div className="mt-2 rounded-md border bg-background/70 px-2 py-1.5">
+                      <div className="font-medium">Proposed: {targetPacing.llm_review.intervention.intervention}</div>
+                      {targetPacing.llm_review.intervention.expected_impact ? <div className="mt-0.5 text-muted-foreground">Expected impact: {targetPacing.llm_review.intervention.expected_impact}</div> : null}
+                      {targetPacing.llm_review.intervention.status === 'proposed' ? (
+                        <div className="mt-2 flex gap-1.5">
+                          <Button type="button" size="sm" className="h-7 text-[11px]" disabled={reviewingTarget || !targetPacing.llm_review.intervention.id} onClick={() => void decideOutreachIntervention(targetPacing.llm_review?.intervention?.id || '', 'approved')}>Approve</Button>
+                          <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" disabled={reviewingTarget || !targetPacing.llm_review.intervention.id} onClick={() => void decideOutreachIntervention(targetPacing.llm_review?.intervention?.id || '', 'rejected')}>Reject</Button>
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">{targetPacing.llm_review.intervention.status}</div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+        {analytics?.by_provider?.length ? (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-xs">
+              <thead className="text-muted-foreground">
+                <tr><th className="pb-2 font-medium">Provider</th><th className="pb-2 font-medium">Sent</th><th className="pb-2 font-medium">Delivered</th><th className="pb-2 font-medium">Opened</th><th className="pb-2 font-medium">Clicked</th><th className="pb-2 font-medium">Replies</th><th className="pb-2 font-medium">Reply rate</th></tr>
+              </thead>
+              <tbody>
+                {analytics.by_provider.map((row) => (
+                  <tr key={row.provider} className="border-t">
+                    <td className="py-2 font-medium">{row.provider}</td><td>{row.sent || 0}</td><td>{row.delivered || 0}</td><td>{row.opened || 0}</td><td>{row.clicked || 0}</td><td>{row.replies || 0}</td><td>{Math.round(Number(row.reply_rate || 0) * 100)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        <p className="mt-3 text-[11px] leading-4 text-muted-foreground">{analytics?.attribution_note || 'Provider-reported opens are shown where available. Gmail opens require optional HTML tracking.'}</p>
+      </section>
+
       <section className="grid gap-4 lg:grid-cols-3">
         <Card className="rounded-[1.75rem] border-orange-200/70 lg:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -1482,6 +1804,16 @@ export function LeadOutreachFlow({
                     {c.provider} · {c.sentCount || 0} sent · {c.replyCount || 0} replies ·{' '}
                     {c.prospectIds?.length || 0} prospects
                   </div>
+                  {c.provider === 'instantly' ? (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {c.sequence_steps || 1}-step sequence · {c.scheduled ? 'scheduled' : 'not scheduled'}
+                    </div>
+                  ) : null}
+                  {c.provider === 'heyreach' ? (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      isolated HeyReach campaign · {c.sequence_steps || 1} step · {c.scheduled ? 'weekday schedule' : 'draft'}
+                    </div>
+                  ) : null}
                   <div className={`mt-1 text-[11px] uppercase tracking-wide ${statusTone(c.status)}`}>
                     {c.status}
                   </div>
@@ -1690,6 +2022,7 @@ export function LeadOutreachFlow({
             )}
           </CardContent>
         </Card>
+
       </section>
     </div>
   )

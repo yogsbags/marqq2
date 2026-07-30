@@ -33,6 +33,31 @@ CREATE INDEX IF NOT EXISTS idx_outreach_runs_company
   ON public.outreach_runs (company_id)
   WHERE company_id IS NOT NULL;
 
+-- Optional multi-touch sequence passed to Instantly at campaign launch.
+ALTER TABLE public.outreach_runs
+  ADD COLUMN IF NOT EXISTS sequence_emails JSONB NOT NULL DEFAULT '[]';
+
+ALTER TABLE public.outreach_runs
+  ADD COLUMN IF NOT EXISTS sender_name TEXT;
+
+ALTER TABLE public.outreach_runs
+  ADD COLUMN IF NOT EXISTS analytics_events JSONB NOT NULL DEFAULT '[]';
+
+ALTER TABLE public.outreach_runs
+  ADD COLUMN IF NOT EXISTS tracking_enabled BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE public.outreach_runs
+  ADD COLUMN IF NOT EXISTS target_config JSONB;
+
+ALTER TABLE public.outreach_runs
+  ADD COLUMN IF NOT EXISTS goal_system JSONB;
+
+ALTER TABLE public.outreach_runs
+  ADD COLUMN IF NOT EXISTS target_review JSONB;
+
+ALTER TABLE public.outreach_runs
+  ADD COLUMN IF NOT EXISTS last_target_review_at TIMESTAMPTZ;
+
 -- ============================================================================
 -- OUTREACH PROSPECTS (≤100 per run)
 -- ============================================================================

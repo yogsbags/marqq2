@@ -2,7 +2,7 @@
  * MCP Router — routes the right integrations to the right agents.
  *
  * Architecture:
- *   Agent declares connectors in platform/crewai/agents/{name}/mcp.json
+ *   Agent declares connectors in platform/agent-runtime/agents/{name}/mcp.json
  *   Router fetches tool schemas from Composio for those connectors
  *   Backend injects tools into Groq function-calling, executes tool_calls via Composio
  *
@@ -18,7 +18,9 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const AGENTS_DIR = join(__dirname, '..', 'crewai', 'agents')
+const AGENTS_DIR = process.env.MARQQ_AGENTS_DIR
+  ? process.env.MARQQ_AGENTS_DIR
+  : join(__dirname, '..', 'agent-runtime', 'agents')
 const REPO_ROOT = join(__dirname, '..', '..')
 
 // Load .env before any auth-config lookups. backend-server also loads env, but
@@ -40,7 +42,7 @@ function loadEnvFileIntoProcess(envPath) {
 }
 loadEnvFileIntoProcess(join(REPO_ROOT, '.env'))
 loadEnvFileIntoProcess(join(REPO_ROOT, '.env.local'))
-loadEnvFileIntoProcess(join(__dirname, '..', 'crewai', '.env'))
+loadEnvFileIntoProcess(join(REPO_ROOT, '.env.marqq'))
 
 // ─── Connector → Composio app name mapping ────────────────────────────────────
 // Composio app names: https://app.composio.dev/apps
@@ -97,12 +99,21 @@ const AUTH_CONFIG_ENV_KEYS = {
   heygen: 'COMPOSIO_HEYGEN_AUTH_CONFIG_ID',
   elevenlabs: 'COMPOSIO_ELEVENLABS_AUTH_CONFIG_ID',
   veo: 'COMPOSIO_VEO_AUTH_CONFIG_ID',
+  fal_ai: 'COMPOSIO_FAL_AI_AUTH_CONFIG_ID',
+  pexels: 'COMPOSIO_PEXELS_AUTH_CONFIG_ID',
+  gemini: 'COMPOSIO_GEMINI_AUTH_CONFIG_ID',
   wordpress: 'COMPOSIO_WORDPRESS_AUTH_CONFIG_ID',
   webflow: 'COMPOSIO_WEBFLOW_AUTH_CONFIG_ID',
   // Automation & data
   make: 'COMPOSIO_MAKE_AUTH_CONFIG_ID',
   apify: 'COMPOSIO_APIFY_AUTH_CONFIG_ID',
   shopify: 'COMPOSIO_SHOPIFY_AUTH_CONFIG_ID',
+  wix: 'COMPOSIO_WIX_AUTH_CONFIG_ID',
+  hostinger: 'COMPOSIO_HOSTINGER_AUTH_CONFIG_ID',
+  firecrawl: 'COMPOSIO_FIRECRAWL_AUTH_CONFIG_ID',
+  github: 'COMPOSIO_GITHUB_AUTH_CONFIG_ID',
+  railway: 'COMPOSIO_RAILWAY_AUTH_CONFIG_ID',
+  cloudflare: 'COMPOSIO_CLOUDFLARE_AUTH_CONFIG_ID',
   // AI providers
   openai: 'COMPOSIO_OPENAI_AUTH_CONFIG_ID',
   anthropic: 'COMPOSIO_ANTHROPIC_AUTH_CONFIG_ID',
@@ -187,10 +198,19 @@ export const CONNECTOR_APP_MAP = {
   heygen:           'heygen',
   elevenlabs:       'elevenlabs',
   veo:              'veo',
+  fal_ai:           'fal_ai',
+  pexels:           'pexels',
+  gemini:           'gemini',
   // Automation & data
   make:             'make',
   apify:            'apify',
   shopify:          'shopify',
+  wix:              'wix',
+  hostinger:        'hostinger',
+  firecrawl:        'firecrawl',
+  github:           'github',
+  railway:          'railway',
+  cloudflare:        'cloudflare',
   snowflake:        'snowflake',
   wordpress:        'wordpress',
   webflow:          'webflow',
@@ -638,6 +658,14 @@ const ACTION_TOOLKIT_MAP = {
   APOLLO:              'apollo',
   WORDPRESS:           'wordpress',
   WEBFLOW:             'webflow',
+  SHOPIFY:             'shopify',
+  WIX:                 'wix',
+  HOSTINGER:           'hostinger',
+  APIFY:              'apify',
+  FIRECRAWL:           'firecrawl',
+  GITHUB:              'github',
+  RAILWAY:             'railway',
+  CLOUDFLARE:          'cloudflare',
 }
 
 const ACTION_TOOLKIT_PREFIXES = Object.keys(ACTION_TOOLKIT_MAP).sort((a, b) => b.length - a.length)
@@ -1108,15 +1136,40 @@ export async function getConnectedAccountToken(connectorId, userId) {
 
   try {
     const res = await fetch(
-      `${COMPOSIO_V3}/connected_accounts?user_id=${encodeURIComponent(userId)}&limit=20`,
+      // Connected accounts are shared across many toolkits. Keep this page large
+      // enough that an Apollo account is not hidden behind newer connections.
+      `${COMPOSIO_V3}/connected_accounts?user_id=${encodeURIComponent(userId)}&limit=100`,
       { headers: { 'x-api-key': apiKey } }
     )
     if (!res.ok) return { error: `Composio list accounts failed: ${res.status}` }
     const data = await res.json()
 
     // Find the newest active account for this app
-    const acct = pickNewestActiveAccount(data.items, userId, appName)
-    if (!acct) return { error: `No active ${connectorId} connection for user ${userId}. Connect it in Settings → Accounts.` }
+    // Use the same connector alias matching as the readiness endpoint. Some
+    // Composio responses expose Apollo as `apollo`, `apolloio`, or `apollo_io`.
+    // The strict toolkit-slug comparison here previously made a valid Apollo
+    // account look disconnected.
+    const acct = (data.items || [])
+      .filter((item) =>
+        accountMatchesUser(item, userId) &&
+        toolkitMatchesConnector(connectorId, item.toolkit?.slug || item.toolkit_slug || '') &&
+        item.status === 'ACTIVE' &&
+        item.id,
+      )
+      .sort((a, b) => accountRecency(b) - accountRecency(a))[0] || null
+    if (!acct) {
+      console.warn('[getConnectedAccountApiKey] no matching account', {
+        connectorId,
+        userId,
+        itemCount: Array.isArray(data.items) ? data.items.length : 0,
+        matching: (data.items || []).filter((item) => accountMatchesUser(item, userId)).map((item) => ({
+          id: item.id,
+          status: item.status,
+          toolkit: item.toolkit?.slug || item.toolkit_slug || null,
+        })).slice(0, 5),
+      })
+      return { error: `No active ${connectorId} connection for user ${userId}. Connect it in Settings → Accounts.` }
+    }
 
     // Fetch full account with credentials
     const detailRes = await fetch(`${COMPOSIO_V3}/connected_accounts/${acct.id}`, {

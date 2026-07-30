@@ -1,5 +1,5 @@
 /**
- * Normalize agent follow-ups to exactly 4 actionable options (client mirror of crewai helper).
+ * Normalize agent follow-ups to exactly 4 actionable options (client mirror of the runtime helper).
  */
 
 const DEFAULT_FOLLOW_UPS = [

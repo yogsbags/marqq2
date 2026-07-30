@@ -1,6 +1,0 @@
-{
-  "connectors": ["ga4", "shopify", "google_sheets", "hubspot", "zoho_crm", "mailchimp", "klaviyo"],
-  "permissions": "read",
-  "description": "Tara engineers offers, packaging, CTA structure, and funnel conversion moves.",
-  "recipes": {}
-}

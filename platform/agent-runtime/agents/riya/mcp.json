@@ -1,0 +1,6 @@
+{
+  "connectors": ["wordpress", "webflow", "wix", "shopify", "hostinger", "firecrawl", "github", "railway", "cloudflare", "ga4", "google_sheets", "canva", "veo", "fal_ai", "pexels", "gemini", "youtube", "instagram", "facebook", "linkedin", "twitter", "reddit"],
+  "permissions": "read-write",
+  "description": "Riya creates publishable content assets and tracks how content contributes to campaign execution.",
+  "recipes": {}
+}

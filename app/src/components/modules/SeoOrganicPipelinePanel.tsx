@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner'
 
 const SEO_OPTIONAL = ['semrush', 'ahrefs', 'gsc'] as const
+const CMS_OPTIONAL = ['webflow', 'wordpress', 'wix', 'shopify'] as const
 
 export type SeoArticleQueueItem = {
   keyword: string
@@ -91,6 +92,14 @@ export type SeoOrganicPlan = {
     topic?: string
     article?: { status?: string; html?: string; title?: string; slug?: string; word_count?: number }
   }>
+  content_audit?: {
+    status?: string
+    summary?: { pages_audited?: number; blog_pages?: number; avg_word_count?: number; pages_with_static_jsonld?: number }
+    gaps?: string[]
+  }
+  content_gaps?: string[]
+  refresh_queue?: Array<{ url?: string; reason?: string; recommended_action?: string }>
+  lead_magnet_opportunities?: Array<{ title?: string; format?: string; target_query?: string; buyer_stage?: string; cta?: string; why_now?: string }>
 }
 
 function normalizeDomain(input: string) {
@@ -123,6 +132,7 @@ export function SeoOrganicPipelinePanel({
   const [domain, setDomain] = useState(normalizeDomain(defaultDomain))
   const [running, setRunning] = useState(false)
   const [writing, setWriting] = useState(false)
+  const [useRenderedAudit, setUseRenderedAudit] = useState(false)
   const [plan, setPlan] = useState<SeoOrganicPlan | null>(null)
 
   useEffect(() => {
@@ -156,6 +166,7 @@ export function SeoOrganicPipelinePanel({
 
   const connectedSet = useMemo(() => new Set(connectedIds), [connectedIds])
   const hasSeoToolkit = SEO_OPTIONAL.some((id) => id !== 'gsc' && connectedSet.has(id))
+  const hasCms = CMS_OPTIONAL.some((id) => connectedSet.has(id))
   const gateIds = [...SEO_OPTIONAL]
 
   const runPlan = async () => {
@@ -177,7 +188,12 @@ export function SeoOrganicPipelinePanel({
         body: JSON.stringify({
           automation_id: 'build_seo_organic_plan',
           company_id: companyId,
-          params: { domain: d },
+          params: {
+            domain: d,
+            audit_limit: 50,
+            use_firecrawl: useRenderedAudit && connectedSet.has('firecrawl'),
+            firecrawl_limit: 10,
+          },
         }),
       })
       const json = (await res.json().catch(() => ({}))) as SeoOrganicPlan
@@ -210,6 +226,7 @@ export function SeoOrganicPipelinePanel({
             limit,
             market_type: 'b2c',
             target_audience: 'everyday consumers',
+            generate_image: true,
           },
         }),
       })
@@ -285,6 +302,21 @@ export function SeoOrganicPipelinePanel({
             </Alert>
           )}
 
+          {!loadingConnectors && !hasCms ? (
+            <ConnectorGateCard
+              connectorIds={[...CMS_OPTIONAL]}
+              connectedConnectorIds={connectedIds}
+              taskLabel="Blog publishing destination (Webflow/WordPress/Wix/Shopify optional)"
+              workspaceId={companyId}
+              hardGate={false}
+              onConnected={() => {
+                void refreshConnectors()
+                toast.success('Publishing destination connected')
+              }}
+              onSkip={() => toast.message('Articles will remain in Content Studio drafts until a CMS is connected')}
+            />
+          ) : null}
+
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <div className="flex-1 space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground" htmlFor="seo-domain">
@@ -306,6 +338,22 @@ export function SeoOrganicPipelinePanel({
             >
               {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Target className="h-4 w-4" />}
               Run SEO pipeline
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 text-xs">
+            <div>
+              <p className="font-medium text-foreground">Rendered site audit</p>
+              <p className="text-muted-foreground">Use Firecrawl on up to 10 pages to inspect JS-rendered content and schema.</p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={useRenderedAudit ? 'default' : 'outline'}
+              disabled={!connectedSet.has('firecrawl')}
+              onClick={() => setUseRenderedAudit((value) => !value)}
+            >
+              {connectedSet.has('firecrawl') ? (useRenderedAudit ? 'Enabled' : 'Off') : 'Connect Firecrawl'}
             </Button>
           </div>
 
@@ -372,6 +420,56 @@ export function SeoOrganicPipelinePanel({
 
       {plan?.status === 'success' ? (
         <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="border-border/70 lg:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Existing content audit</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-border px-2 py-0.5 text-xs">
+                  {plan.content_audit?.summary?.pages_audited ?? 0} pages audited
+                </span>
+                <span className="rounded-full border border-border px-2 py-0.5 text-xs">
+                  {plan.content_audit?.summary?.blog_pages ?? 0} blog pages
+                </span>
+                <span className="rounded-full border border-border px-2 py-0.5 text-xs">
+                  {plan.content_audit?.summary?.avg_word_count ?? 0} avg words
+                </span>
+                <span className="rounded-full border border-border px-2 py-0.5 text-xs">
+                  {plan.refresh_queue?.length ?? 0} refresh candidates
+                </span>
+              </div>
+              {plan.content_gaps?.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {plan.content_gaps.slice(0, 8).map((gap) => (
+                    <span key={gap} className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-300">{gap}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground">No material static-content gaps were detected, or the site did not expose a readable sitemap.</p>
+              )}
+              {plan.refresh_queue?.length ? (
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  {plan.refresh_queue.slice(0, 3).map((item) => (
+                    <div key={item.url} className="truncate">{item.recommended_action || 'refresh'} · {item.url} · {item.reason || 'content quality improvement'}</div>
+                  ))}
+                </div>
+              ) : null}
+              {plan.lead_magnet_opportunities?.length ? (
+                <div className="space-y-1.5 border-t border-border/60 pt-3">
+                  <p className="text-xs font-medium text-foreground">Lead-magnet opportunities</p>
+                  {plan.lead_magnet_opportunities.map((item) => (
+                    <div key={`${item.title}-${item.target_query}`} className="rounded-md bg-muted/30 px-2 py-1.5 text-xs">
+                      <span className="font-medium">{item.title}</span>
+                      <span className="text-muted-foreground"> · {item.format || 'asset'} · {item.target_query}</span>
+                      {item.cta ? <div className="text-muted-foreground">CTA: {item.cta}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           <Card className="border-border/70">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Topical authority</CardTitle>

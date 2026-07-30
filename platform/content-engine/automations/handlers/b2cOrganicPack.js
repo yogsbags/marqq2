@@ -3,7 +3,7 @@
  * =======================
  * Generates 3 image posts × Instagram / Facebook / LinkedIn / X (Twitter).
  * Captions via Groq; images via Gemini (generateSocialImage) with channel-native
- * aspect ratios and look-and-feel. Image posts only (no reels/video).
+ * aspect ratios and look-and-feel. Optional video variants for Reels/video.
  *
  * B2C CTA flow (product):
  *   1. Connect social accounts (IG / FB / LI / X) — soft gate before generate,
@@ -13,7 +13,7 @@
  *   4. Scheduled items appear on Marketing Calendar for that day/channel.
  */
 
-import { generateSocialImage } from './contentCreation.js';
+import { generateSocialImage, generateFacelessVideo } from './contentCreation.js';
 import {
   loadMarketingSkillsForTask,
   resolveSkillPack,
@@ -28,8 +28,8 @@ const HUMANIZER_SKILL_PATH = join(
   '..',
   '..',
   '..',
-  'crewai',
-  'skill-library',
+  'agent-runtime',
+  'skills',
   'marketingskills',
   'skills',
   'humanizer',
@@ -54,12 +54,14 @@ export const B2C_ORGANIC_SKILL_RULES = {
     facebook: { min: 1, max: 2 },
     linkedin: { min: 3, max: 5 },
     twitter: { min: 1, max: 2 },
+    reddit: { min: 0, max: 2 },
   },
   caption_max: {
     instagram: 2200,
     facebook: 500,
     linkedin: 3000,
     twitter: 260,
+    reddit: 40000,
   },
   // marketing-psychology levers for the 3 angles
   angles: {
@@ -72,8 +74,8 @@ export const B2C_ORGANIC_SKILL_RULES = {
   benefits_over_features: true,
   // content-strategy pillars mix for B2C organic image posts
   pillars: ['educational', 'social_proof', 'promotional_light'],
-  image_only: true,
-  no_reels: true,
+  image_only: false,
+  no_reels: false,
 };
 
 export const B2C_ORGANIC_CHANNELS = [
@@ -112,6 +114,15 @@ export const B2C_ORGANIC_CHANNELS = [
     dimensions: '1600×900',
     look:
       'X/Twitter feed image — landscape 16:9, bold simple focal subject, high scroll-stop contrast, minimal clutter, meme-adjacent clarity without being meme, no watermarks',
+  },
+  {
+    id: 'reddit',
+    label: 'Reddit',
+    connector: 'reddit',
+    aspect_ratio: 'text',
+    dimensions: 'text post',
+    look: 'Reddit community post — useful, specific, conversational, no ad-speak, no image required',
+    text_only: true,
   },
 ];
 
@@ -229,7 +240,7 @@ Return ONLY JSON:
 {
   "posts": [
     {
-      "channel": "instagram|facebook|linkedin|twitter",
+      "channel": "instagram|facebook|linkedin|twitter|reddit",
       "angle": "pain_hook|social_proof|offer_cta",
       "hook": "first line",
       "caption": "full caption body without hashtags",
@@ -451,13 +462,15 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
   const audience = asString(params.audience || params.icp, 'B2C consumers');
   const brandContext = asString(params.brand_context, brand);
   const style = asString(params.style, 'clean modern consumer brand photography');
+  const includeVideo = params.include_video === true || params.includeVideo === true;
+  const goalSystem = params.gtm_goal_system && typeof params.gtm_goal_system === 'object' ? params.gtm_goal_system : null;
 
   const wanted = Array.isArray(params.channels) && params.channels.length
     ? params.channels.map((c) => String(c).toLowerCase())
     : B2C_ORGANIC_CHANNELS.map((c) => c.id);
   const channels = B2C_ORGANIC_CHANNELS.filter((c) => wanted.includes(c.id));
   if (!channels.length) {
-    return { status: 'error', error: 'No valid channels. Use instagram, facebook, linkedin, twitter.' };
+    return { status: 'error', error: 'No valid channels. Use instagram, facebook, linkedin, twitter, reddit.' };
   }
 
   const skillPack = resolveSkillPack('generate_b2c_organic_pack');
@@ -501,7 +514,8 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
   const posts = [];
   const errors = [];
 
-  // Generate images with limited concurrency (2 at a time) to avoid Gemini rate limits
+  // Generate images with limited concurrency (2 at a time) to avoid Gemini rate limits.
+  // Reddit is deliberately text-only: community posts should read like useful participation.
   const jobs = [];
   for (const channel of channels) {
     for (const angle of B2C_POST_ANGLES) {
@@ -524,8 +538,8 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
         };
         const levers = (cap.psychology_levers || B2C_ORGANIC_SKILL_RULES.angles[angle.id] || []).join(', ');
         const prompt = [
-          `B2C organic social IMAGE POST for ${channel.label} (${channel.dimensions}, ${channel.aspect_ratio}).`,
-          `Follow ad-creative + social-content visual craft: single strong subject, platform-native look, still image only (no reel/video frames).`,
+          `B2C organic social ${channel.text_only ? 'TEXT POST' : 'IMAGE POST'} for ${channel.label} (${channel.dimensions}, ${channel.aspect_ratio}).`,
+          `Follow ad-creative + social-content visual craft: single strong subject, platform-native look, still image first; video variant is generated separately when requested.`,
           channel.look,
           `Angle: ${angle.label}. ${angle.brief}`,
           `Psychology levers (marketing-psychology): ${levers}`,
@@ -534,7 +548,7 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
           'Photoreal or high-end brand photography. Benefits-led scene (not feature dump). No fake UI. No watermark. No unreadable micro-text.',
         ].join(' ');
 
-        const img = await generateSocialImage(
+        const img = channel.text_only ? null : await generateSocialImage(
           {
             prompt,
             aspect_ratio: channel.aspect_ratio,
@@ -548,7 +562,7 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
         );
 
         const imageUrl = img?.cdn_url || img?.image_url || img?.url || null;
-        if (!imageUrl) {
+        if (!imageUrl && !channel.text_only) {
           errors.push({
             channel: channel.id,
             angle: angle.id,
@@ -556,7 +570,7 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
           });
         }
 
-        return {
+        const imagePost = {
           id: `${channel.id}_${angle.id}_${Date.now()}`,
           channel: channel.id,
           channel_label: channel.label,
@@ -573,23 +587,52 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
           image_url: imageUrl,
           cdn_url: imageUrl,
           post: [cap.hook, cap.caption].filter(Boolean).join('\n\n'),
-          status: imageUrl ? 'ready' : 'image_failed',
+          status: imageUrl || channel.text_only ? 'ready' : 'image_failed',
           model: img?.model || process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-lite-image',
           skills: skillIds,
         };
+        if (includeVideo && (channel.id === 'instagram' || channel.id === 'facebook')) {
+          const video = await generateFacelessVideo({
+            prompt: `Create a short platform-native ${channel.id === 'instagram' ? 'Instagram Reel' : 'Facebook video'} for ${brand}. ${cap.visual_brief || channel.look}. Open with this hook: ${cap.hook}. Product/offer: ${offer || 'hero product'}. Audience: ${audience}. Show one clear benefit, no fabricated claims, no watermark, strong visual opening.`,
+            duration: channel.id === 'instagram' ? 8 : 12,
+            aspect_ratio: channel.id === 'instagram' ? '9:16' : '16:9',
+            image_url: imageUrl || undefined,
+          }, companyId);
+          const videoUrl = video?.cloudinary_url || video?.video_url || null;
+          return {
+            ...imagePost,
+            id: `${channel.id}_${angle.id}_video_${Date.now()}`,
+            format: channel.id === 'instagram' ? 'reel' : 'video_post',
+            aspect_ratio: channel.id === 'instagram' ? '9:16' : '16:9',
+            dimensions: channel.id === 'instagram' ? '1080×1920' : '1280×720',
+            image_url: null,
+            cdn_url: null,
+            video_url: videoUrl,
+            status: videoUrl ? 'ready' : 'video_failed',
+            video_error: videoUrl ? null : (video?.error || 'Video generation failed'),
+          };
+        }
+        return imagePost;
       }),
     );
     posts.push(...results);
   }
 
   return {
-    status: posts.some((p) => p.image_url) ? 'completed' : 'error',
+    status: posts.some((p) => p.image_url || p.video_url || p.channel === 'reddit') ? 'completed' : 'error',
     market: 'b2c',
-    format: 'image_post',
+    format: includeVideo ? 'image_and_video' : 'image_post',
     channels: channels.map((c) => c.id),
     posts_per_channel: B2C_POST_ANGLES.length,
     total_posts: posts.length,
-    ready_count: posts.filter((p) => p.image_url).length,
+    ready_count: posts.filter((p) => p.image_url || p.video_url || p.channel === 'reddit').length,
+    video_variants: posts.filter((p) => p.video_url).length,
+    goal_alignment: goalSystem ? {
+      north_star_metric: goalSystem.north_star_metric || null,
+      quantified_target: goalSystem.quantified_target || null,
+      timeline_target: goalSystem.timeline_target || null,
+      content_role: 'Create qualified attention and conversion intent as leading indicators; posts and views are not the North Star.',
+    } : null,
     posts,
     errors,
     skill_alignment: {
@@ -609,6 +652,7 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
         'Connect Instagram, Facebook, LinkedIn, and X for live posting',
         'Generate captions with social-content + copywriting + marketing-psychology',
         'Humanize with blader/humanizer (strip AI tells, no invented facts)',
+        ...(includeVideo ? ['Generate approved video variants: Instagram Reels (9:16) and Facebook video (16:9)'] : []),
         'Review each outcome card — Post Now or Schedule',
         'Scheduled posts appear on the Marketing Calendar',
       ],
@@ -616,8 +660,8 @@ export async function generateB2cOrganicPack(params = {}, companyId) {
       skills: skillIds,
     },
     message:
-      posts.filter((p) => p.image_url).length === posts.length
-        ? `Generated ${posts.length} B2C image posts across ${channels.length} channels (skills: ${skillIds.slice(0, 4).join(', ')}…).`
-        : `Generated ${posts.filter((p) => p.image_url).length}/${posts.length} posts (some images failed).`,
+      posts.filter((p) => p.image_url || p.video_url || p.channel === 'reddit').length === posts.length
+        ? `Generated ${posts.length} B2C content variants across ${channels.length} channels (skills: ${skillIds.slice(0, 4).join(', ')}…).`
+        : `Generated ${posts.filter((p) => p.image_url || p.video_url || p.channel === 'reddit').length}/${posts.length} variants (some assets failed).`,
   };
 }

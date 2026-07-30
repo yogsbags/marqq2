@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, Pencil, Plus, X } from 'lucide-react';
+import { Loader2, Pencil, Plus, X, MessageSquareText, RotateCcw } from 'lucide-react';
 import type { GtmAutoSectionDraft, GtmStrategySubsection } from '@/lib/gtmAutoSections';
 
 type Props = {
@@ -14,6 +14,8 @@ type Props = {
   onBack: () => void;
   onSkip?: () => void;
   onLooksGood: () => void;
+  onRevise?: (prompt: string) => Promise<void>;
+  revising?: boolean;
   looksGoodLabel?: string;
   /** When true, render as fixed fullscreen overlay (wizard). */
   overlay?: boolean;
@@ -31,11 +33,14 @@ export function GtmStrategySectionReview({
   onBack,
   onSkip,
   onLooksGood,
+  onRevise,
+  revising = false,
   looksGoodLabel = 'Looks Good →',
   overlay = false,
 }: Props) {
   const [editingBullets, setEditingBullets] = useState(false);
   const [newBullet, setNewBullet] = useState('');
+  const [revisionPrompt, setRevisionPrompt] = useState('');
 
   function patch(partial: Partial<GtmAutoSectionDraft>) {
     if (!draft) return;
@@ -47,6 +52,13 @@ export function GtmStrategySectionReview({
     const next = [...(draft.subsections || [])];
     next[idx] = { ...next[idx], ...partial };
     patch({ subsections: next });
+  }
+
+  async function submitRevision() {
+    const prompt = revisionPrompt.trim();
+    if (!prompt || !onRevise || revising) return;
+    await onRevise(prompt);
+    setRevisionPrompt('');
   }
 
   const shell = (
@@ -300,6 +312,64 @@ export function GtmStrategySectionReview({
             ))}
           </div>
 
+          {onRevise ? (
+            <div className="mt-4 rounded-2xl border border-[#FF6521]/30 bg-[#FF6521]/[0.07] px-4 py-4">
+              <div className="flex items-start gap-2">
+                <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6521]" />
+                <div>
+                  <p className="text-sm font-semibold text-white">Ask AI to revise this section</p>
+                  <p className="mt-1 text-xs leading-relaxed text-white/45">
+                    Describe what is wrong or what should change. The current draft stays editable until you approve it.
+                  </p>
+                </div>
+              </div>
+              <textarea
+                value={revisionPrompt}
+                onChange={(e) => setRevisionPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    void submitRevision();
+                  }
+                }}
+                rows={3}
+                disabled={revising}
+                className="mt-3 w-full resize-none rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2.5 text-sm leading-relaxed text-white outline-none placeholder:text-white/25 focus:border-[#FF6521]/60"
+                placeholder="e.g. Narrow this to Indian B2B SaaS companies with 20–200 employees and make the target achievable with our current sales team."
+              />
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] text-white/30">Tip: press ⌘/Ctrl + Enter to revise</p>
+                <button
+                  type="button"
+                  disabled={!revisionPrompt.trim() || revising}
+                  onClick={() => void submitRevision()}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-[#FF6521] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#ff773b] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {revising ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                  {revising ? 'Revising…' : 'Revise section'}
+                </button>
+              </div>
+              {draft.revisionNote ? (
+                <p className="mt-3 border-t border-white/[0.08] pt-2 text-[11px] text-[#ffb08f]">
+                  {draft.revisionNote} Review the result before approving.
+                </p>
+              ) : null}
+              {(draft.affectedSections || []).length > 0 ? (
+                <div className="mt-3 border-t border-white/[0.08] pt-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200/80">
+                    Review may be needed in
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-white/65">
+                    {(draft.affectedSections || []).map((id) => id.replace(/_/g, ' ')).join(' · ')}
+                  </p>
+                  <p className="mt-1 text-[10px] text-white/35">
+                    These sections will be added to the review queue after you approve this revision.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="mt-8 flex items-center justify-between gap-3">
             <button
               type="button"
@@ -320,8 +390,9 @@ export function GtmStrategySectionReview({
               ) : null}
               <button
                 type="button"
+                disabled={revising}
                 onClick={onLooksGood}
-                className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-white/90"
+                className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {looksGoodLabel}
               </button>

@@ -54,6 +54,7 @@ const CONNECTOR_META: Record<string, ConnectorMeta> = {
   klaviyo:         { category: 'Email & Messaging',         description: 'Email & SMS flows, campaigns, and list metrics from Klaviyo.',      logoBg: 'bg-[#1A1A1A]', logoLabel: 'KL'  },
   sendgrid:        { category: 'Email & Messaging',         description: 'Transactional and marketing email stats from SendGrid.',            logoBg: 'bg-[#1A82E2]', logoLabel: 'SG'  },
   instantly:       { category: 'Email & Messaging',         description: 'Cold outreach campaigns and reply tracking from Instantly.',        logoBg: 'bg-[#6366F1]', logoLabel: 'IN'  },
+  lemlist:         { category: 'Email & Messaging',         description: 'Multichannel outreach campaigns and reply tracking from Lemlist.',    logoBg: 'bg-[#F97316]', logoLabel: 'LE'  },
   whatsapp:        { category: 'Email & Messaging',         description: 'WhatsApp Business messaging and campaign automation.',              logoBg: 'bg-[#25D366]', logoLabel: 'WA'  },
   slack:           { category: 'Email & Messaging',         description: 'Send alerts and reports to Slack channels.',                       logoBg: 'bg-[#4A154B]', logoLabel: 'SL'  },
   zoho_mail:       { category: 'Email & Messaging',         description: 'Zoho Mail for business email and outreach.',                       logoBg: 'bg-[#E71E63]', logoLabel: 'ZM'  },
@@ -86,10 +87,16 @@ const CONNECTOR_META: Record<string, ConnectorMeta> = {
   veo:             { category: 'Content & Creative',        description: 'Google Veo AI video generation.',                                logoBg: 'bg-[#4285F4]', logoLabel: 'VEO' },
   wordpress:       { category: 'Content & Creative',        description: 'Blog and landing page content for SEO performance.',             logoBg: 'bg-[#21759B]', logoLabel: 'WP'  },
   webflow:         { category: 'Content & Creative',        description: 'Publish blogs and landing pages to Webflow CMS collections.',   logoBg: 'bg-[#4353FF]', logoLabel: 'WF'  },
+  wix:             { category: 'Content & Creative',        description: 'Manage Wix site content and publishing workflows.',               logoBg: 'bg-[#0C6EFC]', logoLabel: 'W'   },
   // Automation & Data
   make:            { category: 'Automation & Data',         description: 'Trigger and manage Make (Integromat) automation scenarios.',     logoBg: 'bg-[#6D00CC]', logoLabel: 'MK'  },
   apify:           { category: 'Automation & Data',         description: 'Web scraping and data extraction via Apify actors.',             logoBg: 'bg-[#1DB954]', logoLabel: 'AP'  },
-  shopify:         { category: 'Automation & Data',         description: 'Orders, products, and revenue from your Shopify store.',         logoBg: 'bg-[#008060]', logoLabel: 'S'   },
+  shopify:         { category: 'Automation & Data',         description: 'Store data plus Shopify blog article publishing.',                 logoBg: 'bg-[#008060]', logoLabel: 'S'   },
+  hostinger:       { category: 'Automation & Data',         description: 'Hosting, domains, DNS, and technical site checks.',             logoBg: 'bg-[#673DE6]', logoLabel: 'H'   },
+  firecrawl:       { category: 'Automation & Data',         description: 'Rendered site crawling, scraping, and structured audits.',         logoBg: 'bg-[#111827]', logoLabel: 'FC'  },
+  github:          { category: 'Automation & Data',         description: 'Repository content publishing and workflow dispatch.',              logoBg: 'bg-[#24292F]', logoLabel: 'GH'  },
+  railway:         { category: 'Automation & Data',         description: 'Deployment status, logs, and environment context.',               logoBg: 'bg-[#111827]', logoLabel: 'RW'  },
+  cloudflare:      { category: 'Automation & Data',         description: 'DNS, zones, and production site health context.',                  logoBg: 'bg-[#F38020]', logoLabel: 'CF'  },
   snowflake:       { category: 'Automation & Data',         description: 'Read-only warehouse access for advanced data modeling.',         logoBg: 'bg-[#29B5E8]', logoLabel: 'SF'  },
   // AI Providers
   openai:          { category: 'AI Providers',              description: 'OpenAI GPT models for agent tasks and content generation.',      logoBg: 'bg-[#10A37F]', logoLabel: 'OAI' },
@@ -218,6 +225,9 @@ type ResourcePickerConfig = {
   getSaved: (workspaceId: string) => string | null
   saveLabel: string
   emptyMessage: string
+  manualInputLabel?: string
+  manualPlaceholder?: string
+  manualHelp?: string
 }
 
 function ResourcePickerModal({
@@ -257,9 +267,12 @@ function ResourcePickerModal({
   async function save() {
     if (!selected) return;
     setSaving(true);
-    await savePreference(workspaceId, config.localKey(workspaceId), config.serverField, selected);
-    const opt = options.find(o => o.id === selected);
-    toast.success(`${config.title.replace(/^Select\s+/i, '')} set to "${opt?.displayName || selected}"`);
+    const valueToSave = config.serverField === 'ga4_property_id' && /^\d+$/.test(selected)
+      ? `properties/${selected}`
+      : selected;
+    await savePreference(workspaceId, config.localKey(workspaceId), config.serverField, valueToSave);
+    const opt = options.find(o => o.id === selected || o.id === valueToSave);
+    toast.success(`${config.title.replace(/^Select\s+/i, '')} set to "${opt?.displayName || valueToSave}"`);
     setSaving(false);
     onClose();
   }
@@ -294,8 +307,21 @@ function ResourcePickerModal({
               {error}
             </div>
           )}
-          {!loading && !error && options.length === 0 && (
+          {!loading && !error && options.length === 0 && !config.manualInputLabel && (
             <p className="text-sm text-muted-foreground text-center py-6">{config.emptyMessage}</p>
+          )}
+          {!loading && !error && options.length === 0 && config.manualInputLabel && (
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-foreground">{config.manualInputLabel}</label>
+              <input
+                value={selected || ''}
+                onChange={e => setSelected(e.target.value.trim() || null)}
+                placeholder={config.manualPlaceholder}
+                className="w-full rounded-xl border border-border/60 bg-background px-3 py-2.5 text-sm outline-none focus:border-orange-400/70 focus:ring-2 focus:ring-orange-400/10"
+              />
+              {config.manualHelp && <p className="text-[11px] text-muted-foreground">{config.manualHelp}</p>}
+              <p className="text-[11px] text-amber-700 dark:text-amber-400">{config.emptyMessage}</p>
+            </div>
           )}
           {!loading && !error && options.length > 0 && (
             <>
@@ -386,7 +412,10 @@ const GA4_PICKER: ResourcePickerConfig = {
   serverField: 'ga4_property_id',
   getSaved: getGA4PropertyId,
   saveLabel: 'Save property',
-  emptyMessage: 'No GA4 properties found for this account.',
+  emptyMessage: 'Property discovery is temporarily unavailable for this connection.',
+  manualInputLabel: 'GA4 property ID',
+  manualPlaceholder: 'properties/123456789 or 123456789',
+  manualHelp: 'Enter the GA4 Admin property ID. Marqq will normalize a numeric ID to properties/123456789.',
 };
 
 const META_PICKER: ResourcePickerConfig = {
@@ -530,9 +559,9 @@ export function AccountsTab() {
           const data = await res.json();
           if (cancelled || data.error) continue;
           const options = config.parseOptions(data);
-          if (options.length === 1) {
+          if (options.length === 1 && c.id !== 'ga4' && c.id !== 'gsc') {
             await savePreference(entityId, config.localKey(entityId), config.serverField, options[0].id);
-          } else if (options.length > 1) {
+          } else if (options.length > 0 || ((c.id === 'ga4' || c.id === 'gsc') && data.needsSelection)) {
             setPickerConnectorId(c.id);
             break; // one picker at a time
           }
@@ -550,12 +579,12 @@ export function AccountsTab() {
       const data = await res.json();
       if (data.error) return;
       const options = config.parseOptions(data);
-      if (options.length === 1) {
+      if (options.length === 1 && connectorId !== 'ga4' && connectorId !== 'gsc') {
         await savePreference(workspaceId, config.localKey(workspaceId), config.serverField, options[0].id);
         toast.success(`${config.title.replace(/^Select\s+/i, '')} set to "${options[0].displayName}"`);
         return;
       }
-      if (options.length > 1) {
+      if (options.length > 0 || ((connectorId === 'ga4' || connectorId === 'gsc') && data.needsSelection)) {
         setPickerConnectorId(connectorId);
       }
     } catch {

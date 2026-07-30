@@ -35,6 +35,7 @@ import {
   pageIdFromCiChannel,
 } from '@/lib/gtmTaskRegistry';
 import { CompanyIntelligenceFlow } from '@/components/modules/CompanyIntelligenceFlow';
+import { ExecutionWorkspace } from '@/components/execution/ExecutionWorkspace';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 
@@ -329,8 +330,15 @@ function Dashboard() {
     ensureFavicon();
   }, [selectedModule]);
 
-  const currentModule = selectedModule
-    ? dashboardData.modules.find(m => m.id === selectedModule)
+  const executionAlias: Record<string, string> = {
+    'execution-blog-seo': 'seo-llmo',
+    'execution-landing-pages': 'landing-pages',
+    'execution-lead-magnets': 'lead-magnets',
+    'execution-social': 'social-media',
+  };
+  const moduleIdForView = selectedModule ? (executionAlias[selectedModule] || selectedModule) : null;
+  const currentModule = moduleIdForView
+    ? dashboardData.modules.find(m => m.id === moduleIdForView)
     : null;
 
   const [chatOpen, setChatOpen] = useState(false);
@@ -394,6 +402,21 @@ function Dashboard() {
     if (selectedModule === 'workspace-files') return <LibraryView />;
     if (selectedModule === 'calendar') return <MarketingCalendarPage onModuleSelect={handleModuleSelect} />;
     if (selectedModule === 'scheduled-jobs') return <ScheduledJobsPage />;
+    if (selectedModule === 'execution-outreach') return <ExecutionWorkspace workstream="outreach" onModuleSelect={handleModuleSelect} />;
+    if (selectedModule === 'execution-content') return <ExecutionWorkspace workstream="content" onModuleSelect={handleModuleSelect} />;
+    if (selectedModule === 'execution-blog-seo' || selectedModule === 'execution-landing-pages' || selectedModule === 'execution-lead-magnets' || selectedModule === 'execution-social') {
+      return currentModule ? (
+        <ModuleDetail
+          module={currentModule}
+          onBack={() => setSelectedModule('execution-content')}
+          onModuleSelect={handleModuleSelect}
+          autoStart={autoStartModule}
+          workflowParams={workflowParams[currentModule.id]}
+        />
+      ) : null;
+    }
+    if (selectedModule === 'execution-dashboard') return <ExecutionWorkspace workstream="dashboard" onModuleSelect={handleModuleSelect} />;
+    if (selectedModule === 'execution-monitoring') return <ExecutionWorkspace workstream="monitoring" onModuleSelect={handleModuleSelect} />;
     if (selectedModule === 'profile') return <ProfilePage />;
     if (selectedModule === 'chat-sessions') return (
       <ChatSessionsPage

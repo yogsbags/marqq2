@@ -14,7 +14,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MEMORY_ROOT = join(__dirname, '..', '..', '..', 'crewai', 'memory');
+const MEMORY_ROOT = join(__dirname, '..', '..', '..', 'agent-runtime', 'memory');
 
 export async function adsIntelAnalyze(params, companyId, supabaseClient) {
   const groq = tracedLLM({ traceName: 'ads-intel-analysis', userId: companyId || undefined, tags: ['ads-intel', 'automation'] });

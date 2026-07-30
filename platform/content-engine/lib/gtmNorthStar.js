@@ -81,6 +81,38 @@ export function normalizeGoalSystem(raw, hints = {}) {
   };
 }
 
+/**
+ * Preserve LLM-generated section responsibilities while enforcing the output
+ * contract. Missing values get neutral structural fallbacks, never invented
+ * business targets or an allocation of the final North Star.
+ */
+export function normalizeSectionTargets(rawTargets, sectionIds = [], timeline = "") {
+  const source = Array.isArray(rawTargets) ? rawTargets : [];
+  const byId = new Map(source.map((target) => [String(target?.sectionId || target?.section_id || ""), target]));
+  return sectionIds.map((sectionId) => {
+    const raw = byId.get(sectionId) || {};
+    const metric = String(raw.metric || "").trim() || `Leading indicator for ${sectionId.replace(/_/g, " ")}`;
+    let contribution = String(raw.contribution || "").trim();
+    const directAllocation = /^(\d+(?:\.\d+)?|\$?\d+[\d,]*)\s*(contracts?|users?|customers?|ap[u]?s?|leads?)\b/i.test(contribution) || /share of (the )?(north[- ]star|target)/i.test(contribution);
+    if (!contribution || directAllocation) {
+      contribution = directAllocation
+        ? "Use this leading indicator to diagnose or improve the North Star; do not assign this section a fractional share of the final outcome."
+        : `Define and review the leading indicator that moves the North Star through ${sectionId.replace(/_/g, " ")}.`;
+    }
+    const byWhen = String(raw.byWhen || raw.by_when || timeline || "Next review checkpoint")
+      .trim()
+      .replace(/^by\s+/i, "");
+    return {
+      sectionId,
+      metric,
+      contribution,
+      owner: String(raw.owner || raw.ownerRole || "Accountable functional lead").trim(),
+      targetType: raw.targetType === "alignment" ? "alignment" : "leading_indicator",
+      byWhen: byWhen || "Next review checkpoint",
+    };
+  });
+}
+
 export function goalSystemToQuantifiedLabel(goalSystem) {
   const g = normalizeGoalSystem(goalSystem);
   if (g.quantified_target) return g.quantified_target;

@@ -24,6 +24,8 @@ function platformKey(platform?: string | null) {
   if (p.includes('instagram') || p === 'ig' || p === 'insta') return 'instagram'
   if (p.includes('facebook') || p === 'fb') return 'facebook'
   if (p.includes('twitter') || p === 'x') return 'x'
+  if (p.includes('reddit')) return 'reddit'
+  if (p.includes('youtube')) return 'youtube'
   return 'linkedin'
 }
 
@@ -191,6 +193,7 @@ export type SocialPostPreviewProps = {
   hashtags?: string[]
   cta?: string
   imageUrl?: string
+  videoUrl?: string
   className?: string
   toolbar?: ReactNode
 }
@@ -204,6 +207,7 @@ export function SocialPostPreview({
   hashtags = [],
   cta,
   imageUrl,
+  videoUrl,
   className,
   toolbar,
 }: SocialPostPreviewProps) {
@@ -225,8 +229,10 @@ export function SocialPostPreview({
           </div>
           {toolbar || <MoreHorizontal className="h-4 w-4 text-zinc-500" />}
         </div>
-        <div className="aspect-square bg-zinc-100 dark:bg-zinc-900">
-          {imageUrl ? (
+        <div className={cn('bg-zinc-100 dark:bg-zinc-900', videoUrl ? 'aspect-[9/16]' : 'aspect-square')}>
+          {videoUrl ? (
+            <video src={videoUrl} controls playsInline className="h-full w-full object-cover" />
+          ) : imageUrl ? (
             <img src={imageUrl} alt="" className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-6 text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap">
@@ -271,7 +277,7 @@ export function SocialPostPreview({
           {text}
           {tags.length > 0 && <span className="text-[#1877F2]"> {tags.join(' ')}</span>}
         </div>
-        {imageUrl && <img src={imageUrl} alt="" className="w-full max-h-80 object-cover" />}
+        {videoUrl ? <video src={videoUrl} controls playsInline className="w-full max-h-[520px] bg-black object-contain" /> : imageUrl && <img src={imageUrl} alt="" className="w-full max-h-80 object-cover" />}
         {cta && (
           <div className="border-t border-zinc-100 px-4 py-2 text-sm font-medium text-[#1877F2] dark:border-zinc-800">
             {cta}
@@ -319,6 +325,51 @@ export function SocialPostPreview({
               <Share2 className="h-4 w-4" />
             </div>
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (key === 'reddit') {
+    return (
+      <div className={cn('mx-auto w-full max-w-[560px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950', className)}>
+        <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ff4500] text-sm font-bold text-white">r/</div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">r/{authorHandle || 'community'}</p>
+            <p className="text-[11px] text-zinc-500">Posted by u/{authorName.toLowerCase().replace(/\s+/g, '_')} · just now</p>
+          </div>
+          {toolbar || <MoreHorizontal className="h-4 w-4 text-zinc-500" />}
+        </div>
+        <div className="space-y-3 px-4 py-4">
+          <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{hook || 'Reddit post title'}</h3>
+          <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-700 dark:text-zinc-300">{text || 'Post body will appear here'}</p>
+          {tags.length > 0 && <p className="text-xs text-blue-600 dark:text-blue-400">{tags.join(' ')}</p>}
+        </div>
+        <div className="flex gap-5 border-t border-zinc-200 px-4 py-2.5 text-xs font-semibold text-zinc-500 dark:border-zinc-800">
+          <span>▲ 0</span><span>💬 Discuss</span><span>Share</span><span>Save</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (key === 'youtube') {
+    return (
+      <div className={cn('mx-auto w-full max-w-[560px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950', className)}>
+        <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#FF0000] text-sm font-bold text-white">▶</div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{authorName}</p>
+            <p className="text-[11px] text-zinc-500">YouTube · video preview</p>
+          </div>
+          {toolbar || <MoreHorizontal className="h-4 w-4 text-zinc-500" />}
+        </div>
+        <div className="aspect-video bg-black">
+          {videoUrl ? <video src={videoUrl} controls className="h-full w-full" /> : <div className="flex h-full items-center justify-center text-sm text-white/70">Video asset required</div>}
+        </div>
+        <div className="space-y-1 px-4 py-3">
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{hook || 'YouTube video title'}</h3>
+          <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-zinc-600 dark:text-zinc-400">{text || 'Description will appear here'}</p>
         </div>
       </div>
     )

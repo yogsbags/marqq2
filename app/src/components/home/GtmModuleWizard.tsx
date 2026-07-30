@@ -44,6 +44,25 @@ import {
 
 type WizardPhase = 'prep' | 'interview' | 'sectionReview' | 'execute' | 'strategy' | 'done';
 
+const STRATEGY_SECTION_TITLES: Record<string, string> = {
+  executive_summary: 'Executive summary',
+  market_analysis: 'Market analysis',
+  target_customer: 'Target customer',
+  product_strategy: 'Product strategy',
+  positioning_messaging: 'Positioning & messaging',
+  pricing_monetization: 'Pricing & monetization',
+  distribution_channels: 'Distribution & channels',
+  marketing_strategy: 'Marketing strategy',
+  sales_strategy: 'Sales strategy',
+  customer_success: 'Customer success',
+  launch_plan: 'Launch plan',
+  operations_execution: 'Operations & execution',
+  financial_plan: 'Financial plan',
+  measurement_optimization: 'Measurement & optimization',
+  risks_contingencies: 'Risks & contingencies',
+  timeline_roadmap: 'Timeline & roadmap',
+};
+
 type ChatLine =
   | { id: string; role: 'assistant' | 'user'; type: 'text'; text: string }
   | { id: string; role: 'assistant'; type: 'system'; text: string };
@@ -137,6 +156,7 @@ export function GtmModuleWizard({
   >([]);
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewDraft, setReviewDraft] = useState<GtmAutoSectionDraft | null>(null);
+  const [reviewRevising, setReviewRevising] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [approvedDrafts, setApprovedDrafts] = useState<GtmAutoSectionDraft[]>([]);
@@ -698,11 +718,50 @@ export function GtmModuleWizard({
     }
   };
 
+  const reviseCurrentReview = async (prompt: string) => {
+    if (!module || !sectionId || !reviewQueue[reviewIndex] || !reviewDraft) return;
+    setReviewRevising(true);
+    setReviewError(null);
+    try {
+      const target = reviewQueue[reviewIndex];
+      const res = await generateInterviewStrategySection({
+        moduleId: module.id,
+        interviewSectionId: sectionId,
+        strategySectionId: target.id,
+        answers,
+        priorSections: approvedDrafts,
+        revisionPrompt: prompt,
+        currentDraft: reviewDraft,
+      });
+      setModule(res.module);
+      setReviewDraft(res.section);
+      toast.success(`${target.title} revised — review it before approving`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Revision failed';
+      setReviewError(message);
+      toast.error(message);
+      throw err;
+    } finally {
+      setReviewRevising(false);
+    }
+  };
+
   const handleReviewLooksGood = async () => {
     if (!module || !sectionId || !reviewDraft) return;
     setBusy(true);
     try {
-      const isLast = reviewIndex >= reviewQueue.length - 1;
+      const queuedIds = new Set(reviewQueue.map((item) => item.id));
+      const approvedIds = new Set(approvedDrafts.map((item) => item.id));
+      const dependencyQueue = (reviewDraft.affectedSections || [])
+        .filter((id) => id && id !== reviewDraft.id && !queuedIds.has(id) && !approvedIds.has(id))
+        .map((id) => ({
+          id,
+          title: STRATEGY_SECTION_TITLES[id] || id.replace(/_/g, ' '),
+          cta: `Review ${STRATEGY_SECTION_TITLES[id] || id.replace(/_/g, ' ')}`,
+          blurb: 'Re-review this section because an approved strategy change may affect it.',
+        }));
+      const nextReviewQueue = [...reviewQueue, ...dependencyQueue];
+      const isLast = reviewIndex >= nextReviewQueue.length - 1;
       // If AI proposed a north-star, fold it into goals answers before lock
       let nextAnswers = answers;
       if (
@@ -743,16 +802,17 @@ export function GtmModuleWizard({
 
       if (!isLast) {
         const nextIdx = reviewIndex + 1;
+        setReviewQueue(nextReviewQueue);
         setReviewIndex(nextIdx);
         setReviewDraft(null);
         setReviewLoading(true);
         setReviewError(null);
-        const target = reviewQueue[nextIdx];
+        const target = nextReviewQueue[nextIdx];
         const res = await generateInterviewStrategySection({
           moduleId: result.module.id,
           interviewSectionId: sectionId,
           strategySectionId: target.id,
-          answers,
+          answers: nextAnswers,
           priorSections: nextApproved,
         });
         setModule(res.module);
@@ -1146,6 +1206,8 @@ export function GtmModuleWizard({
           error={reviewError}
           onRetry={() => void regenerateCurrentReview()}
           onChange={setReviewDraft}
+          onRevise={reviseCurrentReview}
+          revising={reviewRevising}
           onBack={() => {
             setPhase('interview');
             setReviewQueue([]);
@@ -1157,41 +1219,6 @@ export function GtmModuleWizard({
 
       {phase === 'strategy' && strategyDoc && module && (
         <div className="space-y-4">
-          {strategyDoc.goalAlignment?.quantified_target ||
-          strategyDoc.goalAlignment?.north_star_metric ? (
-            <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm">
-              <p className="font-medium">
-                {strategyDoc.goalAlignment.north_star_metric || 'North-star target'}
-              </p>
-              {strategyDoc.goalAlignment.metric_definition ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {strategyDoc.goalAlignment.metric_definition}
-                </p>
-              ) : null}
-              <p className="mt-1 text-muted-foreground">
-                {strategyDoc.goalAlignment.quantified_target}
-                {strategyDoc.goalAlignment.timeline_target
-                  ? ` · by ${strategyDoc.goalAlignment.timeline_target}`
-                  : ''}
-              </p>
-              {strategyDoc.goalAlignment.business_archetype ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Archetype: {strategyDoc.goalAlignment.business_archetype}
-                </p>
-              ) : null}
-              {(strategyDoc.goalAlignment.sectionTargets || []).length > 0 ? (
-                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                  {strategyDoc.goalAlignment.sectionTargets!.slice(0, 6).map((t) => (
-                    <li key={t.sectionId}>
-                      {t.sectionId}: {t.contribution || t.metric}
-                      {t.byWhen ? ` (${t.byWhen})` : ''}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
-
           <GtmStrategyDocumentView
             moduleId={module.id}
             workspaceId={workspaceId || module.workspace_id || module.company_id}

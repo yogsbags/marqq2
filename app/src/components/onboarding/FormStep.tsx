@@ -37,6 +37,15 @@ const INTEGRATIONS: Integration[] = [
   { id: 'linkedin_ads', name: 'LinkedIn Ads', icon: 'In', description: 'B2B campaign performance', color: '#0A66C2' },
   { id: 'mailchimp', name: 'Mailchimp', icon: 'MC', description: 'Email campaigns', color: '#FFE01B' },
   { id: 'apollo', name: 'Apollo', icon: 'AP', description: 'Prospecting & lead data', color: '#5B6CFF' },
+  { id: 'pexels', name: 'Pexels', icon: 'PX', description: 'Stock photos & videos', color: '#05A081' },
+  { id: 'gemini', name: 'Google Gemini', icon: 'G', description: 'Multimodal creative generation', color: '#4285F4' },
+  { id: 'wix', name: 'Wix', icon: 'W', description: 'Website & blog publishing', color: '#0C6EFC' },
+  { id: 'shopify', name: 'Shopify', icon: 'S', description: 'Store blog & product content', color: '#008060' },
+  { id: 'hostinger', name: 'Hostinger', icon: 'H', description: 'Hosting, domains & technical checks', color: '#673DE6' },
+  { id: 'firecrawl', name: 'Firecrawl', icon: 'FC', description: 'Rendered crawling, scraping & site audits', color: '#111827' },
+  { id: 'github', name: 'GitHub', icon: 'GH', description: 'Repository-based blog and landing-page publishing', color: '#24292F' },
+  { id: 'railway', name: 'Railway', icon: 'RW', description: 'Deployment status, logs & environment context', color: '#111827' },
+  { id: 'cloudflare', name: 'Cloudflare', icon: 'CF', description: 'DNS, zones & production site health context', color: '#F38020' },
 ];
 
 interface FormStepProps {

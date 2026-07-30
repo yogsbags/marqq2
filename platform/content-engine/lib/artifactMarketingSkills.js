@@ -1,6 +1,6 @@
 /**
  * Maps Company Intel / GTM artifact types + module task ids → marketing skills.
- * Skills: platform/crewai/skill-library/marketingskills/skills/<id>/SKILL.md
+ * Skills: platform/agent-runtime/skills/marketingskills/skills/<id>/SKILL.md
  * (+ optional skills/<id>/references/*.md, e.g. ads-meta Meta audit catalog)
  *
  * Packs mix Corey Haines strategy skills with Claude Ads / Nouriva platform skills
@@ -18,8 +18,8 @@ const MARKETINGSKILLS_DIR = join(
   __dirname,
   "..",
   "..",
-  "crewai",
-  "skill-library",
+  "agent-runtime",
+  "skills",
   "marketingskills",
   "skills"
 );
@@ -314,12 +314,50 @@ export const MODULE_MARKETING_SKILLS = {
       "campaign-angle-finder",
     ],
   },
+  youtube_content_package: {
+    primary: ["content-strategy", "copywriting", "social-content"],
+    secondary: ["ai-seo", "ad-creative", "humanizer", "copy-editing"],
+  },
+  generate_youtube_content_package: {
+    primary: ["content-strategy", "copywriting", "social-content"],
+    secondary: ["ai-seo", "ad-creative", "humanizer", "copy-editing"],
+  },
+  repurpose_content_package: {
+    primary: ["content-strategy", "social-content", "copywriting"],
+    secondary: ["humanizer", "copy-editing", "community-marketing", "ai-seo"],
+  },
   lead_outreach: {
     primary: ["outbound-campaign-architect", "copywriting-first-touch", "cold-email"],
     secondary: [
       "linkedin-outbound-angle",
       "campaign-angle-finder",
     ],
+  },
+  // Event-scoped outreach capabilities. These are loaded only when the
+  // corresponding workflow action is requested, never for first-touch copy.
+  cta_designer: {
+    primary: ["cta-designer"],
+    secondary: ["offer-definer"],
+  },
+  outreach_follow_up: {
+    primary: ["copywriting-follow-up"],
+    secondary: ["cold-email", "cta-designer"],
+  },
+  linkedin_sequence: {
+    primary: ["linkedin-sequence"],
+    secondary: ["linkedin-outbound-angle", "cta-designer"],
+  },
+  reply_handler: {
+    primary: ["reply-handler"],
+    secondary: ["copywriting", "cta-designer"],
+  },
+  outbound_analysis: {
+    primary: ["outbound-analyst"],
+    secondary: ["analytics-tracking", "revops"],
+  },
+  value_prop_lister: {
+    primary: ["value-prop-lister"],
+    secondary: ["product-marketing-context", "offer-definer"],
   },
   // Paid Ads module + ICP cohort → Create Paid Ads deploy / Zara runs
   // ads-meta = Claude Ads / Nouriva Meta deep playbook (Andromeda, Pixel/CAPI, creative diversity)

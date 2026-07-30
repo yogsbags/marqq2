@@ -6,7 +6,7 @@
 
 -- ─── company_mkg ────────────────────────────────────────────────────────────
 -- Stores the full MKG envelope per company as JSONB.
--- Source of truth is disk (platform/crewai/memory/{companyId}/mkg.json).
+-- Source of truth is disk (platform/agent-runtime/memory/{companyId}/mkg.json).
 -- This table is a sync replica: backend writes here after every patch().
 
 CREATE TABLE IF NOT EXISTS company_mkg (

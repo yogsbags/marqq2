@@ -18,11 +18,11 @@ import { Badge } from '@/components/ui/badge'
 import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
 import { SocialPostPreview, OutcomeGoLiveCta, outcomeKindFromPlatform } from '@/components/outcome-previews'
 import { isConnectorActive } from '@/lib/connectorMeta'
-import { CalendarDays, Image as ImageIcon, Loader2, Sparkles, Clock } from 'lucide-react'
+import { CalendarDays, Image as ImageIcon, Loader2, Sparkles, Clock, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
-const B2C_CONNECTORS = ['instagram', 'facebook', 'linkedin', 'twitter'] as const
+const B2C_CONNECTORS = ['instagram', 'facebook', 'linkedin', 'twitter', 'reddit'] as const
 
 type OrganicPost = {
   id: string
@@ -38,6 +38,9 @@ type OrganicPost = {
   hashtags: string[]
   cta: string
   image_url: string | null
+  video_url?: string | null
+  format?: string
+  video_error?: string | null
   post: string
   status: string
 }
@@ -77,7 +80,9 @@ function PostCard({
 }) {
   const [scheduleAt, setScheduleAt] = useState(() => defaultScheduleIso())
   const [scheduling, setScheduling] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
+  const [subreddit, setSubreddit] = useState('')
 
   const payload = useMemo(
     () => ({
@@ -88,20 +93,23 @@ function PostCard({
       cta: post.cta,
       image_url: post.image_url || undefined,
       cdn_url: post.image_url || undefined,
+      video_url: post.video_url || undefined,
+      videoUrl: post.video_url || undefined,
       title: `${post.channel_label} · ${post.angle_label}`,
       channel: post.channel,
       platform: post.channel,
       angle: post.angle,
       aspect_ratio: post.aspect_ratio,
       market: 'b2c',
-      format: 'image_post',
+      format: post.format || (post.video_url ? (post.channel === 'instagram' ? 'reel' : 'video_post') : 'image_post'),
+      subreddit: subreddit.trim().replace(/^r\//, ''),
     }),
-    [post],
+    [post, subreddit],
   )
 
   const schedulePost = async () => {
-    if (!post.image_url) {
-      toast.error('Image missing — regenerate this post first')
+    if (!post.image_url && !post.video_url && post.channel !== 'reddit') {
+      toast.error('Creative missing — regenerate this post first')
       return
     }
     if (!scheduleAt) {
@@ -133,6 +141,24 @@ function PostCard({
     }
   }
 
+  const saveDraft = async () => {
+    setSavingDraft(true)
+    try {
+      const res = await fetch('/api/content-studio/distribute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, action: 'draft', platform: post.channel, payload }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Could not save draft')
+      toast.success('Saved to Content Studio drafts')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save draft')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
   return (
     <Card className="rounded-[1.5rem] border-border/70 bg-background/90 overflow-hidden">
       <CardHeader className="pb-2 space-y-2">
@@ -146,6 +172,13 @@ function PostCard({
         <CardTitle className="text-sm font-medium leading-snug">{post.hook || post.angle_label}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {post.channel === 'reddit' && (
+          <div className="space-y-1.5">
+            <Label className="text-xs">Subreddit</Label>
+            <Input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. nutrition (without r/)" />
+            <p className="text-[11px] text-muted-foreground">Choose a community whose rules and audience match this post.</p>
+          </div>
+        )}
         <SocialPostPreview
           platform={post.channel}
           authorName={brand || 'Your Brand'}
@@ -154,15 +187,23 @@ function PostCard({
           hashtags={post.hashtags}
           cta={post.cta}
           imageUrl={post.image_url || undefined}
+          videoUrl={post.video_url || undefined}
         />
 
-        {!post.image_url && (
+        {!post.image_url && !post.video_url && post.channel !== 'reddit' && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            Image failed — caption is ready; regenerate pack or retry this channel.
+            Creative failed — caption is ready; regenerate pack or retry this channel.
           </p>
         )}
 
         <div className="space-y-2 rounded-[1rem] border border-border/60 bg-muted/20 p-3">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={savingDraft} onClick={() => void saveDraft()}>
+              {savingDraft ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Save draft
+            </Button>
+            <span className="self-center text-[11px] text-muted-foreground">Review and approve before publishing live.</span>
+          </div>
           <OutcomeGoLiveCta
             kind={outcomeKindFromPlatform(post.channel)}
             workspaceId={companyId}
@@ -220,6 +261,7 @@ export function B2cOrganicPostsFlow() {
   const [brand, setBrand] = useState('')
   const [offer, setOffer] = useState('')
   const [audience, setAudience] = useState('Everyday consumers')
+  const [includeVideo, setIncludeVideo] = useState(false)
   const [loading, setLoading] = useState(false)
   const [pack, setPack] = useState<PackResult | null>(null)
   const [connectedIds, setConnectedIds] = useState<string[]>([])
@@ -267,7 +309,8 @@ export function B2cOrganicPostsFlow() {
             brand: brand.trim() || 'Your Brand',
             offer: offer.trim(),
             audience: audience.trim() || 'B2C consumers',
-            channels: ['instagram', 'facebook', 'linkedin', 'twitter'],
+            include_video: includeVideo,
+            channels: ['instagram', 'facebook', 'linkedin', 'twitter', 'reddit'],
           },
         }),
       })
@@ -297,20 +340,25 @@ export function B2cOrganicPostsFlow() {
     <div className="space-y-6 max-w-6xl mx-auto px-1 pb-10">
       <section className="rounded-[2rem] border border-orange-200/70 bg-gradient-to-br from-orange-50/90 via-background to-amber-50/40 p-6 dark:border-orange-900/50 dark:from-zinc-950 dark:via-zinc-950 dark:to-orange-950/30">
         <div className="inline-flex items-center gap-2 rounded-full border border-orange-300/50 bg-orange-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-800 dark:text-orange-200">
-          <ImageIcon className="h-3.5 w-3.5" /> B2C Organic · Image posts
+          <ImageIcon className="h-3.5 w-3.5" /> B2C Organic · Posts & video
         </div>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">
-          Channel-ready posts for Instagram, Facebook, LinkedIn & X
+          Channel-ready posts for Instagram, Facebook, LinkedIn, X & Reddit
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-          3 image posts per channel (pain hook · social proof · offer CTA). Gemini images at native
+          3 creative angles per channel (pain hook · social proof · offer CTA). Gemini assets at native
           dimensions.           Guided by <span className="text-foreground font-medium">social-content</span>,{' '}
           <span className="text-foreground font-medium">copywriting</span>,{' '}
           <span className="text-foreground font-medium">humanizer</span> (blader/humanizer),{' '}
           <span className="text-foreground font-medium">marketing-psychology</span>, and{' '}
           <span className="text-foreground font-medium">content-strategy</span>. Preview → Post Now or
-          Schedule onto the marketing calendar. No reels.
+          Schedule onto the marketing calendar.
         </p>
+        <label className="mt-4 inline-flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" checked={includeVideo} onChange={(e) => setIncludeVideo(e.target.checked)} className="h-4 w-4 accent-orange-500" />
+          Include Instagram Reel and Facebook video variants
+          <span className="text-[11px]">(adds 6 video generations)</span>
+        </label>
         {(pack?.skill_alignment?.skills || pack?.cta_flow?.skills)?.length ? (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {(pack.skill_alignment?.skills || pack.cta_flow?.skills || []).map((skill) => (

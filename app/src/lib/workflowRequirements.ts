@@ -78,7 +78,12 @@ export const WORKFLOW_CONNECTOR_REQUIREMENTS: Record<string, string[]> = {
  * Instantly / HeyReach / WhatsApp depend on which contact data the user selected.
  */
 export const WORKFLOW_CONNECTOR_REQUIRED_ALL: Record<string, string[]> = {
-  'lead-outreach': ['instantly'],
+  'lead-outreach': [],
+};
+
+/** Connector pools where any one active sender is sufficient. */
+export const WORKFLOW_CONNECTOR_REQUIRED_ANY: Record<string, string[]> = {
+  'lead-outreach': ['instantly', 'gmail'],
 };
 
 /** Contact-channel → campaign connector + copy artifacts for Lead Outreach */
@@ -87,9 +92,9 @@ export const OUTREACH_CONTACT_CHANNEL_PLAN: Record<
   { connectorIds: string[]; optionalConnectorIds?: string[]; copyTypes: string[]; label: string }
 > = {
   email: {
-    connectorIds: ['instantly'],
+    connectorIds: [],
     copyTypes: ['email'],
-    label: 'Email draft → Instantly',
+    label: 'Email draft → Instantly or Gmail',
   },
   linkedin: {
     connectorIds: ['heyreach'],
@@ -123,6 +128,10 @@ export function getLeadOutreachRequiredConnectors(contactChannels?: string | str
   return Array.from(new Set(ids))
 }
 
+export function getLeadOutreachEmailSenderConnectors(): string[] {
+  return [...WORKFLOW_CONNECTOR_REQUIRED_ANY['lead-outreach']]
+}
+
 /** Optional connectors to offer on the ICP brief (e.g. native LinkedIn). */
 export function getLeadOutreachOptionalConnectors(contactChannels?: string | string[] | null): string[] {
   const channels = parseOutreachContactChannels(contactChannels)
@@ -138,8 +147,11 @@ export function getLeadOutreachOptionalConnectors(contactChannels?: string | str
 export function getLeadOutreachBriefConnectors(contactChannels?: string | string[] | null): string[] {
   const leadData = WORKFLOW_CONNECTOR_REQUIREMENTS['lead-outreach'] || []
   const required = getLeadOutreachRequiredConnectors(contactChannels)
+  const sender = parseOutreachContactChannels(contactChannels).includes('email') || !parseOutreachContactChannels(contactChannels).length
+    ? getLeadOutreachEmailSenderConnectors()
+    : []
   const optional = getLeadOutreachOptionalConnectors(contactChannels)
-  return Array.from(new Set([...leadData, ...required, ...optional]))
+  return Array.from(new Set([...leadData, ...required, ...sender, ...optional]))
 }
 
 export function getLeadOutreachCopyTypes(contactChannels?: string | string[] | null): string[] {
@@ -1161,27 +1173,30 @@ export type ConnectorReadiness = {
 export function checkConnectorReadiness(
   moduleId: string,
   activeConnectorIds: string[],
-  options?: { requiredAllOverride?: string[] },
+  options?: { requiredAllOverride?: string[]; requiredAnyOverride?: string[] },
 ): ConnectorReadiness {
   const required = WORKFLOW_CONNECTOR_REQUIREMENTS[moduleId] ?? [];
   const requiredAll =
     options?.requiredAllOverride
     ?? WORKFLOW_CONNECTOR_REQUIRED_ALL[moduleId]
     ?? [];
-  if (required.length === 0 && requiredAll.length === 0) {
+  const requiredAny = options?.requiredAnyOverride ?? WORKFLOW_CONNECTOR_REQUIRED_ANY[moduleId] ?? [];
+  if (required.length === 0 && requiredAll.length === 0 && requiredAny.length === 0) {
     return { ready: true, connected: [], missing: [], required: [] };
   }
   const activeSet = new Set(activeConnectorIds);
-  const connected = [...new Set([...required, ...requiredAll])].filter((id) => activeSet.has(id));
+  const connected = [...new Set([...required, ...requiredAll, ...requiredAny])].filter((id) => activeSet.has(id));
   const missingAll = requiredAll.filter((id) => !activeSet.has(id));
   const missingOptionalPool = required.filter((id) => !activeSet.has(id));
   // Prefer surfacing hard requirements first (e.g. Instantly for outreach)
   const missing = [...new Set([...missingAll, ...missingOptionalPool])];
   const poolSatisfied = required.length === 0 || required.some((id) => activeSet.has(id));
+  const anySatisfied = requiredAny.length === 0 || requiredAny.some((id) => activeSet.has(id));
+  const missingAny = anySatisfied ? [] : requiredAny;
   return {
-    ready: missingAll.length === 0 && poolSatisfied,
+    ready: missingAll.length === 0 && poolSatisfied && anySatisfied,
     connected,
-    missing,
-    required: [...new Set([...requiredAll, ...required])],
+    missing: [...new Set([...missing, ...missingAny])],
+    required: [...new Set([...requiredAll, ...required, ...requiredAny])],
   };
 }

@@ -1,0 +1,147 @@
+{
+  "company_id": "b08d3df3-c1a9-4632-96ec-e6e5b703c2a0",
+  "updated_at": "2026-07-30T12:01:07.109Z",
+  "positioning": {
+    "value": {
+      "statement": "Premium AI App Development for Real Estate, Fintech, Ecommerce",
+      "unique_value": "AI-driven applications for real estate, fintech, and ecommerce"
+    },
+    "confidence": 1,
+    "last_verified": "2026-07-30",
+    "source_agent": "veena",
+    "expires_at": "2026-08-29"
+  },
+  "icp": {
+    "value": {
+      "company_size": null,
+      "industry": [
+        "real estate",
+        "fintech",
+        "ecommerce"
+      ],
+      "geography": null,
+      "role": null
+    },
+    "confidence": 0.5,
+    "last_verified": "2026-07-30",
+    "source_agent": "veena",
+    "expires_at": "2026-08-29"
+  },
+  "competitors": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": "veena",
+    "expires_at": null
+  },
+  "offers": {
+    "value": [
+      {
+        "name": "AI App Development Services",
+        "price_signal": "not publicly disclosed",
+        "tier": "standard"
+      }
+    ],
+    "confidence": 1,
+    "last_verified": "2026-07-30",
+    "source_agent": "veena",
+    "expires_at": "2026-08-29"
+  },
+  "messaging": {
+    "value": {
+      "headline": "Innovative AI Solutions for Your Business",
+      "tagline": null,
+      "key_messages": [
+        "Transforming industries with AI-driven applications",
+        "Enhancing business efficiency and growth"
+      ]
+    },
+    "confidence": 1,
+    "last_verified": "2026-07-30",
+    "source_agent": "veena",
+    "expires_at": "2026-08-29"
+  },
+  "channels": {
+    "value": [
+      {
+        "channel": "website",
+        "evidence": "Home; Services; About; Contact; Privacy policy"
+      }
+    ],
+    "confidence": 1,
+    "last_verified": "2026-07-30",
+    "source_agent": "veena",
+    "expires_at": "2026-08-29"
+  },
+  "funnel": {
+    "value": {
+      "entry_points": [
+        "Get Started",
+        "Contact",
+        "info@productverse.in"
+      ],
+      "cta_primary": "Get Started"
+    },
+    "confidence": 1,
+    "last_verified": "2026-07-30",
+    "source_agent": "veena",
+    "expires_at": "2026-08-29"
+  },
+  "metrics": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": "veena",
+    "expires_at": null
+  },
+  "baselines": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": "veena",
+    "expires_at": null
+  },
+  "content_pillars": {
+    "value": [
+      {
+        "topic": "Real Estate Solutions",
+        "evidence": "AI applications tailored for the real estate market."
+      },
+      {
+        "topic": "Fintech Automations powered by AI",
+        "evidence": "Empowering BFSI with cutting-edge Martech AI technology."
+      },
+      {
+        "topic": "Martech Excellence",
+        "evidence": "Martech Excellence"
+      }
+    ],
+    "confidence": 1,
+    "last_verified": "2026-07-30",
+    "source_agent": "veena",
+    "expires_at": "2026-08-29"
+  },
+  "campaigns": {
+    "value": null,
+    "confidence": 0,
+    "last_verified": null,
+    "source_agent": "veena",
+    "expires_at": null
+  },
+  "insights": {
+    "value": {
+      "summary": "Productverse is positioned as a premium AI app development company serving the real estate, fintech, and ecommerce industries with AI-driven applications. A key differentiator is its focus on transforming industries with AI, enhancing business efficiency and growth. However, a strategic risk lies in the lack of publicly disclosed pricing, which may hinder competitive benchmarking and customer acquisition.",
+      "gaps": [
+        "Pricing not publicly disclosed",
+        "ICP limited by lack of company size and geography data",
+        "No campaign history available",
+        "Competitor pricing benchmarks missing",
+        "Role of the target customer within the industry is unclear"
+      ]
+    },
+    "confidence": 0.75,
+    "last_verified": "2026-07-30",
+    "source_agent": "veena",
+    "expires_at": "2026-08-29"
+  }
+}

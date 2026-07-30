@@ -116,6 +116,10 @@ function buildDefaultBrief({
   const channelText = channel ? formatLabel(channel) : 'the primary channel'
   const topicInstruction = topicAngle ? ` Focus the piece on this angle: ${topicAngle}.` : ''
 
+  if (channel === 'youtube') {
+    return `Create a YouTube-native production package for ${goalText}.${topicInstruction} Return title variants, hook variants, a retention-oriented script with sections and pattern interrupts, description, tags, chapters, thumbnail briefs, CTA, and repurposing ideas for LinkedIn, X, Instagram, Facebook, and Reddit. Use the YouTube content package workflow and keep every claim grounded in the company context.`
+  }
+
   switch (contentType) {
     case 'email':
       return `Create a ${getDeliverableLabel(deliverable, 'email draft')} for ${channelText} that helps ${goalText}.${topicInstruction} Use our current positioning and keep the message ready for review and editing.`

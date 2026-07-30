@@ -7,15 +7,25 @@ CREATE TABLE IF NOT EXISTS content_drafts (
   id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   company_id    uuid NOT NULL,
   platform      text NOT NULL,
-  mode          text NOT NULL DEFAULT 'publish' CHECK (mode IN ('publish', 'schedule')),
-  status        text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'published', 'failed')),
+  mode          text NOT NULL DEFAULT 'draft' CHECK (mode IN ('draft', 'publish', 'schedule', 'approve')),
+  status        text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'scheduled', 'publishing', 'published', 'failed')),
   title         text,
   post          text,
   cta           text,
   hashtags      jsonb DEFAULT '[]',
   payload       jsonb DEFAULT '{}',
   publish_at    timestamptz,
+  approved_at   timestamptz,
   published_at  timestamptz,
+  connector     text,
+  external_post_id text,
+  external_url  text,
+  last_error    text,
+  metrics       jsonb DEFAULT '{}',
+  campaign_id   text,
+  content_pillar text,
+  goal          text,
+  priority      text DEFAULT 'normal',
   created_at    timestamptz DEFAULT now(),
   updated_at    timestamptz DEFAULT now()
 );
@@ -39,8 +49,28 @@ ALTER TABLE content_drafts
     'website_blog',
     'instagram',
     'facebook',
-    'twitter'
+    'twitter',
+    'x',
+    'reddit',
+    'youtube'
   ));
+
+ALTER TABLE content_drafts DROP CONSTRAINT IF EXISTS content_drafts_mode_check;
+ALTER TABLE content_drafts ADD CONSTRAINT content_drafts_mode_check
+  CHECK (mode IN ('draft', 'publish', 'schedule', 'approve'));
+ALTER TABLE content_drafts DROP CONSTRAINT IF EXISTS content_drafts_status_check;
+ALTER TABLE content_drafts ADD CONSTRAINT content_drafts_status_check
+  CHECK (status IN ('draft', 'approved', 'scheduled', 'publishing', 'published', 'failed'));
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS approved_at timestamptz;
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS connector text;
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS external_post_id text;
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS external_url text;
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS last_error text;
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS metrics jsonb DEFAULT '{}';
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS campaign_id text;
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS content_pillar text;
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS goal text;
+ALTER TABLE content_drafts ADD COLUMN IF NOT EXISTS priority text DEFAULT 'normal';
 
 CREATE INDEX IF NOT EXISTS idx_content_drafts_company   ON content_drafts (company_id);
 CREATE INDEX IF NOT EXISTS idx_content_drafts_platform  ON content_drafts (company_id, platform);

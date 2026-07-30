@@ -10,10 +10,12 @@ import { connectComposioConnector, formatConnectorError } from '@/lib/composio'
 import { isConnectorActive, connectorLabel } from '@/lib/connectorMeta'
 import {
   FileText, Download, ExternalLink, Loader2, ArrowLeft, Link2, CheckCircle2, Hash,
+  Rocket, Target, CalendarClock, Check, ArrowUpRight, MessageSquare,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { GtmStrategyDocument, GtmStrategyDocSection } from '@/types/gtm'
 import { GtmControlLoopPanel } from '@/components/home/GtmControlLoopPanel'
+import { ChatHome } from '@/components/chat/ChatHome'
 
 type Props = {
   moduleId: string
@@ -116,6 +118,8 @@ export function GtmStrategyDocumentView({
   const [exportingDocs, setExportingDocs] = useState(false)
   const [docUrl, setDocUrl] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
+  const [workspaceView, setWorkspaceView] = useState<'strategy' | 'activation'>('strategy')
+  const [chatSectionId, setChatSectionId] = useState<string | null>(null)
 
   const active: GtmStrategyDocSection | undefined = useMemo(() => {
     if (activeId === '__overview__') return execSection
@@ -130,6 +134,15 @@ export function GtmStrategyDocumentView({
       .replace(/_/g, '-')
       .replace(/^#/, '')
   }
+
+  const sectionTargetFor = (sectionId: string) =>
+    (strategy.goalAlignment?.sectionTargets || []).find((target) => target.sectionId === sectionId)
+
+  const northStarLabel = strategy.goalAlignment?.north_star_metric || 'North-star goal'
+  const northStarTarget = strategy.goalAlignment?.quantified_target || strategy.goalAlignment?.target || 'Not quantified'
+  const northStarTimeline = strategy.goalAlignment?.timeline_target
+  const targetCount = (strategy.goalAlignment?.sectionTargets || []).filter((target) => target.metric || target.contribution).length
+  const chatSection = chatSectionId ? channelSections.find((section) => section.id === chatSectionId) : null
 
   useEffect(() => {
     if (!workspaceId) {
@@ -301,9 +314,14 @@ export function GtmStrategyDocumentView({
           </Button>
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{strategy.title}</p>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              <Check className="h-3 w-3" /> Strategy ready
+            </span>
+            <p className="truncate text-sm font-semibold">{strategy.title}</p>
+          </div>
           <p className="text-[11px] text-muted-foreground">
-            Executive summary + {channelSections.length} strategy channels
+            {channelSections.length} strategy sections · generated {strategy.generatedAt || 'just now'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -326,6 +344,40 @@ export function GtmStrategyDocumentView({
           >
             {regenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             Regenerate
+          </Button>
+        </div>
+      </div>
+
+      {/* One source of truth for the goal, followed by the first post-generation decision. */}
+      <div className="border-b border-border/50 bg-background px-4 py-4">
+        <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_auto] lg:items-center">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              <Target className="h-3.5 w-3.5 text-orange-500" /> North Star
+            </p>
+            <p className="mt-1 truncate text-base font-semibold text-foreground">{northStarLabel}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Target: <span className="font-medium text-foreground">{northStarTarget}</span>
+              {northStarTimeline ? ` · by ${northStarTimeline}` : ''}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 border-l border-border/60 pl-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Sections mapped</p>
+              <p className="mt-1 text-lg font-semibold">{targetCount}/{channelSections.length}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Next decision</p>
+              <p className="mt-1 text-sm font-semibold">Activate work</p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="gap-1.5 bg-orange-500 text-white hover:bg-orange-600"
+            onClick={() => setWorkspaceView('activation')}
+          >
+            <Rocket className="h-3.5 w-3.5" /> Activate strategy
           </Button>
         </div>
       </div>
@@ -379,9 +431,91 @@ export function GtmStrategyDocumentView({
       </div>
 
       <div className="border-b border-border/50 px-4 py-3">
-        <GtmControlLoopPanel moduleId={moduleId} goalAlignment={strategy.goalAlignment} />
+        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-muted/40 p-1">
+          <button
+            type="button"
+            onClick={() => setWorkspaceView('strategy')}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition',
+              workspaceView === 'strategy' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <FileText className="h-3.5 w-3.5" /> Strategy document
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceView('activation')}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition',
+              workspaceView === 'activation' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Rocket className="h-3.5 w-3.5" /> Activation & control loop
+          </button>
+        </div>
       </div>
 
+      {workspaceView === 'activation' ? (
+        <div className="space-y-5 bg-muted/10 p-5">
+          <div className="grid gap-4 lg:grid-cols-[1fr_1.25fr]">
+            <section className="rounded-xl border border-border/60 bg-background p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="flex items-center gap-2 text-sm font-semibold"><Rocket className="h-4 w-4 text-orange-500" /> Activation plan</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Start with draft work. Live publishing, outreach, and CRM changes remain approval-gated.
+                  </p>
+                </div>
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">Draft first</span>
+              </div>
+              <div className="mt-4 divide-y divide-border/50">
+                {[
+                  ['Review the North Star and section targets', true],
+                  ['Connect the tools required by the first workstream', false],
+                  ['Run the first agent output in draft mode', false],
+                  ['Approve live execution and create a schedule', false],
+                ].map(([label, complete], index) => (
+                  <div key={String(label)} className="flex items-center gap-3 py-3 text-xs">
+                    <span className={cn('flex h-5 w-5 items-center justify-center rounded-full border text-[10px]', complete ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700' : 'border-border text-muted-foreground')}>
+                      {complete ? <Check className="h-3 w-3" /> : index + 1}
+                    </span>
+                    <span className={complete ? 'text-foreground' : 'text-muted-foreground'}>{label}</span>
+                  </div>
+                ))}
+              </div>
+              <Button type="button" size="sm" className="mt-3 w-full gap-1.5" onClick={() => toast.message('Choose a section to start its first draft workflow.') }>
+                Choose first workstream <ArrowUpRight className="h-3.5 w-3.5" />
+              </Button>
+            </section>
+
+            <section className="rounded-xl border border-border/60 bg-background p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="flex items-center gap-2 text-sm font-semibold"><CalendarClock className="h-4 w-4 text-orange-500" /> Section activation map</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Each section gets a measurable target before an agent is scheduled.</p>
+                </div>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{targetCount} mapped</span>
+              </div>
+              <div className="mt-4 max-h-72 divide-y divide-border/50 overflow-y-auto">
+                {channelSections.map((section) => {
+                  const target = sectionTargetFor(section.id)
+                  return (
+                    <div key={section.id} className="flex items-center gap-3 py-2.5">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium">#{channelLabel(section)}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{target?.metric || target?.contribution || 'Target needs review'}</p>
+                      </div>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">Not started</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          </div>
+          <GtmControlLoopPanel moduleId={moduleId} goalAlignment={strategy.goalAlignment} />
+        </div>
+      ) : (
       <div className="grid min-h-[480px] md:grid-cols-[240px_1fr]">
         <aside className="border-r border-border/60 bg-[#3f0e40] text-white/90 dark:bg-[#1a0b1c]">
           <div className="px-3 py-3">
@@ -415,7 +549,10 @@ export function GtmStrategyDocumentView({
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => setActiveId(s.id)}
+                  onClick={() => {
+                    setActiveId(s.id)
+                    if (chatSectionId) setChatSectionId(s.id)
+                  }}
                   className={cn(
                     'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition',
                     selected ? 'bg-white/15 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white',
@@ -429,8 +566,12 @@ export function GtmStrategyDocumentView({
           </nav>
         </aside>
 
-        <div className="flex min-w-0 flex-col bg-background">
-          <div className="flex items-center gap-2 border-b border-border/50 px-4 py-2.5">
+        <div className={cn(
+          'min-w-0 bg-background',
+          chatSection ? 'grid lg:grid-cols-[minmax(0,1fr)_360px]' : 'flex flex-col',
+        )}>
+          <div className="flex min-w-0 flex-col">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border/50 px-4 py-2.5">
             {activeId === '__overview__' ? (
               <FileText className="h-4 w-4 text-muted-foreground" />
             ) : (
@@ -445,6 +586,21 @@ export function GtmStrategyDocumentView({
             </h3>
             {activeId !== '__overview__' && active?.title ? (
               <span className="truncate text-xs text-muted-foreground">{active.title}</span>
+            ) : null}
+            {activeId !== '__overview__' && active ? (
+              <button
+                type="button"
+                className={cn(
+                  'ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition',
+                  chatSectionId === active.id
+                    ? 'border-orange-500/40 bg-orange-500/10 text-orange-700'
+                    : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+                onClick={() => setChatSectionId((current) => (current === active.id ? null : active.id))}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                {chatSectionId === active.id ? 'Close chat' : 'Ask this section'}
+              </button>
             ) : null}
           </div>
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
@@ -492,6 +648,15 @@ export function GtmStrategyDocumentView({
                 {active.summary ? (
                   <p className="text-sm font-medium leading-6 text-foreground">{active.summary}</p>
                 ) : null}
+                {sectionTargetFor(active.id) ? (
+                  <div className="rounded-lg border border-orange-500/25 bg-orange-500/[0.06] px-3 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-orange-700">Contribution to North Star</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">
+                      {sectionTargetFor(active.id)?.metric || sectionTargetFor(active.id)?.contribution}
+                    </p>
+                    {sectionTargetFor(active.id)?.byWhen ? <p className="mt-0.5 text-xs text-muted-foreground">Due by {sectionTargetFor(active.id)?.byWhen}</p> : null}
+                  </div>
+                ) : null}
                 {active.body ? (
                   <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{active.body}</p>
                 ) : null}
@@ -528,8 +693,26 @@ export function GtmStrategyDocumentView({
               <p className="text-sm text-muted-foreground">Select a channel to read that section.</p>
             )}
           </div>
+          </div>
+          {chatSection ? (
+            <div className="min-h-[520px] border-t border-border/60 bg-muted/10 lg:border-l lg:border-t-0">
+              <ChatHome
+                hideHeader
+                scope={`gtm:${moduleId}:${chatSection.id}`}
+                contextPrompt={`You are working inside the GTM strategy section #${channelLabel(chatSection)} for ${strategy.moduleName || 'this company'}.
+
+North Star: ${northStarLabel}
+North Star target: ${String(northStarTarget)}${northStarTimeline ? ` by ${northStarTimeline}` : ''}
+Section goal: ${sectionTargetFor(chatSection.id)?.metric || sectionTargetFor(chatSection.id)?.contribution || 'Review and improve this section'}
+Section strategy summary: ${chatSection.summary || 'No summary available.'}
+
+Answer questions using this section as the primary context. If the user requests a change, describe the proposed change and its impact on the North Star before executing anything.`}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
+      )}
     </div>
   )
 }

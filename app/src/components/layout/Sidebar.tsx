@@ -22,6 +22,14 @@ import {
   LogOut,
   X,
   ClipboardCheck,
+  Send,
+  FileText,
+  Radar,
+  BarChart3,
+  Search,
+  PanelsTopLeft,
+  Gift,
+  Share2,
   Trash2,
 } from 'lucide-react';
 import { loadPinnedChannels, unpinChannel, type PinnedChannel } from '@/lib/pinnedChannels';
@@ -58,6 +66,17 @@ const channels: NavItem[] = [
   { id: 'performance-scorecard', title: 'performance', icon: Hash },
   { id: 'crm',                   title: 'crm',         icon: Hash },
   { id: 'calendar',              title: 'calendar',    icon: Hash },
+];
+
+const executionChannels: NavItem[] = [
+  { id: 'execution-outreach', title: 'outreach', icon: Send },
+  { id: 'execution-content', title: 'content', icon: FileText },
+  { id: 'execution-blog-seo', title: 'blog-seo', icon: Search },
+  { id: 'execution-landing-pages', title: 'landing-pages', icon: PanelsTopLeft },
+  { id: 'execution-lead-magnets', title: 'lead-magnets', icon: Gift },
+  { id: 'execution-social', title: 'social', icon: Share2 },
+  { id: 'execution-dashboard', title: 'dashboard', icon: BarChart3 },
+  { id: 'execution-monitoring', title: 'monitoring', icon: Radar },
 ];
 
 
@@ -241,6 +260,34 @@ export function Sidebar({
               </button>
             );
           })}
+
+          {!collapsed && (
+            <p className="mt-5 px-5 mb-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+              Execution
+            </p>
+          )}
+          <div className={cn('space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
+            {executionChannels.map((ch) => {
+              const active = isChannelActive(ch.id);
+              return (
+                <button
+                  key={ch.id}
+                  onClick={() => onModuleSelect(ch.id)}
+                  className={cn(
+                    'w-full flex items-center rounded-md transition-all duration-150 text-left',
+                    collapsed ? 'p-2 justify-center' : 'gap-2 px-2 py-1.5',
+                    active
+                      ? 'bg-primary/10 text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/70',
+                  )}
+                >
+                  <ch.icon className={cn('h-3.5 w-3.5 flex-shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+                  {!collapsed ? <span className="text-sm font-medium truncate">{ch.title}</span> : null}
+                  {!collapsed && active ? <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" /> : null}
+                </button>
+              );
+            })}
+          </div>
 
           {/* Dynamic (user-pinned) channels */}
           {dynamicChannels.map((ch) => {

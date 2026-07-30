@@ -9,12 +9,14 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   executeComposioAction,
+  getConnectors,
   getConnectedAccountApiKey,
   upsertComposioTrigger,
 } from './mcp-router.js'
 import { enrichProspectContext, findLeads, leadProviderLabel } from './lead-data-providers.js'
 import {
   loadMarketingSkillsForOutreachChannel,
+  loadMarketingSkillsForTask,
   listOutreachChannelSkillIds,
 } from './lib/artifactMarketingSkills.js'
 import { MKGService } from './mkg-service.js'
@@ -26,6 +28,18 @@ export const OUTREACH_LEAD_MAX = 100
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUTREACH_DATA_DIR = join(__dirname, 'data', 'outreach-runs')
+// gpt-oss models spend part of the completion budget on reasoning before
+// emitting the short draft. Keep input skills lean, but leave enough output
+// budget for the required SUBJECT/BODY or MESSAGE structure.
+const OUTREACH_COPY_MAX_TOKENS = 1200
+const OUTREACH_FALLBACK_MODELS = [
+  process.env.OUTREACH_FALLBACK_MODEL || 'openai/gpt-oss-120b',
+  process.env.OUTREACH_SECONDARY_FALLBACK_MODEL || 'llama-3.3-70b-versatile',
+]
+
+function outreachModelChain(primary) {
+  return Array.from(new Set([primary, ...OUTREACH_FALLBACK_MODELS].filter(Boolean)))
+}
 
 /** In-memory + disk-backed run store */
 const runsById = new Map()
@@ -54,6 +68,288 @@ function flattenMkgText(value, depth = 0) {
 function getMkgField(mkg, key) {
   if (!mkg || typeof mkg !== 'object') return null
   return mkg[key] ?? mkg?.fields?.[key] ?? null
+}
+
+function firstNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  const match = String(value || '').replace(/,/g, '').match(/(\d+(?:\.\d+)?)/)
+  return match ? Number(match[1]) : null
+}
+
+function timelineDays(value) {
+  const text = String(value || '').toLowerCase()
+  const match = text.match(/(\d+)\s*(?:day|d)/)
+  if (match) return Math.max(1, Number(match[1]))
+  if (/month/.test(text)) return Math.max(1, (firstNumber(text) || 1) * 30)
+  if (/quarter/.test(text)) return 90
+  if (/year/.test(text)) return 365
+  return 90
+}
+
+function targetMetricKind(metric) {
+  const text = String(metric || '').toLowerCase()
+  if (/meeting|demo|appointment|call booked/.test(text)) return 'meeting_booked'
+  if (/positive|qualified|interested|conversation/.test(text)) return 'positive_reply'
+  if (/reply|response/.test(text)) return 'reply'
+  if (/accept|connection/.test(text)) return 'connection_accepted'
+  if (/click/.test(text)) return 'clicked'
+  if (/open/.test(text)) return 'opened'
+  if (/deliver/.test(text)) return 'delivered'
+  if (/send|outreach|contact/.test(text)) return 'sent'
+  return 'unknown'
+}
+
+async function resolveGtmGoalSystem(entityIds = []) {
+  const client = getSupabaseReadClient()
+  if (!client) return null
+  for (const entityId of [...new Set(entityIds.map((value) => String(value || '').trim()).filter(Boolean))]) {
+    for (const field of ['company_id', 'workspace_id']) {
+      try {
+        const { data, error } = await client
+          .from('gtm_modules')
+          .select('profile, updated_at')
+          .eq(field, entityId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (error || !data) continue
+        const profile = data.profile || {}
+        const goalSystem = profile.goal_system || profile.strategy_document?.goalAlignment || profile.goals || null
+        if (goalSystem) return goalSystem
+      } catch {
+        // GTM modules are optional for outreach; keep the run usable without them.
+      }
+    }
+  }
+  return null
+}
+
+function buildOutreachTargetConfig({ goalSystem = null, targetConfig = null, startedAt = new Date().toISOString() } = {}) {
+  const source = targetConfig && typeof targetConfig === 'object' ? targetConfig : (goalSystem || {})
+  const quantified = source.quantified_target || source.quantifiedTarget || source.target || ''
+  const metric = source.north_star_metric || source.northStarMetric || source.metric || quantified || null
+  const target = firstNumber(source.target_value ?? source.targetValue ?? quantified)
+  if (target == null || target <= 0) return null
+  const days = Math.max(1, Number(source.timeline_days || source.timelineDays) || timelineDays(source.timeline_target || source.timelineTarget || '90 days'))
+  const start = new Date(startedAt)
+  const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000)
+  return {
+    metric: String(metric || 'North Star outcome'),
+    kind: targetMetricKind(metric),
+    target,
+    unit: source.unit || String(metric || 'outcomes'),
+    timeline_days: days,
+    started_at: start.toISOString(),
+    deadline: end.toISOString(),
+    source: targetConfig ? 'outreach_override' : 'gtm_goal_system',
+    locked: !targetConfig,
+  }
+}
+
+export function buildOutreachTargetPacing(runs, now = new Date()) {
+  const candidates = runs
+    .filter((run) => run.target_config?.target != null)
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+  const run = candidates[0]
+  if (!run) return { status: 'unconfigured', message: 'Lock a quantified GTM target to enable outreach pacing.' }
+
+  const config = run.target_config
+  const events = Array.isArray(run.analytics_events) ? run.analytics_events : []
+  const startedAt = new Date(config.started_at || run.createdAt || now).getTime()
+  const deadline = new Date(config.deadline || (startedAt + config.timeline_days * 86400000)).getTime()
+  const totalWindow = Math.max(1, deadline - startedAt)
+  const elapsedRatio = Math.min(1, Math.max(0, (now.getTime() - startedAt) / totalWindow))
+  const eventCount = (types) => events.filter((event) => types.includes(event.event_type)).length
+  const uniqueCount = (types) => new Set(events.filter((event) => types.includes(event.event_type)).map((event) => event.prospect_id).filter(Boolean)).size
+  const actualByKind = {
+    sent: eventCount(['message_sent']),
+    delivered: eventCount(['message_delivered']),
+    opened: eventCount(['message_opened']),
+    clicked: eventCount(['message_clicked']),
+    reply: uniqueCount(['message_replied']),
+    positive_reply: new Set(events.filter((event) => event.event_type === 'message_replied' && event.properties?.sentiment === 'positive').map((event) => event.prospect_id).filter(Boolean)).size,
+    meeting_booked: eventCount(['meeting_booked']),
+    connection_accepted: eventCount(['connection_accepted']),
+  }
+  const actual = actualByKind[config.kind] ?? 0
+  const expected = config.target * elapsedRatio
+  const attainment = expected > 0 ? actual / expected : null
+  const forecast = elapsedRatio > 0.05 ? actual / elapsedRatio : null
+  const status = elapsedRatio >= 1
+    ? (actual >= config.target ? 'achieved' : 'missed')
+    : expected === 0
+      ? 'starting'
+      : attainment >= 0.95
+        ? 'on_track'
+        : attainment >= 0.8
+          ? 'at_risk'
+          : 'behind'
+  const remainingDays = Math.max(0, Math.ceil((deadline - now.getTime()) / 86400000))
+  const remainingTarget = Math.max(0, config.target - actual)
+  const requiredPerDay = remainingDays ? remainingTarget / remainingDays : remainingTarget
+  const replyRate = actualByKind.sent ? actualByKind.reply / actualByKind.sent : 0
+  const positiveRate = actualByKind.sent ? actualByKind.positive_reply / actualByKind.sent : 0
+  const recommendations = []
+  if (status === 'behind' || status === 'at_risk') {
+    if (config.kind === 'reply' || config.kind === 'positive_reply') {
+      if (actualByKind.sent === 0) {
+        recommendations.push({ id: 'increase_delivery', priority: 'high', action: 'Launch the approved outreach cohort', reason: 'No sent events are recorded against the target.', approval_required: true })
+      } else if (replyRate < 0.03) {
+        recommendations.push({ id: 'refresh_targeting_copy', priority: 'high', action: 'Review ICP fit and test a new opening', reason: `Reply rate is ${(replyRate * 100).toFixed(1)}%, below the 3% diagnostic threshold.`, approval_required: true })
+      } else if (positiveRate < 0.01 && config.kind === 'positive_reply') {
+        recommendations.push({ id: 'improve_qualification_cta', priority: 'medium', action: 'Revise the qualification CTA and offer', reason: 'Replies are not producing enough positive intent.', approval_required: true })
+      }
+    }
+    recommendations.push({ id: 'recover_pace', priority: 'high', action: `Create approximately ${Math.ceil(requiredPerDay)} additional target outcomes per day`, reason: `${remainingTarget} outcomes remain across ${remainingDays} days.`, approval_required: true })
+  }
+  if (!recommendations.length && status === 'on_track') {
+    recommendations.push({ id: 'maintain_pace', priority: 'low', action: 'Maintain the current approved sequence', reason: 'Actual performance is at or above expected pace.', approval_required: false })
+  }
+  return {
+    run_id: run.id,
+    metric: config.metric,
+    kind: config.kind,
+    target: config.target,
+    unit: config.unit,
+    timeline_days: config.timeline_days,
+    started_at: config.started_at,
+    deadline: config.deadline,
+    elapsed_pct: Math.round(elapsedRatio * 100),
+    expected: Math.round(expected * 10) / 10,
+    actual,
+    attainment_pct: attainment == null ? null : Math.round(attainment * 100),
+    forecast: forecast == null ? null : Math.round(forecast * 10) / 10,
+    status,
+    remaining_target: remainingTarget,
+    remaining_days: remainingDays,
+    required_per_day: Math.round(requiredPerDay * 10) / 10,
+    funnel: actualByKind,
+    recommendations,
+    llm_review: run.target_review || null,
+    last_updated_at: now.toISOString(),
+  }
+}
+
+function parseJsonObject(text) {
+  const raw = String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  try { return JSON.parse(raw.slice(start, end + 1)) } catch { return null }
+}
+
+const OUTREACH_TARGET_REVIEW_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.OUTREACH_TARGET_REVIEW_INTERVAL_MS || 86_400_000),
+)
+
+export async function reviewOutreachTargetPacing({ force = false } = {}) {
+  await hydrateOutreachStore()
+  const now = new Date()
+  const reviewed = []
+  for (const run of runsById.values()) {
+    if (!run.target_config?.target) continue
+    const lastReviewed = Date.parse(String(run.last_target_review_at || ''))
+    if (!force && Number.isFinite(lastReviewed) && now.getTime() - lastReviewed < OUTREACH_TARGET_REVIEW_INTERVAL_MS) continue
+
+    const pacing = buildOutreachTargetPacing([run], now)
+    const model = getLLMModel('agent-run') || getLLMModel('company-intel')
+    const prompt = [
+      'You are Marqq’s GTM performance reviewer.',
+      'Review the locked outreach target and current pacing. Diagnose the bottleneck, but never change the target, deadline, or guardrails.',
+      'Only recommend a course correction when evidence supports it. If status is starting, on_track, or achieved, recommendation MUST be null.',
+      'A recommendation is valid only when it names a measured bottleneck, expected impact, success condition, and rollback condition. Otherwise recommendation MUST be null.',
+      'Any execution change requires human approval.',
+      'Return ONLY valid JSON:',
+      '{"summary":"string","diagnosis":"string","bottleneck_stage":"string","affected_metric":"string","recommendation":"string|null","expected_impact":"string","duration_days":number,"success_condition":"string","rollback_condition":"string","priority":"low|medium|high","requires_human_approval":boolean}',
+      `Locked target: ${JSON.stringify(run.target_config)}`,
+      `Current pacing and funnel: ${JSON.stringify(pacing)}`,
+      `Recent provider events: ${JSON.stringify((run.analytics_events || []).slice(-80))}`,
+    ].join('\n\n')
+    try {
+      const completion = await defaultLLMClient.chat.completions.create({
+        model,
+        temperature: 0.2,
+        max_tokens: 900,
+        messages: [
+          { role: 'system', content: 'Be precise, evidence-based, and operational. Do not invent missing metrics.' },
+          { role: 'user', content: prompt },
+        ],
+      })
+      const parsed = parseJsonObject(completion.choices?.[0]?.message?.content)
+      if (!parsed) throw new Error('LLM returned invalid review JSON')
+      const interventionId = `outreach-review-${Date.now()}-${randomUUID().slice(0, 8)}`
+      const correctionEligible = ['behind', 'at_risk', 'missed'].includes(pacing.status)
+        && (Number(pacing.elapsed_pct || 0) >= 10 || Number(pacing.actual || 0) > 0)
+      const recommendationText = String(parsed.recommendation || '').trim()
+      const hasEvidence = Boolean(
+        recommendationText
+        && parsed.diagnosis
+        && parsed.expected_impact
+        && parsed.success_condition
+        && parsed.rollback_condition,
+      )
+      const isNoAction = /^(none|no action|maintain|stay the course|n\/a)$/i.test(recommendationText)
+      const intervention = correctionEligible && hasEvidence && !isNoAction
+        ? {
+            id: interventionId,
+            status: 'proposed',
+            intervention: String(parsed.recommendation),
+            problem: String(parsed.diagnosis || pacing.status || 'Pacing variance'),
+            affected_metric: String(parsed.affected_metric || pacing.metric || ''),
+            current_value: pacing.actual,
+            target_value: pacing.target,
+            expected_impact: String(parsed.expected_impact || ''),
+            duration: `${Math.max(1, Number(parsed.duration_days) || 7)} days`,
+            success_condition: String(parsed.success_condition || ''),
+            rollback_condition: String(parsed.rollback_condition || ''),
+            owner: 'Marqq + user approval',
+            priority: ['low', 'medium', 'high'].includes(parsed.priority) ? parsed.priority : 'medium',
+            requires_human_approval: parsed.requires_human_approval !== false,
+            created_at: now.toISOString(),
+          }
+        : null
+      run.target_review = {
+        id: interventionId,
+        reviewed_at: now.toISOString(),
+        model,
+        summary: String(parsed.summary || ''),
+        diagnosis: String(parsed.diagnosis || ''),
+        bottleneck_stage: String(parsed.bottleneck_stage || ''),
+        intervention,
+        pacing_snapshot: pacing,
+      }
+      run.last_target_review_at = now.toISOString()
+      await persistRun(run)
+      reviewed.push({ runId: run.id, status: 'reviewed', review: run.target_review })
+    } catch (error) {
+      run.last_target_review_at = now.toISOString()
+      run.target_review = {
+        id: `outreach-review-failed-${Date.now()}`,
+        reviewed_at: now.toISOString(),
+        status: 'error',
+        error: error.message || String(error),
+        pacing_snapshot: pacing,
+      }
+      await persistRun(run)
+      reviewed.push({ runId: run.id, status: 'error', error: error.message || String(error) })
+    }
+  }
+  return reviewed
+}
+
+export async function decideOutreachTargetIntervention(runId, interventionId, decision) {
+  await hydrateOutreachStore()
+  const run = runsById.get(runId)
+  if (!run) throw new Error('Outreach run not found')
+  if (!['approved', 'rejected'].includes(decision)) throw new Error('decision must be approved or rejected')
+  const intervention = run.target_review?.intervention
+  if (!intervention || intervention.id !== interventionId) throw new Error('Intervention not found')
+  intervention.status = decision
+  intervention.decided_at = new Date().toISOString()
+  intervention.execution_status = decision === 'approved' ? 'pending_execution' : 'not_executed'
+  await persistRun(run)
+  return buildOutreachTargetPacing([run])
 }
 
 export function suggestAptSendTime({ timezoneOffsetMinutes = 330, from = new Date() } = {}) {
@@ -111,6 +407,13 @@ function normalizeProspect(raw, index = 0) {
     sent_at: raw.sent_at || null,
     send_error: raw.send_error || null,
     send_meta: raw.send_meta || null,
+    gmail_sequence_steps: Array.isArray(raw.gmail_sequence_steps)
+      ? raw.gmail_sequence_steps
+      : (Array.isArray(raw.raw?.gmail_sequence_steps) ? raw.raw.gmail_sequence_steps : []),
+    gmail_sequence_index: Number.isInteger(raw.gmail_sequence_index)
+      ? raw.gmail_sequence_index
+      : (Number.isInteger(raw.raw?.gmail_sequence_index) ? raw.raw.gmail_sequence_index : 0),
+    gmail_sequence_status: raw.gmail_sequence_status || raw.raw?.gmail_sequence_status || null,
     replies: Array.isArray(raw.replies) ? raw.replies : [],
     enrichment: raw.enrichment || raw.raw?.enrichment || null,
     person_profile: raw.person_profile || raw.raw?.person_profile || null,
@@ -168,6 +471,9 @@ function prospectToRow(runId, prospect) {
       phone_e164: prospect.phone_e164 || null,
       copy_locked: Boolean(prospect.copy_locked),
       locked_at: prospect.locked_at || null,
+      gmail_sequence_steps: prospect.gmail_sequence_steps || [],
+      gmail_sequence_index: Number(prospect.gmail_sequence_index || 0),
+      gmail_sequence_status: prospect.gmail_sequence_status || null,
     },
   }
 }
@@ -186,11 +492,19 @@ function runToRow(run) {
     workspace_id: run.workspaceId,
     company_id: run.companyId || null,
     company_name: run.companyName || null,
+    sender_name: run.senderName || null,
     question: run.question || null,
     channel: run.channel || 'email',
     target: run.target || 'decision',
     goal: run.goal || 'reply',
     source: run.source || null,
+    sequence_emails: run.sequence_emails || [],
+    analytics_events: run.analytics_events || [],
+    tracking_enabled: Boolean(run.trackingEnabled),
+    target_config: run.target_config || null,
+    goal_system: run.goal_system || null,
+    target_review: run.target_review || null,
+    last_target_review_at: run.last_target_review_at || null,
     campaigns: run.campaigns || [],
     replies: run.replies || [],
     created_at: run.createdAt || new Date().toISOString(),
@@ -203,11 +517,19 @@ function runFromDbRow(runRow, prospectRows = []) {
     workspaceId: runRow.workspace_id,
     companyId: runRow.company_id || null,
     companyName: runRow.company_name || '',
+    senderName: runRow.sender_name || '',
     question: runRow.question || '',
     channel: runRow.channel || 'email',
     target: runRow.target || 'decision',
     goal: runRow.goal || 'reply',
     source: runRow.source || '',
+    sequence_emails: Array.isArray(runRow.sequence_emails) ? runRow.sequence_emails : [],
+    analytics_events: Array.isArray(runRow.analytics_events) ? runRow.analytics_events : [],
+    trackingEnabled: Boolean(runRow.tracking_enabled),
+    target_config: runRow.target_config || null,
+    goal_system: runRow.goal_system || null,
+    target_review: runRow.target_review || null,
+    last_target_review_at: runRow.last_target_review_at || null,
     createdAt: runRow.created_at,
     prospects: prospectRows.map(prospectFromRow),
     campaigns: Array.isArray(runRow.campaigns) ? runRow.campaigns : [],
@@ -220,8 +542,173 @@ function registerRunInMemory(run) {
   run.prospects = (run.prospects || []).map((p, i) => normalizeProspect(p, i))
   run.campaigns = Array.isArray(run.campaigns) ? run.campaigns : []
   run.replies = Array.isArray(run.replies) ? run.replies : []
+  run.analytics_events = Array.isArray(run.analytics_events) ? run.analytics_events : []
+  run.trackingEnabled = Boolean(run.trackingEnabled)
   runsById.set(run.id, run)
   return run
+}
+
+const OUTREACH_ANALYTICS_EVENT_TYPES = new Set([
+  'message_queued', 'message_sent', 'message_delivered', 'message_opened',
+  'message_clicked', 'message_replied', 'message_bounced', 'message_unsubscribed',
+  'meeting_booked', 'campaign_started', 'connection_accepted', 'profile_viewed',
+  'followed', 'post_liked', 'first_message_sent', 'followup_sent',
+])
+
+export function recordOutreachAnalyticsEvent(run, prospect, type, properties = {}) {
+  const eventType = String(type || '').trim().toLowerCase()
+  if (!run || !OUTREACH_ANALYTICS_EVENT_TYPES.has(eventType)) return null
+  run.analytics_events = Array.isArray(run.analytics_events) ? run.analytics_events : []
+  const externalId = String(properties.external_id || properties.event_id || '').trim()
+  const dedupeKey = externalId
+    ? `${properties.provider || 'unknown'}:${eventType}:${externalId}`
+    : `${eventType}:${prospect?.id || ''}:${properties.step_index ?? ''}:${properties.occurred_at || ''}`
+  if (run.analytics_events.some((event) => event.dedupe_key === dedupeKey)) {
+    return run.analytics_events.find((event) => event.dedupe_key === dedupeKey)
+  }
+  const event = {
+    id: randomUUID(),
+    dedupe_key: dedupeKey,
+    run_id: run.id,
+    prospect_id: prospect?.id || properties.prospect_id || null,
+    provider: properties.provider || run.provider || 'unknown',
+    campaign_id: properties.campaign_id || null,
+    event_type: eventType,
+    step_index: Number.isFinite(Number(properties.step_index)) ? Number(properties.step_index) : null,
+    occurred_at: properties.occurred_at || new Date().toISOString(),
+    source: properties.source || 'system',
+    properties: { ...properties, external_id: externalId || null },
+  }
+  run.analytics_events.push(event)
+  return event
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+}
+
+function gmailHtmlBodyWithTracking(run, prospect, body, stepIndex = 0) {
+  if (!run?.trackingEnabled) return null
+  const base = publicWebhookUrl(`/api/outreach/track/open/${encodeURIComponent(run.id)}/${encodeURIComponent(prospect.id)}/${stepIndex}`)
+  if (!base) return null
+  const html = escapeHtml(body).replace(/\n/g, '<br>')
+  return `${html}<br><br><img src="${base}" width="1" height="1" alt="" style="display:none" />`
+}
+
+export async function recordGmailOpenEvent(runId, prospectId, stepIndex = 0) {
+  await hydrateOutreachStore()
+  const run = runsById.get(runId)
+  const prospect = run?.prospects?.find((item) => item.id === prospectId)
+  if (!run || !prospect) return { status: 'unmatched' }
+  const event = recordOutreachAnalyticsEvent(run, prospect, 'message_opened', {
+    provider: 'gmail',
+    step_index: stepIndex,
+    external_id: `gmail-open:${runId}:${prospectId}:${stepIndex}`,
+    source: 'tracking_pixel',
+  })
+  await persistRun(run)
+  return { status: 'recorded', event }
+}
+
+export async function recordOutreachProviderEvent(payload = {}) {
+  await hydrateOutreachStore()
+  const rawType = String(payload.event_type || payload.eventType || payload.type || payload.event || '').toLowerCase()
+  const eventType = rawType.includes('open') ? 'message_opened'
+    : rawType.includes('click') ? 'message_clicked'
+      : rawType.includes('deliver') ? 'message_delivered'
+        : rawType.includes('bounce') ? 'message_bounced'
+          : rawType.includes('unsubscribe') ? 'message_unsubscribed'
+            : rawType.includes('sent') ? 'message_sent'
+            : rawType.includes('reply') ? 'message_replied'
+              : rawType.includes('accept') || rawType.includes('connection') ? 'connection_accepted'
+                : rawType.includes('profile') && rawType.includes('view') ? 'profile_viewed'
+                  : rawType.includes('follow') ? 'followed'
+                    : rawType.includes('like') ? 'post_liked'
+                : null
+  if (!eventType) return { status: 'ignored', reason: 'unsupported_analytics_event', event_type: rawType || null }
+
+  const email = extractEmailAddress(payload.email || payload.lead_email || payload.recipient_email || payload.to || payload.from || '')
+  const campaignId = String(payload.campaign_id || payload.campaignId || '').trim()
+  let matched = null
+  for (const run of runsById.values()) {
+    for (const prospect of run.prospects || []) {
+      const campaign = (run.campaigns || []).find((item) => String(item.external_id || '') === campaignId)
+      if ((email && String(prospect.email || '').toLowerCase() === email) || (campaignId && campaign)) {
+        matched = { run, prospect }
+        break
+      }
+    }
+    if (matched) break
+  }
+  if (!matched) return { status: 'unmatched', event_type: eventType, email: email || null, campaign_id: campaignId || null }
+
+  const { run, prospect } = matched
+  const event = recordOutreachAnalyticsEvent(run, prospect, eventType, {
+    provider: String(payload.provider || 'instantly').toLowerCase(),
+    campaign_id: campaignId || null,
+    external_id: payload.id || payload.event_id || payload.message_id || null,
+    occurred_at: payload.timestamp || payload.created_at || new Date().toISOString(),
+    source: 'provider_webhook',
+  })
+  await persistRun(run)
+  return { status: 'recorded', runId: run.id, prospectId: prospect.id, event }
+}
+
+function buildOutreachAnalytics(runs) {
+  const events = runs.flatMap((run) => {
+    const runEvents = (run.analytics_events || []).map((event) => ({ ...event, run_id: run.id }))
+    const sentIds = new Set(runEvents.filter((event) => event.event_type === 'message_sent').map((event) => event.prospect_id))
+    const replyIds = new Set(runEvents.filter((event) => event.event_type === 'message_replied').map((event) => event.prospect_id))
+    for (const prospect of run.prospects || []) {
+      if (prospect.sent_at && !sentIds.has(prospect.id)) {
+        runEvents.push({ run_id: run.id, prospect_id: prospect.id, provider: prospect.gmail_thread_id || prospect.gmail_draft_id ? 'gmail' : 'unknown', event_type: 'message_sent', occurred_at: prospect.sent_at, properties: { legacy: true } })
+      }
+      if ((prospect.replies || []).length && !replyIds.has(prospect.id)) {
+        runEvents.push({ run_id: run.id, prospect_id: prospect.id, provider: prospect.replies[0]?.provider === 'gmail_poll' ? 'gmail' : (prospect.replies[0]?.provider || 'unknown'), event_type: 'message_replied', occurred_at: prospect.replies[0]?.received_at, properties: { legacy: true } })
+      }
+    }
+    return runEvents
+  })
+  const count = (type) => events.filter((event) => event.event_type === type).length
+  const uniqueProspects = (type) => new Set(events.filter((event) => event.event_type === type).map((event) => event.prospect_id).filter(Boolean)).size
+  const sent = count('message_sent')
+  const delivered = count('message_delivered')
+  const opened = count('message_opened')
+  const clicked = count('message_clicked')
+  const replied = uniqueProspects('message_replied')
+  const positiveReplies = new Set(events.filter((event) => event.event_type === 'message_replied' && event.properties?.sentiment === 'positive').map((event) => event.prospect_id).filter(Boolean)).size
+  const bounced = count('message_bounced')
+  const unsubscribed = count('message_unsubscribed')
+  const denominator = sent || count('message_queued')
+  const byProvider = [...new Set(events.map((event) => event.provider).filter(Boolean))].map((provider) => {
+    const providerEvents = events.filter((event) => event.provider === provider)
+    const providerSent = providerEvents.filter((event) => event.event_type === 'message_sent').length
+    const providerReplies = new Set(providerEvents.filter((event) => event.event_type === 'message_replied').map((event) => event.prospect_id).filter(Boolean)).size
+    return {
+      provider,
+      sent: providerSent,
+      delivered: providerEvents.filter((event) => event.event_type === 'message_delivered').length,
+      opened: providerEvents.filter((event) => event.event_type === 'message_opened').length,
+      clicked: providerEvents.filter((event) => event.event_type === 'message_clicked').length,
+      replies: providerReplies,
+      reply_rate: providerSent ? providerReplies / providerSent : 0,
+    }
+  })
+  return {
+    totals: { sent, delivered, opened, clicked, replies: replied, positive_replies: positiveReplies, bounced, unsubscribed },
+    rates: {
+      delivery_rate: sent ? delivered / sent : 0,
+      open_rate: sent ? opened / sent : 0,
+      click_rate: sent ? clicked / sent : 0,
+      reply_rate: denominator ? replied / denominator : 0,
+      positive_reply_rate: denominator ? positiveReplies / denominator : 0,
+      bounce_rate: sent ? bounced / sent : 0,
+      unsubscribe_rate: sent ? unsubscribed / sent : 0,
+    },
+    by_provider: byProvider,
+    events: events.slice(-500),
+    attribution_note: 'Open rates are provider-reported or estimated. Gmail opens require optional HTML tracking and are not native Gmail telemetry.',
+  }
 }
 
 async function persistRunToSupabase(run) {
@@ -399,6 +886,21 @@ export function getOutreachRun(runId) {
   return runsById.get(runId) || null
 }
 
+export async function setOutreachTargetConfig(runId, targetConfig) {
+  await hydrateOutreachStore()
+  const run = runsById.get(runId)
+  if (!run) throw new Error('Outreach run not found')
+  const next = buildOutreachTargetConfig({
+    goalSystem: run.goal_system,
+    targetConfig,
+    startedAt: run.createdAt || new Date().toISOString(),
+  })
+  if (!next) throw new Error('Target config needs a positive numeric target')
+  run.target_config = next
+  await persistRun(run)
+  return buildOutreachTargetPacing([run])
+}
+
 export function listOutreachRunsForWorkspace(workspaceId) {
   const id = String(workspaceId || '').trim()
   if (!id) return []
@@ -468,13 +970,23 @@ export function getWorkspaceOutreachSummary(workspaceId) {
   scheduled.sort((a, b) => String(a.scheduled_for || '').localeCompare(String(b.scheduled_for || '')))
   sent.sort((a, b) => String(b.sent_at || '').localeCompare(String(a.sent_at || '')))
 
-  return { runs, campaigns, scheduled, sent, replies }
+  return {
+    runs,
+    campaigns,
+    scheduled,
+    sent,
+    replies,
+    analytics: buildOutreachAnalytics(runs),
+    target_pacing: buildOutreachTargetPacing(runs),
+  }
 }
 
 export async function createOutreachRun({
   workspaceId,
   companyId,
   companyName = '',
+  senderName = '',
+  trackingEnabled = false,
   question = '',
   channel = 'email',
   contactChannels = [],
@@ -487,6 +999,8 @@ export async function createOutreachRun({
   country = 'IN',
   limit = OUTREACH_LEAD_MAX,
   provider = null,
+  sequenceEmails = [],
+  targetConfig = null,
 }) {
   await hydrateOutreachStore()
   const capped = Math.min(Math.max(Number(limit) || OUTREACH_LEAD_MAX, 1), OUTREACH_LEAD_MAX)
@@ -566,20 +1080,41 @@ export async function createOutreachRun({
 
   const prospects = leads.map((lead, i) => normalizeProspect(lead, i))
   const source = search.source || search.provider || 'lead_data'
+  const createdAt = new Date().toISOString()
+  const goalSystem = await resolveGtmGoalSystem([companyId, workspaceId])
+  const resolvedTargetConfig = buildOutreachTargetConfig({
+    goalSystem,
+    targetConfig,
+    startedAt: createdAt,
+  })
 
   const run = {
     id: randomUUID(),
     workspaceId: entityId,
     companyId: companyId || null,
     companyName,
+    senderName,
+    trackingEnabled: Boolean(trackingEnabled),
     question,
     channel,
     contactChannels: normalizedContactChannels,
     target,
     goal,
+    sequence_emails: Array.isArray(sequenceEmails)
+      ? sequenceEmails
+          .map((step) => ({
+            subject: String(step?.subject || '').trim(),
+            body: String(step?.body || '').trim(),
+            delay_days: Number(step?.delay_days ?? step?.delay ?? 3),
+          }))
+          .filter((step) => step.subject || step.body)
+          .slice(0, 5)
+      : [],
     source,
     provider: search.provider || null,
-    createdAt: new Date().toISOString(),
+    createdAt,
+    goal_system: goalSystem || null,
+    target_config: resolvedTargetConfig,
     prospects,
     campaigns: [],
     replies: [],
@@ -608,6 +1143,21 @@ export function resolveOutreachCopyTypes(contactChannels = [], channel = 'email'
     types.push('voicebot_script')
   }
   return Array.from(new Set(types))
+}
+
+async function resolveEmailLaunchProvider(run, companyId) {
+  const entityIds = [...new Set([companyId, run.companyId, run.workspaceId].filter(Boolean))]
+  const connected = new Map()
+  for (const entityId of entityIds) {
+    const states = await getConnectors(entityId)
+    for (const state of states || []) {
+      if (state.connected || state.status === 'active') connected.set(state.id, true)
+    }
+  }
+  // Prefer Instantly for sequences; Gmail is the one-message/draft fallback.
+  if (connected.has('instantly')) return 'instantly'
+  if (connected.has('gmail')) return 'gmail'
+  throw new Error('Connect Instantly or Gmail before email Go Live')
 }
 
 export function resolveOutreachLaunchConnectors(contactChannels = [], channel = 'email') {
@@ -773,9 +1323,11 @@ export function buildProspectCopyPrompt({
     '',
     'Rules (aligned to cold-email skill):',
     '- Personalize from prospect profile + company profile + signals above. Observation must connect to the ask.',
+    '- Start the body with `Hi <first name>,` followed by a blank line. Then lead with the personalized observation.',
     '- Lead with their world (you/your), not our pitch. Write like a peer, not a vendor.',
     '- Keep body under 120 words. One clear low-friction CTA (reply-oriented).',
     '- No markdown. No bullet lists in the body.',
+    '- End the body exactly with this signature after one blank line: `Best,` on its own line, then the sender full name, then the sender company name.',
     '- Do not invent fake mutual connections, fake metrics, funding, hiring, or AI clichés.',
     '- If signals are empty, stay generic to role/company — do not fabricate triggers.',
     '- Do not open with who we are; earn the right to pitch.',
@@ -792,9 +1344,46 @@ export function parseEmailCopy(text) {
   const subjectMatch = trimmed.match(/SUBJECT:\s*(.+)/i)
   const bodyMatch = trimmed.match(/BODY:\s*([\s\S]+)/i)
   return {
-    subject: (subjectMatch?.[1] || '').trim() || 'Quick question',
+    subject: normalizeEmailSubject((subjectMatch?.[1] || '').trim() || 'Quick question'),
     body: (bodyMatch?.[1] || trimmed).trim(),
   }
+}
+
+// Keep subjects readable in inbox previews: sentence case by default, while
+// preserving common product/industry acronyms and brand names.
+export function normalizeEmailSubject(subject) {
+  const value = String(subject || '').trim().replace(/\s+/g, ' ')
+  if (!value) return ''
+
+  const protectedTerms = ['AI', 'API', 'B2B', 'B2C', 'CRM', 'CTA', 'EHR', 'GTM', 'HIPAA', 'PHS', 'ROI', 'US', 'UK']
+  const normalized = value.toLowerCase().replace(/(^|\s)([a-z])/i, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`)
+  return normalized.replace(/\b[a-z0-9]+\b/gi, (word) => {
+    const match = protectedTerms.find((term) => term.toLowerCase() === word.toLowerCase())
+    return match || word
+  })
+}
+
+function ensureEmailGreeting(body, prospect) {
+  const text = String(body || '').trim()
+  if (!text || /^(hi|hello|hey)\b/i.test(text)) return text
+  const firstName = String(
+    prospect?.person_profile?.first_name
+      || prospect?.first_name
+      || prospect?.person_profile?.full_name
+      || prospect?.full_name
+      || '',
+  ).trim().split(/\s+/)[0]
+  return firstName ? `Hi ${firstName},\n\n${text}` : text
+}
+
+function ensureEmailSignature(body, run) {
+  const text = String(body || '').trim()
+  const senderName = String(run?.senderName || '').trim()
+  const companyName = String(run?.companyName || '').trim()
+  if (!text || !senderName || !companyName) return text
+  const signature = `Best,\n${senderName}\n${companyName}`
+  if (text.endsWith(signature)) return text
+  return `${text}\n\n${signature}`
 }
 
 export function parseChannelCopy(copyType, text) {
@@ -964,26 +1553,48 @@ export async function streamProspectCopy({
       .filter(Boolean)
       .join('\n\n')
 
-    const stream = await groqClient.chat.completions.create({
-      model,
-      stream: true,
-      temperature: 0.6,
-      max_tokens: 500,
-      messages: [
-        { role: 'system', content: systemContent },
-        { role: 'user', content: prompt },
-      ],
-    })
-
     let fullText = ''
-    for await (const chunk of stream) {
-      const token = chunk.choices?.[0]?.delta?.content || ''
-      if (!token) continue
-      fullText += token
-      res.write(`data: ${JSON.stringify({ text: token, copy_type: copyType })}\n\n`)
+    let lastModelError = null
+    for (const [modelIndex, candidateModel] of outreachModelChain(model).entries()) {
+      // Reasoning models can occasionally consume a completion without
+      // emitting visible text. Retry once on the same model, then move to the
+      // next model in the chain. Normal drafts still make one request.
+      for (let attempt = 0; attempt < 2 && !fullText.trim(); attempt += 1) {
+        try {
+          const stream = await groqClient.chat.completions.create({
+            model: candidateModel,
+            stream: true,
+            temperature: attempt === 0 ? 0.6 : 0.35,
+            max_tokens: attempt === 0 && modelIndex === 0 ? OUTREACH_COPY_MAX_TOKENS : 1800,
+            messages: [
+              { role: 'system', content: systemContent },
+              { role: 'user', content: prompt },
+            ],
+          })
+
+          for await (const chunk of stream) {
+            const token = chunk.choices?.[0]?.delta?.content || ''
+            if (!token) continue
+            fullText += token
+            res.write(`data: ${JSON.stringify({ text: token, copy_type: copyType })}\n\n`)
+          }
+        } catch (err) {
+          lastModelError = err
+          break
+        }
+      }
+      if (fullText.trim()) break
+    }
+
+    if (!fullText.trim() && lastModelError) {
+      throw lastModelError
     }
 
     const parsed = parseChannelCopy(copyType, fullText)
+    if (copyType === 'email') {
+      parsed.body = ensureEmailGreeting(parsed.body, prospect)
+      parsed.body = ensureEmailSignature(parsed.body, run)
+    }
     channelCopies[copyType] = {
       subject: parsed.subject || '',
       body: parsed.body || '',
@@ -1054,6 +1665,181 @@ function upsertGmailCampaign(run, prospectId) {
   return campaign
 }
 
+function substituteGmailVariables(value, prospect) {
+  return String(value || '')
+    .replace(/\{\{\s*first_name\s*\}\}/gi, prospect.first_name || prospect.full_name?.split(/\s+/)[0] || '')
+    .replace(/\{\{\s*company(?:_name)?\s*\}\}/gi, prospect.company || '')
+}
+
+const DEFAULT_GMAIL_SEQUENCE_DELAYS = [0, 3, 4, 5]
+
+function fallbackGmailFollowUps(prospect) {
+  const firstName = prospect.first_name || prospect.full_name?.split(/\s+/)[0] || 'there'
+  return [
+    {
+      subject: 'A practical next step',
+      body: `Hi ${firstName},\n\nOne practical way to evaluate this is to start with the workflow that creates the most friction today. If this is relevant for your team, would it be useful to compare notes?`,
+      delay_days: 3,
+    },
+    {
+      subject: 'Worth exploring?',
+      body: `Hi ${firstName},\n\nA different angle: this may be worth exploring if improving the current process is a priority this quarter. Happy to share the short version or close the loop if it is not relevant.`,
+      delay_days: 4,
+    },
+    {
+      subject: 'Close the loop',
+      body: `Hi ${firstName},\n\nI have not heard back, so I will close the loop after this note. If the topic becomes relevant later, feel free to reply and I will pick it up then.`,
+      delay_days: 5,
+    },
+  ]
+}
+
+async function generateDefaultGmailFollowUps(run, prospect, firstSubject, firstBody) {
+  const configured = Array.isArray(run.sequence_emails) ? run.sequence_emails : []
+  if (configured.length >= 2) return configured.slice(0, 5)
+
+  try {
+    const skillBlock = await loadMarketingSkillsForTask('outreach_follow_up').catch(() => '')
+    const model = getLLMModel('agent-run') || getLLMModel('company-intel')
+    const response = await defaultLLMClient.chat.completions.create({
+      model,
+      temperature: 0.45,
+      max_tokens: 1100,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You write concise B2B cold-email follow-ups.',
+            'Return only valid JSON: {"follow_ups":[{"subject":"...","body":"...","delay_days":3},{"subject":"...","body":"...","delay_days":4},{"subject":"...","body":"...","delay_days":5}]}',
+            'Create exactly three follow-ups after the first email. Each must add a distinct angle, stand alone, stay under 90 words, use one low-friction CTA, and never say just checking in.',
+            'End every follow-up with the exact signature: Best, followed by the sender full name and sender company name, each on its own line.',
+            'Do not invent proof, metrics, customers, events, or product capabilities. Use only the supplied context.',
+            skillBlock,
+          ].filter(Boolean).join('\n\n'),
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            prospect: {
+              first_name: prospect.first_name,
+              title: prospect.title,
+              company: prospect.company,
+            },
+            goal: run.goal || 'reply',
+            first_email: { subject: firstSubject, body: firstBody },
+            sender: { name: run.senderName || '', company: run.companyName || '' },
+          }),
+        },
+      ],
+    })
+    const text = response.choices?.[0]?.message?.content || ''
+    const jsonText = text.match(/\{[\s\S]*\}/)?.[0]
+    const parsed = jsonText ? JSON.parse(jsonText) : null
+    const followUps = Array.isArray(parsed?.follow_ups) ? parsed.follow_ups : []
+    if (followUps.length >= 3) {
+      return followUps.slice(0, 3).map((step, index) => ({
+        subject: step.subject,
+        body: step.body,
+        delay_days: DEFAULT_GMAIL_SEQUENCE_DELAYS[index + 1],
+      }))
+    }
+  } catch (error) {
+    console.warn('[outreach/gmail-sequence] AI follow-up generation failed:', error?.message || error)
+  }
+
+  return fallbackGmailFollowUps(prospect)
+}
+
+function buildGmailSequenceSteps(run, prospect, firstSubject, firstBody, followUps = []) {
+  const configured = Array.isArray(run.sequence_emails) && run.sequence_emails.length >= 2
+    ? run.sequence_emails
+    : [
+        { subject: firstSubject, body: firstBody, delay_days: 0 },
+        ...followUps,
+      ]
+  const source = configured.length
+    ? configured
+    : [{ subject: firstSubject, body: firstBody, delay_days: 0 }]
+  return source
+    .map((step, index) => ({
+      index,
+      subject: normalizeEmailSubject(
+        substituteGmailVariables(index === 0 && firstSubject ? firstSubject : step?.subject, prospect),
+      ),
+      body: ensureEmailSignature(
+        substituteGmailVariables(index === 0 && firstBody ? firstBody : step?.body, prospect).trim(),
+        run,
+      ),
+      delay_days: index === 0 ? 0 : Math.max(1, Number(step?.delay_days ?? step?.delay ?? 3)),
+      draft_id: null,
+      scheduled_for: null,
+      sent_at: null,
+    }))
+    .filter((step) => step.subject && step.body)
+    .slice(0, 5)
+}
+
+function extractGmailDraftId(result) {
+  return result?.id
+    || result?.draft_id
+    || result?.draft?.id
+    || result?.data?.id
+    || result?.data?.draft_id
+    || result?.data?.draft?.id
+    || result?.message?.id
+    || result?.data?.message?.id
+    || null
+}
+
+async function createGmailSequenceDraft(run, prospect, step) {
+  const draftRes = await executeComposioAction(
+    'GMAIL_CREATE_EMAIL_DRAFT',
+    {
+      recipient_email: prospect.email,
+      to: prospect.email,
+      subject: step.subject,
+      body: step.body,
+      message_body: step.body,
+      ...(gmailHtmlBodyWithTracking(run, prospect, step.body, step.index)
+        ? { html_body: gmailHtmlBodyWithTracking(run, prospect, step.body, step.index), is_html: true }
+        : {}),
+    },
+    run.companyId || run.workspaceId,
+  )
+  if (draftRes.error) throw new Error(draftRes.error)
+  return extractGmailDraftId(draftRes.result)
+}
+
+async function scheduleNextGmailSequenceStep(run, prospect, { timezoneOffsetMinutes = 330 } = {}) {
+  const steps = Array.isArray(prospect.gmail_sequence_steps) ? prospect.gmail_sequence_steps : []
+  const currentIndex = Number(prospect.gmail_sequence_index || 0)
+  const nextIndex = currentIndex + 1
+  if (nextIndex >= steps.length) {
+    prospect.gmail_sequence_status = 'completed'
+    prospect.gmail_draft_id = null
+    prospect.scheduled_for = null
+    prospect.status = 'sent'
+    return false
+  }
+
+  const next = steps[nextIndex]
+  const scheduledFor = suggestAptSendTime({
+    timezoneOffsetMinutes,
+    from: new Date(Date.now() + next.delay_days * 24 * 60 * 60 * 1000),
+  })
+  next.draft_id = await createGmailSequenceDraft(run, prospect, next)
+  next.scheduled_for = scheduledFor
+  prospect.gmail_sequence_index = nextIndex
+  prospect.gmail_sequence_status = 'scheduled'
+  prospect.gmail_draft_id = next.draft_id
+  prospect.scheduled_for = scheduledFor
+  prospect.subject = next.subject
+  prospect.body = next.body
+  prospect.status = 'scheduled'
+  upsertGmailCampaign(run, prospect.id).status = 'scheduled'
+  return true
+}
+
 export async function saveProspectGmailDraft({
   runId,
   prospectId,
@@ -1068,14 +1854,16 @@ export async function saveProspectGmailDraft({
   const prospect = run.prospects.find((p) => p.id === prospectId)
   if (!prospect) throw new Error('Prospect not found')
 
-  const finalSubject = (subject || prospect.subject || '').trim()
-  const finalBody = (body || prospect.body || '').trim()
+  const finalSubject = normalizeEmailSubject(subject || prospect.subject || '')
+  const finalBody = ensureEmailSignature(body || prospect.body || '', run)
   if (!finalSubject || !finalBody) {
     throw new Error('Subject and body are required before saving a Gmail draft')
   }
   if (!prospect.email) {
     throw new Error('Prospect has no email — enrich or pick another contact')
   }
+
+  const gmailEntityId = run.companyId || run.workspaceId
 
   const draftRes = await executeComposioAction(
     'GMAIL_CREATE_EMAIL_DRAFT',
@@ -1085,38 +1873,44 @@ export async function saveProspectGmailDraft({
       subject: finalSubject,
       body: finalBody,
       message_body: finalBody,
+      ...(gmailHtmlBodyWithTracking(run, prospect, finalBody, 0)
+        ? { html_body: gmailHtmlBodyWithTracking(run, prospect, finalBody, 0), is_html: true }
+        : {}),
     },
-    run.workspaceId,
+    gmailEntityId,
   )
 
   if (draftRes.error) {
     throw new Error(draftRes.error)
   }
 
-  const draftId =
-    draftRes.result?.id ||
-    draftRes.result?.draft_id ||
-    draftRes.result?.data?.id ||
-    draftRes.result?.message?.id ||
-    null
+  const draftId = extractGmailDraftId(draftRes.result)
 
-  const apt =
-    scheduledFor ||
-    suggestAptSendTime({ timezoneOffsetMinutes })
+  const apt = scheduledFor || null
 
+  const followUps = await generateDefaultGmailFollowUps(run, prospect, finalSubject, finalBody)
   prospect.subject = finalSubject
   prospect.body = finalBody
+  prospect.gmail_sequence_steps = buildGmailSequenceSteps(run, prospect, finalSubject, finalBody, followUps)
+  prospect.gmail_sequence_index = 0
+  prospect.gmail_sequence_status = apt ? 'scheduled' : 'draft'
+  if (prospect.gmail_sequence_steps[0]) {
+    prospect.gmail_sequence_steps[0].draft_id = draftId
+    prospect.gmail_sequence_steps[0].scheduled_for = apt
+  }
   prospect.gmail_draft_id = draftId
   prospect.scheduled_for = apt
-  prospect.status = 'scheduled'
+  prospect.status = apt ? 'scheduled' : 'drafted'
   prospect.send_error = null
 
   const campaign = upsertGmailCampaign(run, prospect.id)
-  campaign.status = 'scheduled'
+  campaign.status = apt ? 'scheduled' : 'draft'
+  campaign.sequence_steps = prospect.gmail_sequence_steps.length
+  campaign.scheduled = Boolean(apt)
   await persistRun(run)
 
   // Register Composio inbox trigger so replies can push via webhook (poll is backup)
-  void ensureGmailReplyTrigger(run.workspaceId || 'default').catch((err) => {
+  void ensureGmailReplyTrigger(gmailEntityId || 'default').catch((err) => {
     console.warn('[outreach] ensureGmailReplyTrigger:', err?.message || err)
   })
 
@@ -1178,7 +1972,7 @@ export function updateOutreachProspect(runId, prospectId, patch = {}) {
     if (typeof patch[key] === 'string') prospect[key] = patch[key].trim()
   }
 
-  if (typeof patch.subject === 'string') prospect.subject = patch.subject
+  if (typeof patch.subject === 'string') prospect.subject = normalizeEmailSubject(patch.subject)
   if (typeof patch.body === 'string') prospect.body = patch.body
 
   if (patch.channel_copies && typeof patch.channel_copies === 'object') {
@@ -1195,7 +1989,7 @@ export function updateOutreachProspect(runId, prospectId, patch = {}) {
       ...(prospect.channel_copies || {}),
       [copyType]: {
         ...((prospect.channel_copies || {})[copyType] || {}),
-        subject: typeof patch.subject === 'string' ? patch.subject : ((prospect.channel_copies || {})[copyType]?.subject || ''),
+        subject: typeof patch.subject === 'string' ? normalizeEmailSubject(patch.subject) : ((prospect.channel_copies || {})[copyType]?.subject || ''),
         body: typeof patch.body === 'string' ? patch.body : ((prospect.channel_copies || {})[copyType]?.body || ''),
         connector:
           (prospect.channel_copies || {})[copyType]?.connector ||
@@ -1325,7 +2119,7 @@ export async function streamProspectCopyRevision({
     model,
     stream: true,
     temperature: 0.55,
-    max_tokens: 500,
+    max_tokens: OUTREACH_COPY_MAX_TOKENS,
     messages: [
       { role: 'system', content: systemContent },
       { role: 'user', content: userPrompt },
@@ -1341,6 +2135,10 @@ export async function streamProspectCopyRevision({
   }
 
   const parsed = parseChannelCopy(type, fullText)
+  if (type === 'email') {
+    parsed.body = ensureEmailGreeting(parsed.body, prospect)
+    parsed.body = ensureEmailSignature(parsed.body, run)
+  }
   const channelCopies = {
     ...(prospect.channel_copies || {}),
     [type]: {
@@ -1361,7 +2159,7 @@ export async function streamProspectCopyRevision({
   }
   prospect.channel_copies = channelCopies
   if (type === 'email') {
-    prospect.subject = parsed.subject || prospect.subject
+    prospect.subject = normalizeEmailSubject(parsed.subject || prospect.subject)
     prospect.body = parsed.body || prospect.body
   } else if (!channelCopies.email) {
     prospect.body = parsed.body || prospect.body
@@ -1385,7 +2183,10 @@ export async function streamProspectCopyRevision({
 }
 
 async function sendProspectNow(run, prospect) {
-  const subject = (prospect.subject || '').trim()
+  if (prospect.status === 'replied' || prospect.gmail_sequence_status === 'stopped_reply') {
+    throw new Error('Sequence stopped because this prospect has already replied')
+  }
+  const subject = normalizeEmailSubject(prospect.subject || '')
   const body = (prospect.body || '').trim()
   if (!subject || !body) {
     throw new Error('Missing subject/body')
@@ -1402,7 +2203,7 @@ async function sendProspectNow(run, prospect) {
         draft_id: prospect.gmail_draft_id,
         id: prospect.gmail_draft_id,
       },
-      run.workspaceId,
+      run.companyId || run.workspaceId,
     )
     if (!sendDraft.error) {
       const threadId = extractGmailThreadId(sendDraft.result)
@@ -1419,8 +2220,11 @@ async function sendProspectNow(run, prospect) {
       subject,
       body,
       message_body: body,
+      ...(gmailHtmlBodyWithTracking(run, prospect, body, prospect.gmail_sequence_index || 0)
+        ? { html_body: gmailHtmlBodyWithTracking(run, prospect, body, prospect.gmail_sequence_index || 0), is_html: true }
+        : {}),
     },
-    run.workspaceId,
+    run.companyId || run.workspaceId,
   )
 
   if (sendEmail.error) {
@@ -1667,9 +2471,15 @@ export async function processGmailReplyPolls() {
   /** @type {Map<string, Array<{ run: any, prospect: any }>>} */
   const byWorkspace = new Map()
   for (const run of runsById.values()) {
-    const workspaceId = run.workspaceId || 'default'
+    // Connector auth is scoped to the company entity; fall back to workspace
+    // for legacy runs that do not carry a company id.
+    const workspaceId = run.companyId || run.workspaceId || 'default'
     for (const prospect of run.prospects || []) {
-      if (prospect.status !== 'sent') continue
+      const sequenceInFlight = prospect.status === 'scheduled'
+        && prospect.gmail_sequence_status === 'scheduled'
+        && Array.isArray(prospect.gmail_sequence_steps)
+        && prospect.gmail_sequence_steps.length > 1
+      if (prospect.status !== 'sent' && !sequenceInFlight) continue
       if (!prospect.email) continue
       if (!byWorkspace.has(workspaceId)) byWorkspace.set(workspaceId, [])
       byWorkspace.get(workspaceId).push({ run, prospect })
@@ -1808,19 +2618,38 @@ export async function processDueOutreachSends({ now = new Date() } = {}) {
     let dirty = false
     for (const prospect of run.prospects || []) {
       if (prospect.status !== 'scheduled') continue
+      if (prospect.gmail_sequence_status === 'stopped_reply') continue
       if (!prospect.scheduled_for) continue
       const dueMs = Date.parse(prospect.scheduled_for)
       if (!Number.isFinite(dueMs) || dueMs > nowMs) continue
 
       try {
         const sendResult = await sendProspectNow(run, prospect)
-        prospect.status = 'sent'
-        prospect.sent_at = new Date().toISOString()
+        const sentAt = new Date().toISOString()
+        const sequenceActive = Array.isArray(prospect.gmail_sequence_steps)
+          && prospect.gmail_sequence_steps.length > 1
+          && prospect.gmail_sequence_status !== 'stopped_reply'
+        const currentStep = prospect.gmail_sequence_steps?.[Number(prospect.gmail_sequence_index || 0)]
+        if (currentStep) currentStep.sent_at = sentAt
+        recordOutreachAnalyticsEvent(run, prospect, 'message_sent', {
+          provider: 'gmail',
+          step_index: prospect.gmail_sequence_index || 0,
+          occurred_at: sentAt,
+          source: 'scheduler',
+        })
+        if (sequenceActive) {
+          prospect.sent_at = sentAt
+          await scheduleNextGmailSequenceStep(run, prospect)
+        } else {
+          prospect.status = 'sent'
+          prospect.gmail_sequence_status = 'completed'
+          prospect.sent_at = sentAt
+        }
         prospect.send_error = null
         prospect.send_meta = sendResult
         const campaign = upsertGmailCampaign(run, prospect.id)
         campaign.sentCount = (campaign.sentCount || 0) + 1
-        campaign.status = 'sending'
+        campaign.status = prospect.status === 'scheduled' ? 'scheduled' : 'sending'
         dirty = true
         results.push({
           runId: run.id,
@@ -2014,8 +2843,20 @@ export async function recordOutreachReply(payload = {}) {
   const already = prospect.replies.some((r) => r.id === reply.id)
   if (!already) {
     prospect.replies.push(reply)
+    recordOutreachAnalyticsEvent(run, prospect, 'message_replied', {
+      provider,
+      campaign_id: campaignExternalId || null,
+      external_id: externalId,
+      occurred_at: receivedAt,
+      source: payload.source || provider,
+    })
   }
   prospect.status = 'replied'
+  if (Array.isArray(prospect.gmail_sequence_steps) && prospect.gmail_sequence_steps.length > 1) {
+    prospect.gmail_sequence_status = 'stopped_reply'
+    prospect.scheduled_for = null
+    prospect.gmail_draft_id = null
+  }
   if (threadId && !prospect.gmail_thread_id && !provider.includes('heyreach') && !provider.includes('whatsapp')) {
     prospect.gmail_thread_id = threadId
   }
@@ -2037,7 +2878,43 @@ export async function recordOutreachReply(payload = {}) {
     run.replies.push({ ...reply, prospectId: prospect.id })
   }
 
-  const campaign = upsertGmailCampaign(run, prospect.id)
+  const campaign = provider.includes('instantly')
+    ? ((run.campaigns || []).find(
+        (item) =>
+          item.provider === 'instantly' &&
+          (!campaignExternalId || String(item.external_id || '') === String(campaignExternalId)),
+      ) || upsertProviderCampaign(run, 'instantly', 'Instantly outreach', []))
+    : provider.includes('heyreach')
+      ? ((run.campaigns || []).find(
+          (item) =>
+            item.provider === 'heyreach' &&
+            (!campaignExternalId || String(item.external_id || '') === String(campaignExternalId)),
+        ) || upsertProviderCampaign(run, 'heyreach', 'HeyReach LinkedIn outreach', []))
+      : upsertGmailCampaign(run, prospect.id)
+  if (provider.includes('instantly') && campaignExternalId && !campaign.external_id) {
+    campaign.external_id = campaignExternalId
+  }
+  if (provider.includes('heyreach') && campaignExternalId && !campaign.external_id) {
+    campaign.external_id = campaignExternalId
+  }
+  let providerStop = null
+  if (provider.includes('heyreach') && !already) {
+    const heyreachCampaignId = campaignExternalId || campaign.external_id || prospect.heyreach_campaign_id
+    try {
+      providerStop = await stopHeyReachLeadInCampaign({
+        companyId: run.companyId || run.workspaceId,
+        campaignId: heyreachCampaignId,
+        leadUrl: linkedinUrl || prospect.linkedin_url,
+        leadMemberId: payload.lead_member_id || payload.leadMemberId || null,
+      })
+      prospect.heyreach_sequence_status = 'stopped_reply'
+      prospect.heyreach_stop = { status: 'stopped', ...providerStop, stopped_at: new Date().toISOString() }
+    } catch (error) {
+      providerStop = { status: 'error', error: error?.message || String(error) }
+      prospect.heyreach_stop = { ...providerStop, attempted_at: new Date().toISOString() }
+      console.warn('[outreach/heyreach-stop]', error?.message || error)
+    }
+  }
   if (!already) {
     campaign.replyCount = (campaign.replyCount || 0) + 1
   }
@@ -2049,6 +2926,13 @@ export async function recordOutreachReply(payload = {}) {
   if (!already) {
     try {
       autoReply = await draftAutoReplyForRecordedReply(run, prospect, reply)
+      const replyEvent = (run.analytics_events || []).find(
+        (event) => event.event_type === 'message_replied' && event.properties?.external_id === externalId,
+      )
+      if (replyEvent && ['interested', 'question', 'meeting_booked', 'referral'].includes(autoReply?.classification)) {
+        replyEvent.properties = { ...(replyEvent.properties || {}), sentiment: 'positive' }
+      }
+      await persistRun(run)
     } catch (err) {
       console.warn('[outreach/auto-reply-draft]', err?.message || err)
       autoReply = { status: 'draft_failed', error: err?.message || String(err) }
@@ -2066,6 +2950,7 @@ export async function recordOutreachReply(payload = {}) {
     prospectId: prospect.id,
     reply: stored,
     auto_reply: autoReply,
+    provider_stop: providerStop,
   }
 }
 
@@ -2381,6 +3266,7 @@ export async function draftAutoReplyForRecordedReply(run, prospect, reply) {
     channel === 'linkedin_dm' || provider.includes('heyreach') || provider.includes('linkedin')
   const isWhatsApp = channel === 'whatsapp_dm' || provider.includes('whatsapp')
   const channelLabel = isLinkedIn ? 'LinkedIn DM' : isWhatsApp ? 'WhatsApp' : 'email'
+  const replySkillBlock = await loadMarketingSkillsForTask('reply_handler').catch(() => '')
 
   const model = getLLMModel('agent-run') || getLLMModel('company-intel')
   const originalSubject = String(prospect.subject || '').trim()
@@ -2401,6 +3287,7 @@ export async function draftAutoReplyForRecordedReply(run, prospect, reply) {
         content: [
           'You are Sam, Marqq B2B outreach specialist.',
           `Classify the prospect reply and draft a short ${channelLabel} reply.`,
+          'Follow the reply-handler and CTA designer playbooks below for this inbound response.',
           'Never invent facts, meetings, or product claims not in the original outreach.',
           'Return ONLY valid JSON with keys:',
           'classification (interested|not_interested|question|ooo|meeting_booked|other),',
@@ -2413,6 +3300,7 @@ export async function draftAutoReplyForRecordedReply(run, prospect, reply) {
           isLinkedIn || isWhatsApp
             ? 'Reply body: under 60 words, conversational, one clear next step. No email signature.'
             : 'Reply body: under 90 words, peer tone, one clear next step when appropriate.',
+          replySkillBlock,
         ].join(' '),
       },
       {
@@ -2451,6 +3339,8 @@ export async function draftAutoReplyForRecordedReply(run, prospect, reply) {
     'question',
     'ooo',
     'meeting_booked',
+    'referral',
+    'unsubscribe',
     'other',
   ])
   const classSafe = allowed.has(classification) ? classification : 'other'
@@ -2466,7 +3356,9 @@ export async function draftAutoReplyForRecordedReply(run, prospect, reply) {
           ? inboundSubject
           : `Re: ${inboundSubject}`
         : 'Re: your note')
-  const draftBody = String(parsed.body || '').trim()
+  const draftBody = isLinkedIn || isWhatsApp
+    ? String(parsed.body || '').trim()
+    : ensureEmailSignature(String(parsed.body || '').trim(), run)
 
   const autoReplyDraft = {
     status: 'draft',
@@ -2482,7 +3374,31 @@ export async function draftAutoReplyForRecordedReply(run, prospect, reply) {
     approved_at: null,
     sent_at: null,
     send_meta: null,
+    gmail_draft_id: null,
     error: null,
+  }
+
+  // Put email replies in the user's Gmail Drafts immediately. This is
+  // deliberately separate from approval/live sending.
+  if (shouldReply && !isLinkedIn && !isWhatsApp && draftBody && prospect.email) {
+    try {
+      const gmailDraft = await executeComposioAction(
+        'GMAIL_CREATE_EMAIL_DRAFT',
+        {
+          recipient_email: prospect.email,
+          to: prospect.email,
+          subject: draftSubject,
+          body: draftBody,
+          message_body: draftBody,
+        },
+        run.companyId || run.workspaceId,
+      )
+      if (gmailDraft.error) throw new Error(gmailDraft.error)
+      autoReplyDraft.gmail_draft_id = extractGmailDraftId(gmailDraft.result)
+    } catch (error) {
+      autoReplyDraft.error = `Gmail draft creation failed: ${error?.message || error}`
+      console.warn('[outreach/auto-reply-gmail-draft]', error?.message || error)
+    }
   }
 
   const updated = syncReplyOnRun(run, prospect, reply.id, (r) => ({
@@ -2497,6 +3413,16 @@ export async function draftAutoReplyForRecordedReply(run, prospect, reply) {
     classification: classSafe,
     draft: updated?.auto_reply_draft || autoReplyDraft,
   }
+}
+
+export async function regenerateOutreachReplyDraft(runId, replyId) {
+  await hydrateOutreachStore()
+  const run = runsById.get(runId)
+  if (!run) throw new Error('Outreach run not found')
+  const found = findReplyInRun(run, replyId)
+  if (!found?.reply) throw new Error('Reply not found')
+  if (!found.prospect) throw new Error('Prospect not found for reply')
+  return draftAutoReplyForRecordedReply(run, found.prospect, found.reply)
 }
 
 export async function updateOutreachReplyDraft(runId, replyId, patch = {}) {
@@ -2770,6 +3696,44 @@ async function sendHeyReachInboxReply({ companyId, conversationId, linkedInAccou
   throw new Error(lastError || 'HeyReach inbox send failed')
 }
 
+async function stopHeyReachLeadInCampaign({ companyId, campaignId, leadUrl, leadMemberId = null }) {
+  if (!campaignId) throw new Error('Missing HeyReach campaign_id')
+  if (!leadUrl && !leadMemberId) throw new Error('Missing HeyReach lead URL/member id')
+  const payload = {
+    campaignId: String(campaignId),
+    ...(leadMemberId ? { leadMemberId: String(leadMemberId) } : {}),
+    ...(leadUrl ? { leadUrl: String(leadUrl) } : {}),
+  }
+
+  const composioSlugs = [
+    'HEYREACH_STOP_LEAD_IN_CAMPAIGN',
+    'HEYREACH_STOP_LEAD_CAMPAIGN',
+  ]
+  for (const slug of composioSlugs) {
+    const result = await executeComposioAction(slug, payload, companyId)
+    if (!result.error) return { method: `heyreach_composio:${slug}`, result: result.result }
+  }
+
+  const connected = await getConnectedAccountApiKey('heyreach', companyId)
+  if (connected.error || !connected.api_key) {
+    throw new Error(connected.error || 'HeyReach API key unavailable for stop lead')
+  }
+  const response = await fetch('https://api.heyreach.io/api/public/campaign/StopLeadInCampaign', {
+    method: 'POST',
+    headers: {
+      'X-API-KEY': connected.api_key,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.message || data?.title || data?.error || `HeyReach stop lead HTTP ${response.status}`)
+  }
+  return { method: 'heyreach_api:StopLeadInCampaign', result: data }
+}
+
 async function sendWhatsAppReply({ companyId, toNumber, text, phoneNumberId }) {
   const to = normalizePhoneDigits(toNumber)
   if (!to) throw new Error('Missing WhatsApp recipient phone')
@@ -3004,15 +3968,36 @@ export async function sendProspectImmediately(runId, prospectId) {
   if (!run) throw new Error('Outreach run not found')
   const prospect = run.prospects.find((p) => p.id === prospectId)
   if (!prospect) throw new Error('Prospect not found')
+  if (prospect.status === 'replied' || prospect.gmail_sequence_status === 'stopped_reply') {
+    throw new Error('Sequence stopped because this prospect has already replied')
+  }
 
   const sendResult = await sendProspectNow(run, prospect)
-  prospect.status = 'sent'
-  prospect.sent_at = new Date().toISOString()
+  const sentAt = new Date().toISOString()
+  const sequenceActive = Array.isArray(prospect.gmail_sequence_steps)
+    && prospect.gmail_sequence_steps.length > 1
+    && prospect.gmail_sequence_status !== 'stopped_reply'
+  const currentStep = prospect.gmail_sequence_steps?.[Number(prospect.gmail_sequence_index || 0)]
+  if (currentStep) currentStep.sent_at = sentAt
+  recordOutreachAnalyticsEvent(run, prospect, 'message_sent', {
+    provider: 'gmail',
+    step_index: prospect.gmail_sequence_index || 0,
+    occurred_at: sentAt,
+    source: 'send_now',
+  })
+  if (sequenceActive) {
+    prospect.sent_at = sentAt
+    await scheduleNextGmailSequenceStep(run, prospect)
+  } else {
+    prospect.status = 'sent'
+    prospect.gmail_sequence_status = 'completed'
+    prospect.sent_at = sentAt
+  }
   prospect.send_error = null
   prospect.send_meta = sendResult
   const campaign = upsertGmailCampaign(run, prospect.id)
   campaign.sentCount = (campaign.sentCount || 0) + 1
-  campaign.status = 'sending'
+  campaign.status = prospect.status === 'scheduled' ? 'scheduled' : 'sending'
   await persistRun(run)
   return { prospect, sendResult, campaign }
 }
@@ -3065,6 +4050,7 @@ export async function launchOutreachGoLive({
   runId,
   prospectIds = null,
   activate = false,
+  heyreachSequenceMode = 'standard',
   channelCopiesOverride = null,
   companyId: companyIdOverride = null,
 } = {}) {
@@ -3116,6 +4102,9 @@ export async function launchOutreachGoLive({
   }
 
   const copyTypes = resolveOutreachCopyTypes(run.contactChannels, run.channel)
+  const emailProvider = copyTypes.includes('email')
+    ? await resolveEmailLaunchProvider(run, companyId)
+    : null
   const campaignNameBase =
     (run.question || 'Marqq Outreach').slice(0, 60) || 'Marqq Outreach'
   const dateLabel = new Date().toLocaleDateString('en-IN')
@@ -3150,21 +4139,54 @@ export async function launchOutreachGoLive({
   }
 
   const triggers = []
+  const directResults = []
   const planned = []
 
   if (copyTypes.includes('email')) {
     const template = pickTemplate('email')
     const emailLeads = candidates.map(toLead).filter((l) => l.email)
-    if (template?.body && emailLeads.length) {
+    if (emailProvider === 'gmail' && emailLeads.length) {
+      let drafted = 0
+      let failed = 0
+      for (const prospect of candidates) {
+        const emailCopy = prospectChannelCopy(prospect, 'email')
+        if (!emailCopy.body.trim() || !prospect.email) continue
+        try {
+          await saveProspectGmailDraft({
+            runId: run.id,
+            prospectId: prospect.id,
+            subject: emailCopy.subject || prospect.subject || 'Quick question',
+            body: emailCopy.body,
+            timezoneOffsetMinutes: 330,
+          })
+          if (activate) await sendProspectImmediately(run.id, prospect.id)
+          drafted += 1
+        } catch (error) {
+          failed += 1
+          prospect.send_error = error.message || String(error)
+        }
+      }
+      planned.push({ channel: 'email', connector: 'gmail', leads: drafted, failed, scheduled: !activate })
+      directResults.push({
+        automation_id: 'gmail_outreach',
+        provider: 'gmail',
+        status: drafted && !failed ? 'completed' : (drafted ? 'partial' : 'error'),
+        result: { drafted, sent: activate ? drafted : 0, failed },
+        error: drafted ? null : 'No Gmail drafts created',
+      })
+    } else if (emailProvider === 'instantly' && template?.body && emailLeads.length) {
       triggers.push({
         automation_id: 'instantly_create_campaign',
         params: {
           name: `${campaignNameBase} · Email · ${dateLabel}`,
           subject: template.subject || 'Quick question, {{first_name}}',
           body: template.body,
+          ...(Array.isArray(run.sequence_emails) && run.sequence_emails.length
+            ? { sequence_emails: run.sequence_emails }
+            : {}),
           daily_limit: 50,
           register_webhook: true,
-          create_interested_subsequence: false,
+          create_interested_subsequence: true,
           activate: Boolean(activate),
           enrich_leads: true,
           enrich_mode: 'supersearch',
@@ -3175,7 +4197,7 @@ export async function launchOutreachGoLive({
     } else {
       planned.push({
         channel: 'email',
-        connector: 'instantly',
+        connector: emailProvider || 'email sender',
         skipped: true,
         reason: !template?.body ? 'No email copy' : 'No leads with email',
       })
@@ -3185,6 +4207,15 @@ export async function launchOutreachGoLive({
   if (copyTypes.includes('linkedin_dm')) {
     const template = pickTemplate('linkedin_dm')
     const liLeads = candidates.map(toLead).filter((l) => l.linkedin_url)
+    const sequenceMode = ['standard', 'conservative', 'connect_only'].includes(heyreachSequenceMode)
+      ? heyreachSequenceMode
+      : 'standard'
+    const sequenceSteps = sequenceMode === 'connect_only' ? 1 : (sequenceMode === 'conservative' ? 5 : 6)
+    const sequenceSummary = sequenceMode === 'connect_only'
+      ? ['Connection request with personalized note', 'Stop when replied']
+      : sequenceMode === 'conservative'
+        ? ['If connected → first message → follow-up', 'Otherwise: view → follow → connection note', 'Stop when replied']
+        : ['If connected → first message → follow-up', 'Otherwise: view → follow → like → connection note', 'Stop when replied']
     if (!activate) {
       planned.push({
         channel: 'linkedin',
@@ -3193,6 +4224,10 @@ export async function launchOutreachGoLive({
         reason: 'Draft mode — LinkedIn/HeyReach push waits for live Go Live',
         prepared_leads: liLeads.length,
         has_copy: Boolean(template?.body),
+        campaign_mode: 'isolated_campaign',
+        sequence_mode: sequenceMode,
+        sequence_steps: sequenceSteps,
+        sequence_summary: sequenceSummary,
       })
     } else if (template?.body && liLeads.length) {
       triggers.push({
@@ -3200,10 +4235,19 @@ export async function launchOutreachGoLive({
         params: {
           campaign_name: `${campaignNameBase} · LinkedIn · ${dateLabel}`,
           message_template: template.body,
+          sequence_mode: sequenceMode,
           leads: liLeads,
         },
       })
-      planned.push({ channel: 'linkedin', connector: 'heyreach', leads: liLeads.length })
+      planned.push({
+        channel: 'linkedin',
+        connector: 'heyreach',
+        leads: liLeads.length,
+        campaign_mode: 'isolated_campaign',
+        sequence_mode: sequenceMode,
+        sequence_steps: sequenceSteps,
+        sequence_summary: sequenceSummary,
+      })
     } else {
       planned.push({
         channel: 'linkedin',
@@ -3289,7 +4333,7 @@ export async function launchOutreachGoLive({
     }
   }
 
-  if (!triggers.length) {
+  if (!triggers.length && !directResults.length) {
     const draftReady = planned.some((p) => p.skipped && /draft mode/i.test(String(p.reason || '')))
     if (draftReady && !activate) {
       run.last_go_live = {
@@ -3320,14 +4364,17 @@ export async function launchOutreachGoLive({
   }
 
   const { executeAutomationTriggers } = await import('./automations/registry.js')
-  const results = await executeAutomationTriggers(
-    {
-      automation_triggers: triggers,
-      run_id: run.id,
-      agent: 'sam',
-    },
-    companyId,
-  )
+  const automationResults = triggers.length
+    ? await executeAutomationTriggers(
+        {
+          automation_triggers: triggers,
+          run_id: run.id,
+          agent: 'sam',
+        },
+        companyId,
+      )
+    : []
+  const results = [...directResults, ...automationResults]
 
   const launchedAt = new Date().toISOString()
   const channelResults = results.map((row) => {
@@ -3352,8 +4399,25 @@ export async function launchOutreachGoLive({
         row.result?.campaign_name || row.result?.name || `${provider} · ${dateLabel}`,
         candidates.map((p) => p.id),
       )
-      campaign.status = activate || provider !== 'instantly' ? 'sending' : 'draft'
-      campaign.sentCount = (campaign.sentCount || 0) + candidates.length
+      campaign.status = activate || !['instantly', 'gmail'].includes(provider) ? 'sending' : 'draft'
+      if (activate || !['instantly', 'gmail'].includes(provider)) {
+        campaign.sentCount = (campaign.sentCount || 0) + candidates.length
+      }
+      if (provider === 'instantly') {
+        campaign.external_id = row.result?.campaign_id || row.result?.id || null
+        campaign.sequence_steps = Array.isArray(row.result?.sequence_emails)
+          ? row.result.sequence_emails.length
+          : (Array.isArray(run.sequence_emails) && run.sequence_emails.length ? run.sequence_emails.length : 1)
+        campaign.scheduled = true
+      }
+      if (provider === 'heyreach') {
+        campaign.external_id = row.result?.campaign_id || row.result?.id || campaign.external_id || null
+        campaign.list_id = row.result?.list_id || null
+        campaign.sequence_steps = Number(row.result?.sequence_steps)
+          || (Array.isArray(row.result?.sequence) ? row.result.sequence.length : 1)
+        campaign.scheduled = true
+        campaign.mode = row.result?.mode || 'isolated_campaign'
+      }
       campaign.launch_meta = {
         automation_id: automationId,
         result: row.result || null,
@@ -3373,9 +4437,13 @@ export async function launchOutreachGoLive({
 
   for (const prospect of candidates) {
     const anyOk = channelResults.some((r) => r.status === 'completed' || r.status === 'partial')
-    if (anyOk) {
-      prospect.status = 'sent'
-      prospect.sent_at = launchedAt
+      if (anyOk) {
+      const live = activate || channelResults.some((r) => !['instantly', 'gmail'].includes(r.provider) && (r.status === 'completed' || r.status === 'partial'))
+      const gmailDraftOnly = !live && channelResults.some(
+        (r) => r.provider === 'gmail' && (r.status === 'completed' || r.status === 'partial'),
+      )
+      prospect.status = live ? 'sent' : (gmailDraftOnly ? 'drafted' : 'scheduled')
+      prospect.sent_at = live ? launchedAt : null
       prospect.send_error = null
       prospect.send_meta = {
         mode: 'multi_channel_go_live',
@@ -3388,6 +4456,23 @@ export async function launchOutreachGoLive({
       )
       if (wa?.result?.phone_number_id) {
         prospect.whatsapp_phone_number_id = wa.result.phone_number_id
+      }
+      const heyreachResult = channelResults.find(
+        (r) => r.provider === 'heyreach' && (r.status === 'completed' || r.status === 'partial'),
+      )
+      if (heyreachResult?.result?.campaign_id || heyreachResult?.result?.id) {
+        prospect.heyreach_campaign_id = String(heyreachResult.result.campaign_id || heyreachResult.result.id)
+      }
+      for (const channelResult of channelResults) {
+        if (channelResult.status !== 'completed' && channelResult.status !== 'partial') continue
+        const provider = channelResult.provider
+        if (!['heyreach', 'whatsapp', 'voicebot', 'instantly'].includes(provider)) continue
+        recordOutreachAnalyticsEvent(run, prospect, 'message_sent', {
+          provider,
+          campaign_id: channelResult.result?.campaign_id || channelResult.result?.id || null,
+          occurred_at: launchedAt,
+          source: 'campaign_launch',
+        })
       }
     } else {
       prospect.send_error = channelResults.map((r) => r.error).filter(Boolean).join('; ') || 'Launch failed'

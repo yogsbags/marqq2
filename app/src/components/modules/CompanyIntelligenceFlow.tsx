@@ -757,7 +757,7 @@ export function CompanyIntelligenceFlow({
       setLoading(`generate:${type}`)
       setError(null)
 
-      // The Node.js backend now handles CrewAI delegation & fallback logic,
+      // The Node.js backend owns agent delegation and model fallback logic,
       // avoiding data loss if the browser tab is closed during waiting.
       await fetchJson<{ artifact: ArtifactRecord }>(`/api/company-intel/companies/${selectedCompanyId}/generate`, {
         method: 'POST',

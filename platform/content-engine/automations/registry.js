@@ -34,8 +34,10 @@ import {
   createLandingPage,
 } from './handlers/contentCreation.js';
 import { generateB2cOrganicPack } from './handlers/b2cOrganicPack.js';
+import { generateYoutubeContentPackage, repurposeContentPackage } from './handlers/contentPackages.js';
 import { managePaidAdsLoop, enrollPaidAdsLoop } from './handlers/managePaidAdsLoop.js';
 import {
+  auditExistingBlog,
   buildSeoOrganicPlan,
   executeSeoPlanArticles,
 } from './handlers/seoOrganicPipeline.js';
@@ -730,8 +732,8 @@ export const REGISTRY = [
   },
   {
     id: "generate_b2c_organic_pack",
-    name: "Generate B2C Organic Image Pack",
-    description: "Creates 3 image posts (pain / proof / offer) for Instagram, Facebook, LinkedIn, and X — captions + Gemini images at channel-native aspect ratios. Image posts only (no reels).",
+    name: "Generate B2C Organic Content Pack",
+    description: "Creates 3 platform-native content angles for Instagram, Facebook, LinkedIn, and X — captions + Gemini creatives, with optional Instagram Reel and Facebook video variants.",
     category: "content_creation",
     trigger_type: "direct_api",
     endpoint: null,
@@ -741,6 +743,7 @@ export const REGISTRY = [
       audience: "B2C audience description",
       brand_context: "Optional brand style notes",
       channels: "Optional subset: instagram|facebook|linkedin|twitter",
+      include_video: "Optional boolean; when true, generate Instagram Reel and Facebook video variants",
     },
     returns: "{ posts: [...], cta_flow, ready_count }",
     which_agents_can_invoke: ["riya", "kiran", "maya", "zara"],
@@ -763,6 +766,40 @@ export const REGISTRY = [
     },
     returns: "{ html, subject, preview_text, brand_name, primary_color, char_count, skill_alignment }",
     which_agents_can_invoke: ["riya", "sam", "kiran"],
+    requires_credential: null,
+  },
+  {
+    id: "generate_youtube_content_package",
+    name: "Generate YouTube Production Package",
+    description: "Creates a YouTube-native package: title variants, hooks, retention-oriented script beats, metadata, chapters, thumbnail briefs, and repurposing targets.",
+    category: "content_creation",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      topic: "Video topic or brief",
+      audience: "Target viewer or ICP",
+      objective: "Awareness, leads, education, or conversion goal",
+      format: "long_form | short",
+      brand: "Brand or company name",
+    },
+    returns: "{ titles, hooks, script, metadata, thumbnail_briefs, repurpose_targets }",
+    which_agents_can_invoke: ["riya", "zara", "kiran", "maya"],
+    requires_credential: null,
+  },
+  {
+    id: "repurpose_content_package",
+    name: "Repurpose Content Across Channels",
+    description: "Turns one source asset into LinkedIn, X, Instagram, Facebook, and Reddit-native drafts with platform-specific quality checks.",
+    category: "content_creation",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      source: "Transcript, article, newsletter, or source content",
+      topic: "Source topic",
+      subreddit: "Optional target subreddit",
+    },
+    returns: "{ linkedin, x, instagram, facebook, reddit }",
+    which_agents_can_invoke: ["riya", "kiran", "sam", "zara"],
     requires_credential: null,
   },
   {
@@ -790,19 +827,28 @@ export const REGISTRY = [
   {
     id: "generate_faceless_video",
     name: "Generate Ad / Faceless Video",
-    description: "Generates a short ad-ready video with Gemini Omni Flash (gemini-omni-flash-preview) via the Interactions API, then hosts the MP4 on Cloudinary (folder ai-videos). Supports text-to-video and image-to-video. Set GEMINI_VIDEO_MODEL=veo-3.1-generate-preview for legacy async Veo (also polled → Cloudinary).",
+    description: "Generates a short ad-ready video with Gemini/Veo, then falls back to Fal.ai Seedance 2.0 Fast when the primary provider fails. The fallback uses Nano Banana Pro to create missing first/last reference frames, then hosts the completed video on Cloudinary (folder ai-videos). Supports text-to-video and first/last-frame image-to-video.",
     category: "content_creation",
     trigger_type: "direct_api",
     endpoint: null,
     params_schema: {
       prompt: "Scene description for the video (required)",
-      duration: "Duration in seconds, 3–10 (default: 8)",
+      duration: "Duration in seconds, 4–15 (default: 8)",
       aspect_ratio: "16:9 | 9:16 (default: 16:9)",
+      resolution: "480p | 720p (default: 720p for Seedance fallback)",
       style: "Visual style, e.g. cinematic, documentary, UGC (default: cinematic)",
-      image_url: "Optional reference image URL to animate (image-to-video)",
+      image_url: "Optional first-frame reference image URL (alias: first_image_url)",
+      source_video_url: "Optional selected stock/source video URL (for Gemini Omni Flash editing)",
+      stock_video_url: "Alias for source_video_url; use a Pexels video URL when stock footage is selected",
+      first_image_url: "Optional first-frame reference image URL; generated with Nano Banana Pro when absent",
+      last_image_url: "Optional last-frame reference image URL; generated with Nano Banana Pro when absent",
+      first_frame_prompt: "Optional Nano Banana Pro prompt for the opening frame",
+      last_frame_prompt: "Optional Nano Banana Pro prompt for the closing frame",
+      generate_reference_frames: "boolean; default true when Fal fallback is used",
+      generate_audio: "boolean; default true for Seedance native audio",
       image_base64: "Optional reference image base64 (image-to-video)",
     },
-    returns: "{ status, video_url, cloudinary_url, model, prompt, duration, aspect_ratio }",
+    returns: "{ status, video_url, cloudinary_url, model, prompt, duration, aspect_ratio, video_editing, source_video_url }",
     which_agents_can_invoke: ["riya", "maya", "zara", "sam"],
     requires_credential: null,
   },
@@ -850,6 +896,8 @@ export const REGISTRY = [
       market: "Alias for market_type",
       humanize:
         "true/false — override: force or skip humanizer. Default: on for B2C, off for B2B",
+      generate_image: "true/false — generate a 16:9 editorial hero image with the configured image provider (default: true)",
+      image_url: "Optional existing image URL; skips image generation and uses this URL",
     },
     returns:
       "{ html, title, meta_description, slug, primary_keyword, secondary_keywords, faq, json_ld, schemas, keyword_audit, seo_richness, word_count, market, skill_alignment }",
@@ -857,10 +905,27 @@ export const REGISTRY = [
     requires_credential: null,
   },
   {
+    id: "audit_existing_blog",
+    name: "Audit Existing Blog Content",
+    description: "Audits a public sitemap and bounded set of blog pages for title/meta/H1/canonical, thin content, image alt text, internal links, and statically detectable structured data. Optionally samples rendered pages through Firecrawl for JS content and schema evidence.",
+    category: "seo",
+    trigger_type: "direct_api",
+    endpoint: null,
+    params_schema: {
+      domain: "Root domain (falls back to workspace website URL)",
+      limit: "Pages to audit, 5–100 (default: 50)",
+      use_firecrawl: "true to render a bounded sample through Firecrawl (default: false)",
+      firecrawl_limit: "Rendered pages to sample, max 10 (default: 10)",
+    },
+    returns: "{ status, domain, sitemap_url, summary, pages, rendered_audit, gaps, errors, note }",
+    which_agents_can_invoke: ["maya", "riya"],
+    requires_credential: null,
+  },
+  {
     id: "build_seo_organic_plan",
     name: "Build SEO Organic Plan",
     description:
-      "Prefer build_seo_organic_plan first. Semrush/Ahrefs/GSC are optional — when disconnected the pipeline estimates keyword volumes via web search. When GSC is connected, merges live queries + striking-distance opportunities. When Semrush/Ahrefs are connected, uses live rankings. Then create_seo_article / execute_seo_plan_articles from the queue.",
+      "Audits existing blog pages first, then uses Semrush/Ahrefs/GSC when connected to build a goal-aligned topical authority plan. When disconnected, the pipeline estimates keyword volumes via web search. The plan includes new article topics, content gaps, and refresh candidates. Then create_seo_article / execute_seo_plan_articles from the queue.",
     category: "seo",
     trigger_type: "direct_api",
     endpoint: null,
@@ -868,7 +933,13 @@ export const REGISTRY = [
       domain: "Root domain e.g. nouriva.tech (falls back to workspace website URL)",
       database: "Semrush/Ahrefs country DB code (default us)",
       preferred_toolkit: "semrush | ahrefs — try this toolkit first",
+      apify_actor_id: "Optional user-selected Apify keyword Actor ID; its dataset fields are normalized when present",
+      apify_task_id: "Optional Apify Task ID instead of actor_id",
+      apify_input: "Optional JSON input for the selected Apify Actor/Task",
       gsc_site_url: "Optional Search Console property URL (sc-domain:… or https://…)",
+      audit_limit: "Optional existing blog pages to audit before planning (default: 50)",
+      use_firecrawl: "Optional true for a bounded rendered-page audit when Firecrawl is connected",
+      firecrawl_limit: "Optional rendered-page sample size, max 10",
       brand_context: "Optional positioning context",
       quantified_target: "Override GTM quantified goal",
       timeline_target: "Override GTM timeline e.g. 90d",
@@ -1123,6 +1194,12 @@ const directApiHandlers = {
   async generate_b2c_organic_pack(params, companyId) {
     return generateB2cOrganicPack(params, companyId);
   },
+  async generate_youtube_content_package(params, companyId) {
+    return generateYoutubeContentPackage(params, companyId);
+  },
+  async repurpose_content_package(params, companyId) {
+    return repurposeContentPackage(params, companyId);
+  },
   async generate_email_html(params, companyId) {
     return generateEmailHtml(params, companyId);
   },
@@ -1140,6 +1217,9 @@ const directApiHandlers = {
   },
   async build_seo_organic_plan(params, companyId, supabaseClient) {
     return buildSeoOrganicPlan(params, companyId, supabaseClient);
+  },
+  async audit_existing_blog(params, companyId) {
+    return auditExistingBlog(params, companyId);
   },
   async execute_seo_plan_articles(params, companyId, supabaseClient) {
     return executeSeoPlanArticles(params, companyId, supabaseClient);
@@ -2306,49 +2386,190 @@ const directApiHandlers = {
       campaign_name = 'Marqq LinkedIn Outreach',
       leads = [],
       message_template = 'Hi {{first_name}}, I came across your profile and would love to connect!',
+      activate = true,
+      timezone = 'Asia/Kolkata',
+      linked_in_account_ids = [],
+      sequence_mode = 'standard',
+      first_message_template = '',
+      followup_message_template = '',
     } = params;
 
     const validLeads = leads.filter(l => l.linkedin_url);
     if (!validLeads.length) return { status: 'error', error: 'No leads with linkedin_url provided' };
 
-    // HeyReach public API does not expose campaign creation. Use an existing active campaign.
-    let campaigns;
+    const safeCampaignName = String(campaign_name || 'Marqq LinkedIn Outreach').trim().slice(0, 50);
+    const normalizeTemplate = (value, lead) => String(value || '')
+        .replace(/\{\{\s*first[_ ]name\s*\}\}|\{firstName\}/gi, lead.first_name || '')
+        .replace(/\{\{\s*last[_ ]name\s*\}\}|\{lastName\}/gi, lead.last_name || '')
+        .replace(/\{\{\s*company\s*\}\}|\{company\}/gi, lead.company || '')
+        .replace(/\{\{\s*full[_ ]name\s*\}\}|\{fullName\}/gi, lead.full_name || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const mode = ['connect_only', 'conservative', 'standard'].includes(sequence_mode)
+      ? sequence_mode
+      : 'standard';
+    const notes = validLeads.map((lead) => normalizeTemplate(
+      lead.linkedin_message || lead.personalization || message_template,
+      lead,
+    ).slice(0, 300));
+    const firstMessages = validLeads.map((lead) => normalizeTemplate(
+      lead.linkedin_first_message || lead.first_message || first_message_template
+        || 'Hi {firstName}, thanks for connecting. I would love to share a little context and see if this is relevant for you.',
+      lead,
+    ).slice(0, 8000));
+    const followupMessages = validLeads.map((lead) => normalizeTemplate(
+      lead.linkedin_followup_message || lead.followup_message || followup_message_template
+        || 'Just following up here in case this is relevant to your priorities. Happy to share more context.',
+      lead,
+    ).slice(0, 8000));
+    const connectionRequest = (index) => ({
+      nodeType: 'CONNECTION_REQUEST',
+      actionDelay: 24,
+      actionDelayUnit: 'HOUR',
+      payload: {
+        messages: ['{note}'],
+        fallbackMessage: 'Hi {firstName}, I would love to connect and learn more about your work.',
+      },
+      conditionalNode: messageSequence(index),
+      unconditionalNode: { nodeType: 'END', actionDelay: 3, actionDelayUnit: 'HOUR' },
+    });
+    const messageSequence = (index) => ({
+      nodeType: 'MESSAGE',
+      actionDelay: 24,
+      actionDelayUnit: 'HOUR',
+      payload: {
+        messages: ['{firstMessage}'],
+        fallbackMessage: firstMessages[index],
+      },
+      unconditionalNode: {
+        nodeType: 'MESSAGE',
+        actionDelay: 72,
+        actionDelayUnit: 'HOUR',
+        payload: {
+          messages: ['{followupMessage}'],
+          fallbackMessage: followupMessages[index],
+        },
+        unconditionalNode: { nodeType: 'END', actionDelay: 3, actionDelayUnit: 'HOUR' },
+      },
+    });
+    const warmupSequence = (index) => {
+      const likePost = {
+        nodeType: 'LIKE_POST',
+        actionDelay: 24,
+        actionDelayUnit: 'HOUR',
+        payload: { reactionType: 'LIKE', reactBefore: 'WEEK1', skipDelayIfCannotLike: true },
+        unconditionalNode: connectionRequest(index),
+      };
+      const follow = {
+        nodeType: 'FOLLOW',
+        actionDelay: 24,
+        actionDelayUnit: 'HOUR',
+        unconditionalNode: mode === 'standard' ? likePost : connectionRequest(index),
+      };
+      return {
+        nodeType: 'VIEW_PROFILE',
+        actionDelay: 3,
+        actionDelayUnit: 'HOUR',
+        unconditionalNode: follow,
+      };
+    };
+    const sequenceForLead = (index) => {
+      if (mode === 'connect_only') return connectionRequest(index);
+      return {
+        nodeType: 'CHECK_IS_CONNECTION',
+        actionDelay: 0,
+        actionDelayUnit: 'HOUR',
+        conditionalNode: messageSequence(index),
+        unconditionalNode: warmupSequence(index),
+      };
+    };
+    // HeyReach stores one sequence template for the campaign. Per-lead copy is
+    // carried by custom fields, so the tree references {note}/{firstMessage}.
+    const sequence = sequenceForLead(0);
+
+    const apiCall = (path, body) => directApiHandlers._heyreachRequest(companyId, path, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+    let listId;
+    let campaignId;
+    let linkedInAccountIds = Array.isArray(linked_in_account_ids)
+      ? linked_in_account_ids.map(Number).filter(Number.isFinite)
+      : [];
     try {
-      const campaignsData = await directApiHandlers._heyreachRequest(companyId, '/campaign/GetAll', {
-        method: 'POST',
-        body: JSON.stringify({}),
+      const accountData = await apiCall('/li_account/GetAll', {});
+      const accounts = Array.isArray(accountData?.items)
+        ? accountData.items
+        : (Array.isArray(accountData?.data) ? accountData.data : []);
+      if (!linkedInAccountIds.length) {
+        linkedInAccountIds = accounts
+          .filter((account) => account?.authIsValid === true || account?.isValid === true || account?.isValidNavigator === true)
+          .map((account) => Number(account.id || account.accountId))
+          .filter(Number.isFinite);
+      }
+      if (!linkedInAccountIds.length) {
+        throw new Error('No authenticated HeyReach LinkedIn sender account is available. Reconnect a sender in HeyReach first.');
+      }
+
+      const listData = await apiCall('/list/CreateEmptyList', {
+        name: `${safeCampaignName} · leads`.slice(0, 100),
+        listType: 'USER_LIST',
       });
-      campaigns = Array.isArray(campaignsData?.items) ? campaignsData.items : [];
-    } catch (err) {
-      return { status: 'error', error: err.message };
-    }
+      listId = listData?.id || listData?.listId || listData?.data?.id || listData?.data?.listId;
+      if (!listId) throw new Error('HeyReach did not return a lead-list ID');
 
-    const normalizedName = campaign_name.trim().toLowerCase();
-    const targetCampaign = campaigns.find((campaign) => String(campaign?.name || '').trim().toLowerCase() === normalizedName)
-      || campaigns.find((campaign) => String(campaign?.status || '').toUpperCase() === 'ACTIVE')
-      || campaigns[0];
-
-    if (!targetCampaign?.id) {
-      return { status: 'error', error: 'No usable HeyReach campaign found. Create and activate a campaign in HeyReach first.' };
-    }
-
-    try {
-      await directApiHandlers._heyreachRequest(companyId, '/campaign/AddLeadsToListV2', {
-        method: 'POST',
-        body: JSON.stringify({
-          campaignId: String(targetCampaign.id),
-          leads: validLeads.map((lead) => ({
-            firstName: lead.first_name || '',
-            lastName: lead.last_name || '',
-            email: lead.email || '',
-            linkedinUrl: lead.linkedin_url,
-            company: lead.company || '',
-            position: lead.personalization || '',
-          })),
-        }),
+      await apiCall('/list/AddLeadsToListV2', {
+        listId: Number(listId),
+        leads: validLeads.map((lead, index) => ({
+          profileUrl: lead.linkedin_url,
+          firstName: lead.first_name || '',
+          lastName: lead.last_name || '',
+          email: lead.email || '',
+          companyName: lead.company || '',
+          position: lead.title || lead.designation || '',
+          customUserFields: [
+            { name: 'note', value: notes[index] },
+            { name: 'firstMessage', value: firstMessages[index] },
+            { name: 'followupMessage', value: followupMessages[index] },
+          ],
+        })),
       });
+
+      const campaignData = await apiCall('/campaign/Create', {
+        name: safeCampaignName,
+        linkedInUserListId: Number(listId),
+        linkedInAccountIds,
+        excludeContactedFromOtherCampaigns: true,
+        excludeHasOtherAccConversations: true,
+        schedule: {
+          dailyStartTime: '09:00:00',
+          dailyEndTime: '17:00:00',
+          timeZoneId: timezone,
+          enabledMonday: true,
+          enabledTuesday: true,
+          enabledWednesday: true,
+          enabledThursday: true,
+          enabledFriday: true,
+          enabledSaturday: false,
+          enabledSunday: false,
+        },
+        sequence,
+      });
+      campaignId = campaignData?.campaignId || campaignData?.id || campaignData?.data?.campaignId || campaignData?.data?.id;
+      if (!campaignId) throw new Error('HeyReach did not return a campaign ID');
+
+      if (activate) {
+        await apiCall('/campaign/StartCampaign', { campaignId: Number(campaignId) });
+      }
     } catch (err) {
-      return { status: 'error', error: `HeyReach lead add failed: ${err.message}` };
+      return {
+        status: 'error',
+        error: `HeyReach campaign setup failed: ${err.message}`,
+        mode: 'isolated_campaign',
+        list_id: listId || null,
+        campaign_id: campaignId || null,
+      };
     }
 
     // Best-effort: register Marqq reply webhook so LinkedIn replies draft in inbox
@@ -2364,13 +2585,21 @@ const directApiHandlers = {
 
     return {
       status: 'completed',
-      campaign_id: String(targetCampaign.id),
-      campaign_name: targetCampaign.name || campaign_name,
+      mode: 'isolated_campaign',
+      campaign_id: String(campaignId),
+      list_id: String(listId),
+      campaign_name: safeCampaignName,
       leads_in_list: validLeads.length,
       message_template,
+      sequence,
+      sequence_mode: mode,
+      sequence_steps: mode === 'connect_only' ? 1 : (mode === 'conservative' ? 5 : 6),
+      linked_in_account_ids: linkedInAccountIds,
+      activated: Boolean(activate),
       webhook,
-      campaigns_available: Array.isArray(campaigns) ? campaigns.length : 0,
-      next_step: `Leads were added to the existing HeyReach campaign "${targetCampaign.name || campaign_name}". Review message steps in HeyReach before sending.`,
+      next_step: activate
+        ? 'Campaign started in HeyReach and will send inside its weekday schedule.'
+        : 'Campaign created in HeyReach as DRAFT. Start it only after reviewing the sequence.',
       leads_summary: validLeads.slice(0, 5).map(l => `${l.first_name} ${l.last_name} @ ${l.company} — ${l.linkedin_url}`),
     };
   },

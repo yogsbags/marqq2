@@ -11,6 +11,7 @@ import { loadMarketingSkillsForTask, resolveSkillPack } from "./lib/artifactMark
 import {
   NORTH_STAR_PRINCIPLES,
   normalizeGoalSystem,
+  normalizeSectionTargets,
   goalSystemToQuantifiedLabel,
   isWeakGoalSystem,
   proposeGoalSystem,
@@ -601,13 +602,13 @@ export const GTM_INTERVIEW_SECTIONS = [
 ];
 
 /**
- * Wizard only asks sections that need real user input.
- * Auto strategy sections (market, positioning, sales, …) are reviewed during onboarding.
+ * Wizard only asks sections that need real user input. Goals come first so the
+ * North Star is locked before offer, audience, or strategy drafts are generated.
  */
-export const GTM_WIZARD_INTERVIEW_SECTION_IDS = ["module", "offer", "audience", "goals"];
+export const GTM_WIZARD_INTERVIEW_SECTION_IDS = ["goals", "module", "offer", "audience"];
 
-export const GTM_SECTION_ORDER = GTM_INTERVIEW_SECTIONS.map((s) => s.id).filter((id) =>
-  GTM_WIZARD_INTERVIEW_SECTION_IDS.includes(id)
+export const GTM_SECTION_ORDER = GTM_WIZARD_INTERVIEW_SECTION_IDS.filter((id) =>
+  GTM_INTERVIEW_SECTIONS.some((section) => section.id === id)
 );
 
 export const GTM_AUTO_STRATEGY_SECTIONS = [
@@ -789,6 +790,27 @@ const STRATEGY_SECTION_DEFS = [
   { id: "risks_contingencies", title: "Risks & contingencies" },
   { id: "timeline_roadmap", title: "Timeline & roadmap" },
 ];
+
+// Structural dependencies are a safety net around the LLM's impact analysis.
+// They describe which sections normally need review when a source section changes;
+// they do not generate business targets or replace the model's reasoning.
+const STRATEGY_REVISION_DEPENDENCIES = {
+  target_customer: ["positioning_messaging", "distribution_channels", "marketing_strategy", "sales_strategy"],
+  market_analysis: ["target_customer", "positioning_messaging", "distribution_channels"],
+  product_strategy: ["pricing_monetization", "positioning_messaging", "customer_success"],
+  positioning_messaging: ["marketing_strategy", "sales_strategy"],
+  pricing_monetization: ["product_strategy", "sales_strategy", "financial_plan"],
+  distribution_channels: ["marketing_strategy", "sales_strategy", "measurement_optimization"],
+  marketing_strategy: ["positioning_messaging", "distribution_channels", "sales_strategy", "measurement_optimization"],
+  sales_strategy: ["target_customer", "positioning_messaging", "pricing_monetization", "customer_success"],
+  customer_success: ["product_strategy", "operations_execution", "measurement_optimization"],
+  launch_plan: ["marketing_strategy", "sales_strategy", "timeline_roadmap"],
+  operations_execution: ["customer_success", "timeline_roadmap", "measurement_optimization"],
+  financial_plan: ["pricing_monetization", "distribution_channels", "timeline_roadmap"],
+  measurement_optimization: ["marketing_strategy", "sales_strategy", "timeline_roadmap"],
+  risks_contingencies: ["launch_plan", "operations_execution", "timeline_roadmap"],
+  timeline_roadmap: ["launch_plan", "operations_execution", "measurement_optimization"],
+};
 
 function profileLabel(profile, path) {
   const [section, key] = String(path).split(".");
@@ -1072,6 +1094,7 @@ function buildDeterministicStrategy(moduleRow) {
       }
       case "measurement_optimization": {
         const metricMap = kpiFrameworkForGoal(priority, quantified, timeline, budget);
+        const alignedSections = alignStrategySectionsToLeadingMetrics(sections, goalAlignment);
         return {
           ...base,
           summary: quantified
@@ -1147,6 +1170,7 @@ function buildDeterministicStrategy(moduleRow) {
       timeline_target: timeline || null,
       channel_bet: channel || null,
       budget_band: budget || null,
+      sectionTargets: normalizeSectionTargets([], GTM_FULL_STRATEGY_SECTION_ORDER, timeline),
     },
   };
 }
@@ -1418,12 +1442,17 @@ function strategyToMarkdown(doc) {
       for (const r of ga.rejects_as_nsm) lines.push(`- ${r}`);
       lines.push("");
     }
-    for (const t of ga.sectionTargets || []) {
+    const sectionTargets = normalizeSectionTargets(
+      ga.sectionTargets,
+      GTM_FULL_STRATEGY_SECTION_ORDER,
+      ga.timeline_target,
+    );
+    for (const t of sectionTargets) {
       lines.push(
-        `- ${t.sectionId}: ${t.contribution || t.metric || ""}${t.byWhen ? ` (by ${t.byWhen})` : ""}`
+        `- ${t.sectionId}: ${t.metric || ""} — ${t.contribution || ""}${t.byWhen ? ` (by ${t.byWhen})` : ""}`
       );
     }
-    if ((ga.sectionTargets || []).length) lines.push("");
+    if (sectionTargets.length) lines.push("");
   }
 
   const sections = Array.isArray(doc.sections) ? doc.sections : [];
@@ -2103,9 +2132,9 @@ function progressPayload(moduleRow) {
   const sectionState = moduleRow.section_state || {};
   const current =
     GTM_SECTION_ORDER.find((id) => !sectionState[id]?.locked) || null;
-  const interviewDefs = GTM_INTERVIEW_SECTIONS.filter((s) =>
-    GTM_WIZARD_INTERVIEW_SECTION_IDS.includes(s.id)
-  );
+  const interviewDefs = GTM_SECTION_ORDER
+    .map((id) => GTM_INTERVIEW_SECTIONS.find((section) => section.id === id))
+    .filter(Boolean);
   return {
     sections: interviewDefs.map((s) => ({
       id: s.id,
@@ -2163,6 +2192,14 @@ function normalizeStrategySection(raw, def) {
       (proposedGoalSystem ? goalSystemToQuantifiedLabel(proposedGoalSystem) : "") ||
       ""
   ).trim();
+  const rawTarget = raw?.sectionTarget || {};
+  const sectionTarget = {
+    metric: String(rawTarget.metric || "").trim(),
+    contribution: String(rawTarget.contribution || "").trim(),
+    owner: String(rawTarget.owner || rawTarget.ownerRole || "").trim(),
+    targetType: rawTarget.targetType === "alignment" ? "alignment" : "leading_indicator",
+    byWhen: String(rawTarget.byWhen || rawTarget.by_when || "").trim(),
+  };
   return {
     id,
     title: String(raw?.title || def.title).trim() || def.title,
@@ -2174,6 +2211,15 @@ function normalizeStrategySection(raw, def) {
       .slice(0, 10),
     body: String(raw?.body || "").trim(),
     subsections,
+    ...(String(raw?.revisionNote || "").trim()
+      ? { revisionNote: String(raw.revisionNote).trim() }
+      : {}),
+    ...(Array.isArray(raw?.affectedSections)
+      ? { affectedSections: raw.affectedSections.map((id) => String(id || "").trim()).filter(Boolean).slice(0, 8) }
+      : {}),
+    ...(sectionTarget.metric || sectionTarget.contribution
+      ? { sectionTarget }
+      : {}),
     ...(proposedNorthStar ? { proposedNorthStar } : {}),
     ...(proposedGoalSystem && !isWeakGoalSystem(proposedGoalSystem)
       ? { proposedGoalSystem }
@@ -2181,6 +2227,80 @@ function normalizeStrategySection(raw, def) {
         ? { proposedGoalSystem }
         : {}),
   };
+}
+
+function strategySectionHasSubstance(section) {
+  return Boolean(
+    String(section?.summary || "").trim() ||
+      String(section?.body || "").trim() ||
+      (Array.isArray(section?.bullets) && section.bullets.some((bullet) => String(bullet || "").trim())) ||
+      (Array.isArray(section?.subsections) && section.subsections.some((sub) => String(sub?.body || "").trim() || (sub?.bullets || []).length))
+  );
+}
+
+function fallbackAssembledStrategySection(def, moduleRow) {
+  const profile = moduleRow?.profile || {};
+  const goals = profile.goals || {};
+  const goalSystem = profile.goal_system || {};
+  const target = goalSystem.quantified_target || goals.quantified_target || "the quantified North Star target";
+  const timeline = goalSystem.timeline_target || goals.timeline_target || "the locked timeline";
+  const company = moduleRow?.name || "the business";
+  const icp = profile.audience?.icp || moduleRow?.source_context?.onboarding?.icp || "the priority customer";
+  return {
+    id: def.id,
+    title: def.title,
+    summary: `${def.title}: prioritize the highest-leverage work for ${icp} so ${company} can move toward ${target} by ${timeline}.`,
+    bullets: [
+      `Focus on the decisions that move ${target}, not disconnected activity.`,
+      `Make ${icp} the operating audience for this section.`,
+      `Assign an owner and review progress against the North Star weekly.`,
+      `Defer secondary work until the primary path shows evidence.`,
+    ],
+    body: `${def.title} should translate the locked GTM context into a practical operating plan for ${company}. Prioritize the smallest set of decisions that can move ${target} by ${timeline}, keep the work grounded in ${icp}, and make the trade-offs visible. Every recommendation should have an owner, a leading signal, and a review checkpoint. Do not expand scope until the primary motion is producing evidence.`,
+    subsections: [
+      {
+        title: "Contribution to goal",
+        body: `This section contributes by improving the path from ${icp} to ${target} within ${timeline}.`,
+        bullets: ["Owner: the accountable functional lead", "Review: weekly against the locked North Star"],
+      },
+    ],
+  };
+}
+
+function alignStrategySectionsToLeadingMetrics(sections, goalAlignment) {
+  const targets = new Map(
+    normalizeSectionTargets(
+      goalAlignment?.sectionTargets,
+      GTM_FULL_STRATEGY_SECTION_ORDER,
+      goalAlignment?.timeline_target,
+    ).map((target) => [target.sectionId, target]),
+  );
+  return (sections || []).map((section) => {
+    const target = targets.get(section?.id);
+    if (!target) return section;
+    const subsections = (section.subsections || []).filter(
+      (subsection) => !/contribution to goal/i.test(String(subsection?.title || "")),
+    );
+    subsections.push({
+      title: "Contribution to goal",
+      body: `${target.metric}: ${target.contribution} Checkpoint: ${target.byWhen}. Owner: ${target.owner}. This section is a ${target.targetType} responsibility and does not claim a direct share of the final North Star.`,
+      bullets: [
+        `Leading metric: ${target.metric}`,
+        `Review checkpoint: ${target.byWhen}`,
+        `Accountable owner: ${target.owner}`,
+      ],
+    });
+    return { ...section, subsections };
+  });
+}
+
+function sectionTargetsFromDrafts(sections) {
+  return (sections || [])
+    .filter((section) => section?.id && section?.sectionTarget)
+    .map((section) => ({
+      sectionId: section.id,
+      ...section.sectionTarget,
+    }));
 }
 
 function mergeApprovedStrategySections(existing, incoming) {
@@ -2205,6 +2325,8 @@ async function generateOneStrategySection(groq, {
   answers,
   interviewSectionId,
   priorSections,
+  revisionPrompt,
+  currentDraft,
 }) {
   const def = STRATEGY_SECTION_DEFS.find((s) => s.id === sectionId);
   if (!def) throw new Error(`Unknown strategy section "${sectionId}"`);
@@ -2228,6 +2350,9 @@ async function generateOneStrategySection(groq, {
       },
     ],
   };
+
+  const revision = String(revisionPrompt || '').trim();
+  const draftToRevise = currentDraft && typeof currentDraft === 'object' ? currentDraft : null;
 
   const needsGoalSystem =
     interviewSectionId === "goals" ||
@@ -2266,6 +2391,9 @@ async function generateOneStrategySection(groq, {
     : answerLabel(answers, "quantified_target");
 
   if (!groq) {
+    if (revision && draftToRevise) {
+      throw new Error('AI revision is unavailable because the strategy model is not configured');
+    }
     const out = { ...fallback };
     if (needsGoalSystem && goalSystem) {
       out.proposedGoalSystem = goalSystem;
@@ -2313,6 +2441,7 @@ Return STRICT JSON:
   "bullets": ["4-7 action bullets"],
   "body": "5-10 sentences of actionable guidance",
   "subsections": [{ "title": string, "body": string, "bullets": string[] }],
+  "sectionTarget": { "metric": string, "contribution": string, "owner": string, "targetType": "leading_indicator|alignment", "byWhen": string },
   "proposedNorthStar": "concrete quantified target string",
   "proposedGoalSystem": {
     "business_archetype": string,
@@ -2325,16 +2454,20 @@ Return STRICT JSON:
     "guardrails": string[],
     "primary_loop": string[],
     "rejects_as_nsm": string[]
-  }
+  },
+  "affectedSections": ["section_id"]
 }
 
 Rules:
 - Include 2-4 named subsections (not Slack channels).
-- Always include "Contribution to goal" tied to the North Star Metric (share of target, by-when, owner role).
+- Always include a sectionTarget tied to a leading metric (by-when, owner role); do not assign this section an arbitrary share of the final North Star.
+- The sectionTarget must be specific to this business and section. Use the locked context to name the actual funnel, account, activation, conversion, retention, economic, or operational metric; never return placeholders such as "Leading indicator for ..." or "Accountable functional lead".
 - If a proposedGoalSystem is provided in context, echo/refine it — do not replace with vanity lead metrics.
 - If missing/weak, invent a full proposedGoalSystem from company context (archetype-aware).
 - Recommendations, not interview recap. No #channel headers.
-- Stay consistent with prior approved sections.`,
+- Stay consistent with prior approved sections.
+${revision ? `- This is a user-requested revision. Apply the revision instruction precisely to the current draft, preserve useful content that was not asked to change, and keep the section target measurable. Do not revise other sections in this response.
+- Return affectedSections only when the revision creates a dependency; choose only from: ${STRATEGY_SECTION_DEFS.map((s) => s.id).join(', ')}. Do not include the current section.` : ''}`,
       },
       {
         role: "user",
@@ -2357,6 +2490,8 @@ Rules:
                 null,
             },
             answers: answers || {},
+            revisionPrompt: revision || null,
+            currentDraft: draftToRevise,
             priorApprovedSections: (priorSections || []).map((s) => ({
               id: s.id,
               title: s.title,
@@ -2371,8 +2506,28 @@ Rules:
     ],
   });
   const parsed = parseJsonLoose(completion.choices?.[0]?.message?.content || "");
+  const structuralDependencies = revision
+    ? (STRATEGY_REVISION_DEPENDENCIES[def.id] || [])
+    : [];
+  const modelDependencies = revision && Array.isArray(parsed?.affectedSections)
+    ? parsed.affectedSections
+        .map((id) => String(id || "").trim())
+        .filter((id) => id && id !== def.id && STRATEGY_SECTION_DEFS.some((section) => section.id === id))
+    : [];
   const merged = {
-    ...(parsed || fallback),
+    ...fallback,
+    ...(draftToRevise || {}),
+    ...(parsed || {}),
+    summary: String(parsed?.summary || fallback.summary).trim() || fallback.summary,
+    bullets:
+      Array.isArray(parsed?.bullets) && parsed.bullets.length
+        ? parsed.bullets
+        : fallback.bullets,
+    body: String(parsed?.body || fallback.body).trim() || fallback.body,
+    subsections:
+      Array.isArray(parsed?.subsections) && parsed.subsections.length
+        ? parsed.subsections
+        : fallback.subsections,
     proposedGoalSystem:
       normalizeGoalSystem(parsed?.proposedGoalSystem || goalSystem || {}, {
         timeline,
@@ -2382,6 +2537,10 @@ Rules:
       String(parsed?.proposedNorthStar || "").trim() ||
       quantifiedLabel ||
       goalSystemToQuantifiedLabel(goalSystem),
+    ...(revision ? { revisionNote: `Revised from your instruction: ${revision}` } : {}),
+    ...(revision && [...new Set([...structuralDependencies, ...modelDependencies])].length
+      ? { affectedSections: [...new Set([...structuralDependencies, ...modelDependencies])].slice(0, 8) }
+      : {}),
   };
   return normalizeStrategySection(merged, def);
 }
@@ -2410,7 +2569,7 @@ Return JSON:
 {
   "title": string,
   "executiveSummary": string,
-  "goalAlignment": { "business_archetype": string, "north_star_metric": string, "metric_definition": string, "ultimate_outcome_metric": string|null, "quantified_target": string, "timeline_target": string, "metric_tree": string[], "guardrails": string[], "primary_loop": string[], "rejects_as_nsm": string[], "sectionTargets": [{ "sectionId": string, "metric": string, "contribution": string, "byWhen": string }] },
+  "goalAlignment": { "business_archetype": string, "north_star_metric": string, "metric_definition": string, "ultimate_outcome_metric": string|null, "quantified_target": string, "timeline_target": string, "metric_tree": string[], "guardrails": string[], "primary_loop": string[], "rejects_as_nsm": string[], "sectionTargets": [{ "sectionId": string, "metric": string, "contribution": string, "owner": string, "targetType": "leading_indicator|alignment", "byWhen": string }] },
   "sections": [{ "id", "title", "summary", "bullets", "body", "subsections": [{ "title", "body", "bullets" }] }],
   "nextSteps": string[]
 }
@@ -2419,8 +2578,9 @@ Rules:
 - Prefer approved drafts verbatim when present; expand missing ones comprehensively with 2-4 subsections each.
 - executiveSummary: 2-4 sentences win condition + bets + what NOT to do.
 - NORTH STAR SYSTEM: read profile.goal_system (or goals.quantified_target + timeline). Agents optimize the operational north_star_metric with its metric_definition — NOT vanity leads unless that is truly the archetype.
-  Reverse-engineer every section so it contributes a measurable sub-goal toward quantified_target by timeline_target.
-  Each section MUST include "Contribution to goal" with: metric, share of north-star, by-when, owner role. Sub-goals must sum coherently.
+  Reverse-engineer every section so it contributes a measurable leading indicator toward quantified_target by timeline_target.
+  Do NOT allocate arbitrary shares of the final North Star to every section. Strategy, research, finance, operations, measurement, and risk sections enable the outcome; they must not claim fractional customers, contracts, or users.
+  Use the top-level sectionTargets array for one concise leading metric, recommendation, checkpoint, and owner per section. Only the true acquisition/conversion/retention owner may directly reference North Star units.
 - Return full goalAlignment including: business_archetype, north_star_metric, metric_definition, ultimate_outcome_metric, quantified_target, timeline_target, metric_tree, guardrails, primary_loop, rejects_as_nsm, sectionTargets[].
 - No Slack #channel headers in section titles/bodies.
 - nextSteps: 5 immediate actions for the next 14 days.`,
@@ -2449,7 +2609,13 @@ Rules:
         }
         const sections = GTM_FULL_STRATEGY_SECTION_ORDER.map((id) => {
           const def = STRATEGY_SECTION_DEFS.find((d) => d.id === id);
-          return normalizeStrategySection(map.get(id) || byId.get(id) || {}, def);
+          const candidate = map.get(id) || byId.get(id) || {};
+          return normalizeStrategySection(
+            strategySectionHasSubstance(candidate)
+              ? candidate
+              : fallbackAssembledStrategySection(def, moduleRow),
+            def,
+          );
         });
         const exec = sections.find((s) => s.id === "executive_summary");
         const profileGoals = moduleRow.profile?.goals || {};
@@ -2472,10 +2638,15 @@ Rules:
             null,
           priority_90d: profileGoals.priority_90d || lockedSystem.priority_90d || null,
           channel_bet: profileGoals.channel_bet || null,
-          sectionTargets: Array.isArray(parsed?.goalAlignment?.sectionTargets)
-            ? parsed.goalAlignment.sectionTargets
-            : lockedSystem.sectionTargets || [],
+          sectionTargets: normalizeSectionTargets(
+            parsed?.goalAlignment?.sectionTargets?.length
+              ? parsed.goalAlignment.sectionTargets
+              : sectionTargetsFromDrafts(sections),
+            GTM_FULL_STRATEGY_SECTION_ORDER,
+            lockedSystem.timeline_target || profileGoals.timeline_target,
+          ),
         };
+        const alignedSections = alignStrategySectionsToLeadingMetrics(sections, goalAlignment);
         return {
           title: String(parsed.title || `${moduleRow.name} GTM Strategy`).trim(),
           executiveSummary: String(
@@ -2484,8 +2655,8 @@ Rules:
           generatedAt: new Date().toISOString(),
           moduleId: moduleRow.id,
           moduleName: moduleRow.name,
-          sections,
-          channels: buildStrategyChannels(sections),
+          sections: alignedSections,
+          channels: buildStrategyChannels(alignedSections),
           goalAlignment,
           nextSteps: Array.isArray(parsed.nextSteps)
             ? parsed.nextSteps.map(String).filter(Boolean).slice(0, 8)
@@ -2514,21 +2685,31 @@ Rules:
   });
   const exec = sections.find((s) => s.id === "executive_summary");
   const profileGoals = moduleRow.profile?.goals || {};
+  const fallbackGoalAlignment = normalizeGoalSystem(
+    moduleRow.profile?.goal_system || profileGoals,
+    {
+      timeline: profileGoals.timeline_target,
+      objective: profileGoals.priority_90d,
+    },
+  );
+  fallbackGoalAlignment.sectionTargets = normalizeSectionTargets(
+    fallbackGoalAlignment.sectionTargets,
+    GTM_FULL_STRATEGY_SECTION_ORDER,
+    fallbackGoalAlignment.timeline_target,
+  );
+  const alignedFallbackSections = alignStrategySectionsToLeadingMetrics(
+    sections,
+    fallbackGoalAlignment,
+  );
   return {
     title: `${moduleRow.name} GTM Strategy`,
     executiveSummary: String(exec?.summary || exec?.body || "").trim(),
     generatedAt: new Date().toISOString(),
     moduleId: moduleRow.id,
     moduleName: moduleRow.name,
-    sections,
-    channels: buildStrategyChannels(sections),
-    goalAlignment: normalizeGoalSystem(
-      moduleRow.profile?.goal_system || profileGoals,
-      {
-        timeline: profileGoals.timeline_target,
-        objective: profileGoals.priority_90d,
-      }
-    ),
+    sections: alignedFallbackSections,
+    channels: buildStrategyChannels(alignedFallbackSections),
+    goalAlignment: fallbackGoalAlignment,
     nextSteps: [],
     model: null,
   };
@@ -4394,7 +4575,7 @@ Global rules:
    */
   app.post("/api/gtm/modules/:id/strategy-sections/generate", async (req, res) => {
     try {
-      const { interviewSectionId, strategySectionId, answers, priorSections } = req.body || {};
+      const { interviewSectionId, strategySectionId, answers, priorSections, revisionPrompt, currentDraft } = req.body || {};
       const c = client();
       if (!c) return res.status(503).json({ error: "Database unavailable" });
       const moduleRow = await loadModule(c, req.params.id);
@@ -4447,6 +4628,8 @@ Global rules:
         answers: answers || {},
         interviewSectionId,
         priorSections: approved,
+        revisionPrompt: String(revisionPrompt || '').trim() || null,
+        currentDraft: currentDraft && typeof currentDraft === 'object' ? currentDraft : null,
       });
 
       res.json({

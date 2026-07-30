@@ -134,7 +134,7 @@ export const CI_PAGE_SKILLS: Record<CompanyIntelPageId, SkillPack> = {
     agentName: 'tara',
     marketingSkills: ['lead-magnets', 'copywriting', 'page-cro'],
     requiredConnectors: [],
-    optionalConnectors: ['ga4', 'hubspot', 'klaviyo'],
+    optionalConnectors: ['ga4', 'hubspot', 'klaviyo', 'wordpress', 'webflow', 'wix', 'shopify', 'github', 'railway'],
   },
   lookalike_audiences: {
     agentName: 'zara',
@@ -197,6 +197,36 @@ export const MODULE_SKILLS: Record<string, SkillPack> = {
     ],
     requiredConnectors: ['instantly'],
     optionalConnectors: ['apollo', 'hunter', 'gmail', 'hubspot'],
+  },
+  'outreach-follow-up': {
+    agentName: 'sam',
+    marketingSkills: ['copywriting-follow-up', 'cta-designer'],
+    requiredConnectors: ['instantly'],
+    optionalConnectors: ['gmail', 'heyreach', 'hubspot'],
+  },
+  'linkedin-sequence': {
+    agentName: 'sam',
+    marketingSkills: ['linkedin-sequence', 'linkedin-outbound-angle'],
+    requiredConnectors: ['heyreach'],
+    optionalConnectors: ['apollo', 'hubspot'],
+  },
+  'reply-handler': {
+    agentName: 'sam',
+    marketingSkills: ['reply-handler', 'cta-designer'],
+    requiredConnectors: [],
+    optionalConnectors: ['gmail', 'instantly', 'heyreach', 'whatsapp'],
+  },
+  'outbound-analysis': {
+    agentName: 'sam',
+    marketingSkills: ['outbound-analyst', 'analytics-tracking', 'revops'],
+    requiredConnectors: [],
+    optionalConnectors: ['instantly', 'heyreach', 'hubspot', 'ga4'],
+  },
+  'value-prop-lister': {
+    agentName: 'sam',
+    marketingSkills: ['value-prop-lister', 'product-marketing-context', 'offer-definer'],
+    requiredConnectors: [],
+    optionalConnectors: ['google_drive', 'notion'],
   },
   'budget-optimization': AGENT_TARGET_SKILLS.budget_optimization,
   'performance-scorecard': AGENT_TARGET_SKILLS.performance_scorecard,
@@ -285,7 +315,7 @@ export const MODULE_SKILLS: Record<string, SkillPack> = {
       'copy-editing',
     ],
     requiredConnectors: [],
-    optionalConnectors: ['semrush', 'ahrefs', 'gsc', 'ga4', 'wordpress', 'webflow'],
+    optionalConnectors: ['semrush', 'ahrefs', 'gsc', 'ga4', 'apify', 'firecrawl', 'github', 'railway', 'wordpress', 'webflow', 'wix', 'shopify', 'hostinger'],
   },
   seo_article: {
     agentName: 'riya',
@@ -299,7 +329,7 @@ export const MODULE_SKILLS: Record<string, SkillPack> = {
       'humanizer',
     ],
     requiredConnectors: [],
-    optionalConnectors: ['semrush', 'ahrefs', 'gsc', 'wordpress', 'webflow'],
+    optionalConnectors: ['semrush', 'ahrefs', 'gsc', 'apify', 'firecrawl', 'github', 'railway', 'wordpress', 'webflow', 'wix', 'shopify', 'hostinger'],
   },
   seo_article_b2c: {
     agentName: 'riya',
@@ -315,7 +345,7 @@ export const MODULE_SKILLS: Record<string, SkillPack> = {
       'programmatic-seo',
     ],
     requiredConnectors: [],
-    optionalConnectors: ['semrush', 'ahrefs', 'gsc', 'wordpress', 'webflow'],
+    optionalConnectors: ['semrush', 'ahrefs', 'gsc', 'apify', 'firecrawl', 'github', 'railway', 'wordpress', 'webflow', 'wix', 'shopify', 'hostinger'],
   },
   'ai-voice-bot': {
     agentName: 'sam',

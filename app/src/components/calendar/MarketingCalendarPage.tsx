@@ -7,6 +7,8 @@ import {
   Twitter,
   Instagram,
   Facebook,
+  MessageCircle,
+  Youtube,
   Mail,
   CalendarDays,
   PlusCircle,
@@ -22,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { fetchJson } from '@/components/modules/company-intelligence/api'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 const CALENDARIFIC_KEY = import.meta.env.VITE_CALENDARIFIC_API_KEY as string | undefined
 
@@ -62,6 +65,8 @@ const PLATFORMS = [
   { id: 'twitter',   label: 'X',         Icon: Twitter,   color: 'text-slate-400 dark:text-slate-500',  iconColor: 'text-slate-400' },
   { id: 'instagram', label: 'Instagram', Icon: Instagram, color: 'text-pink-400 dark:text-pink-500',    iconColor: 'text-pink-400'  },
   { id: 'facebook',  label: 'Meta',      Icon: Facebook,  color: 'text-blue-500 dark:text-blue-600',    iconColor: 'text-blue-500'  },
+  { id: 'reddit',    label: 'Reddit',    Icon: MessageCircle, color: 'text-orange-500 dark:text-orange-500', iconColor: 'text-orange-500' },
+  { id: 'youtube',   label: 'YouTube',   Icon: Youtube,        color: 'text-red-500 dark:text-red-500', iconColor: 'text-red-500' },
   { id: 'email',     label: 'Email',     Icon: Mail,      color: 'text-rose-400 dark:text-rose-500',    iconColor: 'text-rose-400'  },
 ]
 
@@ -129,10 +134,12 @@ function formatModalDate(d: Date) {
 
 interface NewPostModalProps {
   modal: NewPostModal
+  companyId: string
   onClose: () => void
+  onSaved: () => void
 }
 
-function NewPostModalDialog({ modal, onClose }: NewPostModalProps) {
+function NewPostModalDialog({ modal, companyId, onClose, onSaved }: NewPostModalProps) {
   const { platformId, platformLabel, day } = modal
 
   const [calTitle,   setCalTitle]   = useState('')
@@ -143,12 +150,24 @@ function NewPostModalDialog({ modal, onClose }: NewPostModalProps) {
   })
   const [blogTitle,  setBlogTitle]  = useState('')
   const [bodyText,   setBodyText]   = useState('')
+  const [videoUrl, setVideoUrl] = useState('')
+  const [facebookPages, setFacebookPages] = useState<Array<{ id: string; name: string }>>([])
+  const [facebookPageId, setFacebookPageId] = useState('')
+  const [busyAction, setBusyAction] = useState<string | null>(null)
   const [time]                      = useState('9:00 AM')
   const overlayRef = useRef<HTMLDivElement>(null)
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === overlayRef.current) onClose()
   }
+
+  useEffect(() => {
+    if (platformId !== 'facebook' || !companyId) return
+    fetch(`/api/content-studio/facebook/pages?companyId=${encodeURIComponent(companyId)}`)
+      .then((response) => response.json())
+      .then((data) => setFacebookPages(Array.isArray(data?.items) ? data.items : []))
+      .catch(() => setFacebookPages([]))
+  }, [platformId, companyId])
 
   const tabs: { id: string; label: string }[] = useMemo(() => {
     if (platformId === 'blog' || platformId === 'email') return []
@@ -175,6 +194,48 @@ function NewPostModalDialog({ modal, onClose }: NewPostModalProps) {
     if (contentTab === 'video')     return 'Upload Video'
     return 'Upload Image'
   }, [platformId, contentTab])
+
+  const submitPost = async (action: 'draft' | 'schedule' | 'publish') => {
+    if (!companyId) return
+    if (action === 'publish' && !window.confirm(`Publish this ${platformLabel} post live now?`)) return
+    if (platformId === 'youtube' && !videoUrl.trim()) {
+      toast.error('Add a video URL before publishing to YouTube')
+      return
+    }
+    setBusyAction(action)
+    try {
+      const payload = {
+        title: calTitle.trim() || blogTitle.trim() || `${platformLabel} post`,
+        post: bodyText.trim(),
+        body: bodyText.trim(),
+        video_url: videoUrl.trim() || undefined,
+        page_id: facebookPageId || undefined,
+        platform: platformId,
+        format: platformId === 'youtube' ? 'video' : contentTab,
+      }
+      const response = await fetch('/api/content-studio/distribute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          action,
+          live: action === 'publish',
+          platform: platformId,
+          publishAt: action === 'schedule' ? new Date(`${day.toISOString().slice(0, 10)}T09:00:00`).toISOString() : undefined,
+          payload,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Could not save content')
+      toast.success(result.summary || (action === 'draft' ? 'Draft saved' : action === 'schedule' ? 'Added to calendar' : 'Published live'))
+      onSaved()
+      onClose()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save content')
+    } finally {
+      setBusyAction(null)
+    }
+  }
 
   return (
     <div
@@ -233,6 +294,24 @@ function NewPostModalDialog({ modal, onClose }: NewPostModalProps) {
                 rows={8}
                 className="w-full bg-transparent resize-none text-sm text-foreground placeholder:text-muted-foreground focus:outline-none transition-colors"
               />
+            </div>
+          )}
+
+          {platformId === 'youtube' && (
+            <div className="space-y-2">
+              <label className="text-[13px] font-semibold text-foreground">Video asset URL</label>
+              <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://…/video.mp4" className="w-full rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              <p className="text-[12px] text-muted-foreground">The video stays private until you explicitly publish it.</p>
+            </div>
+          )}
+
+          {platformId === 'facebook' && facebookPages.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-semibold text-foreground">Facebook Page</label>
+              <select value={facebookPageId} onChange={e => setFacebookPageId(e.target.value)} className="w-full rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm text-foreground">
+                <option value="">Choose a Page</option>
+                {facebookPages.map((page) => <option key={page.id} value={page.id}>{page.name}</option>)}
+              </select>
             </div>
           )}
 
@@ -302,14 +381,14 @@ function NewPostModalDialog({ modal, onClose }: NewPostModalProps) {
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
           <div className="flex items-center gap-2">
-            <button className="rounded-xl border border-border/70 bg-white dark:bg-zinc-800 px-4 py-2 text-[13px] font-semibold text-foreground hover:bg-muted/40 transition-colors">
-              Save Draft
+            <button onClick={() => void submitPost('draft')} disabled={busyAction !== null} className="rounded-xl border border-border/70 bg-white dark:bg-zinc-800 px-4 py-2 text-[13px] font-semibold text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50">
+              {busyAction === 'draft' ? 'Saving…' : 'Save Draft'}
             </button>
-            <button className="rounded-xl border border-border/70 bg-white dark:bg-zinc-800 px-4 py-2 text-[13px] font-medium text-muted-foreground hover:bg-muted/40 transition-colors">
-              Schedule Post
+            <button onClick={() => void submitPost('schedule')} disabled={busyAction !== null} className="rounded-xl border border-border/70 bg-white dark:bg-zinc-800 px-4 py-2 text-[13px] font-medium text-muted-foreground hover:bg-muted/40 transition-colors disabled:opacity-50">
+              {busyAction === 'schedule' ? 'Scheduling…' : 'Schedule Post'}
             </button>
-            <button className="rounded-xl border border-border/70 bg-white dark:bg-zinc-800 px-4 py-2 text-[13px] font-medium text-muted-foreground hover:bg-muted/40 transition-colors">
-              Publish Now
+            <button onClick={() => void submitPost('publish')} disabled={busyAction !== null} className="rounded-xl border border-orange-300 bg-orange-500 px-4 py-2 text-[13px] font-medium text-white hover:bg-orange-600 transition-colors disabled:opacity-50">
+              {busyAction === 'publish' ? 'Publishing…' : 'Publish Now'}
             </button>
           </div>
         </div>
@@ -334,6 +413,7 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
   const [deployments, setDeployments] = useState<DeploymentEntry[]>([])
   const [festivals, setFestivals]     = useState<Festival[]>([])
   const [newPostModal, setNewPostModal] = useState<NewPostModal | null>(null)
+  const [contentRefresh, setContentRefresh] = useState(0)
 
   // Fetch deployments
   useEffect(() => {
@@ -366,7 +446,7 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
     }
     void load()
     return () => { cancelled = true }
-  }, [activeWorkspace?.id])
+  }, [activeWorkspace?.id, contentRefresh])
 
   // Fetch festivals
   useEffect(() => {
@@ -842,7 +922,9 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
       {newPostModal && (
         <NewPostModalDialog
           modal={newPostModal}
+          companyId={activeWorkspace?.id || ''}
           onClose={() => setNewPostModal(null)}
+          onSaved={() => setContentRefresh((value) => value + 1)}
         />
       )}
     </>

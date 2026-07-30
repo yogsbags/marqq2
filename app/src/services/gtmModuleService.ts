@@ -210,6 +210,8 @@ export async function generateInterviewStrategySection(input: {
   strategySectionId: string;
   answers: Record<string, GtmSectionAnswer>;
   priorSections?: unknown[];
+  revisionPrompt?: string;
+  currentDraft?: unknown;
 }): Promise<{
   section: import('@/lib/gtmAutoSections').GtmAutoSectionDraft;
   module: GtmModule;
@@ -223,6 +225,8 @@ export async function generateInterviewStrategySection(input: {
       strategySectionId: input.strategySectionId,
       answers: input.answers,
       priorSections: input.priorSections,
+      revisionPrompt: input.revisionPrompt,
+      currentDraft: input.currentDraft,
     }),
   });
   return readJsonOrThrow(res);

@@ -178,6 +178,8 @@ export interface GtmAutoSectionDraft {
   /** Full dynamic goal system (archetype, definition, tree, guardrails) */
   proposedGoalSystem?: import('@/types/gtm').GtmStrategyGoalAlignment;
   approvedAt?: string;
+  revisionNote?: string;
+  affectedSections?: string[];
 }
 
 export function gtmAutoSectionsStorageKey(workspaceId: string) {

@@ -110,18 +110,15 @@ export function ArtifactRenderer(_props: ArtifactRendererProps) {
  *      ArtifactRenderer,
  *      type EnhancedChatMessage
  *    } from './chat-routing-enhancement';
- *    import AgenticLoop from '@/platform/crewai/core/agenticLoop';
+ *    Use the backend chat/task router; do not instantiate a second local
+ *    task router in the browser.
  *
  * 2. Update ChatMessage type to extend EnhancedChatMessage:
  *    type ChatMessage = EnhancedChatMessage;
  *
  * 3. In ChatHome component state, add:
  *    const [showIntentDebug, setShowIntentDebug] = useState(false);
- *    const [agenticLoop] = useState(() => new AgenticLoop({
- *      supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
- *      supabaseKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
- *      llmClient: groqService // or other LLM client
- *    }));
+ *    Route messages through the backend chat/task API.
  *
  * 4. Modify handleMessage function:
  *    const handleMessage = async (userMessage: string) => {
@@ -135,8 +132,8 @@ export function ArtifactRenderer(_props: ArtifactRendererProps) {
  *      setMessages(prev => [...prev, userMsg]);
  *
  *      try {
- *        // Call Veena routing
- *        const response = await agenticLoop.executeGoal(
+ *        // Call the backend task router
+ *        const response = await backendChatRouter.execute(
  *          userMessage,
  *          user?.id || '',
  *          workspace?.id || '',

@@ -1333,3 +1333,7 @@ Quick Wins can run in parallel with Phase 1-4
 ---
 
 **Next model pickup point**: Phase 3 (Create Missing Agents) or Quick Wins (HubSpot wiring via Composio)
+# Historical implementation record
+
+The live JavaScript agent runtime now lives under `platform/agent-runtime/`.
+References to `platform/crewai/` below describe the pre-migration layout.

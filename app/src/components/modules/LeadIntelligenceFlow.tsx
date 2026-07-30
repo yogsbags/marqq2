@@ -14,7 +14,7 @@ import {
   CheckCircle, AlertCircle, FileSpreadsheet, Brain, Zap,
   Mail, Phone, Linkedin, RefreshCw, Download, ChevronRight,
   Database, Search, Loader2, ChevronDown,
-  Briefcase, MessageCircle, Bot, Pin, Star, Ban, Landmark, Ruler,
+  Briefcase, MessageCircle, Bot, Pin, Star, Ban, Landmark, Ruler, Minus, Plus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -1351,6 +1351,7 @@ function OutreachTab({
   const [body, setBody] = useState('')
   const [senderEmail, setSenderEmail] = useState('')
   const [dailyLimit, setDailyLimit] = useState(50)
+  const [batchSize, setBatchSize] = useState(25)
   const [senderAccounts, setSenderAccounts] = useState<Array<{ email: string; status?: number | null }>>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
   const [registeringWebhook, setRegisteringWebhook] = useState(false)
@@ -1445,8 +1446,9 @@ function OutreachTab({
 
   const requiresSubject = channel === 'email'
   const isCopyReady = Boolean(body.trim()) && (!requiresSubject || Boolean(subject.trim()))
-  const phoneReadyLeads = leads.filter((l) => Boolean(l.phone_e164))
-  const previewLead = phoneReadyLeads[0] || leads[0]
+  const batchLeads = leads.slice(0, batchSize)
+  const phoneReadyLeads = batchLeads.filter((l) => Boolean(l.phone_e164))
+  const previewLead = phoneReadyLeads[0] || batchLeads[0]
   const personalizedPreviewScript = body
     .replace(/\{\{\s*first_name\s*\}\}/gi, previewLead?.full_name?.split(/\s+/)[0] || 'there')
     .replace(/\{\{\s*full_name\s*\}\}/gi, previewLead?.full_name || 'there')
@@ -1454,7 +1456,7 @@ function OutreachTab({
     .replace(/\{\{\s*company_name\s*\}\}/gi, previewLead?.company || 'your company')
 
   const handleGenerateDraft = async () => {
-    if (!leads.length) {
+    if (!batchLeads.length) {
       toast.error('Load leads before generating outreach copy')
       return
     }
@@ -1463,7 +1465,7 @@ function OutreachTab({
       'sam',
       buildDraftPrompt({
         channel,
-        leads,
+        leads: batchLeads,
         offerName: selectedOffer?.name || offerName,
         mkg,
         companyName: workspaceName,
@@ -1484,7 +1486,7 @@ function OutreachTab({
   }, [samDraftRun.text, channel])
 
   const handleEmailOutreach = async () => {
-    if (!leads.length) { toast.error('Use the current lead set or import leads before launching outreach'); return }
+    if (!batchLeads.length) { toast.error('Use the current lead set or import leads before launching outreach'); return }
     if (!subject || !body) { toast.error('Subject and body required'); return }
     if (!copyApproved) { toast.error('Approve the offer copy before launch'); return }
     if (!instantlyConnected) {
@@ -1503,7 +1505,7 @@ function OutreachTab({
         daily_limit: dailyLimit,
         register_webhook: true,
         create_interested_subsequence: false,
-        leads: leads.slice(0, 500).map(l => ({
+        leads: batchLeads.map(l => ({
           email: l.email || l.email_norm,
           first_name: l.full_name?.split(' ')[0] || '',
           last_name: l.full_name?.split(' ').slice(1).join(' ') || '',
@@ -1512,7 +1514,7 @@ function OutreachTab({
         })).filter(l => l.email),
       }, companyId)
 
-      setResult({ ...res, leads_added: (res as OutreachResult).leads_added ?? leads.length })
+      setResult({ ...res, leads_added: (res as OutreachResult).leads_added ?? batchLeads.length })
       if (Array.isArray((res as OutreachResult).sender_accounts)) {
         setSenderAccounts(
           ((res as OutreachResult).sender_accounts || [])
@@ -1665,12 +1667,12 @@ function OutreachTab({
   }
 
   const handleLinkedInOutreach = async () => {
-    if (!leads.length) { toast.error('Use the current lead set or import leads before launching outreach'); return }
+    if (!batchLeads.length) { toast.error('Use the current lead set or import leads before launching outreach'); return }
     if (!body.trim()) { toast.error('Message required'); return }
     if (!copyApproved) { toast.error('Approve the offer copy before launch'); return }
     setLaunching(true); setResult(null)
     try {
-      const linkedinLeads = leads.slice(0, 100).map(l => ({
+      const linkedinLeads = batchLeads.map(l => ({
         linkedin_url: l.linkedin_url,
         email: l.email || l.email_norm,
         first_name: l.full_name?.split(' ')[0] || '',
@@ -1704,7 +1706,7 @@ function OutreachTab({
   }
 
   const handleVoicebotOutreach = async () => {
-    const phoneLeads = leads
+    const phoneLeads = batchLeads
       .map((l) => ({
         phone: l.phone_e164,
         name: l.full_name,
@@ -1733,7 +1735,7 @@ function OutreachTab({
         script_hint: body,
         language: 'en',
         gender: 'female',
-        leads: phoneLeads.slice(0, 100),
+        leads: phoneLeads,
       }, companyId)
       setResult(res)
       onStageComplete('outreach')
@@ -1747,7 +1749,7 @@ function OutreachTab({
   }
 
   const handleWhatsAppOutreach = async () => {
-    if (!leads.length) { toast.error('Use the current lead set or import leads before launching outreach'); return }
+    if (!batchLeads.length) { toast.error('Use the current lead set or import leads before launching outreach'); return }
     if (!body.trim()) { toast.error('Message required'); return }
     if (!copyApproved) { toast.error('Approve the offer copy before launch'); return }
 
@@ -1756,7 +1758,7 @@ function OutreachTab({
       const res = await apiAutomation('whatsapp_send_campaign', {
         campaign_name: campaignName,
         text: body,
-        leads: leads.slice(0, 200).map(l => ({
+        leads: batchLeads.map(l => ({
           phone: l.phone_e164,
           full_name: l.full_name || '',
           first_name: l.full_name?.split(' ')[0] || '',
@@ -1858,9 +1860,58 @@ function OutreachTab({
               Parse {leadsJson.split('\n').length} lines
             </Button>
             {leads.length > 0 && (
-              <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 text-xs">
-                ✓ {leads.length} leads loaded — {leads.filter(l => l.email || l.email_norm).length} emails, {leads.filter(l => l.phone_e164).length} phones, {leads.filter(l => l.linkedin_url).length} LinkedIn
-              </div>
+              <>
+                <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 text-xs">
+                  ✓ {leads.length} leads loaded — {leads.filter(l => l.email || l.email_norm).length} emails, {leads.filter(l => l.phone_e164).length} phones, {leads.filter(l => l.linkedin_url).length} LinkedIn
+                </div>
+                <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-3 dark:border-orange-900/30 dark:bg-orange-950/20">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label htmlFor="outreach-batch-size" className="text-xs font-medium">Contacts in this batch</Label>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">Choose up to 100 contacts for this approved launch.</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        aria-label="Decrease contacts in batch"
+                        onClick={() => setBatchSize((current) => Math.max(1, current - 1))}
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </Button>
+                      <Input
+                        id="outreach-batch-size"
+                        type="number"
+                        min={1}
+                        max={100}
+                        step={1}
+                        value={batchSize}
+                        onChange={(event) => {
+                          const next = Number(event.target.value)
+                          if (Number.isFinite(next)) setBatchSize(Math.min(100, Math.max(1, Math.floor(next))))
+                        }}
+                        className="h-8 w-16 text-center text-sm font-semibold"
+                        aria-describedby="outreach-batch-size-help"
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        aria-label="Increase contacts in batch"
+                        onClick={() => setBatchSize((current) => Math.min(100, current + 1))}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <p id="outreach-batch-size-help" className="mt-2 text-[11px] text-muted-foreground">
+                    Using <span className="font-medium text-foreground">{Math.min(batchSize, leads.length)}</span> of {leads.length} loaded contacts. Default: 25.
+                  </p>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

@@ -39,6 +39,211 @@ function normalizeDomain(input) {
   return s;
 }
 
+async function fetchText(url) {
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'Marqq SEO Auditor/1.0' },
+    redirect: 'follow',
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}
+
+function extractLocs(xml) {
+  return [...String(xml || '').matchAll(/<loc[^>]*>\s*([^<]+?)\s*<\/loc>/gi)]
+    .map((m) => m[1].trim())
+    .filter(Boolean);
+}
+
+function stripHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function firstMatch(html, pattern) {
+  return String(html || '').match(pattern)?.[1]?.trim() || null;
+}
+
+function auditPageHtml(url, html, domain) {
+  const title = firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
+  const description = firstMatch(
+    html,
+    /<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']*)["'][^>]*>/i,
+  );
+  const h1s = [...String(html || '').matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)]
+    .map((m) => stripHtml(m[1]));
+  const h2s = [...String(html || '').matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)]
+    .map((m) => stripHtml(m[1])).filter(Boolean).slice(0, 20);
+  const canonical = firstMatch(html, /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["'][^>]*>/i);
+  const images = [...String(html || '').matchAll(/<img\b[^>]*>/gi)].map((m) => m[0]);
+  const missingAlt = images.filter((img) => !/\balt=["'][^"']*["']/i.test(img)).length;
+  const links = [...String(html || '').matchAll(/<a\b[^>]+href=["']([^"']+)["']/gi)]
+    .map((m) => m[1]).filter(Boolean);
+  const text = stripHtml(html);
+  const path = (() => { try { return new URL(url).pathname; } catch { return ''; } })();
+  const likelyBlog = /\/(blog|article|articles|news|insights|resources|guides?)\b/i.test(path);
+  return {
+    url,
+    path,
+    likely_blog: likelyBlog,
+    title,
+    title_length: title?.length || 0,
+    meta_description: description,
+    meta_description_length: description?.length || 0,
+    h1_count: h1s.length,
+    h1: h1s[0] || null,
+    h2_count: h2s.length,
+    h2s,
+    canonical,
+    word_count: text ? text.split(/\s+/).length : 0,
+    image_count: images.length,
+    images_missing_alt: missingAlt,
+    internal_link_count: links.filter((href) => {
+      try { return new URL(href, url).hostname.replace(/^www\./, '') === domain; } catch { return false; }
+    }).length,
+    static_jsonld_detected: /<script[^>]+type=["']application\/ld\+json["']/i.test(String(html || '')),
+  };
+}
+
+function firecrawlPayload(result) {
+  const value = result?.result || result?.data || result || {};
+  if (typeof value === 'string') return { markdown: value, html: value };
+  return {
+    markdown: value.markdown || value.content || value.text || '',
+    html: value.html || value.rawHtml || value.htmlContent || '',
+  };
+}
+
+async function enrichWithFirecrawl(pages, domain, entityIds, limit) {
+  const selected = pages.slice(0, Math.min(Number(limit) || 10, 10));
+  const rendered = [];
+  const errors = [];
+  for (let i = 0; i < selected.length; i += 3) {
+    const batch = selected.slice(i, i + 3);
+    const results = await Promise.all(batch.map(async (page) => {
+      const response = await runSeoTool('FIRECRAWL_SCRAPE', {
+        url: page.url,
+        formats: ['html', 'markdown'],
+      }, entityIds);
+      if (!response.ok) {
+        errors.push({ url: page.url, error: response.error });
+        return null;
+      }
+      const payload = firecrawlPayload(response.result);
+      const html = payload.html || payload.markdown;
+      if (!html) return null;
+      return {
+        ...auditPageHtml(page.url, html, domain),
+        rendered_by: 'firecrawl',
+        rendered_markdown_word_count: payload.markdown ? payload.markdown.split(/\s+/).filter(Boolean).length : 0,
+      };
+    }));
+    rendered.push(...results.filter(Boolean));
+  }
+  return { pages: rendered, errors };
+}
+
+/**
+ * Crawl the public sitemap and a bounded set of likely blog URLs. This is an
+ * evidence layer for the plan, not a replacement for a rendered browser audit:
+ * client-injected JSON-LD is reported as static_unknown by design.
+ */
+export async function auditExistingBlog(params = {}, companyId) {
+  const domain = normalizeDomain(params.domain || params.website_url || params.websiteUrl);
+  if (!domain) return { status: 'error', error: 'domain_required' };
+  const limit = Math.min(Math.max(Number(params.limit) || 50, 5), 100);
+  const useFirecrawl = params.use_firecrawl === true || params.useFirecrawl === true || params.crawl_mode === 'rendered';
+  const entityIds = composioEntityCandidates(companyId, params.workspace_id, params.workspaceId);
+  const candidates = [
+    `https://${domain}/sitemap.xml`,
+    `https://${domain}/sitemap_index.xml`,
+    `https://${domain}/wp-sitemap.xml`,
+  ];
+  let sitemapUrl = null;
+  let sitemapXml = '';
+  for (const candidate of candidates) {
+    try {
+      const xml = await fetchText(candidate);
+      if (extractLocs(xml).length) { sitemapUrl = candidate; sitemapXml = xml; break; }
+    } catch { /* try the next conventional sitemap */ }
+  }
+  if (!sitemapUrl) {
+    return {
+      status: 'partial',
+      domain,
+      source: 'public_sitemap',
+      sitemap_found: false,
+      pages: [],
+      summary: { pages_audited: 0, blog_pages: 0 },
+      gaps: ['sitemap_not_found'],
+      rendered_audit: { requested: useFirecrawl, pages: [], errors: [] },
+    };
+  }
+
+  let urls = extractLocs(sitemapXml);
+  const nestedSitemaps = urls.filter((url) => /\.xml(?:\?|$)/i.test(url)).slice(0, 8);
+  if (nestedSitemaps.length) {
+    const nested = await Promise.all(nestedSitemaps.map(async (url) => {
+      try { return extractLocs(await fetchText(url)); } catch { return []; }
+    }));
+    urls = nested.flat();
+  }
+  urls = [...new Set(urls)]
+    .filter((url) => /^https?:\/\//i.test(url) && !/\.(xml|txt|jpg|jpeg|png|gif|webp|pdf)(?:\?|$)/i.test(url));
+  const blogUrls = urls.filter((url) => /\/(blog|article|articles|news|insights|resources|guides?)\b/i.test(url));
+  const selected = (blogUrls.length ? blogUrls : urls).slice(0, limit);
+  const pages = [];
+  const errors = [];
+  for (let i = 0; i < selected.length; i += 8) {
+    const batch = selected.slice(i, i + 8);
+    const results = await Promise.all(batch.map(async (url) => {
+      try { return auditPageHtml(url, await fetchText(url), domain); }
+      catch (error) { errors.push({ url, error: error.message }); return null; }
+    }));
+    pages.push(...results.filter(Boolean));
+  }
+  const blogPages = pages.filter((page) => page.likely_blog);
+  const gaps = [];
+  if (!pages.length) gaps.push('no_pages_fetched');
+  if (pages.some((page) => !page.title || page.title_length < 30 || page.title_length > 60)) gaps.push('title_coverage');
+  if (pages.some((page) => !page.meta_description || page.meta_description_length < 120 || page.meta_description_length > 165)) gaps.push('meta_description_coverage');
+  if (pages.some((page) => page.h1_count !== 1)) gaps.push('h1_structure');
+  if (pages.some((page) => page.images_missing_alt > 0)) gaps.push('image_alt_text');
+  if (pages.some((page) => page.word_count < 700)) gaps.push('thin_content_candidates');
+  if (pages.some((page) => page.internal_link_count < 2)) gaps.push('internal_linking');
+  if (pages.some((page) => !page.canonical)) gaps.push('canonical_observation');
+  let renderedAudit = { requested: useFirecrawl, pages: [], errors: [] };
+  if (useFirecrawl && entityIds.length && pages.length) {
+    renderedAudit = { requested: true, ...(await enrichWithFirecrawl(pages, domain, entityIds, params.firecrawl_limit || 10)) };
+  }
+  return {
+    status: 'success',
+    domain,
+    source: 'public_sitemap',
+    sitemap_found: true,
+    sitemap_url: sitemapUrl,
+    pages,
+    summary: {
+      sitemap_urls: urls.length,
+      pages_audited: pages.length,
+      blog_pages: blogPages.length,
+      avg_word_count: pages.length ? Math.round(pages.reduce((sum, page) => sum + page.word_count, 0) / pages.length) : 0,
+      pages_with_static_jsonld: pages.filter((page) => page.static_jsonld_detected).length,
+    },
+    gaps: [...new Set(gaps)],
+    errors,
+    rendered_audit: renderedAudit,
+    note: useFirecrawl
+      ? 'Static sitemap audit plus bounded Firecrawl rendered audit; Firecrawl failures remain non-blocking.'
+      : 'Static HTML audit; use_firecrawl=true for bounded rendered content/schema validation.',
+  };
+}
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -1081,6 +1286,7 @@ async function synthesizeAuthorityAndPlan({
   relatedTerms = [],
   phraseQuestions = [],
   competitors = [],
+  contentAudit = null,
   gscInsights = null,
   gtmGoals,
   volumeTarget,
@@ -1120,6 +1326,28 @@ ${JSON.stringify(
         striking_distance_queries: (gscInsights.strikingDistance || []).slice(0, 25),
         top_queries: (gscInsights.queries || []).slice(0, 25),
         top_pages: (gscInsights.pages || []).slice(0, 15),
+      }
+    : { connected: false },
+  null,
+  2,
+)}
+
+Existing blog/content audit:
+${JSON.stringify(
+  contentAudit
+    ? {
+        summary: contentAudit.summary,
+        gaps: contentAudit.gaps,
+        pages: (contentAudit.pages || []).slice(0, 40).map((page) => ({
+          url: page.url,
+          title: page.title,
+          title_length: page.title_length,
+          meta_description_length: page.meta_description_length,
+          h1_count: page.h1_count,
+          word_count: page.word_count,
+          internal_link_count: page.internal_link_count,
+          static_jsonld_detected: page.static_jsonld_detected,
+        })),
       }
     : { connected: false },
   null,
@@ -1169,6 +1397,10 @@ Return ONLY JSON:
     "articles_planned": number,
     "expected_contribution": "how these articles move the numeric goal",
     "milestones": [{ "week": 2, "articles": 2, "checkpoint": "..." }]
+  },
+  "content_gaps": ["..."],
+  "refresh_queue": [{ "url": "...", "reason": "...", "recommended_action": "refresh|expand|merge|link" }],
+  "lead_magnet_opportunities": [{ "title": "specific asset", "format": "checklist|template|guide|assessment|calculator", "target_query": "...", "buyer_stage": "awareness|consideration|decision", "cta": "...", "why_now": "evidence-based reason" }]
   }
 }
 
@@ -1176,10 +1408,13 @@ Rules:
 - Create exactly ${volumeTarget.articles_total} items in article_queue (or as close as data allows, min 4).
 - Prefer GSC striking-distance queries (position 8–20, solid impressions) and mid-volume gaps over vanity head terms.
 - Prefer refreshing / expanding topics for pages that already get GSC impressions with weak CTR.
+- Use the existing content audit to recommend refreshes before net-new articles when a page is thin, poorly titled, missing a meta description, structurally weak, or under-linked.
+- Only put URLs observed in the audit into refresh_queue. If no audit URL exists, return an empty refresh_queue.
 - Never invent ranking numbers not in the source data.
 - Prioritize clusters that support the GTM goal kind (${volumeTarget.goal_kind}).
 - Every article_queue item MUST include 3–5 secondary_keywords drawn from related/matching terms (not duplicates of primary) and 4 faq_questions (prefer phrase-question seeds when relevant).
-- Secondary keywords must be natural search phrases — never stuffed comma lists.`;
+- Secondary keywords must be natural search phrases — never stuffed comma lists.
+- For lead_magnet_opportunities, recommend at most 3 assets only when a specific query, buyer stage, and product hand-off make the offer useful. Do not add generic freebies just to fill the field.`;
 
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -1209,7 +1444,7 @@ Rules:
     }
     const data = await res.json();
     const parsed = JSON.parse(data?.choices?.[0]?.message?.content || '{}');
-    return normalizePlan(parsed, volumeTarget, gtmGoals, { relatedTerms, phraseQuestions });
+      return normalizePlan(parsed, volumeTarget, gtmGoals, { relatedTerms, phraseQuestions, contentAudit });
   } catch (err) {
     console.warn('[seoOrganicPipeline] synthesize error:', err.message);
     return fallbackPlan({ domain, keywords, relatedTerms, phraseQuestions, gtmGoals, volumeTarget });
@@ -1281,7 +1516,44 @@ function normalizePlan(parsed, volumeTarget, gtmGoals, enrich = {}) {
       ? parsed.goal_alignment.milestones
       : [],
   };
-  return { topical_authority: authority, topic_clusters: clusters, article_queue: queue, goal_alignment };
+  return {
+    topical_authority: authority,
+    topic_clusters: clusters,
+    article_queue: queue,
+    goal_alignment,
+    content_gaps: Array.isArray(parsed?.content_gaps) ? parsed.content_gaps.slice(0, 20) : (enrich.contentAudit?.gaps || []),
+    refresh_queue: Array.isArray(parsed?.refresh_queue)
+      ? parsed.refresh_queue.filter((item) => item?.url && (!enrich.contentAudit?.pages?.length || enrich.contentAudit.pages.some((page) => page.url === item.url))).slice(0, 20)
+      : [],
+    lead_magnet_opportunities: Array.isArray(parsed?.lead_magnet_opportunities)
+      ? parsed.lead_magnet_opportunities.filter((item) => item?.title && item?.target_query && item?.cta).slice(0, 3)
+      : [],
+  };
+}
+
+function extractApifyItems(result) {
+  const value = result?.result || result?.data || result || {};
+  if (Array.isArray(value)) return value;
+  return value.items || value.dataset_items || value.datasetItems || value.data || value.results || [];
+}
+
+/**
+ * Apify is an execution layer, not a universal keyword-volume database.
+ * Marqq accepts a user-selected keyword Actor/Task and normalizes its dataset
+ * when the Actor returns fields such as keyword/query/volume/difficulty.
+ */
+async function fetchApifyKeywords({ actorId, taskId, input, entityIds }) {
+  if ((!actorId && !taskId) || !entityIds?.length) return { ok: false, skipped: true };
+  const slug = taskId
+    ? 'APIFY_RUN_TASK_SYNC_GET_DATASET_ITEMS_POST'
+    : 'APIFY_RUN_ACTOR_SYNC_GET_DATASET_ITEMS_POST';
+  const args = taskId
+    ? { task_id: taskId, input: input || {} }
+    : { actor_id: actorId, input: input || {} };
+  const result = await runSeoTool(slug, args, entityIds);
+  if (!result.ok) return result;
+  const keywords = normalizeKeywordRows(extractApifyItems(result.result));
+  return { ok: keywords.length > 0, keywords, slug, raw: result.result };
 }
 
 function fallbackPlan({ domain, keywords, relatedTerms = [], phraseQuestions = [], gtmGoals, volumeTarget }) {
@@ -1388,10 +1660,17 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
     companyId,
     siteUrlHint: asString(params.gsc_site_url || params.gscSiteUrl || params.site_url, ''),
   });
+  const contentAudit = await auditExistingBlog({
+    domain,
+    limit: params.audit_limit || params.auditLimit || 50,
+    use_firecrawl: params.use_firecrawl === true || params.useFirecrawl === true,
+    firecrawl_limit: params.firecrawl_limit || params.firecrawlLimit || 10,
+  }, companyId);
 
   const connectionOk = {
     ...fetched.connectionOk,
     gsc: Boolean(gsc.connectionOk),
+    apify: false,
   };
   const liveConnected = connectionOk.semrush || connectionOk.ahrefs;
   const gscConnected = connectionOk.gsc;
@@ -1402,6 +1681,27 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
   let phraseQuestions = fetched.phraseQuestions || [];
   let competitors = fetched.competitors || [];
   let estimateMeta = null;
+  let apifyMeta = null;
+
+  if (!keywords.length && (params.apify_actor_id || params.apifyActorId || params.apify_task_id || params.apifyTaskId)) {
+    const apify = await fetchApifyKeywords({
+      actorId: params.apify_actor_id || params.apifyActorId,
+      taskId: params.apify_task_id || params.apifyTaskId,
+      input: params.apify_input || params.apifyInput || { query: domain, domain },
+      entityIds,
+    });
+    apifyMeta = {
+      requested: true,
+      ok: apify.ok,
+      provider: apify.ok ? 'apify_actor' : null,
+      error: apify.error || null,
+    };
+    if (apify.ok) {
+      keywords = apify.keywords;
+      dataSource = 'apify_actor';
+      connectionOk.apify = true;
+    }
+  }
 
   // Semrush/Ahrefs optional — fall back to web_search volume estimates
   if (!keywords.length || (!liveConnected && !metrics)) {
@@ -1422,7 +1722,9 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
       if (!phraseQuestions.length) phraseQuestions = estimate.phraseQuestions;
       if (!competitors.length) competitors = estimate.competitors;
       if (!metrics) metrics = estimate.metrics;
-      dataSource = liveConnected ? fetched.provider : estimate.provider || 'web_search_estimate';
+      dataSource = dataSource === 'apify_actor'
+        ? 'apify_actor+web_search_estimate'
+        : liveConnected ? fetched.provider : estimate.provider || 'web_search_estimate';
     }
   }
 
@@ -1452,6 +1754,7 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
       domain,
       tool_attempts: [...(fetched.attempts || []), ...(gsc.attempts || [])],
       estimate: estimateMeta,
+      apify: apifyMeta,
       gsc: {
         ok: gsc.ok,
         connectionOk: gsc.connectionOk,
@@ -1480,6 +1783,7 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
     relatedTerms,
     phraseQuestions,
     competitors,
+    contentAudit,
     gscInsights: gsc.ok || gscConnected ? gsc : null,
     gtmGoals: {
       ...gtmGoals,
@@ -1508,6 +1812,8 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
         ? 'gsc+web_search_estimate'
         : gscConnected || liveConnected
           ? 'live_seo_toolkit'
+          : String(dataSource || '').includes('apify_actor')
+            ? 'apify_actor'
           : usingEstimate
             ? 'web_search_estimate'
             : 'live_seo_toolkit',
@@ -1525,12 +1831,14 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
     },
     stages: {
       connectors: {
-        ok: liveConnected || gscConnected,
+        ok: liveConnected || gscConnected || connectionOk.apify,
         connected: connectionOk,
         optional: true,
         note: liveSources
           ? `Using live ${liveSources} data`
-          : 'Semrush/Ahrefs/GSC not connected — used web search keyword volume estimates',
+          : connectionOk.apify
+            ? 'Used the configured Apify keyword Actor, with web-search estimates only for missing enrichment'
+            : 'Semrush/Ahrefs/GSC not connected — used web search keyword volume estimates',
       },
       domain_metrics: { ok: Boolean(metrics), data: metrics },
       organic_keywords: {
@@ -1546,6 +1854,12 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
         striking_distance_count: (gsc.strikingDistance || []).length,
         sample_queries: (gsc.queries || []).slice(0, 12),
         sample_pages: (gsc.pages || []).slice(0, 8),
+      },
+      existing_content_audit: {
+        ok: contentAudit.status === 'success' || contentAudit.status === 'partial',
+        status: contentAudit.status,
+        summary: contentAudit.summary || null,
+        gaps: contentAudit.gaps || [],
       },
       related_terms: {
         ok: relatedTerms.length > 0,
@@ -1563,6 +1877,7 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
         sample: competitors.slice(0, 10),
       },
       web_estimate: estimateMeta,
+      apify_keyword_research: apifyMeta,
       topical_authority: { ok: true, data: plan.topical_authority },
       topic_clusters: { ok: plan.topic_clusters.length > 0, data: plan.topic_clusters },
       seo_plan: { ok: plan.article_queue.length > 0, data: plan.article_queue },
@@ -1571,10 +1886,14 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
     topical_authority: plan.topical_authority,
     topic_clusters: plan.topic_clusters,
     article_queue: plan.article_queue,
+    content_audit: contentAudit,
+    content_gaps: plan.content_gaps || [],
+    refresh_queue: plan.refresh_queue || [],
     goal_alignment: plan.goal_alignment,
     related_terms: relatedTerms,
     phrase_questions: phraseQuestions,
     competitors,
+    apify: apifyMeta,
     volume_target: volumeTarget,
     gtm_goals: gtmGoals,
     tool_attempts: [...(fetched.attempts || []), ...(gsc.attempts || [])],
@@ -1588,6 +1907,7 @@ export async function buildSeoOrganicPlan(params = {}, companyId, supabaseClient
         ? 'Review topic clusters and priority queue (GSC striking-distance prioritized when available)'
         : 'Optional: connect Semrush/Ahrefs/GSC for live ranking + query performance',
       'Run execute_seo_plan_articles for the top N keywords',
+      contentAudit.pages?.length ? 'Review refresh_queue and repair existing pages before creating net-new articles' : 'Run an existing content audit after connecting or exposing the site sitemap',
       'Publish via Webflow / WordPress / Content Studio go-live',
       gscConnected ? 'After publish: submit/verify sitemap via GOOGLE_SEARCH_CONSOLE_SUBMIT_SITEMAP' : null,
     ].filter(Boolean),

@@ -1,0 +1,6 @@
+{
+  "connectors": ["gsc", "ga4", "semrush", "ahrefs", "apify", "google_ads", "firecrawl", "github", "railway", "cloudflare", "hostinger", "wordpress", "webflow", "wix", "shopify", "google_sheets"],
+  "permissions": "read",
+  "description": "Maya owns SEO and search-content visibility across search consoles, ranking tools, and publishing signals.",
+  "recipes": {}
+}

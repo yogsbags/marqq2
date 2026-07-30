@@ -71,7 +71,7 @@ export function registerArtifactCallback(companyId, fn) {
 
 /**
  * Register a callback that fires when an artifact job for `companyId` permanently
- * fails (both CrewAI and Groq fallback exhausted). Lets the status endpoint
+ * fails after the JS agent and model generation paths are exhausted. Lets the status endpoint
  * count failures so the progress bar doesn't get stuck forever.
  */
 export function registerArtifactFailCallback(companyId, fn) {
@@ -2612,7 +2612,7 @@ async function processQueue() {
 }
 
 /**
- * Execute the generation job (via CrewAI or fallback Groq)
+ * Execute the generation job through the JS generation pipeline.
  */
 async function processJob(job) {
   const { jobId, companyId, type, inputs, fromSupabase } = job;
@@ -2655,36 +2655,9 @@ async function processJob(job) {
     if (fromSupabase) await updateJobStatus(jobId, 'completed');
   } catch (groqErr) {
     const errorMessage = groqErr instanceof Error ? groqErr.message : String(groqErr);
-    console.log(`[QueueWorker] Direct Groq failed (${errorMessage}). Falling back to CrewAI for ${type}...`);
-    try {
-      const CREWAI_URL = process.env.CREWAI_URL || 'http://localhost:8002';
-      const resp = await fetch(`${CREWAI_URL}/api/crewai/company-intel/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company_name: companyName, company_url: websiteUrl, artifact_type: type, inputs: safeInputs, company_profile: profile })
-      });
-
-      if (!resp.ok) {
-        throw new Error(`CrewAI responded with ${resp.status}`);
-      }
-
-      const crewData = await resp.json();
-      if (crewData.status === 'failed') {
-        throw new Error(crewData.error || 'CrewAI generation failed');
-      }
-
-      const now = new Date().toISOString()
-      const artifact = { type, updatedAt: crewData.generated_at || now, data: crewData.data }
-      await saveArtifact(companyId, artifact);
-      _notifyArtifactReady(companyId, type, artifact);
-      console.log(`[QueueWorker] ✅ Completed ${type} via CrewAI fallback.`);
-      if (fromSupabase) await updateJobStatus(jobId, 'completed');
-    } catch (fallbackErr) {
-      const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-      console.error(`[QueueWorker] ❌ Error on ${type}:`, fallbackMessage);
-      if (fromSupabase) await updateJobStatus(jobId, 'failed', fallbackMessage);
-      _notifyArtifactFailed(companyId, type, fallbackMessage);
-    }
+    console.error(`[QueueWorker] ❌ Error on ${type}:`, errorMessage);
+    if (fromSupabase) await updateJobStatus(jobId, 'failed', errorMessage);
+    _notifyArtifactFailed(companyId, type, errorMessage);
   }
 }
 

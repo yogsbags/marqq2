@@ -19,6 +19,9 @@ export type OutcomeLiveKind =
   | 'instagram'
   | 'facebook'
   | 'twitter'
+  | 'x'
+  | 'reddit'
+  | 'youtube'
   | 'social'
   | 'newsletter'
   | 'blog'
@@ -71,8 +74,23 @@ const LIVE_SPECS: Record<OutcomeLiveKind, LiveSpec> = {
     liveAction: 'Publish to X',
     outcomeNoun: 'X post',
   },
+  x: {
+    anyOf: ['twitter'],
+    liveAction: 'Publish to X',
+    outcomeNoun: 'X post',
+  },
+  reddit: {
+    anyOf: ['reddit'],
+    liveAction: 'Publish to Reddit',
+    outcomeNoun: 'Reddit post',
+  },
+  youtube: {
+    anyOf: ['youtube'],
+    liveAction: 'Publish to YouTube',
+    outcomeNoun: 'YouTube video',
+  },
   social: {
-    anyOf: ['linkedin', 'instagram', 'facebook', 'twitter'],
+    anyOf: ['linkedin', 'instagram', 'facebook', 'twitter', 'reddit'],
     liveAction: 'Publish post',
     outcomeNoun: 'social post',
   },
@@ -82,12 +100,12 @@ const LIVE_SPECS: Record<OutcomeLiveKind, LiveSpec> = {
     outcomeNoun: 'newsletter',
   },
   blog: {
-    anyOf: ['webflow', 'wordpress', 'google_docs'],
+    anyOf: ['webflow', 'wordpress', 'shopify', 'github', 'google_docs'],
     liveAction: 'Publish article',
     outcomeNoun: 'blog article',
   },
   landing_page: {
-    anyOf: ['webflow', 'wordpress'],
+    anyOf: ['webflow', 'wordpress', 'github'],
     liveAction: 'Publish landing page',
     outcomeNoun: 'landing page',
   },
@@ -134,7 +152,9 @@ export function outcomeKindFromPlatform(platform?: string | null): OutcomeLiveKi
   if (p.includes('linkedin')) return 'linkedin'
   if (p.includes('instagram') || p === 'ig') return 'instagram'
   if (p.includes('facebook') || p === 'fb') return 'facebook'
-  if (p.includes('twitter') || p === 'x') return 'twitter'
+  if (p.includes('twitter') || p === 'x') return 'x'
+  if (p.includes('reddit')) return 'reddit'
+  if (p.includes('youtube')) return 'youtube'
   return 'social'
 }
 
@@ -243,6 +263,9 @@ export function OutcomeGoLiveCta({
   const [connecting, setConnecting] = useState<string | null>(null)
   const [goingLive, setGoingLive] = useState(false)
   const [liveUrl, setLiveUrl] = useState<string | null>(null)
+  const [githubRepos, setGithubRepos] = useState<Array<{ full_name: string; owner: string; name: string; default_branch?: string; private?: boolean; description?: string | null }>>([])
+  const [githubReposLoading, setGithubReposLoading] = useState(false)
+  const [selectedGithubRepo, setSelectedGithubRepo] = useState('')
 
   const refresh = useCallback(async () => {
     if (!workspaceId) {
@@ -287,6 +310,25 @@ export function OutcomeGoLiveCta({
       setCmsPublisher(publisherChoices[0])
     }
   }, [preferredConnector, connectedIds.join('|'), kind]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!workspaceId || cmsPublisher !== 'github' || (kind !== 'blog' && kind !== 'landing_page')) {
+      setGithubRepos([])
+      return
+    }
+    const current = String(payload?.repo_owner && payload?.repo_name ? `${payload.repo_owner}/${payload.repo_name}` : '')
+    setSelectedGithubRepo(current)
+    setGithubReposLoading(true)
+    fetch(`/api/integrations/github/repositories?companyId=${encodeURIComponent(workspaceId)}`)
+      .then((res) => res.ok ? res.json() : Promise.reject(new Error('Could not load GitHub repositories')))
+      .then((json) => {
+        const repos = Array.isArray(json?.repositories) ? json.repositories : []
+        setGithubRepos(repos)
+        if (!current && repos.length === 1) setSelectedGithubRepo(repos[0].full_name)
+      })
+      .catch(() => setGithubRepos([]))
+      .finally(() => setGithubReposLoading(false))
+  }, [workspaceId, cmsPublisher, kind, payload?.repo_owner, payload?.repo_name])
 
   const handleConnect = async (connectorId: string) => {
     if (!workspaceId) {
@@ -338,12 +380,21 @@ export function OutcomeGoLiveCta({
         toast.message(`Connectors ready — open this module’s launch control to ${spec.liveAction.toLowerCase()}.`)
         return
       }
+      const selectedRepo = githubRepos.find((repo) => repo.full_name === selectedGithubRepo)
+      const selectedPayload = cmsPublisher === 'github' && selectedRepo
+        ? {
+            ...payload,
+            repo_owner: selectedRepo.owner,
+            repo_name: selectedRepo.name,
+            branch: payload.branch || selectedRepo.default_branch || 'main',
+          }
+        : payload
       const result = await requestOutcomeGoLive({
         kind,
         workspaceId,
         companyId,
         preferredConnector: cmsPublisher || preferredConnector,
-        payload,
+        payload: selectedPayload,
       })
       if (result.url) {
         setLiveUrl(result.url)
@@ -452,6 +503,24 @@ export function OutcomeGoLiveCta({
               </select>
             </label>
           ) : null}
+          {cmsPublisher === 'github' && (kind === 'blog' || kind === 'landing_page') && !liveUrl ? (
+            <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Repository</span>
+              <select
+                className="h-7 min-w-[220px] rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                value={selectedGithubRepo}
+                disabled={githubReposLoading || !githubRepos.length}
+                onChange={(e) => setSelectedGithubRepo(e.target.value)}
+              >
+                <option value="">{githubReposLoading ? 'Loading repositories…' : githubRepos.length ? 'Select a repository' : 'No repositories available'}</option>
+                {githubRepos.map((repo) => (
+                  <option key={repo.full_name} value={repo.full_name}>
+                    {repo.full_name}{repo.private ? ' · private' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {liveUrl ? (
             <a
               href={liveUrl}
@@ -467,7 +536,7 @@ export function OutcomeGoLiveCta({
       <Button
         size="sm"
         className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
-        disabled={goLiveDisabled || goingLive || (!onGoLive && !payload)}
+        disabled={goLiveDisabled || goingLive || (!onGoLive && !payload) || (cmsPublisher === 'github' && (kind === 'blog' || kind === 'landing_page') && !selectedGithubRepo)}
         onClick={() => void handleGoLive()}
       >
         {goingLive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}

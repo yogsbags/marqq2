@@ -18,14 +18,12 @@
     "postinstall": "node scripts/playwright-postinstall.mjs",
     "playwright:install": "npx playwright install chromium",
     "screenshots:marketing": "playwright test -c app/playwright.config.ts marketing-screenshots",
+    "test:nouriva": "playwright test -c app/playwright.config.ts app/tests/nouriva-onboarding-gtm.spec.ts",
+    "test:nouriva:backend": "node scripts/e2e-nouriva-gtm-strategy.mjs",
+    "test:nouriva:gtm": "node scripts/e2e-nouriva-onboarding-gtm.mjs",
     "screenshots:marketing:node": "node ./scripts/capture-marketing-screenshots.mjs",
     "verify:rls-browser": "node --env-file=.env scripts/verify-browser-rls.mjs",
-    "test:intent": "node tests/routing/intent-extractor.test.js",
-    "test:connectors": "node tests/connectors/connector-integration.test.js",
-    "test:agents": "node tests/agents/agent-execution.test.js",
-    "test:e2e": "node tests/e2e/chat-flow.test.js",
-    "test:perf": "node tests/performance/profiler.js",
-    "test:all": "npm run test:intent && npm run test:agents && npm run test:e2e && npm run test:connectors"
+    "test:all": "npm run typecheck && npm run test:nouriva:backend"
   },
   "dependencies": {
     "@deepgram/sdk": "^4.0.0",
