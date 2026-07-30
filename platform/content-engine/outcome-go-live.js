@@ -671,6 +671,7 @@ async function goLiveRepositoryContent(payload, entityIds, kind) {
     repo,
     path,
     branch,
+    sha: asString(payload.github_sha || payload.sha),
     message: asString(payload.commit_message, `Marqq publish ${kind}: ${title}`),
     content: Buffer.from(content, "utf8").toString("base64"),
   }, entityIds);
