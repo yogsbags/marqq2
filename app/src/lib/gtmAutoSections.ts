@@ -6,11 +6,6 @@
 
 export const GTM_AUTO_STRATEGY_SECTIONS = [
   {
-    id: 'executive_summary',
-    title: 'Executive summary',
-    blurb: 'Win condition, strategic bets, and what to cut.',
-  },
-  {
     id: 'market_analysis',
     title: 'Market analysis',
     blurb: 'Beachhead, sequencing, and timing.',

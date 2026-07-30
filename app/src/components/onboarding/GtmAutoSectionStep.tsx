@@ -135,7 +135,7 @@ export function GtmAutoSectionStep({
       ...draft,
       id: meta.id,
       title: draft.title || meta.title,
-      channel: draft.channel || meta.channel,
+      channel: draft.channel || '',
       approvedAt: new Date().toISOString(),
     };
     const without = approvedSections.filter((s) => s.id !== meta.id);

@@ -604,7 +604,6 @@ export const GTM_SECTION_ORDER = GTM_INTERVIEW_SECTIONS.map((s) => s.id).filter(
 );
 
 export const GTM_AUTO_STRATEGY_SECTIONS = [
-  { id: "executive_summary", title: "Executive summary" },
   { id: "market_analysis", title: "Market analysis" },
   { id: "positioning_messaging", title: "Positioning & messaging" },
   { id: "distribution_channels", title: "Distribution & channels" },
