@@ -1161,13 +1161,20 @@ export async function getConnectedAccountApiKey(connectorId, userId) {
 
   try {
     const res = await fetch(
-      `${COMPOSIO_V3}/connected_accounts?user_id=${encodeURIComponent(userId)}&limit=20`,
+      `${COMPOSIO_V3}/connected_accounts?user_id=${encodeURIComponent(userId)}&limit=100`,
       { headers: { 'x-api-key': apiKey } }
     )
     if (!res.ok) return { error: `Composio list accounts failed: ${res.status}` }
     const data = await res.json()
 
-    const acct = pickNewestActiveAccount(data.items, userId, appName)
+    const acct = (data.items || [])
+      .filter((item) =>
+        accountMatchesUser(item, userId) &&
+        toolkitMatchesConnector(connectorId, item.toolkit?.slug || item.toolkit_slug || '') &&
+        String(item.status || '').toUpperCase() === 'ACTIVE' &&
+        item.id,
+      )
+      .sort((a, b) => accountRecency(b) - accountRecency(a))[0] || null
     if (!acct) return { error: `No active ${connectorId} connection for user ${userId}. Connect it in Settings → Accounts.` }
 
     const detailRes = await fetch(`${COMPOSIO_V3}/connected_accounts/${acct.id}`, {
@@ -1190,6 +1197,13 @@ export async function getConnectedAccountApiKey(connectorId, userId) {
         paramsKeys: detail?.params && typeof detail.params === 'object' ? Object.keys(detail.params) : null,
         resolvedKeyFingerprint: genericApiKey ? maskSecret(genericApiKey) : null,
       })
+    }
+    // Composio masks Apollo API keys in account details. The Apollo lead
+    // provider executes searches through Composio Proxy, so account presence is
+    // sufficient; do not reject a valid connected account just because its
+    // credential is redacted.
+    if (!genericApiKey && connectorId === 'apollo') {
+      return { api_key: 'composio_proxy', account_id: acct.id, masked: true }
     }
     if (!genericApiKey) return { error: `No API key found for ${connectorId} — account may need reconnection` }
 
