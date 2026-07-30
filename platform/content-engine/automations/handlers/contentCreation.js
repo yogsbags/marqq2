@@ -5,15 +5,17 @@
  * Each handler returns a plain result object stored as artifact data.
  *
  * Handlers:
- *   generateSocialImage   — Gemini 3.1 Flash-Lite Image → imgbb (Cloudinary fallback)
+ *   generateSocialImage   — Gemini 3.1 Flash-Lite Image → Fal Nano Banana Pro → CDN
  *   generateEmailHtml     — Groq LLM → HTML newsletter (email-sequence + copywriting skills)
- *   generateFacelessVideo — Gemini Omni Flash → Cloudinary (Veo fallback path also → Cloudinary)
+ *   generateFacelessVideo — Gemini Omni Flash → Cloudinary (Seedance 2.0 Fast fallback → Cloudinary)
  *   generateAvatarVideo   — HeyGen v2 API → Cloudinary when polled
  *   createSeoArticle      — Groq LLM → full HTML blog post with SEO meta
  *   createLandingPage     — Groq LLM → page_structure + HTML (page-cro + copywriting skills)
  */
 
 import { getConnectedAccountApiKey } from '../../mcp-router.js';
+
+const pendingVeoFallbacks = new Map();
 
 // ── Cloudinary Upload ─────────────────────────────────────────────────────────
 
@@ -51,6 +53,213 @@ async function uploadBase64ToCloudinary(base64, {
   if (!base64 || !process.env.CLOUDINARY_URL) return null;
   const dataUri = `data:${mimeType};base64,${base64}`;
   return uploadToCloudinary(dataUri, { folder, resourceType });
+}
+
+const SEEDANCE_IMAGE_TO_VIDEO = 'bytedance/seedance-2.0/fast/image-to-video';
+const SEEDANCE_TEXT_TO_VIDEO = 'bytedance/seedance-2.0/fast/text-to-video';
+const NANO_BANANA_PRO = 'fal-ai/nano-banana-pro';
+const NANO_BANANA_PRO_EDIT = 'fal-ai/nano-banana-pro/edit';
+
+function falResultData(result) {
+  return result?.data || result;
+}
+
+function falImageUrl(result) {
+  const data = falResultData(result);
+  return data?.images?.[0]?.url || result?.images?.[0]?.url || null;
+}
+
+function falVideoUrl(result) {
+  const data = falResultData(result);
+  return data?.video?.url
+    || data?.video_url
+    || data?.output?.video?.url
+    || result?.video?.url
+    || result?.video_url
+    || result?.output?.video?.url
+    || null;
+}
+
+function normalizeAspectRatio(value) {
+  return ['16:9', '9:16', '1:1', '4:5', '5:4', '4:3', '3:4', '3:2', '2:3', '21:9'].includes(value)
+    ? value
+    : '16:9';
+}
+
+async function generateFalReferenceFrame(fal, {
+  prompt,
+  aspectRatio,
+  sourceImageUrl,
+  companyId,
+  edit = false,
+}) {
+  const model = edit && sourceImageUrl ? NANO_BANANA_PRO_EDIT : NANO_BANANA_PRO;
+  const input = {
+    prompt: String(prompt || '').trim(),
+    aspect_ratio: aspectRatio,
+    resolution: '1K',
+  };
+  if (edit && sourceImageUrl) input.image_urls = [sourceImageUrl];
+
+  const result = await fal.subscribe(model, { input, logs: false });
+  const sourceUrl = falImageUrl(result);
+  if (!sourceUrl) throw new Error(`Fal.ai ${model} returned no image URL`);
+
+  // Persist generated frames when Cloudinary is available, but keep the Fal URL
+  // as a safe fallback because it is already public and accepted by Seedance.
+  const cloudinaryUrl = await uploadToCloudinary(sourceUrl, {
+    folder: 'ai-video-frames',
+    resourceType: 'image',
+  });
+  return {
+    url: cloudinaryUrl || sourceUrl,
+    source_url: sourceUrl,
+    model,
+    company_id: companyId ?? null,
+  };
+}
+
+async function ensureSeedanceReferenceFrames(fal, params, companyId) {
+  const aspectRatio = normalizeAspectRatio(params.aspect_ratio);
+  const prompt = String(params.prompt || '').trim();
+  let firstImageUrl = String(
+    params.first_image_url || params.start_image_url || params.image_url || '',
+  ).trim() || null;
+  let lastImageUrl = String(
+    params.last_image_url || params.end_image_url || '',
+  ).trim() || null;
+
+  if (params.generate_reference_frames === false) {
+    return { firstImageUrl, lastImageUrl, generated: [] };
+  }
+
+  const generated = [];
+  if (!firstImageUrl) {
+    const frame = await generateFalReferenceFrame(fal, {
+      prompt: String(params.first_frame_prompt || params.start_frame_prompt || '')
+        .trim() || `Opening frame for this video: ${prompt}. Show the subject clearly in a strong, stable composition.`,
+      aspectRatio,
+      companyId,
+    });
+    firstImageUrl = frame.url;
+    generated.push({ position: 'first', ...frame });
+  }
+
+  if (!lastImageUrl) {
+    const frame = await generateFalReferenceFrame(fal, {
+      prompt: String(params.last_frame_prompt || params.end_frame_prompt || '')
+        .trim() || `Closing frame for this video: ${prompt}. Resolve the action with the subject clearly visible and a composed final moment.`,
+      aspectRatio,
+      sourceImageUrl: firstImageUrl,
+      companyId,
+      edit: Boolean(firstImageUrl),
+    });
+    lastImageUrl = frame.url;
+    generated.push({ position: 'last', ...frame });
+  }
+
+  return { firstImageUrl, lastImageUrl, generated };
+}
+
+async function generateFalVideoFallback(params = {}, companyId, reason = 'primary video provider failed') {
+  const falKey = process.env.FAL_KEY || process.env.FAL_API_KEY;
+  if (!falKey) return { status: 'error', error: `${reason}; FAL_KEY/FAL_API_KEY is not configured` };
+
+  try {
+    const mod = await import('@fal-ai/client');
+    const fal = mod.fal || mod.default?.fal || mod.default || mod;
+    if (typeof fal.config === 'function') fal.config({ credentials: falKey });
+
+    const configuredModel = String(process.env.FAL_VIDEO_MODEL || '').trim() || null;
+    const shouldUseReferenceFrames = !configuredModel
+      || configuredModel === SEEDANCE_IMAGE_TO_VIDEO;
+    const frames = shouldUseReferenceFrames
+      ? await ensureSeedanceReferenceFrames(fal, params, companyId)
+      : { firstImageUrl: null, lastImageUrl: null, generated: [] };
+    const imageUrl = frames.firstImageUrl;
+    const model = configuredModel || (
+      imageUrl ? SEEDANCE_IMAGE_TO_VIDEO : SEEDANCE_TEXT_TO_VIDEO
+    );
+    const input = {
+      prompt: String(params.prompt || '').trim(),
+      aspect_ratio: normalizeAspectRatio(params.aspect_ratio),
+      resolution: params.resolution === '480p' ? '480p' : '720p',
+      duration: Math.min(Math.max(Number(params.duration) || 8, 4), 15),
+      generate_audio: params.generate_audio !== false,
+    };
+    if (imageUrl) input.image_url = imageUrl;
+    if (frames.lastImageUrl && model === SEEDANCE_IMAGE_TO_VIDEO) input.end_image_url = frames.lastImageUrl;
+    if (params.end_user_id) input.end_user_id = String(params.end_user_id);
+
+    const result = await fal.subscribe(model, { input, logs: false });
+    const sourceUrl = falVideoUrl(result);
+    if (!sourceUrl) return { status: 'error', error: 'Fal.ai returned no video URL', model };
+
+    const cloudinaryUrl = await uploadToCloudinary(sourceUrl, { folder: 'ai-videos', resourceType: 'video' });
+    if (!cloudinaryUrl) {
+      return { status: 'error', error: 'Fal.ai generated a video but Cloudinary upload failed. Set CLOUDINARY_URL.', model };
+    }
+    return {
+      status: 'completed',
+      video_url: cloudinaryUrl,
+      cloudinary_url: cloudinaryUrl,
+      source_video_url: sourceUrl,
+      host: 'cloudinary',
+      model,
+      provider: 'fal.ai',
+      fallback_reason: reason,
+      reference_frames: {
+        first_image_url: frames.firstImageUrl,
+        last_image_url: frames.lastImageUrl,
+        generated: frames.generated,
+      },
+      company_id: companyId ?? null,
+    };
+  } catch (error) {
+    return { status: 'error', error: `Fal.ai fallback failed: ${error.message}`, provider: 'fal.ai' };
+  }
+}
+
+async function generateFalImageFallback(params = {}, companyId, reason = 'primary image provider failed') {
+  const falKey = process.env.FAL_KEY || process.env.FAL_API_KEY;
+  if (!falKey) return { status: 'error', error: `${reason}; FAL_KEY/FAL_API_KEY is not configured` };
+
+  try {
+    const mod = await import('@fal-ai/client');
+    const fal = mod.fal || mod.default?.fal || mod.default || mod;
+    if (typeof fal.config === 'function') fal.config({ credentials: falKey });
+
+    const result = await fal.subscribe(NANO_BANANA_PRO, {
+      input: {
+        prompt: String(params.prompt || '').trim(),
+        aspect_ratio: normalizeAspectRatio(params.aspect_ratio),
+        resolution: '1K',
+      },
+      logs: false,
+    });
+    const sourceUrl = falImageUrl(result);
+    if (!sourceUrl) return { status: 'error', error: 'Fal.ai Nano Banana Pro returned no image URL' };
+
+    const cloudinaryUrl = await uploadToCloudinary(sourceUrl, {
+      folder: 'ai-images',
+      resourceType: 'image',
+    });
+    const imageUrl = cloudinaryUrl || sourceUrl;
+    return {
+      status: 'success',
+      image_url: imageUrl,
+      cdn_url: imageUrl,
+      cloudinary_url: cloudinaryUrl,
+      host: cloudinaryUrl ? 'cloudinary' : 'fal.ai',
+      model: NANO_BANANA_PRO,
+      provider: 'fal.ai',
+      fallback_reason: reason,
+      aspect_ratio: normalizeAspectRatio(params.aspect_ratio),
+      company_id: companyId ?? null,
+    };
+  } catch (error) {
+    return { status: 'error', error: `Fal.ai image fallback failed: ${error.message}`, provider: 'fal.ai' };
+  }
 }
 
 // ── Fetch Helper ──────────────────────────────────────────────────────────────
@@ -217,12 +426,12 @@ export async function generateSocialImage(params, companyId) {
 
     const imagePart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
     if (!imagePart?.inlineData?.data) {
-      return { status: 'error', error: 'No image data returned from Gemini' };
+      return generateFalImageFallback(params, companyId, 'Gemini returned no image data');
     }
     base64Data = imagePart.inlineData.data;
     mimeType   = imagePart.inlineData.mimeType ?? 'image/png';
   } catch (e) {
-    return { status: 'error', error: `Gemini image error: ${e.message}` };
+    return generateFalImageFallback(params, companyId, `Gemini image error: ${e.message}`);
   }
 
   // Host on imgbb (primary). Fall back to Cloudinary if imgbb is unavailable.
@@ -390,6 +599,9 @@ export async function createLandingPage(params = {}, companyId) {
   const offer = String(params.offer || params.value_prop || product).trim();
   const goal = String(params.goal || params.primary_cta_goal || 'lead_gen').trim();
   const cta = String(params.cta || params.primary_cta || 'Get started').trim();
+  const leadMagnet = String(params.lead_magnet || params.leadMagnet || '').trim();
+  const captureDestination = String(params.capture_destination || params.captureDestination || '').trim().toLowerCase();
+  const captureEndpoint = String(params.capture_endpoint || params.captureEndpoint || '/api/leads/capture').trim();
   const brand_context = String(params.brand_context || params.brandContext || '').trim();
   const painPoints = Array.isArray(params.pain_points)
     ? params.pain_points
@@ -478,6 +690,15 @@ Rules from page-cro / copywriting:
       return { status: 'error', error: 'Landing page generation returned empty structure' };
     }
 
+    // Lead-magnet pages get a real, platform-neutral capture form. The page
+    // can be previewed locally and the same form works after publishing when
+    // capture_endpoint points at the Marqq public API.
+    if (leadMagnet && captureDestination === 'google_sheets' && html && !/<form\b/i.test(html)) {
+      const attr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const form = `<section id="marqq-lead-magnet" aria-labelledby="marqq-lead-magnet-title"><h2 id="marqq-lead-magnet-title">Get your free ${attr(leadMagnet)}</h2><p>Enter your details and we’ll send it to you.</p><form data-marqq-lead-form><label>First name<input name="name" autocomplete="given-name" required></label><label>Email<input type="email" name="email" autocomplete="email" required></label><button type="submit">${attr(cta)}</button><p data-marqq-form-status role="status"></p></form><script>(function(){const form=document.querySelector('[data-marqq-lead-form]');if(!form)return;form.addEventListener('submit',async function(event){event.preventDefault();const status=form.querySelector('[data-marqq-form-status]');status.textContent='Saving…';try{const response=await fetch('${attr(captureEndpoint)}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:'${attr(companyId)}',name:form.elements.name.value,email:form.elements.email.value,lead_magnet:'${attr(leadMagnet)}',source:window.location.href})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Could not save your details');status.textContent='You’re in — check your inbox for the download.';form.reset();}catch(error){status.textContent=error.message||'Could not save your details';}});})();</script></section>`;
+      html = html.replace(/<\/body>/i, `${form}</body>`);
+    }
+
     return {
       status: 'success',
       format: 'landing_page',
@@ -486,6 +707,9 @@ Rules from page-cro / copywriting:
       meta_description: parsed.meta_description || null,
       page_structure,
       html: html || null,
+      lead_capture: leadMagnet && captureDestination === 'google_sheets'
+        ? { destination: 'google_sheets', endpoint: captureEndpoint, lead_magnet: leadMagnet }
+        : null,
       ab_tests: Array.isArray(parsed.ab_tests) ? parsed.ab_tests : [],
       skill_alignment: {
         skill_key: skillKey,
@@ -501,7 +725,7 @@ Rules from page-cro / copywriting:
 // ── Gemini Omni Flash / Veo Faceless Video ───────────────────────────────────
 
 /**
- * params: { prompt, duration, aspect_ratio, style, image_url?, image_base64?, mime_type? }
+ * params: { prompt, duration, aspect_ratio, style, image_url?, source_video_url?, image_base64?, mime_type? }
  * Default model: gemini-omni-flash-preview via Interactions API (sync video bytes).
  * Set GEMINI_VIDEO_MODEL=veo-3.1-generate-preview to use legacy async Veo path.
  */
@@ -512,6 +736,8 @@ export async function generateFacelessVideo(params, companyId) {
     aspect_ratio = '16:9',
     style = 'cinematic, high quality, professional',
     image_url = '',
+    source_video_url = '',
+    stock_video_url = '',
     image_base64 = '',
     mime_type = 'image/jpeg',
   } = params;
@@ -519,7 +745,7 @@ export async function generateFacelessVideo(params, companyId) {
   if (!prompt) return { status: 'error', error: 'prompt is required' };
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return { status: 'error', error: 'GEMINI_API_KEY not configured' };
+  if (!apiKey) return generateFalVideoFallback(params, companyId, 'GEMINI_API_KEY is not configured');
 
   const model = process.env.GEMINI_VIDEO_MODEL || 'gemini-omni-flash-preview';
   const ratio = aspect_ratio === '9:16' ? '9:16' : '16:9';
@@ -549,8 +775,10 @@ export async function generateFacelessVideo(params, companyId) {
       });
       operationName = operation.name;
     } catch (e) {
-      return { status: 'error', error: `Veo video error: ${e.message}` };
+      return generateFalVideoFallback(params, companyId, `Veo video error: ${e.message}`);
     }
+
+    if (operationName) pendingVeoFallbacks.set(operationName, { params, companyId });
 
     return {
       status: 'queued',
@@ -572,6 +800,19 @@ export async function generateFacelessVideo(params, companyId) {
 
     const ai = new GoogleGenAI({ apiKey });
 
+    const sourceVideoUrl = String(source_video_url || stock_video_url || '').trim();
+    let referenceVideoBase64 = '';
+    let referenceVideoMimeType = 'video/mp4';
+    if (sourceVideoUrl && /^https?:\/\//i.test(sourceVideoUrl)) {
+      try {
+        const rawVideo = await fetch(sourceVideoUrl);
+        if (rawVideo.ok) {
+          referenceVideoMimeType = (rawVideo.headers.get('content-type') || 'video/mp4').split(';')[0];
+          referenceVideoBase64 = Buffer.from(await rawVideo.arrayBuffer()).toString('base64');
+        }
+      } catch { /* optional stock-video reference */ }
+    }
+
     let referenceBase64 = image_base64;
     if (!referenceBase64 && image_url && /^https?:\/\//i.test(image_url)) {
       try {
@@ -583,7 +824,15 @@ export async function generateFacelessVideo(params, companyId) {
       } catch { /* optional reference */ }
     }
 
-    const input = referenceBase64
+    const input = referenceVideoBase64
+      ? [
+          { type: 'video', data: referenceVideoBase64, mime_type: referenceVideoMimeType },
+          {
+            type: 'text',
+            text: `${fullPrompt} Edit this source video into the requested final ad. Preserve useful motion and subject detail, remove any stock-provider branding or visible watermarks when possible, and do not invent product claims.`,
+          },
+        ]
+      : referenceBase64
       ? [
           { type: 'image', data: referenceBase64, mime_type: mime_type || 'image/jpeg' },
           {
@@ -611,6 +860,8 @@ export async function generateFacelessVideo(params, companyId) {
         : null);
 
     if (!videoData) {
+      const fallback = await generateFalVideoFallback(params, companyId, 'Gemini Omni Flash returned no video data');
+      if (fallback.status === 'completed') return fallback;
       return {
         status: 'error',
         error: 'Omni Flash returned no video data',
@@ -647,11 +898,13 @@ export async function generateFacelessVideo(params, companyId) {
       duration: clippedDuration,
       aspect_ratio: ratio,
       image_to_video: Boolean(referenceBase64),
+      video_editing: Boolean(referenceVideoBase64),
+      source_video_url: sourceVideoUrl || null,
       company_id: companyId ?? null,
       message: 'Ad video generated with Gemini Omni Flash and hosted on Cloudinary.',
     };
   } catch (e) {
-    return { status: 'error', error: `Omni Flash video error: ${e.message}` };
+    return generateFalVideoFallback(params, companyId, `Gemini Omni Flash video error: ${e.message}`);
   }
 }
 
@@ -686,7 +939,12 @@ export async function pollVeoOperation(operationName) {
     }
 
     const videoFile = operation.response?.generatedVideos?.[0]?.video;
-    if (!videoFile) return { status: 'error', error: 'No video in completed operation' };
+    if (!videoFile) {
+      const fallbackContext = pendingVeoFallbacks.get(operationName);
+      pendingVeoFallbacks.delete(operationName);
+      if (fallbackContext) return generateFalVideoFallback(fallbackContext.params, fallbackContext.companyId, 'Veo completed without a video file');
+      return { status: 'error', error: 'No video in completed operation' };
+    }
 
     // Download to /tmp
     const tmpPath = join(tmpdir(), `veo-${Date.now()}.mp4`);
@@ -698,6 +956,7 @@ export async function pollVeoOperation(operationName) {
     // Clean up tmp file (non-blocking)
     import('fs').then(fs => fs.unlink(tmpPath, () => {})).catch(() => {});
 
+    pendingVeoFallbacks.delete(operationName);
     if (!cloudinaryUrl) {
       return {
         status: 'error',
@@ -714,6 +973,9 @@ export async function pollVeoOperation(operationName) {
       operation_name: operationName,
     };
   } catch (e) {
+    const fallbackContext = pendingVeoFallbacks.get(operationName);
+    pendingVeoFallbacks.delete(operationName);
+    if (fallbackContext) return generateFalVideoFallback(fallbackContext.params, fallbackContext.companyId, `Veo poll error: ${e.message}`);
     return { status: 'error', error: `Veo poll error: ${e.message}` };
   }
 }
@@ -885,6 +1147,8 @@ export async function createSeoArticle(params, companyId) {
     brandName,
     faq_questions,
     faqQuestions,
+    generate_image = true,
+    image_url,
   } = params;
 
   if (!keyword && !primary_keyword && !primaryKeyword && !topic) {
@@ -1100,6 +1364,30 @@ STRICT output rules:
     brandName: brand_name || brandName || 'Brand',
     siteUrl: site_url || siteUrl || 'https://example.com',
   });
+  let featuredImage = image_url || null;
+  let imageGeneration = { requested: generate_image !== false, generated: false, skipped: generate_image === false };
+  if (!featuredImage && generate_image !== false) {
+    const imageResult = await generateSocialImage({
+      prompt: `Editorial hero image for a blog article titled "${title}" about ${primaryKeywordFinal}. Show the concrete problem and desired outcome; no text, no logos, no fake people, clean premium editorial style.`,
+      aspect_ratio: '16:9',
+      platform: 'website',
+      brand_context,
+      style: 'editorial website hero, natural lighting, premium, clear focal subject',
+    }, companyId);
+    featuredImage = imageResult?.image_url || null;
+    imageGeneration = {
+      requested: true,
+      generated: Boolean(featuredImage),
+      skipped: false,
+      model: imageResult?.model || null,
+      host: imageResult?.host || null,
+      error: imageResult?.error || null,
+    };
+  }
+  if (featuredImage && !/<img\b[^>]+src=/i.test(html)) {
+    const figure = `<figure><img src="${String(featuredImage).replace(/"/g, '&quot;')}" alt="${String(title).replace(/"/g, '&quot;')}" loading="lazy"><figcaption>${String(title).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</figcaption></figure>`;
+    html = /<\/h1>/i.test(html) ? html.replace(/<\/h1>/i, (match) => `${match}\n${figure}`) : `${figure}\n${html}`;
+  }
   html = injectJsonLd(html, jsonLd);
 
   const keyword_audit = auditKeywordPlacement(html, {
@@ -1127,6 +1415,8 @@ STRICT output rules:
     keyword_audit,
     seo_richness,
     word_count,
+    featured_image_url: featuredImage,
+    image_generation: imageGeneration,
     target_audience,
     market: b2c ? 'b2c' : 'b2b',
     skill_alignment: {

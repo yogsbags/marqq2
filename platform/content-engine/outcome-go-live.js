@@ -22,10 +22,13 @@ const KIND_CONNECTORS = {
   instagram: ["instagram"],
   facebook: ["facebook"],
   twitter: ["twitter"],
-  social: ["linkedin", "instagram", "facebook", "twitter"],
+  x: ["twitter"],
+  reddit: ["reddit"],
+  youtube: ["youtube"],
+  social: ["linkedin", "instagram", "facebook", "twitter", "reddit"],
   newsletter: ["mailchimp", "klaviyo", "gmail"],
-  blog: ["webflow", "wordpress", "google_docs"],
-  landing_page: ["webflow", "wordpress"],
+  blog: ["webflow", "wordpress", "shopify", "github", "google_docs"],
+  landing_page: ["webflow", "wordpress", "github"],
   paid_ads: ["meta_ads", "google_ads", "linkedin_ads"],
   voicebot: [],
   /** Push scored voicebot call → HubSpot or Zoho CRM */
@@ -521,7 +524,7 @@ function assignOnto(data, keys, value) {
 async function goLiveBlog(payload, entityIds, connected, preferredConnector) {
   const order = [];
   if (preferredConnector) order.push(preferredConnector);
-  for (const id of ["webflow", "wordpress", "google_docs"]) {
+  for (const id of ["webflow", "wordpress", "shopify", "github", "google_docs"]) {
     if (!order.includes(id)) order.push(id);
   }
 
@@ -551,6 +554,39 @@ async function goLiveBlog(payload, entityIds, connected, preferredConnector) {
         connector: "wordpress",
       };
     }
+    if (id === "shopify") {
+      const { title, contentHtml, markdown } = articleMarkdown(payload);
+      const livePreferred = payload.publish_live !== false && payload.draft !== true;
+      let blogId = asString(payload.shopify_blog_id || payload.blog_id);
+      if (!blogId) {
+        const blogs = await runTool("SHOPIFY_LIST_BLOGS", {}, entityIds);
+        const rows = blogs.result?.blogs || blogs.result?.data?.blogs || blogs.result?.data || blogs.result || [];
+        const firstBlog = Array.isArray(rows) ? rows[0] : null;
+        blogId = asString(firstBlog?.id || firstBlog?.blog_id || firstBlog?.admin_graphql_api_id);
+      }
+      if (!blogId) {
+        return { ok: false, error: "No Shopify blog found. Create a blog in Shopify first, or provide shopify_blog_id." };
+      }
+      return {
+        ...(await runTool(
+          "SHOPIFY_CREATE_ARTICLE",
+          {
+            blog_id: blogId,
+            title,
+            body_html: contentHtml || markdown,
+            summary_html: asString(payload.meta_description || payload.excerpt),
+            handle: asString(payload.slug),
+            tags: Array.isArray(payload.tags) ? payload.tags.join(', ') : asString(payload.tags),
+            published: livePreferred,
+          },
+          entityIds,
+        )),
+        connector: "shopify",
+      };
+    }
+    if (id === "github") {
+      return await goLiveRepositoryContent(payload, entityIds, "blog");
+    }
     if (id === "google_docs") {
       const { title, markdown } = articleMarkdown(payload);
       return {
@@ -573,7 +609,7 @@ async function goLiveBlog(payload, entityIds, connected, preferredConnector) {
 async function goLiveLanding(payload, entityIds, connected, preferredConnector) {
   const order = [];
   if (preferredConnector) order.push(preferredConnector);
-  for (const id of ["webflow", "wordpress"]) {
+  for (const id of ["webflow", "wordpress", "github"]) {
     if (!order.includes(id)) order.push(id);
   }
 
@@ -601,8 +637,56 @@ async function goLiveLanding(payload, entityIds, connected, preferredConnector) 
         connector: "wordpress",
       };
     }
+    if (id === "github") {
+      return await goLiveRepositoryContent(payload, entityIds, "landing_page");
+    }
   }
-  return { ok: false, error: "Connect Webflow or WordPress first" };
+  return { ok: false, error: "Connect Webflow, WordPress, or GitHub first" };
+}
+
+async function goLiveRepositoryContent(payload, entityIds, kind) {
+  const owner = asString(payload.repo_owner || payload.github_owner || payload.owner);
+  const repo = asString(payload.repo_name || payload.github_repo || payload.repository);
+  const path = asString(payload.file_path || payload.github_path || payload.path);
+  const branch = asString(payload.branch || payload.github_branch, "main");
+  if (!owner || !repo || !path) {
+    return {
+      ok: false,
+      connector: "github",
+      error: "GitHub publishing needs repo_owner, repo_name, and file_path. Configure the repository and the site's blog/page path first.",
+    };
+  }
+  if (payload.publish_live !== true) {
+    return {
+      ok: false,
+      connector: "github",
+      error: "Repository content is draft-only until publish_live=true is explicitly selected.",
+      requires_approval: true,
+    };
+  }
+  const { title, contentHtml, markdown } = articleMarkdown(payload);
+  const content = asString(payload.raw_content || payload.content || payload.body || (kind === "blog" ? markdown : contentHtml), markdown);
+  const result = await runTool("GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS", {
+    owner,
+    repo,
+    path,
+    branch,
+    message: asString(payload.commit_message, `Marqq publish ${kind}: ${title}`),
+    content: Buffer.from(content, "utf8").toString("base64"),
+  }, entityIds);
+  if (!result.ok) return { ...result, connector: "github" };
+  return {
+    ...result,
+    ok: true,
+    connector: "github",
+    deployment: {
+      provider: asString(payload.deployment_provider || payload.deploy_provider, "github_actions"),
+      worker_name: asString(payload.cloudflare_worker_name || payload.worker_name),
+      status: "queued_by_repository_push",
+      workflow: asString(payload.workflow_file, ".github/workflows/deploy-nouriva-landing.yml"),
+      note: "The approved GitHub push should trigger the repository's deployment workflow. For Nouriva, that workflow runs Wrangler and deploys the Cloudflare Worker; use GitHub Actions and the public URL to verify the result.",
+    },
+  };
 }
 
 async function connectedSet(entityId) {
@@ -657,7 +741,7 @@ async function goLiveLinkedIn(payload, entityIds) {
     .filter(Boolean)
     .join("\n\n");
 
-  // Prefer allowlisted slug; fall back to text-post alias used by CrewAI Zara.
+  // Prefer the allowlisted slug; fall back to the text-post alias supported by Zara.
   let res = await runTool(
     "LINKEDIN_CREATE_LINKED_IN_POST",
     { commentary: full, text: full, visibility: "PUBLIC" },
@@ -685,23 +769,42 @@ async function goLiveFacebook(payload, entityIds) {
     asString(payload.cdn_url) ||
     asString(payload.media_url) ||
     asString(payload.image);
+  const videoUrl = asString(payload.video_url || payload.videoUrl || payload.video);
+
+  if (videoUrl) {
+    const video = await runTool(
+      "FACEBOOK_CREATE_VIDEO_POST",
+      {
+        description: full,
+        message: full,
+        title: asString(payload.title || payload.headline) || undefined,
+        file_url: videoUrl,
+        video_url: videoUrl,
+        url: videoUrl,
+        page_id: asString(payload.page_id || payload.pageId) || undefined,
+      },
+      entityIds,
+    );
+    if (video.ok) return { ...video, tool: "FACEBOOK_CREATE_VIDEO_POST" };
+    if (!imageUrl) return video;
+  }
 
   if (imageUrl) {
     const photo = await runTool(
       "FACEBOOK_CREATE_PHOTO_POST",
-      { message: full, url: imageUrl, image_url: imageUrl, caption: full },
+      { message: full, url: imageUrl, image_url: imageUrl, caption: full, page_id: asString(payload.page_id || payload.pageId) || undefined },
       entityIds
     );
     if (photo.ok) return photo;
     const photoAlt = await runTool(
       "FACEBOOK_CREATE_POST",
-      { message: full, message_text: full, url: imageUrl, link: imageUrl, image_url: imageUrl },
+      { message: full, message_text: full, url: imageUrl, link: imageUrl, image_url: imageUrl, page_id: asString(payload.page_id || payload.pageId) || undefined },
       entityIds
     );
     if (photoAlt.ok) return photoAlt;
   }
 
-  return runTool("FACEBOOK_CREATE_POST", { message: full, message_text: full }, entityIds);
+  return runTool("FACEBOOK_CREATE_POST", { message: full, message_text: full, page_id: asString(payload.page_id || payload.pageId) || undefined }, entityIds);
 }
 
 async function goLiveTwitter(payload, entityIds) {
@@ -729,6 +832,52 @@ async function goLiveTwitter(payload, entityIds) {
   return res;
 }
 
+async function goLiveReddit(payload, entityIds) {
+  const title = asString(payload.title || payload.headline);
+  const subreddit = asString(payload.subreddit || payload.subreddit_name || payload.community);
+  const text = pickPayloadText(payload);
+  if (!subreddit) return { ok: false, error: "Reddit publishing needs a subreddit" };
+  if (!title) return { ok: false, error: "Reddit publishing needs a post title" };
+  if (!text && !asString(payload.url || payload.link)) {
+    return { ok: false, error: "Reddit self-post needs body text or a link" };
+  }
+  return runTool(
+    "REDDIT_CREATE_REDDIT_POST",
+    {
+      subreddit,
+      subreddit_name: subreddit,
+      title,
+      text: text || undefined,
+      body: text || undefined,
+      url: asString(payload.url || payload.link) || undefined,
+      kind: asString(payload.kind, text ? "self" : "link"),
+    },
+    entityIds,
+  );
+}
+
+async function goLiveYoutube(payload, entityIds) {
+  const title = asString(payload.title || payload.headline);
+  const description = pickPayloadText(payload);
+  const videoUrl = asString(payload.video_url || payload.videoUrl || payload.url || payload.video);
+  if (!title) return { ok: false, error: "YouTube publishing needs a video title" };
+  if (!videoUrl && !payload.video_file && !payload.file) {
+    return { ok: false, error: "YouTube publishing needs a video URL or uploaded file" };
+  }
+  const args = {
+    title,
+    description,
+    video_url: videoUrl || undefined,
+    videoUrl: videoUrl || undefined,
+    privacy_status: asString(payload.privacy_status || payload.privacyStatus, "private"),
+    category_id: asString(payload.category_id || payload.categoryId) || undefined,
+    tags: Array.isArray(payload.tags) ? payload.tags : undefined,
+  };
+  let result = await runTool("YOUTUBE_UPLOAD_VIDEO", args, entityIds);
+  if (!result.ok) result = await runTool("YOUTUBE_MULTIPART_UPLOAD_VIDEO", args, entityIds);
+  return result;
+}
+
 async function goLiveInstagram(payload, entityIds) {
   const caption = pickPayloadText(payload);
   const imageUrl =
@@ -736,26 +885,28 @@ async function goLiveInstagram(payload, entityIds) {
     asString(payload.cdn_url) ||
     asString(payload.media_url) ||
     asString(payload.image);
-  if (!imageUrl) {
+  const videoUrl = asString(payload.video_url || payload.videoUrl || payload.video);
+  if (!imageUrl && !videoUrl) {
     return {
       ok: false,
-      error: "Instagram publish needs an image_url on the artifact. Generate or attach an image first.",
+      error: "Instagram publish needs an image_url or video_url on the artifact. Generate or attach a creative first.",
       tool: "INSTAGRAM_POST_IG_USER_MEDIA",
     };
   }
   const create = await runTool(
     "INSTAGRAM_POST_IG_USER_MEDIA",
     {
-      image_url: imageUrl,
+      image_url: imageUrl || undefined,
+      video_url: videoUrl || undefined,
       caption: caption || undefined,
-      media_type: "IMAGE",
+      media_type: videoUrl ? "REELS" : "IMAGE",
     },
     entityIds
   );
   if (!create.ok) {
     const alt = await runTool(
       "INSTAGRAM_CREATE_POST",
-      { image_url: imageUrl, caption, media_type: "IMAGE" },
+      { image_url: imageUrl || undefined, video_url: videoUrl || undefined, caption, media_type: videoUrl ? "REELS" : "IMAGE" },
       entityIds
     );
     if (!alt.ok) return create;
@@ -772,7 +923,7 @@ async function goLiveInstagram(payload, entityIds) {
       { creation_id: creationId, media_container_id: creationId },
       entityIds
     );
-    if (pub.ok) return { ...pub, tool: "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH" };
+    if (pub.ok) return { ...pub, tool: "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", media_type: videoUrl ? "REELS" : "IMAGE" };
   }
   return create;
 }
@@ -1801,7 +1952,11 @@ function extractSpreadsheetId(result) {
     asString(r.spreadsheet_id) ||
     asString(r.id) ||
     asString(r.data?.spreadsheetId) ||
+    asString(r.data?.spreadsheet_id) ||
     asString(r.response_data?.spreadsheetId) ||
+    asString(r.response_data?.spreadsheet_id) ||
+    asString(result?.result?.response_data?.spreadsheetId) ||
+    asString(result?.result?.response_data?.spreadsheet_id) ||
     null
   );
 }
@@ -2218,10 +2373,21 @@ export async function executeOutcomeGoLive(opts = {}) {
     case "twitter":
       result = await goLiveTwitter(payload, entityIds);
       break;
+    case "x":
+      result = await goLiveTwitter(payload, entityIds);
+      break;
+    case "reddit":
+      result = await goLiveReddit(payload, entityIds);
+      break;
+    case "youtube":
+      result = await goLiveYoutube(payload, entityIds);
+      break;
     case "social": {
       if (connector === "linkedin") result = await goLiveLinkedIn(payload, entityIds);
       else if (connector === "facebook") result = await goLiveFacebook(payload, entityIds);
       else if (connector === "twitter") result = await goLiveTwitter(payload, entityIds);
+      else if (connector === "reddit") result = await goLiveReddit(payload, entityIds);
+      else if (connector === "youtube") result = await goLiveYoutube(payload, entityIds);
       else result = await goLiveInstagram(payload, entityIds);
       break;
     }

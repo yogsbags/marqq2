@@ -69,7 +69,7 @@ import { detectCompanyAnomalies } from "./anomaly-detector.js";
 import { canAccessModule, requiredPlanForModule, PLAN_CREDITS, CREDIT_COSTS } from "./plans.js";
 import { getLatestCalibrationNote } from "./calibration-writer.js";
 import { REGISTRY, executeAutomationTriggers, computeNextRun } from "./automations/registry.js";
-import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector, metaGraphProxy, CONNECTOR_APP_MAP } from "./mcp-router.js";
+import { getConnectors, getAgentConnectors, getAgentConnectorApps, getAgentPermissions, initiateConnection, disconnectConnector, metaGraphProxy, CONNECTOR_APP_MAP, executeComposioActionForEntities } from "./mcp-router.js";
 import {
   createOutreachRun,
   getOutreachRun,
@@ -82,15 +82,21 @@ import {
   recordOutreachReply,
   handleComposioGmailTrigger,
   handleHeyReachReplyWebhook,
+  recordOutreachProviderEvent,
   handleWhatsAppInboundWebhook,
   registerHeyReachReplyWebhook,
   getWorkspaceOutreachSummary,
+  setOutreachTargetConfig,
+  reviewOutreachTargetPacing,
+  decideOutreachTargetIntervention,
+  recordGmailOpenEvent,
   sendProspectImmediately,
   launchOutreachGoLive,
   updateOutreachProspect,
   removeOutreachProspect,
   streamProspectCopyRevision,
   updateOutreachReplyDraft,
+  regenerateOutreachReplyDraft,
   rejectOutreachReplyDraft,
   approveOutreachReply,
 } from "./outreach-service.js";
@@ -102,6 +108,7 @@ import {
   resolveDeploymentNextRun,
 } from "./lib/humanSchedule.js";
 import { loadMarketingSkillsForTask } from "./lib/artifactMarketingSkills.js";
+import { syncOwnedContentPerformance, reviewContentPerformance } from "./content-performance.js";
 import {
   getConnectorPreferences,
   setConnectorPreferences,
@@ -112,19 +119,20 @@ import {
 } from "./connector-preferences.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = join(__dirname, "..", "..");
 const IS_MAIN_MODULE = process.argv[1]
   ? fileURLToPath(import.meta.url) === process.argv[1]
   : false;
 
 // Paths relative to this file (platform/content-engine/)
-const CREWAI_DIR = join(__dirname, "..", "crewai");
-const HEARTBEAT_PATH = join(CREWAI_DIR, "heartbeat", "status.json");
+const AGENT_RUNTIME_DIR = join(__dirname, "..", "agent-runtime");
+const HEARTBEAT_PATH = join(AGENT_RUNTIME_DIR, "heartbeat", "status.json");
 const AGENTS_DIR = process.env.TORQQ_AGENTS_DIR
   ? resolve(process.env.TORQQ_AGENTS_DIR)
-  : join(CREWAI_DIR, "agents");
-const MARKETINGSKILLS_DIR = join(CREWAI_DIR, "skill-library", "marketingskills", "skills");
-const CTX_DIR = join(CREWAI_DIR, "client_context");
-const DEPLOYMENT_QUEUE_PATH = join(CREWAI_DIR, "deployments", "queue.json");
+  : join(AGENT_RUNTIME_DIR, "agents");
+const MARKETINGSKILLS_DIR = join(AGENT_RUNTIME_DIR, "skills", "marketingskills", "skills");
+const CTX_DIR = join(AGENT_RUNTIME_DIR, "client_context");
+const DEPLOYMENT_QUEUE_PATH = join(AGENT_RUNTIME_DIR, "deployments", "queue.json");
 const DEPLOYMENT_SCHEDULER_INTERVAL_MS = Math.max(
   15_000,
   Number(process.env.AGENT_DEPLOYMENT_SCHEDULER_INTERVAL_MS || 60_000),
@@ -1204,7 +1212,7 @@ function buildAgentRunGuardrails(name, taskType) {
       "You are Sam executing outreach. Follow the cold-email skill for first-touch copy and follow-up arcs.",
       "Execute outreach prep with tools in order: Instantly LIST_ACCOUNTS → CREATE_CAMPAIGN (sequences+schedule) → ADD_LEADS_BULK → CREATE_WEBHOOK → optional CREATE_SUBSEQUENCE → ACTIVATE only when delivery_mode is live.",
       "When Instantly enrichment tools are available, after ADD_LEADS_BULK you may CREATE_SUPERSEARCH_ENRICHMENT or CREATE_AI_ENRICHMENT on the campaign/list, PATCH settings if needed, then SUPERSEARCH_ENRICHMENT_RUN_POST, and GET_SUPERSEARCH_ENRICHMENT to check status — enrich before ACTIVATE.",
-      "For LinkedIn: use native LinkedIn GET_* tools for profile/company context when connected; draft DM/post copy in the artifact. Use HeyReach list/campaign reads in draft; HEYREACH_ADD_LEADS_TO_LIST_V2 and LinkedIn CREATE_* only when delivery_mode is live.",
+      "For LinkedIn: use native LinkedIn GET_* tools for profile/company context when connected; draft DM/post copy in the artifact. In draft mode, only read HeyReach data and show the planned sequence. In live mode, create one isolated HeyReach USER_LIST + campaign for the approved cohort, then start it only after the user explicitly confirms delivery.",
       "For WhatsApp: draft the DM body in the artifact; WHATSAPP_SEND_* only when delivery_mode is live.",
       "Default delivery is draft-in-tool: create Instantly campaigns/leads and Gmail drafts; keep LinkedIn/WhatsApp as prepared copy. Only live-send / ACTIVATE / publish when delivery_mode is live / user explicitly clicks Go Live.",
       "Prefer INSTANTLY_ADD_LEADS_BULK over per-lead CREATE_LEAD. Prefer Instantly sender email_list from LIST_ACCOUNTS — never invent sender addresses.",
@@ -1279,9 +1287,11 @@ function buildAgentRunGuardrails(name, taskType) {
     ],
     generate_video: [
       "Use native Gemini Omni Flash video generation first for the first draft or concept asset.",
-      "Prefer the generate_faceless_video automation (gemini-omni-flash-preview) before using Veo toolkit tools.",
+      "Prefer the generate_faceless_video automation (Gemini/Veo primary with Fal.ai Seedance 2.0 Fast fallback; Nano Banana Pro creates missing first/last frames) before using Veo toolkit tools.",
+      "When a stock visual would improve the concept, use the Pexels connector to search photos/videos first. For a selected Pexels video, pass its public file link as params.source_video_url to generate_faceless_video so Gemini Omni Flash can edit it into the requested branded asset. Keep stock usage purposeful, respect the source license/attribution, and do not use stock footage when it adds no clear value.",
+      "When the Gemini connector is connected, use it for supported Gemini content/image/Veo operations and model discovery. Route normal video creation and stock-video editing through generate_faceless_video so Gemini Omni Flash remains the editing path and Fal Seedance remains the configured fallback.",
       "For image-to-video, pass params.image_url from a prior generate_social_image result when chaining creatives.",
-      "Use Veo tools only as a secondary path when GEMINI_VIDEO_MODEL is set to a Veo model or the user explicitly requests Veo.",
+      "Use direct Veo toolkit tools only when the user explicitly requests provider-level control; normal video requests go through generate_faceless_video and its Fal.ai fallback.",
     ],
     ad_creative: [
       "Produce platform-spec-compliant creative concepts (Meta / Google / LinkedIn character limits).",
@@ -1346,6 +1356,7 @@ const LIVE_SEND_TOOLS = new Set([
   "INSTANTLY_REPLY_TO_AN_EMAIL",
   "INSTANTLY_UPDATE_LEAD_INTEREST_STATUS",
   "HEYREACH_ADD_LEADS_TO_LIST_V2",
+  "HEYREACH_START_CAMPAIGN",
   "HEYREACH_SEND_MESSAGE",
   "HEYREACH_INBOX_SEND_MESSAGE",
   "LINKEDIN_CREATE_ARTICLE_OR_URL_SHARE",
@@ -2178,7 +2189,7 @@ function loadEnvFileIntoProcess(envPath) {
 
 loadEnvFileIntoProcess(join(__dirname, "..", "..", ".env"));
 loadEnvFileIntoProcess(join(__dirname, "..", "..", ".env.local"));
-loadEnvFileIntoProcess(join(CREWAI_DIR, ".env"));
+loadEnvFileIntoProcess(join(REPO_ROOT, ".env.marqq"));
 
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -4321,6 +4332,8 @@ const ALLOWED_CORS_ORIGINS = new Set([
   "http://127.0.0.1:3007",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "https://nouriva.tech",
+  "https://www.nouriva.tech",
 ]);
 
 app.use((req, res, next) => {
@@ -6119,10 +6132,11 @@ Replace ALL placeholder values with your actual outputs.
 ## Available Content Creation Automations (Riya + Maya)
 - generate_social_image: Gemini Flash-Lite Image (gemini-3.1-flash-lite-image) -> imgbb CDN (Cloudinary fallback). params: { prompt, aspect_ratio (1:1|16:9|9:16|4:5), platform, brand_context?, style?, headline?, primary_text? }. Returns: { image_url, cdn_url, host }
 - generate_email_html: Full inline-CSS HTML email newsletter. params: { subject, content, tone?, brand_name?, primary_color?, sections? }. Returns: { html, subject, preview_text }
-- generate_faceless_video: Gemini Omni Flash (gemini-omni-flash-preview) -> Cloudinary CDN. params: { prompt, duration?, aspect_ratio?, style?, image_url? }. Returns: { status, video_url, cloudinary_url, host }
+- generate_faceless_video: Gemini/Veo primary -> Fal.ai Seedance 2.0 Fast fallback (Nano Banana Pro first/last frames) -> Cloudinary CDN. params: { prompt, duration?, aspect_ratio?, style?, image_url?, source_video_url?, first_image_url?, last_image_url?, first_frame_prompt?, last_frame_prompt?, generate_audio? }. Returns: { status, video_url, cloudinary_url, host, model, reference_frames, video_editing }
 - generate_avatar_video: HeyGen spokesperson video (async). params: { script, avatar_id?, voice_id?, background_color?, width?, height? }. Returns: { status:processing, video_id, check_url }
 - create_seo_article: Full HTML blog post with SEO meta. Prefer build_seo_organic_plan first. params: { keyword, topic?, word_count_target?, target_audience?, brand_context?, market_type?: "b2c"|"b2b"|"mixed", humanize?: boolean }. For B2C, applies blader/humanizer (draft + second pass). Returns: { html, title, meta_description, slug, word_count, market, skill_alignment }
-- build_seo_organic_plan: Semrush/Ahrefs-gated pipeline — domain metrics → topical authority → topic clusters → article queue sized to GTM quantified_target/timeline. params: { domain?, database?, preferred_toolkit?, quantified_target?, timeline_target? }. Returns plan + stages; status needs_connectors if tools missing.
+- audit_existing_blog: Public sitemap/page audit for existing blog gaps and refresh candidates. params: { domain?, limit? }. Returns page-level technical/content observations; client-rendered schema requires browser validation.
+- build_seo_organic_plan: Existing-content audit → domain metrics → GSC performance → Semrush/Ahrefs or an explicitly configured Apify keyword Actor/Task → topical authority → topic clusters → GTM-goal-aligned article queue. params: { domain?, database?, preferred_toolkit?, apify_actor_id?, apify_task_id?, apify_input?, audit_limit?, quantified_target?, timeline_target? }. Returns plan + refresh_queue + lead_magnet_opportunities + stages. Apify is used only with a selected Actor/Task that returns keyword-like dataset fields; it is not treated as a universal volume database.
 - execute_seo_plan_articles: Write next N articles from article_queue via create_seo_article (max 5/run).
 `;
 
@@ -6566,7 +6580,7 @@ app.post("/api/agents/veena/onboard", async (req, res) => {
 // ── Industry Intel ────────────────────────────────────────────────────────────
 
 const INDUSTRY_INTEL_FILE = (companyId) =>
-  join(dirname(fileURLToPath(import.meta.url)), '..', 'crewai', 'memory', companyId, 'industry_intel.json');
+  join(AGENT_RUNTIME_DIR, 'memory', companyId, 'industry_intel.json');
 
 async function loadIndustryIntel(companyId) {
   if (!companyId) return null;
@@ -6735,7 +6749,7 @@ app.post('/api/industry-intel/:companyId/refresh', async (req, res) => {
 
   // Store to file
   try {
-    const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'crewai', 'memory', companyId);
+    const dir = join(AGENT_RUNTIME_DIR, 'memory', companyId);
     await mkdir(dir, { recursive: true });
     await writeFile(INDUSTRY_INTEL_FILE(companyId), JSON.stringify(payload, null, 2));
   } catch (e) {
@@ -7570,7 +7584,7 @@ app.post("/api/agents/:name/run", async (req, res) => {
     image:
       "Return a visual concept in artifact.data and include exactly one automation_triggers entry with automation_id generate_social_image. Fill params.prompt with the final image prompt for gemini-3.1-flash-lite-image, params.aspect_ratio with 1:1, 4:5, 9:16, or 16:9, and params.platform when known.",
     video:
-      "Return a video brief/script in artifact.data and include exactly one automation_triggers entry with automation_id generate_faceless_video. Fill params.prompt with the final production prompt for gemini-omni-flash-preview, params.duration (3–10), params.aspect_ratio (16:9|9:16), and params.style when useful. If an image URL already exists, pass params.image_url for image-to-video.",
+      "Return a video brief/script in artifact.data and include exactly one automation_triggers entry with automation_id generate_faceless_video. Fill params.prompt with the final production prompt, params.duration (4–15), params.aspect_ratio (16:9|9:16), and params.style when useful. If a Pexels stock video is selected, pass its public file link as params.source_video_url so Gemini Omni Flash edits it. If a first image exists, pass params.image_url or params.first_image_url; optionally provide params.last_image_url. The Fal fallback generates missing first/last frames with Nano Banana Pro and renders with Seedance 2.0 Fast.",
     avatar_video:
       "Return a spokesperson video script in artifact.data and include exactly one automation_triggers entry with automation_id generate_avatar_video. Fill params.script with the final spoken script and include avatar_id or voice_id only if the user provided exact IDs.",
     email_html:
@@ -7662,10 +7676,11 @@ Replace ALL placeholder values with your actual outputs.
 ## Available Content Creation Automations (Riya + Maya)
 - generate_social_image: Gemini Flash-Lite Image (gemini-3.1-flash-lite-image) -> imgbb CDN (Cloudinary fallback). params: { prompt, aspect_ratio (1:1|16:9|9:16|4:5), platform, brand_context?, style?, headline?, primary_text? }. Returns: { image_url, cdn_url, host }
 - generate_email_html: Full inline-CSS HTML email newsletter. params: { subject, content, tone?, brand_name?, primary_color?, sections? }. Returns: { html, subject, preview_text }
-- generate_faceless_video: Gemini Omni Flash (gemini-omni-flash-preview) -> Cloudinary CDN. params: { prompt, duration?, aspect_ratio?, style?, image_url? }. Returns: { status, video_url, cloudinary_url, host }
+- generate_faceless_video: Gemini/Veo primary -> Fal.ai Seedance 2.0 Fast fallback (Nano Banana Pro first/last frames) -> Cloudinary CDN. params: { prompt, duration?, aspect_ratio?, style?, image_url?, source_video_url?, first_image_url?, last_image_url? }. Returns: { status, video_url, cloudinary_url, host, model, reference_frames, video_editing }
 - generate_avatar_video: HeyGen spokesperson video (async). params: { script, avatar_id?, voice_id?, background_color?, width?, height? }. Returns: { status:processing, video_id, check_url }
 - create_seo_article: Full HTML blog post with SEO meta. Prefer build_seo_organic_plan first. params: { keyword, topic?, word_count_target?, target_audience?, brand_context?, market_type?: "b2c"|"b2b"|"mixed", humanize?: boolean }. For B2C, applies blader/humanizer (draft + second pass). Returns: { html, title, meta_description, slug, word_count, market, skill_alignment }
-- build_seo_organic_plan: Semrush/Ahrefs-gated pipeline — domain metrics → topical authority → topic clusters → article queue sized to GTM quantified_target/timeline. params: { domain?, database?, preferred_toolkit?, quantified_target?, timeline_target? }. Returns plan + stages; status needs_connectors if tools missing.
+- audit_existing_blog: Public sitemap/page audit for existing blog gaps and refresh candidates. params: { domain?, limit? }. Returns page-level technical/content observations; client-rendered schema requires browser validation.
+- build_seo_organic_plan: Existing-content audit → domain metrics → GSC performance → Semrush/Ahrefs or an explicitly configured Apify keyword Actor/Task → topical authority → topic clusters → GTM-goal-aligned article queue. params: { domain?, database?, preferred_toolkit?, apify_actor_id?, apify_task_id?, apify_input?, audit_limit?, quantified_target?, timeline_target? }. Returns plan + refresh_queue + lead_magnet_opportunities + stages. Apify is used only with a selected Actor/Task that returns keyword-like dataset fields; it is not treated as a universal volume database.
 - execute_seo_plan_articles: Write next N articles from article_queue via create_seo_article (max 5/run).
 `;
 
@@ -7958,20 +7973,20 @@ Replace ALL placeholder values with your actual outputs.
 
 // ── Artifact persistence ────────────────────────────────────────────────────
 // Artifacts are saved per-company in a JSON file (Supabase table can replace later).
-// File: platform/crewai/memory/{companyId}/artifacts.json
+// File: platform/agent-runtime/memory/{companyId}/artifacts.json
 
 const ARTIFACTS_VERSION = 1;
 
 async function loadArtifacts(companyId) {
   try {
-    const p = join(dirname(fileURLToPath(import.meta.url)), '..', 'crewai', 'memory', companyId, 'artifacts.json');
+    const p = join(AGENT_RUNTIME_DIR, 'memory', companyId, 'artifacts.json');
     const raw = await readFile(p, 'utf-8');
     return JSON.parse(raw);
   } catch { return []; }
 }
 
 async function saveArtifactToFile(companyId, entry) {
-  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'crewai', 'memory', companyId);
+  const dir = join(AGENT_RUNTIME_DIR, 'memory', companyId);
   const p = join(dir, 'artifacts.json');
   try { await mkdir(dir, { recursive: true }); } catch {}
   const existing = await loadArtifacts(companyId);
@@ -8024,7 +8039,7 @@ app.delete('/api/artifacts/:companyId/:artifactId', async (req, res) => {
   try {
     const existing = await loadArtifacts(companyId);
     const updated = existing.filter(a => a.id !== artifactId);
-    const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'crewai', 'memory', companyId);
+    const dir = join(AGENT_RUNTIME_DIR, 'memory', companyId);
     await writeFile(join(dir, 'artifacts.json'), JSON.stringify(updated, null, 2), 'utf-8');
     res.json({ deleted: artifactId });
   } catch (err) {
@@ -8088,12 +8103,80 @@ app.post('/api/automations/execute', async (req, res) => {
   if (!company_id) return res.status(400).json({ error: 'company_id required' });
   try {
     const { executeAutomationTriggers } = await import('./automations/registry.js');
+    let effectiveParams = params;
+    // Pass the locked GTM goal into content automations so output and
+    // execution are aligned to the user's North Star, without trusting the
+    // frontend to duplicate or manually maintain that context.
+    if (company_id && (!params.gtm_goal_system || typeof params.gtm_goal_system !== 'object')) {
+      const sb = supabaseForServerData();
+      if (sb) {
+        const { data: moduleRow } = await sb
+          .from('gtm_modules')
+          .select('profile')
+          .eq('company_id', company_id)
+          .neq('status', 'archived')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const goalSystem = moduleRow?.profile?.goal_system || moduleRow?.profile?.goals || null;
+        if (goalSystem) effectiveParams = { ...params, gtm_goal_system: goalSystem };
+      }
+    }
     const results = await executeAutomationTriggers(
-      { automation_triggers: [{ automation_id, params }] },
+      { automation_triggers: [{ automation_id, params: effectiveParams }] },
       company_id
     );
     res.json(results[0] || { status: 'no_result' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Public lead-magnet form capture. The landing-page generator points its
+// generated form here when Google Sheets is selected as the destination.
+app.post('/api/leads/capture', async (req, res) => {
+  const body = req.body || {};
+  const companyId = String(body.companyId || body.company_id || '').trim();
+  const email = String(body.email || '').trim().toLowerCase();
+  const name = String(body.name || body.first_name || '').trim();
+  if (!companyId) return res.status(400).json({ error: 'companyId is required' });
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'A valid email is required' });
+  }
+
+  try {
+    const { executeOutcomeGoLive } = await import('./outcome-go-live.js');
+    const result = await executeOutcomeGoLive({
+      kind: 'sheets_push',
+      workspaceId: companyId,
+      companyId,
+      payload: {
+        lead_name: name,
+        lead_email: email,
+        lead_phone: body.phone || '',
+        company: body.company || '',
+        lead_status: 'new',
+        summary: `Lead magnet: ${String(body.lead_magnet || 'Nouriva lead magnet').slice(0, 200)}`,
+        next_action: 'Deliver lead magnet and begin nurture',
+        source: body.source || 'landing_page',
+        updated_at: new Date().toISOString(),
+        spreadsheet_id: body.spreadsheet_id || body.spreadsheetId,
+        spreadsheet_title: body.spreadsheet_title || 'Nouriva Lead Magnet Leads',
+        // New Composio spreadsheets start with the Sheet1 tab. Callers can
+        // provide a different existing worksheet explicitly.
+        worksheet_name: body.worksheet_name || 'Sheet1',
+      },
+    });
+    if (!result.ok) return res.status(502).json({ error: result.error || 'Could not save lead', result });
+    res.status(201).json({
+      ok: true,
+      lead: { name, email, source: body.source || 'landing_page' },
+      destination: 'google_sheets',
+      sheet_url: result.url || result.result?.spreadsheetUrl || null,
+      result,
+    });
+  } catch (err) {
+    console.error('[leads/capture]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -8133,11 +8216,17 @@ app.post('/api/outreach/runs', async (req, res) => {
       workspaceId: workspaceId || companyId,
       companyId,
       companyName: String(body.companyName || body.company_name || '').trim(),
+      senderName: String(body.senderName || body.sender_name || '').trim(),
+      trackingEnabled: body.trackingEnabled === true || body.tracking_enabled === true,
       question: String(body.question || '').trim(),
       channel: String(body.channel || 'email').trim(),
       contactChannels,
       target: String(body.target || 'decision').trim(),
       goal: String(body.goal || 'reply').trim(),
+      sequenceEmails: Array.isArray(body.sequence_emails)
+        ? body.sequence_emails
+        : (Array.isArray(body.sequenceEmails) ? body.sequenceEmails : []),
+      targetConfig: body.target_config || body.targetConfig || null,
       industries,
       titles,
       country: String(body.country || 'IN').trim(),
@@ -8275,6 +8364,35 @@ app.get('/api/outreach/workspaces/:workspaceId/summary', async (req, res) => {
   }
 });
 
+app.post('/api/outreach/runs/:runId/target', async (req, res) => {
+  try {
+    const pacing = await setOutreachTargetConfig(req.params.runId, req.body?.target_config || req.body || {});
+    return res.json({ target_pacing: pacing });
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Failed to set outreach target' });
+  }
+});
+
+app.post('/api/outreach/runs/:runId/target-pacing/review', async (req, res) => {
+  try {
+    const results = await reviewOutreachTargetPacing({ force: true });
+    const result = results.find((item) => item.runId === req.params.runId) || { runId: req.params.runId, status: 'not_reviewed' };
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Target review failed' });
+  }
+});
+
+app.post('/api/outreach/runs/:runId/target-pacing/interventions/:interventionId/decide', async (req, res) => {
+  try {
+    const decision = String(req.body?.decision || '').toLowerCase();
+    const pacing = await decideOutreachTargetIntervention(req.params.runId, req.params.interventionId, decision);
+    return res.json({ target_pacing: pacing });
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Failed to decide intervention' });
+  }
+});
+
 app.post('/api/outreach/runs/:runId/prospects/:prospectId/send-now', async (req, res) => {
   try {
     const result = await sendProspectImmediately(req.params.runId, req.params.prospectId);
@@ -8296,6 +8414,7 @@ app.post('/api/outreach/runs/:runId/go-live', async (req, res) => {
       runId: req.params.runId,
       prospectIds,
       activate,
+      heyreachSequenceMode: body.heyreach_sequence_mode || body.heyreachSequenceMode || 'standard',
       channelCopiesOverride: body.channel_copies || body.channelCopies || null,
       companyId: body.companyId || body.company_id || null,
     });
@@ -8314,6 +8433,17 @@ app.patch('/api/outreach/runs/:runId/replies/:replyId', async (req, res) => {
   } catch (err) {
     const status = /not found/i.test(err.message || '') ? 404 : 400;
     return res.status(status).json({ error: err.message || 'Failed to update reply draft' });
+  }
+});
+
+/** Regenerate the AI reply and create an unsent Gmail draft. */
+app.post('/api/outreach/runs/:runId/replies/:replyId/regenerate', async (req, res) => {
+  try {
+    const result = await regenerateOutreachReplyDraft(req.params.runId, req.params.replyId);
+    return res.json(result);
+  } catch (err) {
+    console.error('[outreach/reply-regenerate]', err);
+    return res.status(500).json({ error: err.message || 'Reply draft generation failed' });
   }
 });
 
@@ -8362,6 +8492,17 @@ app.post('/api/outreach/poll-gmail-replies', async (req, res) => {
     console.error('[outreach/poll-gmail-replies]', err);
     return res.status(500).json({ error: err.message || 'Gmail reply poll failed' });
   }
+});
+
+app.get('/api/outreach/track/open/:runId/:prospectId/:step.gif', async (req, res) => {
+  try {
+    await recordGmailOpenEvent(req.params.runId, req.params.prospectId, Number(req.params.step) || 0);
+  } catch (err) {
+    console.warn('[outreach/open-track]', err?.message || err);
+  }
+  const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64');
+  res.set({ 'Content-Type': 'image/gif', 'Content-Length': pixel.length, 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+  return res.end(pixel);
 });
 
 /** Instantly / Gmail / generic reply webhook */
@@ -8497,6 +8638,11 @@ app.post(
 app.post('/api/webhooks/instantly', express.json({ limit: '1mb' }), async (req, res) => {
   try {
     const body = req.body || {};
+    const eventType = String(body.event_type || body.eventType || body.type || body.event || '').toLowerCase();
+    if (eventType && !eventType.includes('reply')) {
+      const result = await recordOutreachProviderEvent({ provider: 'instantly', ...body });
+      return res.json(result);
+    }
     const result = await recordOutreachReply({
       provider: 'instantly',
       email: body.email || body.lead_email || body.from_address || body.from,
@@ -8529,7 +8675,11 @@ app.post('/api/webhooks/heyreach', express.json({ limit: '2mb' }), async (req, r
         return res.status(401).json({ error: 'Invalid webhook secret' });
       }
     }
-    const result = await handleHeyReachReplyWebhook(req.body || {});
+    const body = req.body || {};
+    const eventType = String(body.eventType || body.event_type || body.type || body.event || '').toLowerCase();
+    const result = eventType && !eventType.includes('reply')
+      ? await recordOutreachProviderEvent({ provider: 'heyreach', ...body })
+      : await handleHeyReachReplyWebhook(body);
     return res.json(result);
   } catch (err) {
     console.error('[heyreach/webhook]', err);
@@ -8735,7 +8885,7 @@ app.get('/api/ads-intel/:companyId/analysis', async (req, res) => {
     const { join, dirname } = await import('node:path');
     const { fileURLToPath } = await import('node:url');
     const __dn = dirname(fileURLToPath(import.meta.url));
-    const filePath = join(__dn, '..', 'crewai', 'memory', companyId, 'ads_analysis.json');
+    const filePath = join(AGENT_RUNTIME_DIR, 'memory', companyId, 'ads_analysis.json');
     const raw = await readFile(filePath, 'utf8');
     const { analysis, updated_at } = JSON.parse(raw);
     return res.json({ analysis, updated_at });
@@ -8984,6 +9134,16 @@ let deploymentScheduler = null;
 let deploymentProcessorRunning = false;
 let automationScheduler = null;
 let onboardBriefingScheduler = null;
+const CONTENT_DRAFT_SCHEDULER_INTERVAL_MS = Math.max(
+  15_000,
+  Number(process.env.CONTENT_DRAFT_SCHEDULER_INTERVAL_MS || 60_000),
+);
+let contentDraftScheduler = null;
+const CONTENT_PERFORMANCE_REVIEW_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.CONTENT_PERFORMANCE_REVIEW_INTERVAL_MS || 86_400_000),
+);
+let contentPerformanceReviewScheduler = null;
 
 function getDeploymentNextRunAt(recurrenceMinutes = DEFAULT_MONITOR_RECURRENCE_MINUTES) {
   return new Date(Date.now() + Math.max(1, Number(recurrenceMinutes) || DEFAULT_MONITOR_RECURRENCE_MINUTES) * 60_000).toISOString();
@@ -9237,6 +9397,55 @@ function stopAutomationScheduler() {
   automationScheduler = null;
 }
 
+function startContentDraftScheduler() {
+  if (contentDraftScheduler) return;
+  contentDraftScheduler = setInterval(() => {
+    runContentDraftSchedulerTick().catch((err) => {
+      console.error('[content-draft-scheduler] interval error:', err.message);
+    });
+  }, CONTENT_DRAFT_SCHEDULER_INTERVAL_MS);
+  runContentDraftSchedulerTick().catch((err) => {
+    console.error('[content-draft-scheduler] initial tick failed:', err.message);
+  });
+}
+
+function stopContentDraftScheduler() {
+  if (!contentDraftScheduler) return;
+  clearInterval(contentDraftScheduler);
+  contentDraftScheduler = null;
+}
+
+async function runContentPerformanceReviewTick() {
+  const sb = supabaseForServerData();
+  if (!sb) return;
+  const { data, error } = await sb.from('content_performance').select('company_id').limit(1000);
+  if (error) {
+    if (error.code !== '42P01') console.warn('[content-performance-review] query failed:', error.message);
+    return;
+  }
+  const companyIds = [...new Set((data || []).map((row) => row.company_id).filter(Boolean))];
+  for (const companyId of companyIds) {
+    await syncOwnedContentPerformance({ companyId, supabaseClient: sb }).catch((err) => {
+      console.warn(`[content-performance-review] sync failed for ${companyId}:`, err.message);
+    });
+    const result = await reviewContentPerformance({ companyId, supabaseClient: sb });
+    if (result.status === 'error') console.warn(`[content-performance-review] ${companyId}:`, result.error);
+  }
+}
+
+function startContentPerformanceReviewScheduler() {
+  if (contentPerformanceReviewScheduler) return;
+  contentPerformanceReviewScheduler = setInterval(() => {
+    runContentPerformanceReviewTick().catch((err) => console.error('[content-performance-review] interval error:', err.message));
+  }, CONTENT_PERFORMANCE_REVIEW_INTERVAL_MS);
+}
+
+function stopContentPerformanceReviewScheduler() {
+  if (!contentPerformanceReviewScheduler) return;
+  clearInterval(contentPerformanceReviewScheduler);
+  contentPerformanceReviewScheduler = null;
+}
+
 // ── Outreach scheduled-send reconciler ──────────────────────────────────────
 const OUTREACH_SCHEDULER_INTERVAL_MS = Math.max(
   15_000,
@@ -9257,6 +9466,13 @@ async function runOutreachSchedulerTick() {
       console.info(
         `[outreach-scheduler] processed ${results.length}:`,
         results.map((r) => `${r.prospectId}:${r.status}`).join(', '),
+      );
+    }
+    const reviews = await reviewOutreachTargetPacing();
+    if (reviews.length > 0) {
+      console.info(
+        `[outreach-target-review] completed ${reviews.length}:`,
+        reviews.map((r) => `${r.runId}:${r.status}`).join(', '),
       );
     }
   } catch (err) {
@@ -9525,6 +9741,8 @@ function startBackendRuntime() {
     startWorker();
     startDeploymentScheduler();
     startAutomationScheduler();
+    startContentDraftScheduler();
+    startContentPerformanceReviewScheduler();
     startOutreachScheduler();
     startOnboardBriefingScheduler();
     if (!nightlyScheduler) {
@@ -9556,6 +9774,8 @@ async function stopBackendRuntime() {
   }
   stopAutomationScheduler();
   stopDeploymentScheduler();
+  stopContentDraftScheduler();
+  stopContentPerformanceReviewScheduler();
   stopOutreachScheduler();
   if (nightlyScheduler) {
     nightlyScheduler.stop();
@@ -9579,6 +9799,51 @@ app.get("/api/integrations", async (req, res) => {
   } catch (err) {
     console.error('[integrations] getConnectors error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/integrations/github/repositories ─────────────────────────────
+// Repository-based publishing must never guess a repository. Return the
+// authenticated user's visible repositories so the UI can require an explicit
+// selection before a blog or landing-page push.
+app.get("/api/integrations/github/repositories", async (req, res) => {
+  const companyId = req.query.companyId || req.query.workspaceId || req.query.userId;
+  if (!companyId) return res.status(400).json({ error: "companyId is required" });
+  try {
+    const rows = [];
+    for (let page = 1; page <= 5; page += 1) {
+      const result = await executeComposioActionForEntities(
+        "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER",
+        { per_page: 100, page, affiliation: "owner,collaborator,organization_member" },
+        [companyId],
+      );
+      if (result?.error) {
+        if (!rows.length) return res.status(502).json({ error: result.error, repositories: [] });
+        break;
+      }
+      const source = result?.data || result?.result || result;
+      const pageRows = Array.isArray(source)
+        ? source
+        : source?.repositories || source?.data || source?.items || source?.repos || [];
+      rows.push(...pageRows);
+      if (pageRows.length < 100) break;
+    }
+    const repositories = rows
+      .map((repo) => ({
+        id: repo?.id ?? null,
+        full_name: repo?.full_name || (repo?.owner?.login && repo?.name ? `${repo.owner.login}/${repo.name}` : null),
+        owner: repo?.owner?.login || repo?.owner?.name || null,
+        name: repo?.name || null,
+        default_branch: repo?.default_branch || "main",
+        private: Boolean(repo?.private),
+        html_url: repo?.html_url || repo?.url || null,
+        description: repo?.description || null,
+      }))
+      .filter((repo) => repo.full_name && repo.owner && repo.name);
+    res.json({ repositories, count: repositories.length });
+  } catch (err) {
+    console.error("[integrations/github/repositories]", err.message);
+    res.status(500).json({ error: err.message, repositories: [] });
   }
 });
 
@@ -10515,25 +10780,8 @@ app.post("/api/company-intel/companies/:id/generate", async (req, res) => {
       directGroqError = err instanceof Error ? err : new Error(String(err));
     }
 
-    // ── Step 3: Fallback — CrewAI ────────────────────────────────────────────────
     if (directGroqError) {
-      const CREWAI_URL = process.env.CREWAI_URL || "http://localhost:8002";
-      console.warn(`Direct Groq failed, falling back to CrewAI: ${directGroqError.message}`);
-      const resp = await fetch(`${CREWAI_URL}/api/crewai/company-intel/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          company_name: entry.company.companyName,
-          company_url: entry.company.websiteUrl,
-          artifact_type: type,
-          inputs,
-          company_profile: entry.company.profile,
-        }),
-      });
-      if (!resp.ok) throw new Error(`CrewAI responded with ${resp.status}`);
-      const crewData = await resp.json();
-      if (crewData.status === "failed") throw new Error(crewData.error || "CrewAI generation failed");
-      entry.artifacts[type] = { type, updatedAt: crewData.generated_at || now, data: normalizeArtifact(type, crewData.data) };
+      throw directGroqError;
     }
 
     entry.company.updatedAt = now;
@@ -10599,23 +10847,7 @@ async function generateCompanyIntelArtifact(entry, type, inputs) {
   }
 
   if (directError) {
-    const CREWAI_URL = process.env.CREWAI_URL || "http://localhost:8002";
-    console.warn(`Direct generation failed, falling back to CrewAI for ${type}: ${directError.message}`);
-    const resp = await fetch(`${CREWAI_URL}/api/crewai/company-intel/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        company_name: entry.company.companyName,
-        company_url: entry.company.websiteUrl,
-        artifact_type: type,
-        inputs,
-        company_profile: entry.company.profile,
-      }),
-    });
-    if (!resp.ok) throw new Error(`CrewAI responded with ${resp.status}`);
-    const crewData = await resp.json();
-    if (crewData.status === "failed") throw new Error(crewData.error || "CrewAI generation failed");
-    entry.artifacts[type] = { type, updatedAt: crewData.generated_at || now, data: normalizeArtifact(type, crewData.data) };
+    throw directError;
   }
 
   entry.company.updatedAt = now;
@@ -10995,7 +11227,7 @@ app.get("/api/analytics/ga4/properties", async (req, res) => {
         const propsRes = await runComposioAction(accountId, "GOOGLE_ANALYTICS_LIST_PROPERTIES_FILTERED", {
           filter: `parent:${acctId}`,
         }, apiKey);
-        const props = propsRes?.properties || propsRes?.data?.properties || [];
+        const props = propsRes?.properties || propsRes?.data?.properties || propsRes?.response_data?.properties || [];
         for (const p of props) {
           properties.push({
             id:          p.name || p.id,           // e.g. "properties/456"
@@ -11008,7 +11240,12 @@ app.get("/api/analytics/ga4/properties", async (req, res) => {
       } catch { /* skip failing account */ }
     }
 
-    res.json({ properties, preferred: getPreferredGa4PropertyId(companyId) || null, needsSelection: properties.length > 1 && !getPreferredGa4PropertyId(companyId) });
+    const preferred = getPreferredGa4PropertyId(companyId) || null;
+    // Keep the picker open until the user explicitly selects/enters a property.
+    // Some Composio Google Analytics connections expose accounts but currently
+    // return a tool mismatch for the property-list action; the UI provides a
+    // manual property-ID fallback in that case.
+    res.json({ properties, preferred, needsSelection: !preferred });
   } catch (err) {
     console.error("[ga4/properties]", err.message);
     res.status(500).json({ error: err.message });
@@ -11024,7 +11261,7 @@ app.get("/api/analytics/gsc/sites", async (req, res) => {
   try {
     const accountId = await resolveAnalyticsAccountId(companyId, "google_search_console", apiKey);
     const result = await runGscComposioAction(accountId, "GOOGLE_SEARCH_CONSOLE_LIST_SITES", {}, apiKey);
-    const rawSites = result?.siteEntry || result?.data?.siteEntry || result?.sites || [];
+    const rawSites = result?.siteEntry || result?.data?.siteEntry || result?.response_data?.siteEntry || result?.response_data?.sites || result?.sites || [];
     const sites = rawSites.map(s => ({
       id: s.siteUrl || s.site_url || s,
       siteUrl: s.siteUrl || s.site_url || s,
@@ -11032,7 +11269,7 @@ app.get("/api/analytics/gsc/sites", async (req, res) => {
       permissionLevel: s.permissionLevel || s.permission_level || "unknown",
     })).filter(s => s.siteUrl);
     const preferred = getPreferredGscSiteUrl(companyId);
-    res.json({ sites, accounts: sites, preferred: preferred || null, needsSelection: sites.length > 1 && !preferred });
+    res.json({ sites, accounts: sites, preferred: preferred || null, needsSelection: !preferred });
   } catch (err) {
     console.error("[gsc/sites]", err.message);
     res.status(500).json({ error: err.message });
@@ -11515,8 +11752,12 @@ async function fetchGSCData(entityId, apiKey, period, gscSiteUrl = null) {
       ...(gscSiteUrl ? { siteUrl: gscSiteUrl } : {}),
     }, apiKey).catch(() => null);
 
-    const rows = queryData?.rows || [];
-    const totalRow = totals?.rows?.[0] || null;
+    // Composio's current GSC toolkit wraps the Search Analytics payload in
+    // response_data; older versions returned rows at the top level.
+    const queryPayload = queryData?.response_data || queryData?.data?.response_data || queryData?.data || queryData || {};
+    const totalsPayload = totals?.response_data || totals?.data?.response_data || totals?.data || totals || {};
+    const rows = queryPayload?.rows || [];
+    const totalRow = totalsPayload?.rows?.[0] || null;
 
     const totalClicks      = Math.round(rows.reduce((s, r) => s + (r.clicks || 0), 0));
     const totalImpressions = Math.round(rows.reduce((s, r) => s + (r.impressions || 0), 0));
@@ -11901,18 +12142,27 @@ app.get("/api/analytics/dashboard", async (req, res) => {
     .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0))
     .slice(0, 12);
 
+  const dataNotes = [];
+  if (hasGA4 && !ga4PropertyId) dataNotes.push("Select a GA4 property to load website analytics.");
+  if (hasGA4 && ga4PropertyId && !ga4Data) dataNotes.push("GA4 is connected, but its report action did not return data.");
+  if (hasGSC && gscData && !(gscData.topQueries || []).length) dataNotes.push("Search Console returned no rows for this property and date range.");
+
   return res.json({
     lastUpdated: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
     period: period === "7d" ? "Last 7 days" : period === "90d" ? "Last 90 days" : "Last 30 days",
     connected: true,
     connectedSources,
     kpis,
-    trafficChart:     ga4Data?.trafficChart   || mock.trafficChart,
-    conversionChart:  mock.conversionChart,
-    topPages:         ga4Data?.topPages       || mock.topPages,
-    topQueries:       gscData?.topQueries     || mock.topQueries,
-    channels:         ga4Data?.channels       || mock.channels,
+    // Never fill a connected workspace's live dashboard with demo values.
+    // Empty/null sections let the UI show an honest "no data" state while a
+    // connector is connected but has no rows or its report action is unavailable.
+    trafficChart:     ga4Data?.trafficChart   || null,
+    conversionChart:  ga4Data?.conversionChart || null,
+    topPages:         ga4Data?.topPages       || null,
+    topQueries:       gscData?.topQueries     || null,
+    channels:         ga4Data?.channels       || null,
     topAdCampaigns,
+    dataNote: dataNotes.join(" ") || null,
   });
 });
 
@@ -13175,32 +13425,144 @@ app.post("/api/outcomes/go-live", async (req, res) => {
   }
 });
 
-// ── POST /api/content-studio/distribute ────────────────────────────────────
-// Saves a content post as a draft (or schedules it for review) from AgentRunPanel.
-// Platforms: linkedin, facebook_instagram, website_blog
-// Modes: publish (save now), schedule (save with publish_at)
+// ── Content Studio lifecycle ───────────────────────────────────────────────
+// All social publishing is human-gated: create draft → approve → schedule or
+// publish. The legacy route remains supported for existing callers.
+const CONTENT_PLATFORMS = new Set([
+  "linkedin", "instagram", "facebook", "twitter", "x", "reddit", "youtube",
+  "facebook_instagram", "website_blog",
+]);
+
+app.post("/api/content-studio/performance/sync", async (req, res) => {
+  const companyId = String(req.body?.companyId || req.body?.workspaceId || "");
+  if (!companyId) return res.status(400).json({ error: "companyId is required" });
+  const result = await syncOwnedContentPerformance({
+    companyId,
+    supabaseClient: supabaseForServerData(),
+    platforms: Array.isArray(req.body?.platforms) ? req.body.platforms : null,
+  });
+  res.status(result.status === "error" ? 502 : 200).json(result);
+});
+
+app.get("/api/content-studio/performance", async (req, res) => {
+  const companyId = String(req.query.companyId || req.query.workspaceId || "");
+  if (!companyId) return res.status(400).json({ error: "companyId is required" });
+  const sb = supabaseForServerData();
+  if (!sb) return res.status(503).json({ error: "Database not available" });
+  const since = new Date(Date.now() - Math.max(1, Number(req.query.days) || 30) * 86400000).toISOString();
+  const { data, error } = await sb.from("content_performance").select("*").eq("company_id", companyId).gte("published_at", since).order("published_at", { ascending: false }).limit(500);
+  if (error) return res.status(error.code === "42P01" ? 200 : 500).json(error.code === "42P01" ? { items: [], recommendations: [], note: "Run 008_content_performance.sql" } : { error: error.message });
+  const { data: corrections } = await sb.from("content_course_corrections").select("*").eq("company_id", companyId).eq("status", "pending").order("created_at", { ascending: false }).limit(50);
+  res.json({ items: data || [], recommendations: corrections || [], count: (data || []).length });
+});
+
+app.post("/api/content-studio/performance/review", async (req, res) => {
+  const companyId = String(req.body?.companyId || req.body?.workspaceId || "");
+  if (!companyId) return res.status(400).json({ error: "companyId is required" });
+  const result = await reviewContentPerformance({ companyId, supabaseClient: supabaseForServerData(), days: Number(req.body?.days) || 30 });
+  res.status(result.status === "error" ? 502 : 200).json(result);
+});
+
+function normalizeContentPlatform(platform) {
+  const value = String(platform || "").toLowerCase().trim();
+  return value === "twitter" ? "x" : value;
+}
+
+function contentPayload(row) {
+  return row?.payload && typeof row.payload === "object" ? row.payload : {};
+}
+
+function extractContentExternal(result = {}) {
+  const source = result?.result || result?.data || result || {};
+  return {
+    id: source.id || source.post_id || source.tweet_id || source.share_id || source.media_id || source.creation_id || source.container_id || null,
+    url: result.url || source.url || source.permalink || source.post_url || source.share_url || null,
+  };
+}
+
+async function publishContentDraftById(id, { system = false } = {}) {
+  const sb = supabaseForServerData();
+  if (!sb) return { ok: false, error: "Database not available" };
+  const { data: row, error: readError } = await sb.from("content_drafts").select("*").eq("id", id).single();
+  if (readError || !row) return { ok: false, error: readError?.message || "Content draft not found" };
+  if (!system && !["draft", "approved", "failed"].includes(String(row.status))) {
+    return { ok: false, error: `Draft is already ${row.status}` };
+  }
+  if (!system && row.status === "draft") {
+    return { ok: false, error: "Approve this draft before publishing" };
+  }
+
+  await sb.from("content_drafts").update({ status: "publishing", last_error: null }).eq("id", id);
+  const payload = contentPayload(row);
+  const kind = normalizeContentPlatform(row.platform);
+  try {
+    const { executeOutcomeGoLive } = await import("./outcome-go-live.js");
+    const result = await executeOutcomeGoLive({
+      kind,
+      workspaceId: row.company_id,
+      companyId: row.company_id,
+      preferredConnector: row.connector || undefined,
+      payload: { ...payload, platform: kind },
+    });
+    if (!result.ok) {
+      await sb.from("content_drafts").update({ status: "failed", last_error: result.error || "Publish failed" }).eq("id", id);
+      return { ok: false, id, error: result.error || "Publish failed", result };
+    }
+    const external = extractContentExternal(result);
+    await sb.from("content_drafts").update({
+      status: "published",
+      published_at: new Date().toISOString(),
+      connector: result.connector || row.connector || null,
+      external_post_id: external.id,
+      external_url: external.url,
+      metrics: { ...(row.metrics || {}), publish_result: result, published_by: system ? "scheduler" : "user" },
+      last_error: null,
+    }).eq("id", id);
+    return { ok: true, id, status: "published", connector: result.connector, external, result };
+  } catch (error) {
+    const message = String(error?.message || error);
+    await sb.from("content_drafts").update({ status: "failed", last_error: message }).eq("id", id);
+    return { ok: false, id, error: message };
+  }
+}
+
+async function runContentDraftSchedulerTick() {
+  const sb = supabaseForServerData();
+  if (!sb) return;
+  const { data, error } = await sb
+    .from("content_drafts")
+    .select("id")
+    .eq("status", "scheduled")
+    .lte("publish_at", new Date().toISOString())
+    .order("publish_at", { ascending: true })
+    .limit(20);
+  if (error) {
+    if (error.code !== "42P01") console.warn("[content-draft-scheduler] query failed:", error.message);
+    return;
+  }
+  for (const row of data || []) {
+    const result = await publishContentDraftById(row.id, { system: true });
+    if (!result.ok) console.warn(`[content-draft-scheduler] ${row.id}:`, result.error);
+  }
+}
+
+// Saves a draft, approves, schedules, or explicitly publishes a content item.
 app.post("/api/content-studio/distribute", async (req, res) => {
-  const { companyId, mode, platform, publishAt, payload } = req.body || {};
+  const { companyId, mode, action, live, platform, publishAt, payload, connector } = req.body || {};
 
   if (!companyId || typeof companyId !== "string") {
     return res.status(400).json({ error: "companyId is required" });
   }
-  const validPlatforms = [
-    "linkedin",
-    "facebook_instagram",
-    "website_blog",
-    "instagram",
-    "facebook",
-    "twitter",
-  ];
-  if (!platform || !validPlatforms.includes(platform)) {
-    return res.status(400).json({ error: `platform must be one of: ${validPlatforms.join(", ")}` });
+  const canonicalPlatform = normalizeContentPlatform(platform);
+  if (!platform || !CONTENT_PLATFORMS.has(String(platform).toLowerCase())) {
+    return res.status(400).json({ error: `platform must be one of: ${[...CONTENT_PLATFORMS].join(", ")}` });
   }
-  const validModes = ["publish", "schedule"];
-  if (!mode || !validModes.includes(mode)) {
-    return res.status(400).json({ error: "mode must be 'publish' or 'schedule'" });
+  const requested = String(action || mode || "draft").toLowerCase();
+  const effectiveAction = requested === "publish" && live !== true ? "draft" : requested;
+  if (!["draft", "approve", "schedule", "publish"].includes(effectiveAction)) {
+    return res.status(400).json({ error: "action must be draft, approve, schedule, or publish" });
   }
-  if (mode === "schedule" && !publishAt) {
+  if (["schedule"].includes(effectiveAction) && !publishAt) {
     return res.status(400).json({ error: "publishAt is required for schedule mode" });
   }
 
@@ -13214,16 +13576,16 @@ app.post("/api/content-studio/distribute", async (req, res) => {
   const cta = typeof payload?.cta === "string" ? payload.cta : null;
   const hashtags = Array.isArray(payload?.hashtags) ? payload.hashtags : [];
 
-  const status = mode === "schedule" ? "scheduled" : "draft";
-  const publish_at = mode === "schedule" ? new Date(publishAt).toISOString() : null;
+  const status = effectiveAction === "schedule" ? "scheduled" : ["approve", "publish"].includes(effectiveAction) ? "approved" : "draft";
+  const publish_at = effectiveAction === "schedule" ? new Date(publishAt).toISOString() : null;
 
   try {
     const { data, error } = await sb
       .from("content_drafts")
       .insert({
         company_id: companyId,
-        platform,
-        mode,
+        platform: canonicalPlatform,
+        mode: effectiveAction,
         status,
         title,
         post,
@@ -13231,8 +13593,14 @@ app.post("/api/content-studio/distribute", async (req, res) => {
         hashtags,
         payload: payload || {},
         publish_at,
+        approved_at: ["approve", "schedule"].includes(effectiveAction) ? new Date().toISOString() : null,
+        connector: connector || null,
+        campaign_id: payload?.campaign_id || payload?.campaignId || null,
+        content_pillar: payload?.content_pillar || payload?.contentPillar || null,
+        goal: payload?.goal || null,
+        priority: payload?.priority || "normal",
       })
-      .select("id")
+      .select("id, status, publish_at")
       .single();
 
     if (error) {
@@ -13247,21 +13615,124 @@ app.post("/api/content-studio/distribute", async (req, res) => {
     }
 
     const platformLabel =
-      platform === "linkedin" ? "LinkedIn" :
-      platform === "instagram" ? "Instagram" :
-      platform === "facebook" || platform === "facebook_instagram" ? "Facebook" :
-      platform === "twitter" ? "X" :
+      canonicalPlatform === "linkedin" ? "LinkedIn" :
+      canonicalPlatform === "instagram" ? "Instagram" :
+      canonicalPlatform === "facebook" || canonicalPlatform === "facebook_instagram" ? "Facebook" :
+      canonicalPlatform === "x" ? "X" :
+      canonicalPlatform === "reddit" ? "Reddit" :
+      canonicalPlatform === "youtube" ? "YouTube" :
       "Google Docs";
 
     const summary =
-      mode === "schedule"
+      effectiveAction === "schedule"
         ? `${platformLabel} draft scheduled for ${new Date(publishAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`
-        : `${platformLabel} draft saved (ID: ${data?.id?.slice(0, 8) ?? "—"})`;
+        : effectiveAction === "approve"
+          ? `${platformLabel} draft approved`
+          : `${platformLabel} draft saved (ID: ${data?.id?.slice(0, 8) ?? "—"})`;
 
-    res.json({ id: data?.id, summary, platform, publish_at, status });
+    if (effectiveAction === "publish") {
+      const result = await publishContentDraftById(data.id);
+      return res.status(result.ok ? 200 : 502).json({ ...result, summary: result.ok ? `${platformLabel} published` : result.error });
+    }
+    res.json({ id: data?.id, summary, platform: canonicalPlatform, publish_at, status });
   } catch (err) {
     console.error("[distribute] Unexpected error:", err);
     res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/content-studio/drafts", async (req, res) => {
+  const companyId = String(req.query.companyId || req.query.workspaceId || "");
+  if (!companyId) return res.status(400).json({ error: "companyId is required" });
+  const sb = supabaseForServerData();
+  if (!sb) return res.status(503).json({ error: "Database not available" });
+  const status = req.query.status ? String(req.query.status) : null;
+  let query = sb.from("content_drafts").select("*").eq("company_id", companyId).order("created_at", { ascending: false }).limit(200);
+  if (status) query = query.eq("status", status);
+  const { data, error } = await query;
+  if (error) return res.status(error.code === "42P01" ? 200 : 500).json(error.code === "42P01" ? { items: [] } : { error: error.message });
+  res.json({ items: data || [], count: (data || []).length });
+});
+
+app.post("/api/content-studio/drafts/:id/approve", async (req, res) => {
+  const sb = supabaseForServerData();
+  if (!sb) return res.status(503).json({ error: "Database not available" });
+  const { data, error } = await sb.from("content_drafts").update({ status: "approved", mode: "approve", approved_at: new Date().toISOString(), last_error: null }).eq("id", req.params.id).select("*").single();
+  if (error) return res.status(404).json({ error: error.message });
+  res.json({ ok: true, item: data });
+});
+
+app.post("/api/content-studio/drafts/:id/publish", async (req, res) => {
+  const result = await publishContentDraftById(req.params.id);
+  res.status(result.ok ? 200 : 502).json(result);
+});
+
+app.post("/api/content-studio/drafts/:id/schedule", async (req, res) => {
+  const publishAt = req.body?.publishAt;
+  if (!publishAt) return res.status(400).json({ error: "publishAt is required" });
+  const sb = supabaseForServerData();
+  if (!sb) return res.status(503).json({ error: "Database not available" });
+  const { data, error } = await sb.from("content_drafts").update({ status: "scheduled", mode: "schedule", publish_at: new Date(publishAt).toISOString(), approved_at: new Date().toISOString(), last_error: null }).eq("id", req.params.id).select("*").single();
+  if (error) return res.status(404).json({ error: error.message });
+  res.json({ ok: true, item: data });
+});
+
+app.get("/api/content-studio/facebook/pages", async (req, res) => {
+  const companyId = String(req.query.companyId || req.query.workspaceId || "");
+  if (!companyId) return res.status(400).json({ error: "companyId is required" });
+  try {
+    const { executeComposioActionForEntities } = await import("./mcp-router.js");
+    const result = await executeComposioActionForEntities("FACEBOOK_LIST_MANAGED_PAGES", {}, [companyId]);
+    if (result?.error) return res.status(502).json({ error: result.error });
+    const data = result?.result || result?.data || result || {};
+    const pages = Array.isArray(data) ? data : data.pages || data.data || [];
+    res.json({ items: pages.map((page) => ({
+      id: page.id || page.page_id,
+      name: page.name || page.page_name,
+      category: page.category || null,
+      picture: page.picture?.data?.url || page.picture || null,
+    })).filter((page) => page.id) });
+  } catch (error) {
+    res.status(502).json({ error: String(error?.message || error) });
+  }
+});
+
+app.get("/api/content-studio/reddit/rules", async (req, res) => {
+  const companyId = String(req.query.companyId || req.query.workspaceId || "");
+  const subreddit = String(req.query.subreddit || "").replace(/^r\//, "").trim();
+  if (!companyId || !subreddit) return res.status(400).json({ error: "companyId and subreddit are required" });
+  try {
+    const { executeComposioActionForEntities } = await import("./mcp-router.js");
+    const result = await executeComposioActionForEntities("REDDIT_GET_SUBREDDIT_RULES", { subreddit, subreddit_name: subreddit }, [companyId]);
+    if (result?.error) return res.status(502).json({ error: result.error });
+    res.json({ subreddit, rules: result?.result || result?.data || result || {} });
+  } catch (error) {
+    res.status(502).json({ error: String(error?.message || error) });
+  }
+});
+
+app.post("/api/content-studio/facebook/posts/:id/reschedule", async (req, res) => {
+  const publishAt = req.body?.publishAt;
+  if (!publishAt) return res.status(400).json({ error: "publishAt is required" });
+  const sb = supabaseForServerData();
+  if (!sb) return res.status(503).json({ error: "Database not available" });
+  const { data: row, error: readError } = await sb.from("content_drafts").select("*").eq("id", req.params.id).single();
+  if (readError || !row) return res.status(404).json({ error: readError?.message || "Content draft not found" });
+  const externalId = row.external_post_id || row.payload?.external_post_id;
+  if (!externalId) return res.status(400).json({ error: "No Facebook post id is stored for this draft" });
+  try {
+    const { executeComposioActionForEntities } = await import("./mcp-router.js");
+    const result = await executeComposioActionForEntities("FACEBOOK_RESCHEDULE_POST", {
+      post_id: externalId,
+      scheduled_publish_time: Math.floor(new Date(publishAt).getTime() / 1000),
+      page_id: row.payload?.page_id || row.payload?.pageId || undefined,
+    }, [row.company_id]);
+    if (result?.error) return res.status(502).json({ error: result.error });
+    const { data, error } = await sb.from("content_drafts").update({ status: "scheduled", publish_at: new Date(publishAt).toISOString(), last_error: null }).eq("id", row.id).select("*").single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true, item: data, provider_result: result });
+  } catch (error) {
+    res.status(502).json({ error: String(error?.message || error) });
   }
 });
 
