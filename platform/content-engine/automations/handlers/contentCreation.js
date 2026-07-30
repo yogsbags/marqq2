@@ -695,8 +695,22 @@ Rules from page-cro / copywriting:
     // capture_endpoint points at the Marqq public API.
     if (leadMagnet && captureDestination === 'google_sheets' && html && !/<form\b/i.test(html)) {
       const attr = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      // Normalize the model's hero CTA so it always targets the real form.
+      // Models commonly return a bare <button>, which otherwise has no
+      // destination and can lose the branded CTA treatment in a shell.
+      const firstButtonStart = html.search(/<button\b[^>]*>/i);
+      if (firstButtonStart >= 0) {
+        const firstButtonEnd = html.indexOf('</button>', firstButtonStart);
+        if (firstButtonEnd >= 0) {
+          const buttonOpenEnd = html.indexOf('>', firstButtonStart);
+          const buttonText = html.slice(buttonOpenEnd + 1, firstButtonEnd);
+          html = `${html.slice(0, firstButtonStart)}<a href="#marqq-lead-magnet" class="marqq-primary-cta">${buttonText}</a>${html.slice(firstButtonEnd + '</button>'.length)}`;
+        }
+      }
       const form = `<section id="marqq-lead-magnet" aria-labelledby="marqq-lead-magnet-title"><h2 id="marqq-lead-magnet-title">Get your free ${attr(leadMagnet)}</h2><p>Enter your details and we’ll send it to you.</p><form data-marqq-lead-form><label>First name<input name="name" autocomplete="given-name" required></label><label>Email<input type="email" name="email" autocomplete="email" required></label><button type="submit">${attr(cta)}</button><p data-marqq-form-status role="status"></p></form><script>(function(){const form=document.querySelector('[data-marqq-lead-form]');if(!form)return;form.addEventListener('submit',async function(event){event.preventDefault();const status=form.querySelector('[data-marqq-form-status]');status.textContent='Saving…';try{const response=await fetch('${attr(captureEndpoint)}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:'${attr(companyId)}',name:form.elements.name.value,email:form.elements.email.value,lead_magnet:'${attr(leadMagnet)}',source:window.location.href})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Could not save your details');status.textContent='You’re in — check your inbox for the download.';form.reset();}catch(error){status.textContent=error.message||'Could not save your details';}});})();</script></section>`;
       html = html.replace(/<\/body>/i, `${form}</body>`);
+      const captureCss = `<style id="marqq-lead-capture-styles">.marqq-primary-cta{display:inline-flex;align-items:center;justify-content:center;padding:.95rem 1.35rem;border-radius:999px;background:#E8A341;color:#0F3D2E;text-decoration:none;font-weight:700;cursor:pointer}.marqq-primary-cta:hover{filter:brightness(.96)}#marqq-lead-magnet{max-width:900px;margin:2rem auto;padding:2rem;border-radius:24px;background:#0F3D2E;color:#FAF7F0}#marqq-lead-magnet form{display:grid;gap:1rem;max-width:680px}#marqq-lead-magnet label{display:grid;gap:.4rem;color:#FAF7F0}#marqq-lead-magnet input{padding:.85rem 1rem;border-radius:10px;border:1px solid #A8C4B5;font:inherit}#marqq-lead-magnet button{width:max-content;padding:.9rem 1.25rem;border:0;border-radius:999px;background:#E8A341;color:#0F3D2E;font:inherit;font-weight:700;cursor:pointer}</style>`;
+      html = html.replace(/<\/head>/i, `${captureCss}</head>`);
     }
 
     return {
