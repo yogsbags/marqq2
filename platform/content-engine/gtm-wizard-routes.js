@@ -615,6 +615,31 @@ export const GTM_AUTO_STRATEGY_SECTIONS = [
   { id: "timeline_roadmap", title: "Timeline & roadmap" },
 ];
 
+const GTM_AUTO_SECTION_SKILL_KEYS = {
+  market_analysis: "gtm_strategy_doc",
+  positioning_messaging: "positioning_messaging",
+  distribution_channels: "channel_strategy",
+  marketing_strategy: "marketing_strategy",
+  sales_strategy: "sales_enablement",
+  launch_plan: "launch-strategy",
+  measurement_optimization: "analytics-tracking",
+  risks_contingencies: "gtm_strategy_doc",
+  timeline_roadmap: "gtm_strategy_doc",
+};
+
+const LAST30_MARKET_ANALYSIS_GUIDE = `## Supplemental skill: last30days (market analysis mode)
+Use a recent-signal market lens for market_analysis:
+- Prioritize what appears urgent, changing, or newly active in the last 30 days over timeless generic segmentation.
+- Look for buying triggers, active debates, launches, hiring, regulation, partnerships, funding, category shifts, and language customers are using right now.
+- Prefer "where we can win now" over broad TAM framing.
+- Separate strong signals from assumptions. If context does not prove a recent wedge, say "likely" or "test first" instead of asserting certainty.
+- Output should answer:
+  1. Which segment / wedge looks most actionable now?
+  2. Why now?
+  3. What second / third segments should follow?
+  4. What should be deprioritized until proof appears?
+- Do not turn this into a channel plan or campaign brief.`;
+
 /** Interview section → strategy sections generated after answers (Brand DNA review). */
 export const GTM_INTERVIEW_STRATEGY_OUTPUTS = {
   module: { cta: "Continue", outputs: [] },
@@ -3923,6 +3948,7 @@ export function registerGtmWizardRoutes(app, deps) {
    * Uses Brand DNA + onboarding + prior approved auto sections.
    */
   app.post("/api/gtm/auto-sections/generate", async (req, res) => {
+    let fallback = null;
     try {
       const {
         sectionId,
@@ -3946,8 +3972,16 @@ export function registerGtmWizardRoutes(app, deps) {
       const company = String(companyName || brandDna?.companyName || "Company").trim();
       const site = String(websiteUrl || brandDna?.websiteUrl || "").trim();
       const prior = Array.isArray(priorSections) ? priorSections : [];
+      const skillTaskKey = GTM_AUTO_SECTION_SKILL_KEYS[def.id] || "gtm_strategy_doc";
+      const skillPack = resolveSkillPack(skillTaskKey);
+      const skillIds = Array.from(
+        new Set([...(skillPack.primary || []), ...(skillPack.secondary || [])].filter(Boolean))
+      );
+      const skillPlaybook = await loadMarketingSkillsForTask(skillTaskKey);
+      const supplementalSkillBlock =
+        def.id === "market_analysis" ? LAST30_MARKET_ANALYSIS_GUIDE : "";
 
-      const fallback = {
+      fallback = {
         id: def.id,
         title: def.title,
         channel: "",
@@ -3986,11 +4020,28 @@ Return STRICT JSON only:
 }
 Include 2-4 subsections with concrete detail. No Slack #channel headers.
 
+${skillPlaybook || ""}
+${supplementalSkillBlock || ""}
+
 Rules:
 - This is a RECOMMENDATION the user can edit — specific plays, tradeoffs, owners (roles), measurement.
 - Do not ask the user questions. Do not invent fake logos or fake metrics.
 - Prefer India/GCC/US realism when geography appears in context.
 - Include at least one hard choice or explicit deprioritization.
+- SECTION-SPECIFIC:
+  - If id = "market_analysis": focus on beachhead segment, why that segment first, sequencing into next segments, timing/buying triggers, and what to deprioritize.
+  - If id = "market_analysis": do NOT prescribe channel tactics like LinkedIn ads, webinars, outreach cadences, landing pages, or budget reallocations here.
+  - If id = "market_analysis": do NOT invent KPI lifts or CAC/ROI deltas unless the user context explicitly provides them.
+  - Keep market_analysis at the market/segment layer; channel and campaign execution belong to distribution_channels or marketing_strategy.
+  - If id = "positioning_messaging": focus on value proposition, claims, proof points, hooks, message hierarchy, and competitive counters.
+  - If id = "positioning_messaging": do NOT prescribe campaign plans, content kits, webinars, landing pages, outreach steps, or media allocation here.
+  - If id = "distribution_channels": focus on primary GTM motion, supporting channels, channel role, sequencing, and why each channel fits the buyer.
+  - If id = "distribution_channels": do NOT invent exact budget reallocations, named tools, outreach cadences, or KPI lifts unless the context explicitly supports them.
+  - If id = "marketing_strategy": focus on campaign spine, demand-gen narrative, offers, funnel motion, experimentation themes, and how marketing supports the north-star goal.
+  - If id = "marketing_strategy": do NOT simply repeat the channel list from distribution_channels, and do NOT invent precise percentages or quarterly KPI deltas unless given in context.
+  - If id = "sales_strategy": focus on qualification logic, conversion process, objection handling, SLAs, follow-up ownership, and stage progression.
+  - If id = "sales_strategy": do NOT fail if company context is thin; return a conservative fallback process recommendation instead of over-specific enterprise playbooks.
+  - Across ALL auto sections: if context is thin, stay directional and conditional rather than asserting unsupported vertical focus or exact numeric outcomes.
 - Stay consistent with prior approved sections when provided.`,
           },
           {
@@ -4015,6 +4066,8 @@ Rules:
                       fonts: brandDna.fonts,
                     }
                   : null,
+                skillTaskKey,
+                skillIds,
                 priorApprovedSections: prior.map((s) => ({
                   id: s.id,
                   title: s.title,
@@ -4077,6 +4130,15 @@ Rules:
         model: completion.model || process.env.GROQ_MODEL || null,
       });
     } catch (err) {
+      console.warn("[gtm-wizard] auto section generate failed:", err.message || err);
+      if (fallback) {
+        return res.json({
+          section: fallback,
+          model: null,
+          degraded: true,
+          warning: String(err.message || err),
+        });
+      }
       res.status(500).json({ error: String(err.message || err) });
     }
   });
