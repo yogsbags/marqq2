@@ -310,27 +310,15 @@ export const MODULE_MARKETING_SKILLS = {
   "lead-outreach": {
     primary: ["outbound-campaign-architect", "copywriting-first-touch", "cold-email"],
     secondary: [
-      "copywriting-vp-sequence",
-      "copywriting-manager-sequence",
-      "copywriting-ic-sequence",
       "linkedin-outbound-angle",
-      "copywriting-analyzer",
-      "copywriting-refiner",
       "campaign-angle-finder",
-      "email-sequence",
     ],
   },
   lead_outreach: {
     primary: ["outbound-campaign-architect", "copywriting-first-touch", "cold-email"],
     secondary: [
-      "copywriting-vp-sequence",
-      "copywriting-manager-sequence",
-      "copywriting-ic-sequence",
       "linkedin-outbound-angle",
-      "copywriting-analyzer",
-      "copywriting-refiner",
       "campaign-angle-finder",
-      "email-sequence",
     ],
   },
   // Paid Ads module + ICP cohort → Create Paid Ads deploy / Zara runs
@@ -365,45 +353,75 @@ export const MODULE_MARKETING_SKILLS = {
 export const OUTREACH_CHANNEL_MARKETING_SKILLS = {
   email: {
     primary: ["copywriting-first-touch", "cold-email"],
-    secondary: [
-      "outbound-campaign-architect",
-      "copywriting-vp-sequence",
-      "copywriting-manager-sequence",
-      "copywriting-ic-sequence",
-      "copywriting-analyzer",
-      "copywriting-refiner",
-      "email-sequence",
-    ],
+    secondary: [],
   },
   linkedin_dm: {
     primary: ["linkedin-outbound-angle", "copywriting"],
-    secondary: ["outbound-campaign-architect", "cold-email", "social-content", "marketing-psychology"],
+    secondary: [],
   },
   linkedin: {
     primary: ["linkedin-outbound-angle", "copywriting"],
-    secondary: ["outbound-campaign-architect", "cold-email", "social-content", "marketing-psychology"],
+    secondary: [],
   },
   whatsapp_dm: {
     primary: ["copywriting", "marketing-psychology"],
-    secondary: ["cold-email", "copywriting-refiner"],
+    secondary: [],
   },
   whatsapp: {
     primary: ["copywriting", "marketing-psychology"],
-    secondary: ["cold-email", "copywriting-refiner"],
+    secondary: [],
   },
   voicebot_script: {
     primary: ["sales-enablement", "copywriting"],
-    secondary: ["offer-definer", "marketing-psychology"],
+    secondary: [],
   },
   voicebot: {
     primary: ["sales-enablement", "copywriting"],
-    secondary: ["offer-definer", "marketing-psychology"],
+    secondary: [],
+  },
+};
+
+/**
+ * Revision is an explicit user action. Keep its pack separate so analyzer /
+ * refiner guidance is not paid for or mixed into every first-touch draft.
+ * @type {Record<string, SkillPack>}
+ */
+export const OUTREACH_REVISION_MARKETING_SKILLS = {
+  email: {
+    primary: ["cold-email", "copywriting-refiner"],
+    secondary: [],
+  },
+  linkedin_dm: {
+    primary: ["linkedin-outbound-angle", "copywriting-refiner"],
+    secondary: [],
+  },
+  linkedin: {
+    primary: ["linkedin-outbound-angle", "copywriting-refiner"],
+    secondary: [],
+  },
+  whatsapp_dm: {
+    primary: ["copywriting", "copywriting-refiner"],
+    secondary: [],
+  },
+  whatsapp: {
+    primary: ["copywriting", "copywriting-refiner"],
+    secondary: [],
+  },
+  voicebot_script: {
+    primary: ["sales-enablement", "copywriting-refiner"],
+    secondary: [],
+  },
+  voicebot: {
+    primary: ["sales-enablement", "copywriting-refiner"],
+    secondary: [],
   },
 };
 
 const skillCache = new Map();
 const PRIMARY_MAX_CHARS = 16_000;
 const SECONDARY_MAX_CHARS = 4_000;
+// Outreach prompts need the prospect and GTM context to remain dominant.
+const OUTREACH_CONTEXT_MAX_CHARS = 14_000;
 const REFERENCE_MAX_CHARS = 6_000;
 /** marketing-ideas depends on the full 139-idea catalog in references/ */
 const MARKETING_IDEAS_REFERENCE_MAX_CHARS = 14_500;
@@ -476,27 +494,42 @@ export function resolveSkillPack(taskKey) {
  * @param {string} copyType
  * @returns {SkillPack}
  */
-export function resolveOutreachChannelSkillPack(copyType) {
+export function resolveOutreachChannelSkillPack(copyType, mode = "draft") {
   const key = String(copyType || "email").trim().toLowerCase();
-  return OUTREACH_CHANNEL_MARKETING_SKILLS[key] || OUTREACH_CHANNEL_MARKETING_SKILLS.email;
+  const source = mode === "revision"
+    ? OUTREACH_REVISION_MARKETING_SKILLS
+    : OUTREACH_CHANNEL_MARKETING_SKILLS;
+  return source[key] || source.email;
 }
 
 /**
  * @param {SkillPack} mapping
  * @returns {Promise<string>}
  */
-async function buildSkillBlock(mapping) {
+async function buildSkillBlock(mapping, { maxChars = null } = {}) {
   const primaryIds = Array.isArray(mapping.primary) ? mapping.primary : [];
   const secondaryIds = Array.isArray(mapping.secondary) ? mapping.secondary : [];
+  const skillCount = new Set([...primaryIds, ...secondaryIds].filter(Boolean)).size;
+  // Reserve room for the wrapper and separators, then distribute the outreach
+  // budget so one large skill cannot crowd every other required playbook out.
+  const compactSkillMaxChars = maxChars && skillCount
+    ? Math.max(1_000, Math.floor((maxChars - 1_200) / skillCount))
+    : null;
   const sections = [];
 
   for (const skillId of primaryIds) {
-    const body = truncateSkill(await readSkillMarkdown(skillId), PRIMARY_MAX_CHARS);
+    const body = truncateSkill(
+      await readSkillMarkdown(skillId),
+      compactSkillMaxChars || PRIMARY_MAX_CHARS,
+    );
     if (body) sections.push(`### Marketing skill: ${skillId} (primary)\n${body}`);
   }
 
   for (const skillId of secondaryIds) {
-    const body = truncateSkill(await readSkillMarkdown(skillId), SECONDARY_MAX_CHARS);
+    const body = truncateSkill(
+      await readSkillMarkdown(skillId),
+      compactSkillMaxChars || SECONDARY_MAX_CHARS,
+    );
     if (body) sections.push(`### Marketing skill: ${skillId} (supporting)\n${body}`);
   }
 
@@ -510,7 +543,7 @@ async function buildSkillBlock(mapping) {
 
   if (!sections.length) return "";
 
-  return [
+  const block = [
     "## Required marketing skill playbook",
     "Execute this task using the marketing skill(s) below as the authoritative method.",
     "Follow their frameworks, checklists, and output structure where they do not conflict with any required JSON schema above.",
@@ -518,6 +551,8 @@ async function buildSkillBlock(mapping) {
     "",
     sections.join("\n\n---\n\n"),
   ].join("\n");
+
+  return maxChars && block.length > maxChars ? truncateSkill(block, maxChars) : block;
 }
 
 /**
@@ -533,20 +568,26 @@ export async function loadMarketingSkillsForArtifact(artifactType) {
  * @param {string} taskKey
  */
 export async function loadMarketingSkillsForTask(taskKey) {
-  return buildSkillBlock(resolveSkillPack(taskKey));
+  const key = String(taskKey || "").trim().toLowerCase();
+  const maxChars = key === "lead-outreach" || key === "lead_outreach"
+    ? OUTREACH_CONTEXT_MAX_CHARS
+    : null;
+  return buildSkillBlock(resolveSkillPack(taskKey), { maxChars });
 }
 
 /**
  * Skills for one Lead Outreach channel draft (injected into that channel's system prompt).
  * @param {string} copyType email | linkedin_dm | whatsapp_dm | voicebot_script
  */
-export async function loadMarketingSkillsForOutreachChannel(copyType) {
-  return buildSkillBlock(resolveOutreachChannelSkillPack(copyType));
+export async function loadMarketingSkillsForOutreachChannel(copyType, { mode = "draft" } = {}) {
+  return buildSkillBlock(resolveOutreachChannelSkillPack(copyType, mode), {
+    maxChars: OUTREACH_CONTEXT_MAX_CHARS,
+  });
 }
 
 /** Flat skill id list for a channel (primary then secondary). */
-export function listOutreachChannelSkillIds(copyType) {
-  const pack = resolveOutreachChannelSkillPack(copyType);
+export function listOutreachChannelSkillIds(copyType, { mode = "draft" } = {}) {
+  const pack = resolveOutreachChannelSkillPack(copyType, mode);
   return Array.from(
     new Set([...(pack.primary || []), ...(pack.secondary || [])].filter(Boolean)),
   );

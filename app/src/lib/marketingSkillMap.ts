@@ -188,12 +188,11 @@ export const MODULE_SKILLS: Record<string, SkillPack> = {
   'lead-intelligence': AGENT_TARGET_SKILLS.lead_intelligence,
   'lead-outreach': {
     agentName: 'sam',
+    // First-touch drafting stays lean. Sequence/analyzer/refiner skills are
+    // loaded only for the corresponding planning or revision action.
     marketingSkills: [
-      'outbound-campaign-architect',
       'copywriting-first-touch',
       'cold-email',
-      'copywriting-vp-sequence',
-      'copywriting-analyzer',
       'linkedin-outbound-angle',
     ],
     requiredConnectors: ['instantly'],

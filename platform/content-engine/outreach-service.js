@@ -1276,7 +1276,7 @@ export async function streamProspectCopyRevision({
   const note = String(instruction || '').trim()
   if (!note) throw new Error('Add a revision instruction for the AI')
 
-  const channelSkillBlock = await loadMarketingSkillsForOutreachChannel(type).catch(() => '')
+  const channelSkillBlock = await loadMarketingSkillsForOutreachChannel(type, { mode: 'revision' }).catch(() => '')
   const model = getLLMModel('agent-run') || getLLMModel('company-intel')
   const shared = sharedProspectContextBlock({
     prospect,
@@ -1354,7 +1354,7 @@ export async function streamProspectCopyRevision({
             : type === 'whatsapp_dm'
               ? 'whatsapp'
               : 'voicebot',
-      skills: listOutreachChannelSkillIds(type),
+      skills: listOutreachChannelSkillIds(type, { mode: 'revision' }),
       revised_at: new Date().toISOString(),
       last_instruction: note,
     },
