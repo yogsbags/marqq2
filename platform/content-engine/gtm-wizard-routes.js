@@ -3441,7 +3441,32 @@ export function registerGtmWizardRoutes(app, deps) {
 
       const sourceContext = moduleRow.source_context || {};
       const profile = moduleRow.profile || {};
-      const draftAnswers = sectionState[sectionId]?.answers || {};
+      const savedAnswers = sectionState[sectionId]?.answers || {};
+      const onboarding = sourceContext.onboarding || {};
+      const normalizeTimeline = (value) => {
+        const text = String(value || "").trim();
+        if (!text) return null;
+        if (/30/.test(text)) return { value: "30d", label: "30 days" };
+        if (/60/.test(text)) return { value: "60d", label: "60 days" };
+        if (/90/.test(text)) return { value: "90d", label: "90 days" };
+        if (/quarter|half/.test(text.toLowerCase())) return { value: "2_quarters", label: "This half / 2 quarters" };
+        return { value: text, label: text };
+      };
+      const onboardingAnswers = sectionId === "goals" ? {
+        ...(String(onboarding.primaryGoal || "").trim()
+          ? { priority_90d: { value: String(onboarding.primaryGoal).trim(), label: String(onboarding.primaryGoal).trim() } }
+          : {}),
+        ...(normalizeTimeline(onboarding.timelineTarget)
+          ? { timeline_target: normalizeTimeline(onboarding.timelineTarget) }
+          : {}),
+        ...(String(onboarding.quantifiedTarget || "").trim()
+          ? { quantified_target: { value: String(onboarding.quantifiedTarget).trim(), label: String(onboarding.quantifiedTarget).trim() } }
+          : {}),
+        ...(String(onboarding.successBaseline || "").trim()
+          ? { success_baseline: { value: String(onboarding.successBaseline).trim(), label: String(onboarding.successBaseline).trim() } }
+          : {}),
+      } : {};
+      const draftAnswers = { ...onboardingAnswers, ...savedAnswers };
 
       const questions = [];
       for (const q of def.questions) {

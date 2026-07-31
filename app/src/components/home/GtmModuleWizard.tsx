@@ -217,7 +217,12 @@ export function GtmModuleWizard({
           }
         }
         setAnswers(seeded);
-        setQuestionIndex(0);
+        // Onboarding already captured the outcome, timeline, target, and
+        // baseline. Start at the first genuinely unanswered GTM question;
+        // imported answers remain visible in the review summary and can be
+        // changed by going back through the section if needed.
+        const firstUnanswered = data.questions.findIndex((q) => !seeded[q.id]);
+        setQuestionIndex(firstUnanswered >= 0 ? firstUnanswered : Math.max(data.questions.length - 1, 0));
         setCustomText('');
         setMultiSelected([]);
         setPhase('interview');
@@ -226,13 +231,16 @@ export function GtmModuleWizard({
           type: 'system',
           text: `Section: ${data.title} — ${data.description}`,
         });
-        if (data.questions[0]) {
+        const firstQuestion = data.questions[firstUnanswered >= 0 ? firstUnanswered : Math.max(data.questions.length - 1, 0)];
+        if (firstQuestion) {
           pushChat({
             role: 'assistant',
             type: 'text',
-            text: data.questions[0].question,
+            text: firstUnanswered >= 0
+              ? firstQuestion.question
+              : 'All answers are already available from onboarding. Review them below, then lock the section or revise any value.',
           });
-          const first = data.questions[0];
+          const first = firstQuestion;
           if (first.type === 'multi_select' && first.selectedValue) {
             const values = String(first.selectedValue).split('||').map((s) => s.trim()).filter(Boolean);
             const labels = String(first.selectedLabel || first.selectedValue)
