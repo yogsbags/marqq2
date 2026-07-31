@@ -486,8 +486,22 @@ export function GtmStrategyDocumentView({
                   </div>
                 ))}
               </div>
-              <Button type="button" size="sm" className="mt-3 w-full gap-1.5" onClick={() => toast.message('Choose a section to start its first draft workflow.') }>
-                Choose first workstream <ArrowUpRight className="h-3.5 w-3.5" />
+              <Button
+                type="button"
+                size="sm"
+                className="mt-3 w-full gap-1.5"
+                disabled={!channelSections.length}
+                onClick={() => {
+                  const first = channelSections[0]
+                  if (!first) {
+                    toast.message('No strategy sections are available yet.')
+                    return
+                  }
+                  setWorkspaceView('strategy')
+                  setActiveId(first.id)
+                }}
+              >
+                Open first workstream <ArrowUpRight className="h-3.5 w-3.5" />
               </Button>
             </section>
 
@@ -503,14 +517,22 @@ export function GtmStrategyDocumentView({
                 {channelSections.map((section) => {
                   const target = sectionTargetFor(section.id)
                   return (
-                    <div key={section.id} className="flex items-center gap-3 py-2.5">
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => {
+                        setWorkspaceView('strategy')
+                        setActiveId(section.id)
+                      }}
+                      className="flex w-full items-center gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                    >
                       <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-medium">#{channelLabel(section)}</p>
                         <p className="truncate text-[11px] text-muted-foreground">{target?.metric || target?.contribution || 'Target needs review'}</p>
                       </div>
                       <span className="shrink-0 text-[10px] text-muted-foreground">Not started</span>
-                    </div>
+                    </button>
                   )
                 })}
               </div>
