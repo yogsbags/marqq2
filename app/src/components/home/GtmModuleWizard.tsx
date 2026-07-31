@@ -112,12 +112,14 @@ function joinMultiAnswer(values: string[], labels: string[]): GtmSectionAnswer {
 
 interface GtmModuleWizardProps {
   onDeployAgent: (req: GtmDeployRequest) => void;
+  onModuleSelect?: (id: string | null) => void;
   forceNewModule?: boolean;
   onForceNewConsumed?: () => void;
 }
 
 export function GtmModuleWizard({
   onDeployAgent,
+  onModuleSelect,
   forceNewModule = false,
   onForceNewConsumed,
 }: GtmModuleWizardProps) {
@@ -1245,6 +1247,7 @@ export function GtmModuleWizard({
             workspaceId={workspaceId || module.workspace_id || module.company_id}
             strategy={strategyDoc}
             markdown={strategyMarkdown}
+            onModuleSelect={onModuleSelect}
             onBack={() => {
               setPhase('execute');
               setStrategyDoc(null);

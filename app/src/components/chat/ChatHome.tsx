@@ -3520,6 +3520,7 @@ export function ChatHome({
         {showGtmWizard && scope === 'main' && (
           <div className="min-h-0 max-h-[min(70vh,760px)] shrink overflow-y-auto border-b border-border/70 px-4 py-4">
             <GtmModuleWizard
+              onModuleSelect={onModuleSelect}
               onDeployAgent={(req: GtmDeployRequest) => {
                 try {
                   sessionStorage.removeItem('marqq_gtm_wizard_pending');

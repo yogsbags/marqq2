@@ -28,6 +28,10 @@ export const NON_CHANNEL_IDS = new Set([
 
 /** Derive a short human-readable channel title from a module ID */
 export function moduleIdToChannelTitle(moduleId: string): string {
+  if (moduleId.startsWith('gtm-section:')) {
+    const sectionId = moduleId.split(':')[2] || 'strategy'
+    return sectionId.replace(/_/g, '-').slice(0, 24)
+  }
   if (moduleId.startsWith('ci-')) {
     const page = moduleId.slice(3);
     const CI_TITLES: Record<string, string> = {

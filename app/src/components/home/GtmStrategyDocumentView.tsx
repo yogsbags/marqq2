@@ -22,6 +22,8 @@ type Props = {
   workspaceId?: string | null
   strategy: GtmStrategyDocument
   markdown?: string
+  initialSectionId?: string
+  onModuleSelect?: (id: string | null) => void
   onBack?: () => void
   onStrategyUpdate?: (doc: GtmStrategyDocument) => void
 }
@@ -99,6 +101,8 @@ export function GtmStrategyDocumentView({
   workspaceId,
   strategy,
   markdown,
+  initialSectionId,
+  onModuleSelect,
   onBack,
   onStrategyUpdate,
 }: Props) {
@@ -111,7 +115,7 @@ export function GtmStrategyDocumentView({
     () => (strategy.sections || []).find((s) => s.id === 'executive_summary'),
     [strategy.sections],
   )
-  const [activeId, setActiveId] = useState<string>('__overview__')
+  const [activeId, setActiveId] = useState<string>(initialSectionId || '__overview__')
   const [docsConnected, setDocsConnected] = useState(false)
   const [checkingDocs, setCheckingDocs] = useState(Boolean(workspaceId))
   const [connectingDocs, setConnectingDocs] = useState(false)
@@ -146,6 +150,19 @@ export function GtmStrategyDocumentView({
     channelSectionIds.has(target.sectionId) && (target.metric || target.contribution),
   ).length
   const chatSection = chatSectionId ? channelSections.find((section) => section.id === chatSectionId) : null
+
+  useEffect(() => {
+    if (initialSectionId && channelSections.some((section) => section.id === initialSectionId)) {
+      setActiveId(initialSectionId)
+    }
+  }, [channelSections, initialSectionId])
+
+  const openSidebarSection = (sectionId: string) => {
+    setActiveId(sectionId)
+    if (workspaceId && onModuleSelect) {
+      onModuleSelect(`gtm-section:${moduleId}:${sectionId}`)
+    }
+  }
 
   useEffect(() => {
     if (!workspaceId) {
@@ -498,7 +515,7 @@ export function GtmStrategyDocumentView({
                     return
                   }
                   setWorkspaceView('strategy')
-                  setActiveId(first.id)
+                  openSidebarSection(first.id)
                 }}
               >
                 Open first workstream <ArrowUpRight className="h-3.5 w-3.5" />
@@ -522,7 +539,7 @@ export function GtmStrategyDocumentView({
                       type="button"
                       onClick={() => {
                         setWorkspaceView('strategy')
-                        setActiveId(section.id)
+                        openSidebarSection(section.id)
                       }}
                       className="flex w-full items-center gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
                     >

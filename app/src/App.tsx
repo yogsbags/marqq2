@@ -37,6 +37,7 @@ import {
 } from '@/lib/gtmTaskRegistry';
 import { CompanyIntelligenceFlow } from '@/components/modules/CompanyIntelligenceFlow';
 import { ExecutionWorkspace } from '@/components/execution/ExecutionWorkspace';
+import { GtmStrategySectionChannel } from '@/components/home/GtmStrategySectionChannel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 
@@ -419,6 +420,12 @@ function Dashboard() {
     }
     if (selectedModule === 'execution-dashboard') return <ExecutionWorkspace workstream="dashboard" onModuleSelect={handleModuleSelect} />;
     if (selectedModule === 'execution-monitoring') return <ExecutionWorkspace workstream="monitoring" onModuleSelect={handleModuleSelect} />;
+    if (selectedModule?.startsWith('gtm-section:')) {
+      const [, moduleId, sectionId] = selectedModule.split(':');
+      if (moduleId && sectionId) {
+        return <GtmStrategySectionChannel moduleId={moduleId} sectionId={sectionId} workspaceId={activeWorkspace?.id} onModuleSelect={handleModuleSelect} />;
+      }
+    }
     if (selectedModule === 'profile') return <ProfilePage />;
     if (selectedModule === 'chat-sessions') return (
       <ChatSessionsPage
