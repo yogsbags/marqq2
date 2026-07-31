@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/contexts/AuthContext'
+import { userNeedsOnboarding } from '@/lib/onboardingGate'
+import { cleanLocationHref, saveAppRefreshResume } from '@/lib/appRefreshResume'
 
 const POLL_MS = 60_000
 const CURRENT_BUILD_ID = String(import.meta.env.VITE_APP_BUILD_ID || 'dev')
@@ -25,12 +28,21 @@ async function fetchRemoteBuildId(): Promise<string | null> {
   }
 }
 
-/** Hard navigation that bypasses bfcache / stale index.html after deploys. */
-function hardReloadToLatest() {
-  const url = new URL(window.location.href)
+/**
+ * Hard navigation that bypasses bfcache / stale index.html after deploys,
+ * while preserving the signed-in screen (hash + onboarding state).
+ */
+function hardReloadToLatest(opts: { pastOnboarding: boolean; userId: string | null }) {
+  saveAppRefreshResume({
+    pastOnboarding: opts.pastOnboarding,
+    userId: opts.userId,
+  })
+
+  const clean = cleanLocationHref()
+  const url = new URL(clean.href, window.location.origin)
   url.searchParams.set('_build', String(Date.now()))
   // replace() avoids stacking history entries of stale shells
-  window.location.replace(url.pathname + url.search + url.hash)
+  window.location.replace(`${url.pathname}${url.search}${url.hash}`)
 }
 
 /**
@@ -38,6 +50,7 @@ function hardReloadToLatest() {
  * is on an older build than the server.
  */
 export function AppUpdateBanner() {
+  const { user, isAuthenticated } = useAuth()
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [remoteBuildId, setRemoteBuildId] = useState<string | null>(null)
 
@@ -81,6 +94,8 @@ export function AppUpdateBanner() {
 
   if (!updateAvailable) return null
 
+  const pastOnboarding = isAuthenticated && !!user && !userNeedsOnboarding(user)
+
   return (
     <div className="fixed inset-x-0 top-0 z-[100] flex justify-center px-3 pt-3 pointer-events-none">
       <div className="pointer-events-auto flex max-w-xl items-center gap-3 rounded-2xl border border-orange-500/40 bg-zinc-950/95 px-4 py-3 text-sm text-zinc-100 shadow-lg shadow-orange-500/10 backdrop-blur">
@@ -88,7 +103,7 @@ export function AppUpdateBanner() {
         <div className="min-w-0 flex-1">
           <p className="font-medium text-zinc-50">New version available</p>
           <p className="text-xs text-zinc-400">
-            Refresh to load the latest deploy. You stay signed in.
+            Refresh to load the latest deploy. You stay on this screen.
             {remoteBuildId ? (
               <span className="ml-1 font-mono text-zinc-500">
                 ({CURRENT_BUILD_ID.slice(0, 7)} → {remoteBuildId.slice(0, 7)})
@@ -100,7 +115,12 @@ export function AppUpdateBanner() {
           type="button"
           size="sm"
           className="h-8 shrink-0 bg-orange-500 px-3 text-xs text-white hover:bg-orange-600"
-          onClick={hardReloadToLatest}
+          onClick={() =>
+            hardReloadToLatest({
+              pastOnboarding,
+              userId: user?.id ?? null,
+            })
+          }
         >
           Refresh
         </Button>

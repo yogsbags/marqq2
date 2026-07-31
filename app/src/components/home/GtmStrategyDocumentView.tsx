@@ -1,5 +1,5 @@
 /**
- * GTM Strategy Document viewer — Slack-style channels per section,
+ * GTM Strategy Document viewer — every section is a channel in the app sidebar,
  * with PDF / Doc export and optional Google Docs open.
  */
 import { useEffect, useMemo, useState } from 'react'
@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import type { GtmStrategyDocument, GtmStrategyDocSection } from '@/types/gtm'
 import { GtmControlLoopPanel } from '@/components/home/GtmControlLoopPanel'
 import { ChatHome } from '@/components/chat/ChatHome'
+import { syncGtmSectionChannels } from '@/lib/pinnedChannels'
 
 type Props = {
   moduleId: string
@@ -156,6 +157,19 @@ export function GtmStrategyDocumentView({
       setActiveId(initialSectionId)
     }
   }, [channelSections, initialSectionId])
+
+  // Every strategy section shows up as a channel in the app sidebar, in doc order.
+  useEffect(() => {
+    if (!workspaceId || channelSections.length === 0) return
+    const updated = syncGtmSectionChannels(
+      workspaceId,
+      moduleId,
+      channelSections.map((section) => section.id),
+    )
+    window.dispatchEvent(
+      new CustomEvent('marqq:channels-updated', { detail: { channels: updated } }),
+    )
+  }, [workspaceId, moduleId, channelSections])
 
   const openSidebarSection = (sectionId: string) => {
     setActiveId(sectionId)
@@ -558,56 +572,7 @@ export function GtmStrategyDocumentView({
           <GtmControlLoopPanel moduleId={moduleId} goalAlignment={strategy.goalAlignment} />
         </div>
       ) : (
-      <div className="grid min-h-[480px] md:grid-cols-[240px_1fr]">
-        <aside className="border-r border-border/60 bg-[#3f0e40] text-white/90 dark:bg-[#1a0b1c]">
-          <div className="px-3 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
-              Strategy workspace
-            </p>
-            <p className="mt-1 truncate text-xs font-medium text-white/85">
-              {strategy.moduleName || 'GTM'}
-            </p>
-          </div>
-          <nav className="space-y-0.5 px-2 pb-3">
-            <button
-              type="button"
-              onClick={() => setActiveId('__overview__')}
-              className={cn(
-                'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition',
-                activeId === '__overview__'
-                  ? 'bg-white/15 text-white'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white',
-              )}
-            >
-              <FileText className="h-3.5 w-3.5 shrink-0 opacity-70" />
-              <span className="truncate">Executive summary</span>
-            </button>
-            <p className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
-              Channels
-            </p>
-            {channelSections.map((s) => {
-              const selected = activeId === s.id
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveId(s.id)
-                    if (chatSectionId) setChatSectionId(s.id)
-                  }}
-                  className={cn(
-                    'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition',
-                    selected ? 'bg-white/15 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white',
-                  )}
-                >
-                  <Hash className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                  <span className="truncate">{channelLabel(s)}</span>
-                </button>
-              )
-            })}
-          </nav>
-        </aside>
-
+      <div className="min-h-[480px]">
         <div className={cn(
           'min-w-0 bg-background',
           chatSection ? 'grid lg:grid-cols-[minmax(0,1fr)_360px]' : 'flex flex-col',
@@ -628,6 +593,15 @@ export function GtmStrategyDocumentView({
             </h3>
             {activeId !== '__overview__' && active?.title ? (
               <span className="truncate text-xs text-muted-foreground">{active.title}</span>
+            ) : null}
+            {activeId !== '__overview__' ? (
+              <button
+                type="button"
+                onClick={() => setActiveId('__overview__')}
+                className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <FileText className="h-3.5 w-3.5" /> Executive summary
+              </button>
             ) : null}
             {activeId !== '__overview__' && active ? (
               <button
@@ -681,9 +655,28 @@ export function GtmStrategyDocumentView({
                     </ul>
                   </div>
                 ) : null}
-                <p className="text-xs text-muted-foreground">
-                  Open a channel in the sidebar to read each strategy section in order.
-                </p>
+                <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    Strategy sections
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Each section is a channel under <span className="font-medium text-foreground">Strategy</span> in the
+                    left sidebar. Open one to read it, chat with it, and activate work.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {channelSections.map((section) => (
+                      <button
+                        key={section.id}
+                        type="button"
+                        onClick={() => openSidebarSection(section.id)}
+                        className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-foreground"
+                      >
+                        <Hash className="h-3 w-3" />
+                        {channelLabel(section)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </>
             ) : active ? (
               <>

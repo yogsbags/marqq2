@@ -30,6 +30,13 @@ import type { Conversation } from '@/types/chat';
 import { loadConversationsLocal } from '@/lib/conversationPersistence';
 import { pinChannel } from '@/lib/pinnedChannels';
 import {
+  clearAppRefreshResume,
+  cleanLocationHref,
+  isAppRefreshResumeActive,
+  peekAppRefreshResume,
+  shouldSkipOnboardingAfterRefresh,
+} from '@/lib/appRefreshResume';
+import {
   channelMetaForModule,
   isCiTaskChannel,
   moduleIdFromCiHash,
@@ -520,10 +527,43 @@ function AppContent() {
   const [finishedOnboarding, setFinishedOnboarding] = useState(false);
   const [authPathMode, setAuthPathMode] = useState<AuthPathMode | null>(() => getAuthPathMode());
 
+  // After a version-banner refresh: drop the cache-bust param and honor the resume ticket.
+  useEffect(() => {
+    const resume = peekAppRefreshResume();
+    if (!resume) {
+      // Still strip a leftover `_build` from a previous hard reload.
+      if (new URLSearchParams(window.location.search).has('_build')) {
+        const clean = cleanLocationHref();
+        window.history.replaceState(null, '', clean.href);
+      }
+      return;
+    }
+
+    const clean = cleanLocationHref();
+    if (window.location.pathname + window.location.search + window.location.hash !== clean.href) {
+      window.history.replaceState(null, '', clean.href);
+    }
+
+    if (resume.pastOnboarding && user?.id && (!resume.userId || resume.userId === user.id)) {
+      markUserOnboardedLocal(user.id);
+      setFinishedOnboarding(true);
+    }
+
+    // Clear once auth has settled so a later logout isn't blocked by the ticket.
+    if (!isLoading && (isAuthenticated || !isAppRefreshResumeActive())) {
+      // Keep the ticket briefly while auth settles; clear after we're clearly past the gate.
+      if (isAuthenticated && user) {
+        const t = window.setTimeout(() => clearAppRefreshResume(), 2_000);
+        return () => window.clearTimeout(t);
+      }
+    }
+  }, [isAuthenticated, isLoading, user?.id]);
+
   const needsOnboarding =
     !finishedOnboarding &&
     isAuthenticated &&
     !!user &&
+    !shouldSkipOnboardingAfterRefresh(user.id) &&
     userNeedsOnboarding(user);
 
   // Invite token from URL (?invite=<token>) or session (stored before login)
@@ -540,6 +580,9 @@ function AppContent() {
     const mode = getAuthPathMode(path)
 
     if (!isAuthenticated) {
+      // Version refresh in progress — don't yank the user to /login while session rehydrates.
+      if (isAppRefreshResumeActive()) return
+
       // Unauthenticated root → /login (preserve query, e.g. ?invite=)
       if (path === '/') {
         replaceAuthPath('login')
@@ -590,6 +633,25 @@ function AppContent() {
   // Show invite acceptance screen when a token is present (regardless of auth state)
   if (inviteToken && !isLoading) {
     return <InviteAccept token={inviteToken} onDone={clearInvite} />
+  }
+
+  // Version-banner refresh: keep a spinner while the session rehydrates so we never
+  // flash /login or onboarding over the screen the user was already on.
+  const refreshingVersion = isAppRefreshResumeActive();
+  if (refreshingVersion && isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <LoadingSpinner size="lg" />
+          <p className="text-muted-foreground">Loading latest version…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Auth never came back after refresh — drop the ticket and fall through to login.
+  if (refreshingVersion && !isLoading && !isAuthenticated) {
+    clearAppRefreshResume();
   }
 
   if (isLoading || (isAuthenticated && !user)) {

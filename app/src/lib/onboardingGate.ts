@@ -91,11 +91,12 @@ export function isJustSignedUpPending(): boolean {
  * Decide whether the authenticated user must complete the workspace GTM onboarding.
  *
  * Prefer showing onboarding over skipping:
- * 1. Per-user `marqq_needs_onboarding:<id>` (set at signup) → always onboard
- * 2. Session pending flag → always onboard
- * 3. Per-user local completion cache → done
- * 4. Supabase user_metadata.onboarded === true → done (returning / cross-device)
- * 5. Otherwise → needs onboarding
+ * 1. Version-refresh resume (user was already past onboarding) → stay put
+ * 2. Per-user `marqq_needs_onboarding:<id>` (set at signup) → always onboard
+ * 3. Session pending flag → always onboard
+ * 4. Per-user local completion cache → done
+ * 5. Supabase user_metadata.onboarded === true → done (returning / cross-device)
+ * 6. Otherwise → needs onboarding
  *
  * Never skip solely because of the shared `marqq_onboarded` key.
  * Auth SIGNED_IN must never clear the needs-onboarding marker.
@@ -105,6 +106,24 @@ export function userNeedsOnboarding(user: {
   onboarded?: boolean;
 } | null): boolean {
   if (!user?.id) return false;
+
+  // Version refresh: keep the same screen — don't dump them back into onboarding.
+  try {
+    // Lazy import-safe check via sessionStorage key (avoid circular deps at module load)
+    const raw = sessionStorage.getItem('marqq_app_refresh_resume');
+    if (raw) {
+      const resume = JSON.parse(raw) as {
+        at?: number;
+        pastOnboarding?: boolean;
+        userId?: string | null;
+      };
+      const fresh = typeof resume.at === 'number' && Date.now() - resume.at < 5 * 60_000;
+      const sameUser = !resume.userId || resume.userId === user.id;
+      if (fresh && sameUser && resume.pastOnboarding) return false;
+    }
+  } catch {
+    /* ignore */
+  }
 
   // Sticky incomplete marker beats metadata races (past bugs wrote onboarded:true early)
   if (accountNeedsOnboardingFlag(user.id)) return true;

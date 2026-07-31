@@ -9,8 +9,10 @@ import {
   isJustSignedUpPending,
   markJustSignedUpPending,
   markNeedsOnboarding,
+  markUserOnboardedLocal,
   onboardedStorageKey,
 } from '@/lib/onboardingGate';
+import { isAppRefreshResumeActive, shouldSkipOnboardingAfterRefresh } from '@/lib/appRefreshResume';
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
@@ -53,6 +55,11 @@ function isUsableAuthUser(supabaseUser: unknown): supabaseUser is UsableAuthUser
 }
 
 function shouldForceOnboarding(user: User): boolean {
+  // Version-refresh resume: never re-open onboarding mid-reload.
+  if (shouldSkipOnboardingAfterRefresh(user.id)) {
+    markUserOnboardedLocal(user.id);
+    return false;
+  }
   if (accountNeedsOnboardingFlag(user.id)) return true;
   try {
     // Already finished on this device — don't re-open the flow while metadata catches up
@@ -72,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let sessionProbeDone = false;
 
     const applyAuthUser = (supabaseUser: UsableAuthUser) => {
       const user = mapSupabaseUser(supabaseUser);
@@ -80,6 +88,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         markNeedsOnboarding(user.id);
         return {
           user: { ...user, onboarded: false },
+          isAuthenticated: true,
+          isLoading: false,
+        } satisfies AuthState;
+      }
+      if (user && shouldSkipOnboardingAfterRefresh(user.id)) {
+        return {
+          user: { ...user, onboarded: true },
           isAuthenticated: true,
           isLoading: false,
         } satisfies AuthState;
@@ -97,6 +112,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         const verifiedUser = verified?.user;
         if (userError || !isUsableAuthUser(verifiedUser)) {
+          // During a deploy refresh, transient network/auth blips must not dump the user to login.
+          if (isAppRefreshResumeActive()) {
+            console.warn('Session verify failed during version refresh — keeping local session');
+            return;
+          }
+          // Only sign out on definitive auth failures, not flaky connectivity.
+          const msg = (userError?.message || '').toLowerCase();
+          const softFailure =
+            !userError ||
+            msg.includes('fetch') ||
+            msg.includes('network') ||
+            msg.includes('failed to fetch') ||
+            msg.includes('timeout');
+          if (softFailure) {
+            console.warn('Session verify soft-failed — keeping local session', userError);
+            return;
+          }
           await supabase.auth.signOut().catch(() => {});
           persistActiveUserId(null);
           setState({ user: null, isAuthenticated: false, isLoading: false });
@@ -105,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setState(applyAuthUser(verifiedUser));
       } catch (error) {
         console.error('Error verifying session:', error);
+        // Never clear a local session on unexpected verify errors (deploy race, flaky network).
       }
     };
 
@@ -114,13 +147,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { session }, error } = await supabase.auth.getSession();
 
         if (cancelled) return;
+        sessionProbeDone = true;
 
         if (error) {
           console.error('Error getting session:', error);
           if (error.message?.toLowerCase().includes('refresh token')) {
-            await supabase.auth.signOut().catch(() => {});
+            // Keep the user on-screen through a version refresh; they'll re-auth if needed.
+            if (!isAppRefreshResumeActive()) {
+              await supabase.auth.signOut().catch(() => {});
+            }
           }
-          setState({ user: null, isAuthenticated: false, isLoading: false });
+          if (!isAppRefreshResumeActive()) {
+            setState({ user: null, isAuthenticated: false, isLoading: false });
+          } else {
+            setState((prev) => ({ ...prev, isLoading: false }));
+          }
           return;
         }
 
@@ -134,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setState({ user: null, isAuthenticated: false, isLoading: false });
       } catch (error) {
         console.error('Error checking session:', error);
+        sessionProbeDone = true;
         if (!cancelled) {
           setState(prev => ({ ...prev, isLoading: false }));
         }
@@ -149,6 +191,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (session?.user && isUsableAuthUser(session.user)) {
             setState(applyAuthUser(session.user));
           } else if (!session) {
+            // Don't treat a null INITIAL_SESSION as signed-out until storage probe finishes —
+            // Supabase can emit this before local hydration, which used to flash /login on refresh.
+            if (!sessionProbeDone) return;
+            if (isAppRefreshResumeActive()) return;
             persistActiveUserId(null);
             setState({ user: null, isAuthenticated: false, isLoading: false });
           }
@@ -164,6 +210,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           persistActiveUserId(session.user.id);
           if (!user) {
             setState({ user: null, isAuthenticated: false, isLoading: false });
+            return;
+          }
+
+          if (shouldSkipOnboardingAfterRefresh(user.id)) {
+            markUserOnboardedLocal(user.id);
+            setState({
+              user: { ...user, onboarded: true },
+              isAuthenticated: true,
+              isLoading: false,
+            });
             return;
           }
 
@@ -197,6 +253,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             });
           }
         } else if (event === 'SIGNED_OUT') {
+          // Ignore spurious sign-outs during version refresh while we still have a resume ticket.
+          if (isAppRefreshResumeActive()) return;
           persistActiveUserId(null);
           setState({
             user: null,
@@ -214,7 +272,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const mapped = mapSupabaseUser(session.user);
           persistActiveUserId(session.user.id);
           // Sticky incomplete flag beats refreshed metadata
-          if (mapped && accountNeedsOnboardingFlag(mapped.id)) {
+          if (mapped && accountNeedsOnboardingFlag(mapped.id) && !shouldSkipOnboardingAfterRefresh(mapped.id)) {
             setState(prev => ({
               ...prev,
               user: { ...mapped, onboarded: false },
@@ -228,6 +286,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }));
           }
         } else if ((event as string) === 'TOKEN_REFRESH_FAILED') {
+          if (isAppRefreshResumeActive()) return;
           persistActiveUserId(null);
           await supabase.auth.signOut().catch(() => {});
           setState({ user: null, isAuthenticated: false, isLoading: false });

@@ -94,13 +94,14 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect, onUnreadCo
 
   const fetchAgentNotifications = useCallback(async () => {
     if (!user) return;
-    const { data, error } = await supabase
+    let query = supabase
       .from('agent_notifications')
       .select('*')
       .eq('user_id', user.id)
-      .eq('workspace_id', activeWorkspace?.id ?? '')
       .order('created_at', { ascending: false })
       .limit(50);
+    if (activeWorkspace?.id) query = query.eq('workspace_id', activeWorkspace.id);
+    const { data, error } = await query;
     if (!error && data) setAgentNotifs(data);
   }, [user, activeWorkspace?.id]);
 
@@ -116,21 +117,32 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect, onUnreadCo
       return;
     }
 
-    try {
-      const { data, error } = await supabase
-      .from('competitor_alerts')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('workspace_id', activeWorkspace?.id ?? '')
+    const baseQuery = () =>
+      supabase
+        .from('competitor_alerts')
+        .select('*')
+        .eq('user_id', user.id)
         .eq('archived', false)
         .order('created_at', { ascending: false })
         .limit(100);
+
+    try {
+      let { data, error } = activeWorkspace?.id
+        ? await baseQuery().eq('workspace_id', activeWorkspace.id)
+        : await baseQuery();
+
+      // Older deployments have no workspace_id on competitor_alerts — fall back
+      // to user-scoped alerts instead of failing the whole panel.
+      if (error?.code === '42703') {
+        ({ data, error } = await baseQuery());
+      }
 
       if (error) throw error;
 
       setAlerts(data || []);
     } catch (error) {
       console.error('Error fetching alerts:', error);
+      setAlerts([]);
     } finally {
       setLoading(false);
     }
