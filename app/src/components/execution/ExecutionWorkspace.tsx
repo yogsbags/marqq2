@@ -155,6 +155,11 @@ export function ExecutionWorkspace({ workstream, onModuleSelect }: Props) {
     return [...groups.entries()].map(([platform, group]) => ({ platform, count: group.count, rate: group.rates.length ? group.rates.reduce((a, b) => a + b, 0) / group.rates.length : null }))
   }, [performance.items])
 
+  const mappedSectionTargetCount = useMemo(() => {
+    const ids = new Set((lockedGoal?.sectionTargets || []).map((target) => target.sectionId).filter((id) => id && id !== 'executive_summary'))
+    return ids.size
+  }, [lockedGoal?.sectionTargets])
+
   return (
     <div className="min-h-full space-y-6 px-6 py-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -286,7 +291,7 @@ export function ExecutionWorkspace({ workstream, onModuleSelect }: Props) {
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-lg border border-border/60 bg-background/70 p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><Mail className="h-3.5 w-3.5" /> Outreach replies</div><p className="mt-1 text-lg font-semibold">{outreachSummary?.analytics?.totals?.replies ?? '—'}</p><p className="text-[11px] text-muted-foreground">{outreachSummary?.analytics?.rates?.reply_rate == null ? 'No measured outreach yet' : `${(outreachSummary.analytics.rates.reply_rate * 100).toFixed(1)}% reply rate`}</p></div>
             <div className="rounded-lg border border-border/60 bg-background/70 p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><MousePointerClick className="h-3.5 w-3.5" /> Content items measured</div><p className="mt-1 text-lg font-semibold">{performance.items.length || '—'}</p><p className="text-[11px] text-muted-foreground">{performance.items.length ? 'Live owned-channel records' : 'Sync content connectors to measure'}</p></div>
-            <div className="rounded-lg border border-border/60 bg-background/70 p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><BarChart3 className="h-3.5 w-3.5" /> Section targets</div><p className="mt-1 text-lg font-semibold">{lockedGoal?.sectionTargets?.length ?? '—'}</p><p className="text-[11px] text-muted-foreground">{lockedGoal?.sectionTargets?.length ? 'Leading indicators mapped' : 'No section targets locked'}</p></div>
+            <div className="rounded-lg border border-border/60 bg-background/70 p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><BarChart3 className="h-3.5 w-3.5" /> Section targets</div><p className="mt-1 text-lg font-semibold">{lockedGoal ? `${mappedSectionTargetCount}/15` : '—'}</p><p className="text-[11px] text-muted-foreground">{mappedSectionTargetCount ? 'Visible channel sections mapped' : 'No section targets locked'}</p></div>
           </div>
         </section>
       ) : null}

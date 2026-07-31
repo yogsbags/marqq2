@@ -141,7 +141,10 @@ export function GtmStrategyDocumentView({
   const northStarLabel = strategy.goalAlignment?.north_star_metric || 'North-star goal'
   const northStarTarget = strategy.goalAlignment?.quantified_target || strategy.goalAlignment?.target || 'Not quantified'
   const northStarTimeline = strategy.goalAlignment?.timeline_target
-  const targetCount = (strategy.goalAlignment?.sectionTargets || []).filter((target) => target.metric || target.contribution).length
+  const channelSectionIds = useMemo(() => new Set(channelSections.map((section) => section.id)), [channelSections])
+  const targetCount = (strategy.goalAlignment?.sectionTargets || []).filter((target) =>
+    channelSectionIds.has(target.sectionId) && (target.metric || target.contribution),
+  ).length
   const chatSection = chatSectionId ? channelSections.find((section) => section.id === chatSectionId) : null
 
   useEffect(() => {
