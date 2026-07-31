@@ -2865,6 +2865,41 @@ export function registerGtmWizardRoutes(app, deps) {
 
   const client = () => db(supabaseAdminClient, supabase);
 
+  // The dashboard must read the same locked North Star that execution agents
+  // receive. Keeping this behind the GTM API prevents a stale browser-only
+  // goal from becoming the source of truth for pacing decisions.
+  app.get("/api/gtm/goal", async (req, res) => {
+    try {
+      const companyId = String(req.query.companyId || req.query.workspaceId || "").trim();
+      if (!companyId) return res.status(400).json({ error: "companyId is required" });
+      const c = client();
+      if (!c) return res.status(503).json({ error: "Database unavailable" });
+
+      const { data, error } = await c
+        .from("gtm_modules")
+        .select("id, name, status, updated_at, profile")
+        .eq("company_id", companyId)
+        .neq("status", "archived")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+
+      const profile = data?.profile || {};
+      const strategyGoal = profile.strategy_document?.goalAlignment || {};
+      const rawGoal = profile.goal_system || strategyGoal || profile.goals || null;
+      const goal = rawGoal && typeof rawGoal === "object" ? normalizeGoalSystem(rawGoal) : null;
+      return res.json({
+        locked: Boolean(goal?.north_star_metric && goal?.quantified_target && goal?.timeline_target),
+        source: data ? "gtm_modules" : null,
+        module: data ? { id: data.id, name: data.name, status: data.status, updatedAt: data.updated_at } : null,
+        goal: goal || null,
+      });
+    } catch (err) {
+      return res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
   // ── List modules ──────────────────────────────────────────────────────────
   app.get("/api/gtm/modules", async (req, res) => {
     try {

@@ -1,5 +1,4 @@
 import { AppUpdateBanner } from '@/components/AppUpdateBanner';
-import { AgentDashboard } from '@/components/agents/AgentDashboard';
 import { ChatHome } from '@/components/chat/ChatHome';
 import { ChatSessionsPage } from '@/components/chat/ChatSessionsPage';
 import { ScheduledJobsPage } from '@/components/tasks/ScheduledJobsPage';
@@ -399,7 +398,7 @@ function Dashboard() {
     if (selectedModule === 'integrations') return <IntegrationsHub />;
     if (selectedModule === 'settings') return <SettingsPanel />;
     if (selectedModule === 'help') return <HelpPanel />;
-    if (selectedModule === 'dashboard') return <AgentDashboard />;
+    if (selectedModule === 'dashboard') return <ExecutionWorkspace workstream="dashboard" onModuleSelect={handleModuleSelect} />;
     if (selectedModule === 'library') return <LibraryView />;
     if (selectedModule === 'workspace-files') return <LibraryView />;
     if (selectedModule === 'calendar') return <MarketingCalendarPage />;

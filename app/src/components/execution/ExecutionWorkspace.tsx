@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, BarChart3, CheckCircle2, CircleAlert, ExternalLink, Link2, Radar, Send, FileText, RefreshCw, Sparkles } from 'lucide-react'
+import { ArrowRight, BarChart3, CheckCircle2, CircleAlert, ExternalLink, Link2, Radar, Send, FileText, RefreshCw, Sparkles, Target, Mail, MousePointerClick } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -13,6 +13,20 @@ type Props = {
   onModuleSelect: (moduleId: string | null) => void
 }
 
+type LockedGoal = {
+  north_star_metric?: string | null
+  metric_definition?: string | null
+  quantified_target?: string | null
+  timeline_target?: string | null
+  baseline?: string | null
+  sectionTargets?: Array<{ sectionId?: string; metric?: string; contribution?: string; byWhen?: string }>
+}
+
+type OutreachSummary = {
+  analytics?: { totals?: { sent?: number; replies?: number; positive_replies?: number }; rates?: { reply_rate?: number; positive_reply_rate?: number } }
+  target_pacing?: Array<{ status?: string; target?: number; actual?: number; attainment_pct?: number }>
+}
+
 const ICONS = { outreach: Send, content: FileText, dashboard: BarChart3, monitoring: Radar }
 
 export function ExecutionWorkspace({ workstream, onModuleSelect }: Props) {
@@ -23,13 +37,49 @@ export function ExecutionWorkspace({ workstream, onModuleSelect }: Props) {
   const [loading, setLoading] = useState(true)
   const [performance, setPerformance] = useState<{ items: Array<{ platform: string; metrics?: { engagement_rate?: number | null } }>; recommendations: Array<{ recommendation?: { recommendation?: string; platform?: string; evidence?: { current_items?: number } } }> }>({ items: [], recommendations: [] })
   const [performanceBusy, setPerformanceBusy] = useState<string | null>(null)
+  const [lockedGoal, setLockedGoal] = useState<LockedGoal | null>(null)
+  const [goalLoading, setGoalLoading] = useState(false)
+  const [outreachSummary, setOutreachSummary] = useState<OutreachSummary | null>(null)
   const dashboardGoal = useMemo<AdsGoalState>(() => {
-    const fallback: AdsGoalState = { target: '', timeline: '30 days', budget: '', maxCpa: '', conversion: 'Primary conversion', geo: '', provenPct: '70', scalePct: '20', testPct: '10', approval: 'approval' }
+    const fallback: AdsGoalState = { target: '', timeline: '', budget: '', maxCpa: '', conversion: 'Primary conversion', geo: '', provenPct: '70', scalePct: '20', testPct: '10', approval: 'approval' }
     if (!activeWorkspace?.id) return fallback
     try {
       const saved = localStorage.getItem(`marqq_ads_goal_${activeWorkspace.id}`)
-      return saved ? { ...fallback, ...JSON.parse(saved) } : fallback
+      const localBudget = saved ? JSON.parse(saved) : {}
+      return {
+        ...fallback,
+        budget: String(localBudget?.budget || ''),
+        maxCpa: String(localBudget?.maxCpa || ''),
+        geo: String(localBudget?.geo || ''),
+        provenPct: String(localBudget?.provenPct || fallback.provenPct),
+        scalePct: String(localBudget?.scalePct || fallback.scalePct),
+        testPct: String(localBudget?.testPct || fallback.testPct),
+        target: String(lockedGoal?.quantified_target || ''),
+        timeline: String(lockedGoal?.timeline_target || ''),
+        conversion: String(lockedGoal?.north_star_metric || fallback.conversion),
+      }
     } catch { return fallback }
+  }, [activeWorkspace?.id, lockedGoal])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!activeWorkspace?.id) {
+      setLockedGoal(null)
+      setOutreachSummary(null)
+      return
+    }
+    setGoalLoading(true)
+    Promise.all([
+      fetch(`/api/gtm/goal?companyId=${encodeURIComponent(activeWorkspace.id)}`).then((r) => r.ok ? r.json() : null),
+      fetch(`/api/outreach/workspaces/${encodeURIComponent(activeWorkspace.id)}/summary`).then((r) => r.ok ? r.json() : null),
+    ]).then(([goalJson, outreachJson]) => {
+      if (cancelled) return
+      setLockedGoal(goalJson?.goal || null)
+      setOutreachSummary(outreachJson || null)
+    }).catch(() => {
+      if (!cancelled) { setLockedGoal(null); setOutreachSummary(null) }
+    }).finally(() => { if (!cancelled) setGoalLoading(false) })
+    return () => { cancelled = true }
   }, [activeWorkspace?.id])
 
   useEffect(() => {
@@ -216,11 +266,38 @@ export function ExecutionWorkspace({ workstream, onModuleSelect }: Props) {
       </section>
 
       {workstream === 'dashboard' ? (
+        <section className="rounded-xl border border-orange-500/25 bg-orange-500/[0.035] p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600"><Target className="h-4 w-4" /></div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">North Star control center</p>
+                <h2 className="mt-1 text-lg font-semibold">{goalLoading ? 'Loading the locked goal…' : lockedGoal?.north_star_metric || 'No locked North Star yet'}</h2>
+                <p className="mt-1 max-w-2xl text-xs text-muted-foreground">{lockedGoal?.metric_definition || 'Complete and lock the GTM strategy in #main before judging execution performance.'}</p>
+              </div>
+            </div>
+            {lockedGoal ? <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700">Server-backed GTM goal</Badge> : <Button variant="outline" size="sm" onClick={() => onModuleSelect('main')}>Open GTM strategy <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button>}
+          </div>
+          {lockedGoal ? <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-border/60 bg-background/70 p-3"><p className="text-[11px] text-muted-foreground">Target</p><p className="mt-1 text-sm font-semibold">{lockedGoal.quantified_target || '—'}</p></div>
+            <div className="rounded-lg border border-border/60 bg-background/70 p-3"><p className="text-[11px] text-muted-foreground">Deadline</p><p className="mt-1 text-sm font-semibold">{lockedGoal.timeline_target || '—'}</p></div>
+            <div className="rounded-lg border border-border/60 bg-background/70 p-3"><p className="text-[11px] text-muted-foreground">Baseline</p><p className="mt-1 text-sm font-semibold">{lockedGoal.baseline || 'Not recorded'}</p></div>
+          </div> : null}
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-border/60 bg-background/70 p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><Mail className="h-3.5 w-3.5" /> Outreach replies</div><p className="mt-1 text-lg font-semibold">{outreachSummary?.analytics?.totals?.replies ?? '—'}</p><p className="text-[11px] text-muted-foreground">{outreachSummary?.analytics?.rates?.reply_rate == null ? 'No measured outreach yet' : `${(outreachSummary.analytics.rates.reply_rate * 100).toFixed(1)}% reply rate`}</p></div>
+            <div className="rounded-lg border border-border/60 bg-background/70 p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><MousePointerClick className="h-3.5 w-3.5" /> Content items measured</div><p className="mt-1 text-lg font-semibold">{performance.items.length || '—'}</p><p className="text-[11px] text-muted-foreground">{performance.items.length ? 'Live owned-channel records' : 'Sync content connectors to measure'}</p></div>
+            <div className="rounded-lg border border-border/60 bg-background/70 p-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><BarChart3 className="h-3.5 w-3.5" /> Section targets</div><p className="mt-1 text-lg font-semibold">{lockedGoal?.sectionTargets?.length ?? '—'}</p><p className="text-[11px] text-muted-foreground">{lockedGoal?.sectionTargets?.length ? 'Leading indicators mapped' : 'No section targets locked'}</p></div>
+          </div>
+        </section>
+      ) : null}
+
+      {workstream === 'dashboard' ? (
         <section className="rounded-xl border border-border/60 bg-background p-5">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div><p className="text-sm font-semibold">Paid Ads</p><p className="mt-1 text-xs text-muted-foreground">Consolidated Meta, Google Ads, and LinkedIn Ads performance tied to the workspace goal.</p></div>
             <Button variant="outline" size="sm" className="gap-2" onClick={() => onModuleSelect('paid-ads')}>Open paid-ads workspace <ArrowRight className="h-3.5 w-3.5" /></Button>
           </div>
+          {!lockedGoal ? <p className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2.5 text-xs text-amber-800 dark:text-amber-200">Paid ads can show connector data, but goal pacing is paused until the GTM North Star is locked.</p> : null}
           <PaidAdsDashboardTab companyId={activeWorkspace?.id || ''} goal={dashboardGoal} />
         </section>
       ) : null}
