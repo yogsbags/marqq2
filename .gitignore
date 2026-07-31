@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 .env
+.env.*
+!.env.example
 .env.screenshots
 
 # Editor directories and files
@@ -28,6 +30,7 @@ dist-ssr
 # Build / test artifacts
 *.tsbuildinfo
 test-results/
+scripts/output/
 
 # Large local experiments (add selectively if needed)
 realtime-dashboard/

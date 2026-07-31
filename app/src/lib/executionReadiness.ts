@@ -45,7 +45,7 @@ export const EXECUTION_PLANS: Record<ExecutionWorkstream, ExecutionPlan> = {
     connectors: [
       { id: 'apollo', role: 'Find and enrich target accounts' },
       { id: 'hunter', role: 'Find and verify business emails' },
-      { id: 'instantly', role: 'Send and track email sequences', required: true },
+      { id: 'instantly', role: 'Send and track email sequences' },
       { id: 'heyreach', role: 'Run LinkedIn outreach sequences' },
       { id: 'whatsapp', role: 'Send approved WhatsApp outreach' },
       { id: 'hubspot', role: 'Sync contacts, replies, and lifecycle stages' },
@@ -55,7 +55,10 @@ export const EXECUTION_PLANS: Record<ExecutionWorkstream, ExecutionPlan> = {
       { id: 'outlook', role: 'Use a connected Microsoft mailbox' },
       { id: 'slack', role: 'Receive alerts and approval notifications' },
     ],
-    requiredAny: [{ ids: ['apollo', 'hunter'], label: 'Apollo or Hunter for lead sourcing' }],
+    requiredAny: [
+      { ids: ['apollo', 'hunter'], label: 'Apollo or Hunter for lead sourcing' },
+      { ids: ['instantly', 'gmail', 'outlook'], label: 'Instantly, Gmail, or Outlook for email delivery' },
+    ],
     steps: ['Build target list', 'Approve accounts', 'Draft sequence', 'Approve send', 'Track replies and qualified meetings'],
   },
   content: {

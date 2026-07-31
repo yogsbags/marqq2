@@ -26,6 +26,7 @@ import {
   FileText,
   Radar,
   BarChart3,
+  BadgeDollarSign,
   Search,
   PanelsTopLeft,
   Gift,
@@ -63,13 +64,13 @@ function formatConvName(name: string): string {
 
 const channels: NavItem[] = [
   { id: 'home',                  title: 'main',        icon: Hash },
-  { id: 'performance-scorecard', title: 'performance', icon: Hash },
   { id: 'crm',                   title: 'crm',         icon: Hash },
   { id: 'calendar',              title: 'calendar',    icon: Hash },
 ];
 
 const executionChannels: NavItem[] = [
   { id: 'execution-outreach', title: 'outreach', icon: Send },
+  { id: 'paid-ads', title: 'paid-ads', icon: BadgeDollarSign },
   { id: 'execution-content', title: 'content', icon: FileText },
   { id: 'execution-blog-seo', title: 'blog-seo', icon: Search },
   { id: 'execution-landing-pages', title: 'landing-pages', icon: PanelsTopLeft },

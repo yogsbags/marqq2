@@ -118,6 +118,7 @@ export async function syncConversationToSupabase(
         workspace_id: workspaceId,
         user_id: userId,
         name: conv.name,
+        channel_id: conv.channelId ?? 'main',
         created_at: conv.createdAt.toISOString(),
         last_message_at: conv.lastMessageAt.toISOString(),
       },
@@ -142,7 +143,6 @@ export async function syncConversationToSupabase(
     // Insert all messages
     if (conv.messages.length === 0) return;
     const rows = conv.messages.map((m) => ({
-      id: m.id,
       conversation_id: conv.id,
       workspace_id: workspaceId,
       user_id: userId,

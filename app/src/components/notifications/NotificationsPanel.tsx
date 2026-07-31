@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -11,10 +10,7 @@ import {
   AlertTriangle,
   Info,
   TrendingUp,
-  Users,
-  Target,
   DollarSign,
-  Clock,
   Trash2,
   Settings,
   AreaChart as MarkAsUnread,
@@ -29,6 +25,7 @@ import {
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 interface AgentNotification {
   id: string;
@@ -43,6 +40,7 @@ interface AgentNotification {
   duration_ms?: number;
   read: boolean;
   created_at: string;
+  workspace_id?: string | null;
 }
 
 const AGENT_COLOURS: Record<string, string> = {
@@ -74,16 +72,19 @@ interface CompetitorAlert {
   read: boolean;
   dismissed: boolean;
   created_at: string;
+  workspace_id?: string | null;
 }
 
 interface NotificationsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onModuleSelect?: (moduleId: string | null) => void;
+  onUnreadCountChange?: (count: number) => void;
 }
 
-export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: NotificationsPanelProps) {
+export function NotificationsPanel({ isOpen, onClose, onModuleSelect, onUnreadCountChange }: NotificationsPanelProps) {
   const { user } = useAuth();
+  const { activeWorkspace } = useWorkspace();
   const [alerts, setAlerts] = useState<CompetitorAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
@@ -91,16 +92,17 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
   const [agentNotifs, setAgentNotifs] = useState<AgentNotification[]>([]);
   const [agentFilter, setAgentFilter] = useState<string>('all');
 
-  const fetchAgentNotifications = async () => {
+  const fetchAgentNotifications = useCallback(async () => {
     if (!user) return;
     const { data, error } = await supabase
       .from('agent_notifications')
       .select('*')
       .eq('user_id', user.id)
+      .eq('workspace_id', activeWorkspace?.id ?? '')
       .order('created_at', { ascending: false })
       .limit(50);
     if (!error && data) setAgentNotifs(data);
-  };
+  }, [user, activeWorkspace?.id]);
 
   const markAgentRead = async (id: string) => {
     await supabase.from('agent_notifications').update({ read: true }).eq('id', id);
@@ -108,7 +110,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
   };
 
   // Fetch alerts from Supabase
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
     if (!user) {
       setLoading(false);
       return;
@@ -116,9 +118,10 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
 
     try {
       const { data, error } = await supabase
-        .from('competitor_alerts')
-        .select('*')
-        .eq('user_id', user.id)
+      .from('competitor_alerts')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('workspace_id', activeWorkspace?.id ?? '')
         .eq('archived', false)
         .order('created_at', { ascending: false })
         .limit(100);
@@ -131,14 +134,19 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, activeWorkspace?.id]);
 
   // Subscribe to real-time updates
   useEffect(() => {
-    if (!user || !isOpen) return;
+    if (!user) {
+      setLoading(false);
+      onUnreadCountChange?.(0);
+      return;
+    }
 
-    fetchAlerts();
-    fetchAgentNotifications();
+    void fetchAlerts();
+    void fetchAgentNotifications();
+    if (!isOpen) return;
 
     // Real-time subscription for new agent notifications
     const agentChannel = supabase
@@ -152,7 +160,9 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          setAgentNotifs((prev) => [payload.new as AgentNotification, ...prev]);
+          const next = payload.new as AgentNotification;
+          if (next.workspace_id && next.workspace_id !== activeWorkspace?.id) return;
+          setAgentNotifs((prev) => [next, ...prev]);
         }
       )
       .subscribe();
@@ -170,7 +180,9 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
         },
         (payload) => {
           console.log('[Real-time] New competitor alert:', payload.new);
-          setAlerts((prev) => [payload.new as CompetitorAlert, ...prev]);
+          const next = payload.new as CompetitorAlert;
+          if (next.workspace_id && next.workspace_id !== activeWorkspace?.id) return;
+          setAlerts((prev) => [next, ...prev]);
         }
       )
       .on(
@@ -183,9 +195,11 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
         },
         (payload) => {
           console.log('[Real-time] Alert updated:', payload.new);
+          const next = payload.new as CompetitorAlert;
+          if (next.workspace_id && next.workspace_id !== activeWorkspace?.id) return;
           setAlerts((prev) =>
             prev.map((alert) =>
-              alert.id === payload.new.id ? (payload.new as CompetitorAlert) : alert
+              alert.id === next.id ? next : alert
             )
           );
         }
@@ -196,7 +210,7 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
       subscription.unsubscribe();
       supabase.removeChannel(agentChannel);
     };
-  }, [user, isOpen]);
+  }, [user, activeWorkspace?.id, isOpen, fetchAlerts, fetchAgentNotifications, onUnreadCountChange]);
 
   const getAlertTypeIcon = (type: CompetitorAlert['alert_type']) => {
     switch (type) {
@@ -366,6 +380,8 @@ export function NotificationsPanel({ isOpen, onClose, onModuleSelect }: Notifica
 
   const unreadCount = alerts.filter((a) => !a.read && !a.dismissed).length
     + agentNotifs.filter((n) => !n.read).length;
+
+  useEffect(() => { onUnreadCountChange?.(unreadCount); }, [unreadCount, onUnreadCountChange]);
 
   if (!isOpen) return null;
 

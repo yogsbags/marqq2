@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS public.conversations (
 CREATE INDEX IF NOT EXISTS idx_conversations_workspace_user
   ON public.conversations (workspace_id, user_id, last_message_at DESC);
 
+ALTER TABLE public.conversations ADD COLUMN IF NOT EXISTS channel_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_conversations_channel ON public.conversations (workspace_id, user_id, channel_id);
+
 -- ============================================================================
 -- MESSAGES
 -- ============================================================================
@@ -55,23 +58,27 @@ ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
 -- Service role: full access
+DROP POLICY IF EXISTS "service_role_all" ON public.conversations;
 CREATE POLICY "service_role_all" ON public.conversations
   FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "service_role_all" ON public.messages;
 CREATE POLICY "service_role_all" ON public.messages
   FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
 
 -- Users can manage their own conversations
+DROP POLICY IF EXISTS "users_manage_own_conversations" ON public.conversations;
 CREATE POLICY "users_manage_own_conversations" ON public.conversations
   FOR ALL
   USING  (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
 -- Users can manage messages in their conversations
+DROP POLICY IF EXISTS "users_manage_own_messages" ON public.messages;
 CREATE POLICY "users_manage_own_messages" ON public.messages
   FOR ALL
   USING  (auth.uid() = user_id)

@@ -21,6 +21,7 @@ export function ChannelHeader({ channelName, description, selectedModule, onModu
   const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const { plan, creditsRemaining, creditsTotal } = usePlan();
 
   const creditPct = creditsTotal > 0 && creditsRemaining !== -1
@@ -92,6 +93,7 @@ export function ChannelHeader({ channelName, description, selectedModule, onModu
                   className="relative rounded-full p-1.5 transition-colors hover:bg-orange-50 dark:hover:bg-orange-900/20 text-gray-600 dark:text-gray-300"
                 >
                   <Bell className="h-4 w-4" />
+                  {unreadNotifications > 0 && <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-orange-500 px-1 text-[8px] font-bold text-white">{unreadNotifications > 99 ? '99+' : unreadNotifications}</span>}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom"><p>Notifications</p></TooltipContent>
@@ -143,7 +145,7 @@ export function ChannelHeader({ channelName, description, selectedModule, onModu
           </DropdownMenu>
         </div>
       </header>
-      <NotificationsPanel isOpen={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
+      <NotificationsPanel isOpen={notificationsOpen} onClose={() => setNotificationsOpen(false)} onUnreadCountChange={setUnreadNotifications} />
     </>
   );
 }

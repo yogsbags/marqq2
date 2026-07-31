@@ -12,13 +12,10 @@ import {
   Mail,
   CalendarDays,
   PlusCircle,
-  Play,
   X,
   Clock,
   Image as ImageIcon,
-  ChevronDown,
   PlusSquare,
-  Plus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { fetchJson } from '@/components/modules/company-intelligence/api'
@@ -154,7 +151,7 @@ function NewPostModalDialog({ modal, companyId, onClose, onSaved }: NewPostModal
   const [facebookPages, setFacebookPages] = useState<Array<{ id: string; name: string }>>([])
   const [facebookPageId, setFacebookPageId] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
-  const [time]                      = useState('9:00 AM')
+  const [time, setTime]             = useState('09:00')
   const overlayRef = useRef<HTMLDivElement>(null)
 
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -221,7 +218,7 @@ function NewPostModalDialog({ modal, companyId, onClose, onSaved }: NewPostModal
           action,
           live: action === 'publish',
           platform: platformId,
-          publishAt: action === 'schedule' ? new Date(`${day.toISOString().slice(0, 10)}T09:00:00`).toISOString() : undefined,
+          publishAt: action === 'schedule' ? new Date(`${day.toISOString().slice(0, 10)}T${time}:00`).toISOString() : undefined,
           payload,
         }),
       })
@@ -375,11 +372,10 @@ function NewPostModalDialog({ modal, companyId, onClose, onSaved }: NewPostModal
 
         {/* Footer */}
         <div className="border-t border-border/60 px-5 py-3 flex items-center justify-between gap-3 bg-white dark:bg-zinc-900">
-          <button className="flex items-center gap-2 rounded-xl border border-border/70 bg-white dark:bg-zinc-800 px-3.5 py-2 text-[13px] font-medium text-foreground hover:bg-muted/40 transition-colors">
+          <label className="flex items-center gap-2 rounded-xl border border-border/70 bg-white dark:bg-zinc-800 px-3.5 py-2 text-[13px] font-medium text-foreground hover:bg-muted/40 transition-colors">
             <Clock className="h-4 w-4 text-muted-foreground" />
-            {time}
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
+            <input type="time" value={time} onChange={(event) => setTime(event.target.value)} className="bg-transparent text-sm outline-none" aria-label="Schedule time" />
+          </label>
           <div className="flex items-center gap-2">
             <button onClick={() => void submitPost('draft')} disabled={busyAction !== null} className="rounded-xl border border-border/70 bg-white dark:bg-zinc-800 px-4 py-2 text-[13px] font-semibold text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50">
               {busyAction === 'draft' ? 'Saving…' : 'Save Draft'}
@@ -399,12 +395,9 @@ function NewPostModalDialog({ modal, companyId, onClose, onSaved }: NewPostModal
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-interface Props {
-  onModuleSelect: (id: string) => void
-}
-
-export function MarketingCalendarPage({ onModuleSelect }: Props) {
+export function MarketingCalendarPage() {
   const { activeWorkspace } = useWorkspace()
+  const workspaceId = activeWorkspace?.id
   const today = useMemo(() => new Date(), [])
 
   const [view, setView]               = useState<ViewMode>('week')
@@ -413,17 +406,21 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
   const [deployments, setDeployments] = useState<DeploymentEntry[]>([])
   const [festivals, setFestivals]     = useState<Festival[]>([])
   const [newPostModal, setNewPostModal] = useState<NewPostModal | null>(null)
+  const [rescheduleEntry, setRescheduleEntry] = useState<DeploymentEntry | null>(null)
+  const [rescheduleValue, setRescheduleValue] = useState('')
+  const [scheduleBusy, setScheduleBusy] = useState(false)
   const [contentRefresh, setContentRefresh] = useState(0)
 
   // Fetch deployments
   useEffect(() => {
-    if (!activeWorkspace?.id) return
+    if (!workspaceId) return
+    const currentWorkspaceId = workspaceId
     let cancelled = false
     async function load() {
       try {
         const [depRes, schedRes] = await Promise.all([
-          fetchJson(`/api/workspaces/${activeWorkspace!.id}/agent-deployments`),
-          fetchJson(`/api/content-studio/scheduled?companyId=${encodeURIComponent(activeWorkspace!.id)}`).catch(() => ({ items: [] })),
+          fetchJson(`/api/workspaces/${currentWorkspaceId}/agent-deployments`),
+          fetchJson(`/api/content-studio/scheduled?companyId=${encodeURIComponent(currentWorkspaceId)}`).catch(() => ({ items: [] })),
         ])
         if (cancelled) return
         const arr = Array.isArray(depRes)
@@ -432,7 +429,7 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
         const organic = ((schedRes as { items?: Array<Record<string, unknown>> })?.items || []).map((item) => ({
           id: String(item.id),
           agentName: String(item.agentName || 'riya'),
-          workspaceId: activeWorkspace!.id,
+          workspaceId: currentWorkspaceId,
           agentTarget: String(item.platformId || item.platform || 'social'),
           sectionTitle: String(item.title || item.sectionTitle || 'Organic post'),
           scheduleMode: 'once',
@@ -446,7 +443,7 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
     }
     void load()
     return () => { cancelled = true }
-  }, [activeWorkspace?.id, contentRefresh])
+  }, [workspaceId, contentRefresh])
 
   // Fetch festivals
   useEffect(() => {
@@ -508,6 +505,47 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
   const openNewPost = useCallback((platformId: string, platformLabel: string, day: Date) => {
     setNewPostModal({ platformId, platformLabel, day })
   }, [])
+
+  const openReschedule = useCallback((entry: DeploymentEntry) => {
+    const current = entry.scheduledFor ? new Date(entry.scheduledFor) : new Date()
+    const local = new Date(current.getTime() - current.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    setRescheduleEntry(entry)
+    setRescheduleValue(local)
+  }, [])
+
+  const saveReschedule = async () => {
+    if (!rescheduleEntry || !activeWorkspace?.id || !rescheduleValue) return
+    setScheduleBusy(true)
+    try {
+      const publishAt = new Date(rescheduleValue).toISOString()
+      const isContent = !rescheduleEntry.id.startsWith('dep-')
+      const response = await fetch(isContent ? `/api/content-studio/scheduled/${encodeURIComponent(rescheduleEntry.id)}` : `/api/agents/deployments/${encodeURIComponent(rescheduleEntry.id)}`, {
+        method: isContent ? 'PATCH' : 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isContent ? { companyId: activeWorkspace.id, publishAt } : { action: 'reschedule', scheduledFor: publishAt }),
+      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(json.error || 'Could not reschedule item')
+      toast.success('Schedule updated')
+      setRescheduleEntry(null)
+      setContentRefresh(value => value + 1)
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not reschedule item') }
+    finally { setScheduleBusy(false) }
+  }
+
+  const cancelScheduled = async (entry: DeploymentEntry) => {
+    if (!activeWorkspace?.id) return
+    try {
+      const isContent = !entry.id.startsWith('dep-')
+      const response = await fetch(isContent ? `/api/content-studio/scheduled/${encodeURIComponent(entry.id)}?companyId=${encodeURIComponent(activeWorkspace.id)}` : `/api/agents/deployments/${encodeURIComponent(entry.id)}`, {
+        method: isContent ? 'DELETE' : 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: isContent ? undefined : JSON.stringify({ action: 'stop' }),
+      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(json.error || 'Could not cancel schedule')
+      toast.success('Scheduled item cancelled')
+      setContentRefresh(value => value + 1)
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not cancel schedule') }
+  }
 
   // Selected day's content
   const selectedDayDeployments = useMemo(
@@ -735,11 +773,9 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
                 <p className="text-sm font-medium truncate">{d.sectionTitle || d.agentName}</p>
                 <p className="text-[11px] text-muted-foreground">{d.agentName}</p>
               </div>
-              {d.status === 'pending' && (
-                <button className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-900/20 dark:border-orange-800 p-1.5 hover:bg-orange-100 transition-colors">
-                  <Play className="h-3.5 w-3.5 text-orange-500" />
-                </button>
-              )}
+              <span className="rounded-full border border-border/60 px-2 py-1 text-[10px] capitalize text-muted-foreground">
+                {d.status}
+              </span>
             </div>
           )) : (
             <div className="text-center py-16 text-muted-foreground">
@@ -795,6 +831,10 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium truncate">{d.sectionTitle || d.agentName}</p>
                     <p className="text-[11px] text-muted-foreground capitalize">{d.status ?? 'scheduled'}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button type="button" onClick={() => openReschedule(d)} className="rounded-md border border-border/60 px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted">Reschedule</button>
+                    <button type="button" onClick={() => void cancelScheduled(d)} className="rounded-md border border-red-200 px-2 py-1 text-[10px] text-red-600 hover:bg-red-50">Cancel</button>
                   </div>
                 </div>
               ))}
@@ -926,6 +966,16 @@ export function MarketingCalendarPage({ onModuleSelect }: Props) {
           onClose={() => setNewPostModal(null)}
           onSaved={() => setContentRefresh((value) => value + 1)}
         />
+      )}
+      {rescheduleEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setRescheduleEntry(null) }}>
+          <div className="w-full max-w-sm rounded-2xl border border-border/70 bg-background p-5 shadow-2xl">
+            <h2 className="text-base font-semibold">Reschedule item</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{rescheduleEntry.sectionTitle || 'Scheduled item'}</p>
+            <label className="mt-4 block text-xs font-medium">New date and time<input type="datetime-local" value={rescheduleValue} onChange={(event) => setRescheduleValue(event.target.value)} className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm" /></label>
+            <div className="mt-5 flex justify-end gap-2"><Button variant="outline" size="sm" onClick={() => setRescheduleEntry(null)}>Cancel</Button><Button size="sm" disabled={scheduleBusy || !rescheduleValue} onClick={() => void saveReschedule()}>{scheduleBusy ? 'Saving…' : 'Save schedule'}</Button></div>
+          </div>
+        </div>
       )}
     </>
   )

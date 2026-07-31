@@ -1,11 +1,19 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { WorkspaceContext, type Workspace, type WorkspaceContextType } from './workspaceContextInstance';
+import { supabase } from '@/lib/supabase';
 
 export type { Workspace };
 
 const STORAGE_KEY = 'marqq_workspace_id';
 const ACTIVE_WS_KEY = 'marqq_active_workspace';
+
+async function workspaceFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const { data } = await supabase.auth.getSession();
+  const headers = new Headers(init?.headers);
+  if (data.session?.access_token) headers.set('Authorization', `Bearer ${data.session.access_token}`);
+  return fetch(input, { ...init, headers });
+}
 
 async function getResponseError(res: Response, fallback: string): Promise<string> {
   const contentType = res.headers.get('content-type') || '';
@@ -40,7 +48,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const fetchWorkspaces = useCallback(async () => {
     if (!user?.id) { setIsLoading(false); return; }
     try {
-      const res = await fetch(`/api/workspaces?userId=${encodeURIComponent(user.id)}`);
+      const res = await workspaceFetch(`/api/workspaces?userId=${encodeURIComponent(user.id)}`);
       const json = await res.json();
       const list: Workspace[] = json.workspaces || [];
       setWorkspaces(list);
@@ -88,7 +96,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const createWorkspace = async (name: string): Promise<Workspace> => {
-    const res = await fetch('/api/workspaces', {
+    const res = await workspaceFetch('/api/workspaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user?.id, name }),
@@ -105,7 +113,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const renameWorkspace = async (name: string) => {
     if (!activeWorkspace || !user?.id || !name.trim()) return;
-    const res = await fetch(`/api/workspaces/${activeWorkspace.id}`, {
+    const res = await workspaceFetch(`/api/workspaces/${activeWorkspace.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id, name: name.trim() }),
@@ -119,7 +127,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const updateWebsiteUrl = async (url: string, workspaceId?: string) => {
     const id = workspaceId ?? activeWorkspace?.id;
     if (!id || !user?.id) return;
-    const res = await fetch(`/api/workspaces/${id}`, {
+    const res = await workspaceFetch(`/api/workspaces/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id, website_url: url }),
@@ -132,7 +140,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const clearWebsiteUrl = async () => {
     if (!activeWorkspace || !user?.id) return;
-    const res = await fetch(`/api/workspaces/${activeWorkspace.id}`, {
+    const res = await workspaceFetch(`/api/workspaces/${activeWorkspace.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id, website_url: null }),
@@ -145,7 +153,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const deleteWorkspace = async (id: string) => {
     if (!user?.id) return;
-    const res = await fetch(`/api/workspaces/${id}`, {
+    const res = await workspaceFetch(`/api/workspaces/${id}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id }),

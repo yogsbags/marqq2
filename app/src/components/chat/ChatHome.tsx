@@ -15,7 +15,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { cn } from '@/lib/utils';
-import { askVeena, GroqService, ChatMessage, type VeenaResponse } from '@/services/groqService';
+import { askVeena, ChatMessage, type VeenaResponse } from '@/services/groqService';
 import { toast } from 'sonner';
 import { CSVAnalysisPanel } from '@/components/ui/csv-analysis-panel';
 import type { Message, Conversation } from '@/types/chat';
@@ -24,9 +24,12 @@ import { markdownToRichText } from '@/lib/markdown';
 import { BRAND } from '@/lib/brand';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { userNeedsOnboarding } from '@/lib/onboardingGate';
 import {
   Send,
+  ThumbsDown,
+  ThumbsUp,
   MessageSquare as Bot,
   User,
   FileText,
@@ -34,10 +37,6 @@ import {
   Film,
   Table as FileSpreadsheet,
   X,
-  Map,
-  DollarSign,
-  PenLine,
-  Target,
   Paperclip,
 } from 'lucide-react';
 import { buildAgentHeaders, buildAgentPlanPayload, buildAgentRunPayload, getActiveAgentContext } from '@/lib/agentContext';
@@ -47,6 +46,7 @@ import { GtmModuleWizard } from '@/components/home/GtmModuleWizard';
 import type { GtmDeployRequest } from '@/types/gtm';
 import { deployGtmTask } from '@/lib/deployGtmTask';
 import { AgentFollowUpOptions } from '@/components/chat/AgentFollowUpOptions';
+import { ChatOutcomePreview, isChatVisualOutcome } from '@/components/chat/ChatOutcomePreview';
 import { normalizeFollowUps } from '@/lib/normalizeFollowUps';
 import { parseHumanSchedule, resolveBrowserTimeZone } from '@/lib/humanSchedule';
 import {
@@ -460,7 +460,7 @@ function parseAgentPresentation(content: string): ParsedAgentPresentation {
   };
 }
 
-function AgentResponseBlocks({
+function _AgentResponseBlocks({
   content,
   onModuleSelect,
 }: {
@@ -626,24 +626,6 @@ function ThinkingBlock({ reasoning, isStreaming }: { reasoning: string; isStream
       )}
     </div>
   );
-}
-
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/^#{1,6}\s+/gm, '')           // headings
-    .replace(/\*\*(.+?)\*\*/g, '$1')        // bold
-    .replace(/\*(.+?)\*/g, '$1')            // italic
-    .replace(/__(.+?)__/g, '$1')            // bold alt
-    .replace(/_(.+?)_/g, '$1')              // italic alt
-    .replace(/~~(.+?)~~/g, '$1')            // strikethrough
-    .replace(/`{1,3}[^`]*`{1,3}/g, '')      // inline code / code blocks
-    .replace(/^\|.*\|$/gm, '')              // table rows
-    .replace(/^\s*[-|:]+[-|:\s]*$/gm, '')   // table dividers
-    .replace(/^[-*+]\s+/gm, '')             // unordered bullets
-    .replace(/^\d+\.\s+/gm, '')             // ordered bullets
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')// links → label only
-    .replace(/\n{3,}/g, '\n\n')             // collapse excess blank lines
-    .trim();
 }
 
 // Extract file artifact references from agent responses
@@ -1066,13 +1048,21 @@ const AGENT_REQUIRED_CONNECTORS: Record<string, string[]> = {
 };
 
 /** Live outreach requires an approved sending connector such as Instantly. */
-function resolveAgentRequiredConnectors(agentName: string, query: string): string[] {
-  const base = AGENT_REQUIRED_CONNECTORS[agentName] ?? [];
+function resolveAgentRequiredConnectors(agentName: string, query: string, activeConnectorIds: string[] = []): string[] {
+  let base = AGENT_REQUIRED_CONNECTORS[agentName] ?? [];
+  const active = new Set(activeConnectorIds);
+  // These agents support alternative data sources. Do not block a user who has
+  // connected an equivalent source merely because the legacy gate lists one
+  // canonical connector.
+  if (agentName === 'maya' && (active.has('gsc') || active.has('ahrefs'))) base = [];
+  if (agentName === 'zara' && (active.has('google_ads') || active.has('meta_ads'))) base = [];
+  if (agentName === 'arjun' && (active.has('apollo') || active.has('hunter'))) base = [];
   const isOutreach = /\b(outreach|cold\s*email|email\s*sequence|build\s*sequence|instantly|lead\s*outreach|prospect(?:ing)?|campaign\s*launch)\b/i.test(
     query || '',
   );
   if (isOutreach && (agentName === 'sam' || agentName === 'arjun')) {
-    return [...new Set([...base, 'instantly'])];
+    const hasSender = active.has('instantly') || active.has('gmail') || active.has('outlook');
+    return hasSender ? base : [...new Set([...base, 'instantly'])];
   }
   return base;
 }
@@ -1351,7 +1341,6 @@ function SubagentMessageCard({ message, onModuleSelect, onFollowUpClick }: {
   onFollowUpClick?: (text: string) => void;
 }) {
   const colors = (message.agentId ? AGENT_COLORS[message.agentId] : null) ?? DEFAULT_AGENT_COLORS;
-  const plain = stripMarkdown(message.content);
   const artifacts = extractFileArtifacts(message.content);
   const avatarName = (message.agentId || message.agentName || 'zara').toLowerCase();
   return (
@@ -1635,7 +1624,7 @@ export function ChatHome({
   onModuleSelect,
   activeConversationId,
   onConversationsChange,
-  hideHeader,
+  hideHeader: _hideHeader,
   scope = 'main',
   contextPrompt,
 }: ChatHomeProps) {
@@ -1677,6 +1666,7 @@ export function ChatHome({
   const [reasoningStreamingId, setReasoningStreamingId] = useState<string | null>(null);
   const [typingLabelIdx, setTypingLabelIdx] = useState(0);
   const [activeTypingAgent, setActiveTypingAgent] = useState<SequenceAgent | null>(null);
+  const [feedbackByMessage, setFeedbackByMessage] = useState<Record<string, 'positive' | 'negative'>>({});
 
   // -- Workflow orchestration state
   const [pendingWorkflow, setPendingWorkflow] = useState<{
@@ -1687,7 +1677,6 @@ export function ChatHome({
 
   // -- Connected connector IDs for the current workspace (used for readiness checks)
   const [activeConnectorIds, setActiveConnectorIds] = useState<string[]>([]);
-  const [connectingConnector, setConnectingConnector] = useState<string | null>(null);
 
   useEffect(() => {
     const workspaceId = activeWorkspace?.id;
@@ -1702,6 +1691,21 @@ export function ChatHome({
         setActiveConnectorIds(ids);
       });
   }, [activeWorkspace?.id]);
+
+  // Allow task controls and other surfaces to bring the user back to the main
+  // composer with an actionable prompt instead of an empty chat.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text;
+      if (!text) return;
+      setInputValue(text);
+      setShowSuggestions(false);
+      setShowAgentSuggestions(false);
+      window.setTimeout(() => document.querySelector<HTMLElement>('[data-chat-input]')?.focus(), 0);
+    };
+    window.addEventListener('marqq:chat:prefill', handler);
+    return () => window.removeEventListener('marqq:chat:prefill', handler);
+  }, []);
 
   useEffect(() => {
     if (!isTyping) { setTypingLabelIdx(0); return; }
@@ -1792,12 +1796,12 @@ export function ChatHome({
       })
       .catch(() => { /* keep greeting; ignore abort */ });
     return () => ac.abort();
-  }, [activeConversationId, activeWorkspace?.id, activeWorkspace?.website_url, scope, user?.id, user?.onboarded]);
+  }, [activeConversationId, activeWorkspace?.id, activeWorkspace?.website_url, scope, user, user?.id, user?.onboarded]);
 
   // sendQuickMessage — used by follow-up suggestion buttons and module quick-actions.
   // Delegates entirely to handleSendMessage via textOverride so it gets the full
   // intent-routing pipeline: scheduling → creation → goal-chain → Veena.
-  const sendQuickMessage = (text: string) => {
+  const _sendQuickMessage = (text: string) => {
     // Defer one tick so any React state flush completes before we enter the async pipeline
     setTimeout(() => handleSendMessage(text), 0);
   };
@@ -1847,7 +1851,11 @@ export function ChatHome({
 
   const persistMessages = (updatedMessages: Message[], convId: string | null): string => {
     const conversations = loadConversations(activeWorkspace?.id, scope);
-    const id = convId ?? `conv-${Date.now()}`;
+    // Conversations use UUIDs because Supabase's persistence schema requires
+    // UUID primary keys. The browser cache still works if crypto is unavailable.
+    const id = convId ?? (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `conv-${Date.now()}`);
     const firstUserMsg = updatedMessages.find(m => m.sender === 'user');
     const name = firstUserMsg ? generateName(firstUserMsg.content) : 'New conversation';
     const now = new Date();
@@ -1864,6 +1872,25 @@ export function ChatHome({
     if (!convId) setCurrentConvId(id);
     onConversationsChange?.();
     return id;
+  };
+
+  const submitMessageFeedback = async (messageId: string, rating: 'positive' | 'negative') => {
+    if (!user?.id || !activeWorkspace?.id) return;
+    setFeedbackByMessage(prev => ({ ...prev, [messageId]: rating }));
+    const { error } = await supabase.from('product_feedback').upsert({
+      user_id: user.id,
+      workspace_id: activeWorkspace.id,
+      message_id: messageId,
+      rating,
+      surface: scope,
+    }, { onConflict: 'user_id,workspace_id,message_id' });
+    if (error) {
+      // Keep the local interaction responsive if the optional feedback
+      // migration has not been applied yet.
+      console.warn('[Feedback] could not persist message feedback:', error.message);
+    } else {
+      toast.success('Thanks — this helps improve Marqq.');
+    }
   };
 
   const onMessagesChange: Dispatch<SetStateAction<Message[]>> = (updater) => {
@@ -1903,7 +1930,7 @@ export function ChatHome({
     return () => window.removeEventListener('marqq:new-veena-dm', handler);
   }, [scope]);
 
-  const handleDeleteConversation = async () => {
+  const _handleDeleteConversation = async () => {
     try {
       if (currentConvId) {
         // Remove from localStorage + Supabase
@@ -3271,7 +3298,7 @@ export function ChatHome({
         // Single-agent path — Veena already picked the right specialist.
         // Check if required connectors are active for this task.
         // If not, show the ConnectorReadinessCard instead of running the agent against empty data.
-        const agentRequired = resolveAgentRequiredConnectors(veena.agentName, veena.query || currentInput);
+        const agentRequired = resolveAgentRequiredConnectors(veena.agentName, veena.query || currentInput, activeConnectorIds);
         const agentMissing = agentRequired.filter(c => !activeConnectorIds.includes(c));
         if (agentMissing.length > 0) {
           const ctaMsgId = `agent-cta-${Date.now()}`;
@@ -3755,13 +3782,40 @@ export function ChatHome({
                       </div>
                     )}
                     {/* ── Routing: artifact renderer ────────────────────── */}
-                    {message.artifact && <ArtifactBlock artifact={message.artifact} />}
+                    {message.artifact && isChatVisualOutcome(message.artifact) ? (
+                      <ChatOutcomePreview artifact={message.artifact} />
+                    ) : message.artifact ? (
+                      <ArtifactBlock artifact={message.artifact} />
+                    ) : null}
                     {/* ── Routing: follow-up suggestions ───────────────── */}
                     {message.follow_ups && message.follow_ups.length > 0 && (
                       <AgentFollowUpOptions
                         options={normalizeFollowUps(message.follow_ups, { agentName: message.agentId })}
                         onSelect={(fu) => { setInputValue(fu); }}
                       />
+                    )}
+                    {message.sender === 'ai' && message.content.trim() && !message.content.startsWith('Sorry,') && (
+                      <div className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <span className="mr-1">Useful?</span>
+                        <button
+                          type="button"
+                          aria-label="Mark response useful"
+                          title="Useful"
+                          onClick={() => void submitMessageFeedback(message.id, 'positive')}
+                          className={cn('rounded p-1 transition-colors hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-950/30', feedbackByMessage[message.id] === 'positive' && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30')}
+                        >
+                          <ThumbsUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Mark response not useful"
+                          title="Needs improvement"
+                          onClick={() => void submitMessageFeedback(message.id, 'negative')}
+                          className={cn('rounded p-1 transition-colors hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-950/30', feedbackByMessage[message.id] === 'negative' && 'bg-red-100 text-red-700 dark:bg-red-950/30')}
+                        >
+                          <ThumbsDown className="h-3 w-3" />
+                        </button>
+                      </div>
                     )}
                     <p
                       className={cn(

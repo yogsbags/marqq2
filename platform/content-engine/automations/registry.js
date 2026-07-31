@@ -41,6 +41,7 @@ import {
   buildSeoOrganicPlan,
   executeSeoPlanArticles,
 } from './handlers/seoOrganicPipeline.js';
+import { defaultLLMClient, getLLMModel } from '../llm-client.js';
 
 export { enrollPaidAdsLoop };
 
@@ -1162,6 +1163,63 @@ async function instantlyListSenderAccounts(companyId, params = {}) {
   return { accounts, error: null };
 }
 
+async function generatePaidAdCreativeBrief(params = {}, companyId) {
+  const model = getLLMModel('agent-run');
+  const response = await defaultLLMClient.chat.completions.create({
+    model,
+    temperature: 0.7,
+    max_tokens: 700,
+    messages: [
+      {
+        role: 'system',
+        content: `You are Riya, Marqq's performance creative agent, applying the ad-creative skill.
+Generate one precise visual-generation brief for a Meta ${String(params.creative_type || 'IMAGE').toUpperCase()} ad.
+Return JSON only with: prompt, brand_context, style, rationale, angle.
+The prompt must be product-led, visually specific, and suitable for a 1:1 paid-social image.
+Never invent people, testimonials, logos, UI text, claims, or product features.
+Avoid generic AI imagery: no robots, humanoid AI, glowing AI brains, floating heads, or unrelated business people.
+Include a clear visual hook, the product experience or tangible outcome, composition, lighting, and subject.
+Do not ask the image model to render copy; ad copy is handled separately.`
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          company_id: companyId,
+          company: params.company_name,
+          product: params.product || 'Nouriva AI personalized nutrition and meal-planning app',
+          audience: params.audience || 'Health-conscious Indian adults seeking practical personalized meal planning',
+          objective: params.objective || 'OUTCOME_LEADS',
+          creative_type: String(params.creative_type || 'IMAGE').toUpperCase(),
+          headline: params.headline,
+          primary_text: params.primary_text,
+          website: params.link_url,
+          brand_context: params.brand_context || 'Use Nouriva AI brand DNA if available: warm, trustworthy, clean, food-forward health technology.',
+          requested_creative_prompt: params.creative_prompt || null,
+        }),
+      },
+    ],
+  });
+  const content = response?.choices?.[0]?.message?.content || '';
+  const cleaned = String(content).replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  const jsonText = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned;
+  let parsed;
+  try { parsed = JSON.parse(jsonText); } catch { parsed = null; }
+  if (parsed?.prompt) return { ...parsed, model };
+  if (cleaned) {
+    return {
+      prompt: cleaned,
+      brand_context: params.brand_context || '',
+      style: params.creative_style || '',
+      rationale: 'LLM returned a plain-text creative brief; using it directly as the generation prompt.',
+      angle: 'llm_generated',
+      model,
+    };
+  }
+  throw new Error('Riya returned no usable creative prompt');
+}
+
 const directApiHandlers = {
   async _heyreachRequest(companyId, path, options = {}) {
     const connectedHeyReach = await getConnectedAccountApiKey('heyreach', companyId);
@@ -1245,7 +1303,7 @@ const directApiHandlers = {
   async competitor_ad_library(params) {
     const appToken = process.env.META_AD_LIBRARY_TOKEN;
     if (!appToken) {
-      return { status: 'simulated', message: 'META_AD_LIBRARY_TOKEN not configured', ads: [] };
+      return { status: 'error', error: 'META_AD_LIBRARY_TOKEN not configured', ads: [] };
     }
     let fetchFn;
     try { fetchFn = fetch; } catch { fetchFn = null; }
@@ -1556,7 +1614,7 @@ const directApiHandlers = {
     return { adAccountId, pageId, connectedAccountId };
   },
 
-  async create_meta_campaign(params, companyId) {
+  async create_meta_campaign(params, companyId, supabaseClient = null) {
     if (!params.campaign_name) return { status: 'error', error: 'campaign_name is required' };
     if (!params.daily_budget)  return { status: 'error', error: 'daily_budget is required (minor currency units, e.g. 50000 = ₹500)' };
     if (!params.headline)      return { status: 'error', error: 'headline is required' };
@@ -1606,80 +1664,355 @@ const directApiHandlers = {
       ...(publisherPlatforms ? { publisher_platforms: publisherPlatforms } : {}),
     };
 
-    // Graph mutations go through Composio proxy (tokens are masked in connected-account API).
-    const c1 = await metaGraphProxy(companyId, {
-      method: 'POST',
-      path: `/${adAccountId}/campaigns`,
-      body: {
-        name: params.campaign_name,
-        objective,
-        status: campaignStatus,
-        special_ad_categories: [],
-        is_adset_budget_sharing_enabled: false,
-      },
-    });
-    if (c1.error) return { status: 'error', error: `Campaign: ${c1.error}`, step: 'campaign' };
-    const campaignId = c1.result?.id;
-    if (!campaignId) return { status: 'error', error: 'Campaign: missing id in Meta response', step: 'campaign', raw: c1.result };
-
-    const c2 = await metaGraphProxy(companyId, {
-      method: 'POST',
-      path: `/${adAccountId}/adsets`,
-      body: {
-        name: `${params.campaign_name} — Ad Set`,
-        campaign_id: campaignId,
-        daily_budget: params.daily_budget,
-        billing_event: 'IMPRESSIONS',
-        optimization_goal: optimizationGoal,
-        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-        targeting,
-        status: campaignStatus,
-      },
-    });
-    if (c2.error) return { status: 'error', error: `Ad Set: ${c2.error}`, step: 'adset', campaign_id: campaignId };
-    const adsetId = c2.result?.id;
-    if (!adsetId) return { status: 'error', error: 'Ad Set: missing id in Meta response', step: 'adset', campaign_id: campaignId };
-
     if (!pageId) {
       return {
         status: 'error',
         error: 'Facebook Page ID required for ad creative. Provide page_id param, or connect a Page in Meta Business Manager.',
-        step: 'creative', campaign_id: campaignId, adset_id: adsetId,
+        step: 'creative',
       };
     }
-    const linkData = {
-      message: params.primary_text,
-      link: params.link_url,
-      name: params.headline,
-      call_to_action: { type: ctaType, value: { link: params.link_url } },
+
+    // A paid-ad launch must own a real creative asset before any Meta write.
+    // Reuse an explicitly approved asset; otherwise invoke Riya's existing
+    // image-generation pipeline and persist the hosted result in the draft.
+    const creativeType = String(params.creative_type || (params.generate_video ? 'VIDEO' : 'IMAGE')).toUpperCase();
+    let generatedAsset = null;
+    let creativeBrief = null;
+
+    // Video generation is deliberately asynchronous. Return a durable draft
+    // immediately and let the worker update it when the hosted asset exists.
+    // Meta creation remains impossible until the user approves the ready draft
+    // and a Meta video_id is available.
+    if (creativeType === 'VIDEO' && !params.video_id && params.async !== false) {
+      const asyncDraftId = `meta-creative-${companyId}-${Date.now()}`;
+      const asyncCreatedAt = new Date().toISOString();
+      const asyncDraft = {
+        campaign_name: String(params.campaign_name),
+        platform: 'meta',
+        account_id: adAccountId,
+        page_id: pageId,
+        objective,
+        headline: String(params.headline),
+        primary_text: String(params.primary_text),
+        link_url: String(params.link_url),
+        image_url: params.image_url || null,
+        video_url: params.video_url || null,
+        video_id: null,
+        creative_type: 'VIDEO',
+        cta_type: ctaType,
+        targeting,
+        status: 'generating',
+        asset_generation: { status: 'queued', agent: 'riya' },
+        created_at: asyncCreatedAt,
+      };
+      const saveAsyncDraft = async (data, handoff = 'Video creative generation is running asynchronously.') => {
+        if (!supabaseClient?.from) return;
+        await supabaseClient.from('agent_artifacts').upsert({
+          id: asyncDraftId,
+          company_id: companyId,
+          agent: 'riya',
+          type: 'paid_ad_creative_draft',
+          data,
+          handoff_notes: handoff,
+          tags: ['paid-ads', 'meta', 'video', data.status || 'generating'],
+          saved_at: new Date().toISOString(),
+          payload: { id: asyncDraftId, companyId, agent: 'riya', type: 'paid_ad_creative_draft', data },
+        }, { onConflict: 'id' });
+      };
+      try { await saveAsyncDraft(asyncDraft); } catch (error) {
+        console.warn('[create_meta_campaign] async video draft persistence failed:', error?.message || error);
+      }
+      setImmediate(async () => {
+        try {
+          const brief = await generatePaidAdCreativeBrief({ ...params, creative_type: 'VIDEO' }, companyId);
+          const generated = await generateFacelessVideo({
+            prompt: brief.prompt,
+            duration: params.duration || 8,
+            aspect_ratio: params.aspect_ratio || '9:16',
+            style: brief.style || params.creative_style || 'premium, warm, appetizing Indian food and clean mobile product demo',
+            generate_audio: params.generate_audio !== false,
+          }, companyId);
+          const videoUrl = generated?.cloudinary_url || generated?.video_url || generated?.url || null;
+          const status = videoUrl ? 'ready_for_approval' : (generated?.status === 'queued' ? 'processing' : 'failed');
+          await saveAsyncDraft({
+            ...asyncDraft,
+            status,
+            video_url: videoUrl,
+            asset_generation: {
+              status: generated?.status || 'error',
+              model: generated?.model || null,
+              host: generated?.host || null,
+              prompt_used: generated?.prompt || brief.prompt,
+              brief: { agent: 'riya', model: brief.model, angle: brief.angle || null, rationale: brief.rationale || null, prompt: brief.prompt },
+              operation_name: generated?.operation_name || null,
+              error: generated?.error || null,
+            },
+          }, status === 'ready_for_approval' ? 'Video creative is ready. Approve it and upload it to Meta before campaign creation.' : 'Video creative generation did not complete.');
+        } catch (error) {
+          try { await saveAsyncDraft({ ...asyncDraft, status: 'failed', asset_generation: { status: 'error', error: error?.message || String(error) } }, 'Video creative generation failed.'); } catch {}
+        }
+      });
+      return {
+        status: 'pending',
+        step: 'creative_generation',
+        creative_draft_id: asyncDraftId,
+        creative_draft: asyncDraft,
+        poll_url: `/api/paid-ads/creative-status?companyId=${encodeURIComponent(companyId)}&artifactId=${encodeURIComponent(asyncDraftId)}`,
+        message: 'Video creative generation started asynchronously. Meta upload is gated until the video is ready and approved.',
+      };
+    }
+
+    if ((creativeType === 'IMAGE' && !params.image_url) || (creativeType === 'VIDEO' && !params.video_id && !params.video_url)) {
+      try {
+        creativeBrief = await generatePaidAdCreativeBrief(params, companyId);
+      } catch (error) {
+        return {
+          status: 'error',
+          error: `Riya creative brief failed: ${error?.message || error}`,
+          step: 'creative_brief',
+          composio_action: 'METAADS_CREATE_AD_CREATIVE',
+        };
+      }
+      const fallbackPrompt = `Create a product-led paid social ad image for Nouriva AI, a personalized nutrition and meal-planning app for Indian households. Show a beautifully arranged balanced Indian meal beside a smartphone displaying a clean personalized weekly meal-plan interface, with a subtle lab-report personalization cue. Focus on the tangible outcome: knowing what to eat next. Do not depict robots, humanoid AI, abstract AI symbols, floating heads, generic business people, or unrelated male characters. Do not render any words, logos, or fake UI text in the image.`;
+      if (creativeType === 'IMAGE') {
+        generatedAsset = await generateSocialImage({
+          prompt: creativeBrief?.prompt || params.creative_prompt || fallbackPrompt,
+          aspect_ratio: params.aspect_ratio || '1:1',
+          platform: 'facebook_instagram',
+          brand_context: creativeBrief?.brand_context || params.brand_context || 'Nouriva AI: warm, trustworthy personalized nutrition and meal planning for Indian households; use the existing Nouriva visual identity and avoid generic AI imagery.',
+          style: creativeBrief?.style || params.creative_style || 'warm, appetizing, premium Indian food photography, soft natural light, clean mobile product composition, trustworthy health brand, no people unless essential',
+          headline: params.headline,
+          primary_text: params.primary_text,
+        }, companyId);
+      } else {
+        generatedAsset = await generateFacelessVideo({
+          prompt: creativeBrief?.prompt || params.creative_prompt || fallbackPrompt,
+          duration: params.duration || 8,
+          aspect_ratio: params.aspect_ratio || '9:16',
+          style: creativeBrief?.style || params.creative_style || 'premium, warm, appetizing Indian food and clean mobile product demo',
+          generate_audio: params.generate_audio !== false,
+        }, companyId);
+      }
+      const generatedUrl = creativeType === 'VIDEO'
+        ? (generatedAsset?.cloudinary_url || generatedAsset?.video_url || generatedAsset?.url || null)
+        : (generatedAsset?.cdn_url || generatedAsset?.image_url || generatedAsset?.cloudinary_url || null);
+      const assetSucceeded = creativeType === 'VIDEO'
+        ? ['success', 'completed'].includes(String(generatedAsset?.status || '').toLowerCase())
+        : generatedAsset?.status === 'success';
+      if (!assetSucceeded || !generatedUrl) {
+        return {
+          status: 'error',
+          error: `Creative generation failed: ${generatedAsset?.error || 'no hosted image returned'}`,
+          step: 'creative_generation',
+          composio_action: 'METAADS_CREATE_AD_CREATIVE',
+        };
+      }
+      if (creativeType === 'VIDEO') params.video_url = generatedUrl;
+      else params.image_url = generatedUrl;
+    }
+    // Persist the complete Marqq-side creative draft before uploading anything
+    // to Meta. This gives the UI/audit trail a local draft even when Meta
+    // rejects the upload, and keeps campaign-side mutations gated on success.
+    const creativeDraft = {
+      campaign_name: String(params.campaign_name),
+      platform: 'meta',
+      account_id: adAccountId,
+      page_id: pageId,
+      objective,
+      headline: String(params.headline),
+      primary_text: String(params.primary_text),
+      link_url: String(params.link_url),
+      image_url: params.image_url || null,
+      video_url: params.video_url || null,
+      video_id: params.video_id || null,
+      asset_generation: generatedAsset ? {
+        status: generatedAsset.status,
+        model: generatedAsset.model || null,
+        host: generatedAsset.host || null,
+        prompt_used: generatedAsset.prompt_used || null,
+        brief: creativeBrief ? {
+          agent: 'riya',
+          model: creativeBrief.model || null,
+          angle: creativeBrief.angle || null,
+          rationale: creativeBrief.rationale || null,
+          prompt: creativeBrief.prompt,
+        } : null,
+      } : null,
+      cta_type: ctaType,
+      targeting,
+      status: 'draft',
+      created_at: new Date().toISOString(),
     };
-    if (params.image_url) linkData.picture = params.image_url;
+    const creativeDraftId = `meta-creative-${companyId}-${Date.now()}`;
+    if (supabaseClient?.from) {
+      try {
+        await supabaseClient.from('agent_artifacts').upsert({
+          id: creativeDraftId,
+          company_id: companyId,
+          agent: 'zara',
+          type: 'paid_ad_creative_draft',
+          data: creativeDraft,
+          handoff_notes: 'Created locally before Meta upload; requires approval before live activation.',
+          tags: ['paid-ads', 'meta', 'draft'],
+          saved_at: creativeDraft.created_at,
+          payload: { id: creativeDraftId, companyId, agent: 'zara', type: 'paid_ad_creative_draft', data: creativeDraft },
+        }, { onConflict: 'id' });
+      } catch (error) {
+        console.warn('[create_meta_campaign] creative draft persistence failed:', error?.message || error);
+      }
+    }
+    if (creativeType === 'VIDEO' && !params.video_id) {
+      return {
+        status: 'error',
+        error: 'Video asset generated and saved, but Meta requires a video_id before METAADS_CREATE_AD_CREATIVE. Upload the approved hosted video to Meta, then continue the draft.',
+        step: 'creative_generation',
+        video_url: params.video_url || null,
+        creative_draft_id: creativeDraftId,
+        creative_draft: creativeDraft,
+        composio_action: 'METAADS_CREATE_AD_CREATIVE',
+      };
+    }
+    // Use Composio's typed Meta Ads actions for all writes. The proxy is kept
+    // for read-only account/page discovery, but native actions provide the
+    // toolkit's validated creative/campaign/ad-set/ad schemas and structured
+    // errors.
+    const actionResult = async (action, input, step, ids = {}) => {
+      const response = await executeComposioAction(action, input, companyId);
+      const result = response?.result || null;
+      if (response?.error) return {
+        status: 'error',
+        error: `${step}: ${response.error}`,
+        step: step.toLowerCase().replaceAll(' ', '_'),
+        ...ids,
+        creative_draft_id: creativeDraftId,
+        creative_draft: creativeDraft,
+        composio_action: action,
+        raw: response.raw || null,
+      };
+      const id = result?.id || result?.data?.id || result?.result?.id || null;
+      if (!id) return {
+        status: 'error',
+        error: `${step}: missing id in Composio response`,
+        step: step.toLowerCase().replaceAll(' ', '_'),
+        ...ids,
+        creative_draft_id: creativeDraftId,
+        creative_draft: creativeDraft,
+        composio_action: action,
+        raw: result,
+      };
+      return { id, result };
+    };
 
-    const c3 = await metaGraphProxy(companyId, {
-      method: 'POST',
-      path: `/${adAccountId}/adcreatives`,
-      body: {
-        name: `${params.campaign_name} — Creative`,
-        object_story_spec: { page_id: pageId, link_data: linkData },
+    if (creativeType === 'IMAGE' && !params.image_url) {
+      return {
+        status: 'error',
+        error: 'Creative: image_url is required for an IMAGE creative. Generate or select the creative asset before approval.',
+        step: 'creative',
+        creative_draft_id: creativeDraftId,
+        creative_draft: creativeDraft,
+        composio_action: 'METAADS_CREATE_AD_CREATIVE',
+      };
+    }
+    const nativeCreative = await actionResult('METAADS_CREATE_AD_CREATIVE', {
+      account_id: adAccountId,
+      name: `${params.campaign_name} — Creative`,
+      creative: {
+        type: creativeType,
+        page_id: pageId,
+        message: params.primary_text,
+        website_url: params.link_url,
+        call_to_action: ctaType,
+        ...(params.image_url ? { image_url: params.image_url } : {}),
+        ...(params.video_id ? { video_id: params.video_id } : {}),
       },
-    });
-    if (c3.error) return { status: 'error', error: `Creative: ${c3.error}`, step: 'creative', campaign_id: campaignId, adset_id: adsetId };
-    const creativeId = c3.result?.id;
-    if (!creativeId) return { status: 'error', error: 'Creative: missing id in Meta response', step: 'creative', campaign_id: campaignId, adset_id: adsetId };
+    }, 'Creative');
+    let creative = nativeCreative;
+    // Current Composio METAADS_CREATE_AD_CREATIVE versions incorrectly map
+    // image_url into Meta's link_data as image_url; Meta expects `picture` for
+    // a URL-based link creative. Keep the native action as the first path, but
+    // use the correctly shaped Composio proxy request for this known adapter
+    // incompatibility. Campaign/ad-set/ad writes remain native actions.
+    if (
+      nativeCreative.status === 'error' &&
+      params.image_url &&
+      /unsupported field in object_story_spec|image_url/i.test(String(nativeCreative.error || ''))
+    ) {
+      const fallbackCreative = await metaGraphProxy(companyId, {
+        method: 'POST',
+        path: `/${adAccountId}/adcreatives`,
+        body: {
+          name: `${params.campaign_name} — Creative`,
+          object_story_spec: {
+            page_id: pageId,
+            link_data: {
+              message: params.primary_text,
+              link: params.link_url,
+              name: params.headline,
+              picture: params.image_url,
+              call_to_action: { type: ctaType, value: { link: params.link_url } },
+            },
+          },
+        },
+      });
+      if (!fallbackCreative.error && fallbackCreative.result?.id) {
+        creative = { id: fallbackCreative.result.id, result: fallbackCreative.result, transport: 'proxy_fallback' };
+      } else {
+        return {
+          ...nativeCreative,
+          error: `Creative: native action and picture fallback failed: ${fallbackCreative.error || 'missing id'}`,
+          fallback_error: fallbackCreative.error || null,
+        };
+      }
+    }
+    if (creative.status === 'error') return creative;
+    const creativeId = creative.id;
 
-    const c4 = await metaGraphProxy(companyId, {
-      method: 'POST',
-      path: `/${adAccountId}/ads`,
-      body: {
-        name: `${params.campaign_name} — Ad`,
-        adset_id: adsetId,
-        creative: { creative_id: creativeId },
-        status: campaignStatus,
-      },
-    });
-    if (c4.error) return { status: 'error', error: `Ad: ${c4.error}`, step: 'ad', campaign_id: campaignId, adset_id: adsetId, creative_id: creativeId };
-    const adId = c4.result?.id;
-    if (!adId) return { status: 'error', error: 'Ad: missing id in Meta response', step: 'ad', campaign_id: campaignId, adset_id: adsetId, creative_id: creativeId };
+    // Campaign, ad set, and ad are created only after the creative exists.
+    const nativeObjective = {
+      OUTCOME_LEADS: 'LEAD_GENERATION',
+      OUTCOME_SALES: 'CONVERSIONS',
+      OUTCOME_TRAFFIC: 'LINK_CLICKS',
+      OUTCOME_AWARENESS: 'BRAND_AWARENESS',
+      OUTCOME_ENGAGEMENT: 'POST_ENGAGEMENT',
+      OUTCOME_APP_PROMOTION: 'APP_INSTALLS',
+    }[objective] || 'LINK_CLICKS';
+    const campaign = await actionResult('METAADS_CREATE_CAMPAIGN', {
+      account_id: adAccountId,
+      name: params.campaign_name,
+      objective: nativeObjective,
+      status: campaignStatus,
+      special_ad_categories: [],
+    }, 'Campaign', { creative_id: creativeId });
+    if (campaign.status === 'error') return campaign;
+    const campaignId = campaign.id;
+
+    const nativeTargeting = {
+      age_min: targeting.age_min,
+      age_max: targeting.age_max,
+      location_type: 'countries',
+      locations: targeting.geo_locations?.countries || ['IN'],
+    };
+    const adset = await actionResult('METAADS_CREATE_AD_SET', {
+      campaign_id: campaignId,
+      name: `${params.campaign_name} — Ad Set`,
+      status: campaignStatus,
+      daily_budget: params.daily_budget,
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: nativeObjective === 'LEAD_GENERATION' ? 'OFFSITE_CONVERSIONS' : optimizationGoal,
+      bid_amount: params.bid_amount ?? 50,
+      targeting: nativeTargeting,
+    }, 'Ad Set', { campaign_id: campaignId, creative_id: creativeId });
+    if (adset.status === 'error') return adset;
+    const adsetId = adset.id;
+
+    const ad = await actionResult('METAADS_CREATE_AD', {
+      ad_set_id: adsetId,
+      name: `${params.campaign_name} — Ad`,
+      status: campaignStatus,
+      creative: { type: creativeType, page_id: pageId, message: params.primary_text, website_url: params.link_url, call_to_action: ctaType, ...(params.image_url ? { image_url: params.image_url } : {}), ...(params.video_id ? { video_id: params.video_id } : {}) },
+    }, 'Ad', { campaign_id: campaignId, adset_id: adsetId, creative_id: creativeId });
+    if (ad.status === 'error') return ad;
+    const adId = ad.id;
 
     let loop_enrollment = null;
     if (params.skip_loop_enrollment !== true && params.skip_loop_enrollment !== 'true') {
@@ -1723,6 +2056,7 @@ const directApiHandlers = {
       adset_id: adsetId,
       creative_id: creativeId,
       ad_id: adId,
+      creative_draft_id: creativeDraftId,
       ad_account_id: adAccountId,
       page_id: pageId,
       objective,
@@ -3747,16 +4081,15 @@ async function executeAutomation(trigger, companyId, runId, supabaseClient = nul
         return { status: "error", error: err.message, automation_id: entry.id };
       }
     }
-    // No handler yet → simulated
-    return { status: "simulated", message: "no handler for: " + entry.id, automation_id: entry.id };
+    return { status: "error", error: "No handler configured for: " + entry.id, automation_id: entry.id };
   }
 
   // n8n_webhook — POST to configured webhook URL
   const url = process.env[entry.endpoint];
   if (!url) {
     return {
-      status: "simulated",
-      message: "endpoint not configured: " + entry.endpoint,
+      status: "error",
+      error: "Endpoint not configured: " + entry.endpoint,
       automation_id: entry.id,
     };
   }
@@ -3790,11 +4123,11 @@ async function executeAutomation(trigger, companyId, runId, supabaseClient = nul
     const data = await response.json();
     return data;
   } catch (err) {
-    // Fallback: if fetch not available or network error, return simulated
+    // Missing runtime dependencies are configuration errors, not successful runs.
     if (err.message === "node-fetch not available") {
       return {
-        status: "simulated",
-        message: "endpoint not configured: " + entry.endpoint,
+        status: "error",
+        error: "node-fetch not available",
         automation_id: entry.id,
       };
     }

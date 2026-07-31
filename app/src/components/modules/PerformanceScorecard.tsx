@@ -101,69 +101,6 @@ function buildEmptyData(): DashboardData {
   }
 }
 
-// ─── Mock data for demo ────────────────────────────────────────────────────────
-
-function buildMockData(): DashboardData {
-  const today = new Date()
-  const trafficChart: ChartPoint[] = Array.from({ length: 30 }, (_, i) => {
-    const d = new Date(today)
-    d.setDate(d.getDate() - (29 - i))
-    const base = 1200 + Math.sin(i * 0.4) * 300
-    return {
-      date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      value: Math.round(base + Math.random() * 200),
-      prev: Math.round(base * 0.85 + Math.random() * 150),
-    }
-  })
-  const conversionChart: ChartPoint[] = trafficChart.map(p => ({
-    date: p.date,
-    value: Math.round(p.value * 0.032 + Math.random() * 5),
-    prev: Math.round((p.prev || 0) * 0.028 + Math.random() * 3),
-  }))
-
-  return {
-    lastUpdated: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    period: 'Last 30 days',
-    connected: false, // still shows "connect GA4" CTA but renders demo data
-    kpis: [
-      { label: 'Sessions',        value: '38,214',   delta: '+12.4%', trend: 'up',   sub: 'vs prev period' },
-      { label: 'Organic Clicks',  value: '14,892',   delta: '+8.7%',  trend: 'up',   sub: 'Google Search Console' },
-      { label: 'Impressions',     value: '312,740',  delta: '+21.3%', trend: 'up',   sub: 'GSC total' },
-      { label: 'Avg. Position',   value: '11.2',     delta: '-1.4',   trend: 'up',   sub: 'lower is better' },
-      { label: 'Bounce Rate',     value: '54.1%',    delta: '-3.2pp', trend: 'up',   sub: 'engagement rate' },
-      { label: 'Goal Completions',value: '1,243',    delta: '+18.9%', trend: 'up',   sub: 'all goals' },
-    ],
-    trafficChart,
-    conversionChart,
-    topPages: [
-      { path: '/blog/ai-marketing-guide',  sessions: 4820, delta: 22 },
-      { path: '/pricing',                   sessions: 3210, delta: 8  },
-      { path: '/features/lead-scoring',     sessions: 2980, delta: 15 },
-      { path: '/blog/seo-automation',       sessions: 2540, delta: -4 },
-      { path: '/integrations',              sessions: 1890, delta: 31 },
-    ],
-    topQueries: [
-      { query: 'ai marketing automation',   clicks: 1240, impressions: 18400, position: 3.2 },
-      { query: 'b2b lead scoring software', clicks: 890,  impressions: 12100, position: 5.7 },
-      { query: 'marketing intelligence platform', clicks: 760, impressions: 9800, position: 4.1 },
-      { query: 'content automation tool',   clicks: 640,  impressions: 8200,  position: 6.8 },
-      { query: 'seo content generator',     clicks: 590,  impressions: 7600,  position: 7.4 },
-    ],
-    channels: [
-      { channel: 'Organic Search', sessions: 18420, pct: 48, delta: 14 },
-      { channel: 'Direct',         sessions: 9810,  pct: 26, delta: 5  },
-      { channel: 'Referral',       sessions: 5430,  pct: 14, delta: -2 },
-      { channel: 'Social',         sessions: 3020,  pct: 8,  delta: 22 },
-      { channel: 'Email',          sessions: 1534,  pct: 4,  delta: 9  },
-    ],
-    topAdCampaigns: [
-      { name: 'Brand Search — Exact', platform: 'Google', spend: 1840, spendLabel: '$1840.00', clicks: 920, impressions: 18400, ctr: 5.0 },
-      { name: 'Prospecting — Lookalike', platform: 'Meta', spend: 1260, spendLabel: '$1260.00', clicks: 410, impressions: 98000, ctr: 0.42 },
-      { name: 'ABM — Decision Makers', platform: 'LinkedIn', spend: 980, spendLabel: '$980.00', clicks: 86, impressions: 12400, ctr: 0.69 },
-    ],
-  }
-}
-
 // ─── Mini helpers ─────────────────────────────────────────────────────────────
 
 function TrendIcon({ trend, size = 14 }: { trend: Trend; size?: number }) {
@@ -223,7 +160,7 @@ function ConnectBanner({ onModuleSelect }: { onModuleSelect?: (id: string) => vo
     <div className="flex items-center gap-3 rounded-xl border border-dashed border-orange-300/60 bg-orange-50/40 dark:border-orange-800/40 dark:bg-orange-950/20 px-4 py-3 text-sm">
       <PlugZap className="h-4 w-4 text-orange-500 flex-shrink-0" />
       <p className="text-muted-foreground flex-1">
-        Showing <span className="font-medium text-foreground">demo data</span> — connect GA4, Search Console, and ad accounts for live metrics.
+        No live performance data is available yet — connect GA4, Search Console, and ad accounts to load metrics.
       </p>
       <button
         onClick={() => onModuleSelect?.('integrations')}
@@ -428,7 +365,7 @@ type PerformanceScorecardProps = {
 export function PerformanceScorecard({ onModuleSelect }: PerformanceScorecardProps = {}) {
   const { activeWorkspace } = useWorkspace()
   const [period, setPeriod] = useState('30d')
-  const [data, setData] = useState<DashboardData>(buildMockData)
+  const [data, setData] = useState<DashboardData>(buildEmptyData)
   const [refreshing, setRefreshing] = useState(false)
   const [showAllPages, setShowAllPages] = useState(false)
   const [showAllQueries, setShowAllQueries] = useState(false)
@@ -446,9 +383,10 @@ export function PerformanceScorecard({ onModuleSelect }: PerformanceScorecardPro
         if (!resp.ok) return
         const json = await resp.json()
         if (cancelled) return
-        if (json?.kpis?.length) setData(json)
+        if (json && Array.isArray(json.kpis)) setData({ ...buildEmptyData(), ...json })
+        else setData(buildEmptyData())
       } catch {
-        // silently keep mock data
+        if (!cancelled) setData(buildEmptyData())
       }
     }
     load()
@@ -465,9 +403,12 @@ export function PerformanceScorecard({ onModuleSelect }: PerformanceScorecardPro
       const resp = await fetch(url)
       if (resp.ok) {
         const json = await resp.json()
-        if (json?.kpis?.length) setData(json)
-      }
-    } catch { /* keep current data */ }
+        if (json && Array.isArray(json.kpis)) setData({ ...buildEmptyData(), ...json })
+        else setData(buildEmptyData())
+      } else setData(buildEmptyData())
+    } catch {
+      setData(buildEmptyData())
+    }
     setRefreshing(false)
   }
 

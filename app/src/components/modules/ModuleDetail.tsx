@@ -650,6 +650,7 @@ export function ModuleDetail({ module, onBack, onModuleSelect, autoStart = false
         initialQuestion={goalPreset.question ?? undefined}
         initialObjective={goalPreset.paidObjective ?? undefined}
         initialChannel={goalPreset.paidChannel ?? undefined}
+        onOpenDashboard={() => onModuleSelect?.('execution-dashboard')}
       />
     );
   }

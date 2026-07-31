@@ -226,7 +226,7 @@ export class CSVAnalysisService {
   }
 
   static async queryChatData(query: ChatQuery): Promise<string> {
-    // Simulate AI-powered querying of CSV data
+    // Answer deterministic questions from the uploaded CSV data.
     const { question, csvData } = query;
     
     // Simple query processing (in a real implementation, this would use an LLM)

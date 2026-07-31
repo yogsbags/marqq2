@@ -1,91 +1,123 @@
 {
   "company_id": "b08d3df3-c1a9-4632-96ec-e6e5b703c2a0",
-  "updated_at": "2026-07-30T12:01:07.109Z",
+  "updated_at": "2026-07-31T06:55:42.164Z",
   "positioning": {
     "value": {
-      "statement": "Premium AI App Development for Real Estate, Fintech, Ecommerce",
-      "unique_value": "AI-driven applications for real estate, fintech, and ecommerce"
+      "statement": "The first nutrition app that reads your lab report and knows your medical conditions.",
+      "unique_value": "Personalised meal scores for diabetes, PCOS, thyroid, hypertension. Built for Indian food."
     },
     "confidence": 1,
-    "last_verified": "2026-07-30",
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": "2026-08-29"
+    "expires_at": "2026-08-30"
   },
   "icp": {
     "value": {
       "company_size": null,
       "industry": [
-        "real estate",
-        "fintech",
-        "ecommerce"
+        "healthcare",
+        "nutrition",
+        "wellness"
       ],
-      "geography": null,
-      "role": null
+      "geography": [
+        "India"
+      ],
+      "role": [
+        "individuals with diabetes",
+        "individuals with PCOS",
+        "individuals with thyroid conditions",
+        "individuals with hypertension"
+      ]
     },
-    "confidence": 0.5,
-    "last_verified": "2026-07-30",
+    "confidence": 0.9,
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": "2026-08-29"
+    "expires_at": "2026-08-30"
   },
   "competitors": {
-    "value": null,
-    "confidence": 0,
-    "last_verified": null,
+    "value": [
+      {
+        "name": "MyFitnessPal",
+        "positioning": "Large‑scale calorie‑tracking platform that emphasizes barcode scanning, extensive food database and social/fitness‑device integrations, positioning itself as the go‑to app for weight‑loss and fitness enthusiasts."
+      },
+      {
+        "name": "Lose It!",
+        "positioning": "Simple, photo‑first calorie counter that focuses on quick portion estimation and a low‑cost premium tier, targeting users who want fast, visual logging without deep analytics."
+      },
+      {
+        "name": "MacroFactor",
+        "positioning": "Data‑driven nutrition tracker that auto‑adjusts daily calorie targets based on real‑time weight trends and uses an evidence‑based “stronger by science” methodology, appealing to users seeking precise, adaptive diet planning."
+      },
+      {
+        "name": "Cronometer",
+        "positioning": "Micronutrient‑focused tracker offering a verified, lab‑analyzed food database and detailed nutrient breakdown, positioning itself for dietitians, researchers, and users with medical‑grade nutrition needs."
+      },
+      {
+        "name": "Noom",
+        "positioning": "Behavior‑change platform that blends psychology‑based coaching, human support and optional telehealth/GLP‑1 assistance, positioning itself as a holistic weight‑loss solution beyond pure calorie counting."
+      }
+    ],
+    "confidence": 0.82,
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": null
+    "expires_at": "2026-08-30"
   },
   "offers": {
     "value": [
       {
-        "name": "AI App Development Services",
-        "price_signal": "not publicly disclosed",
-        "tier": "standard"
+        "name": "Nouriva AI",
+        "price_signal": "$9.99 / month; $49.99 / year",
+        "tier": "Monthly and Yearly"
       }
     ],
     "confidence": 1,
-    "last_verified": "2026-07-30",
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": "2026-08-29"
+    "expires_at": "2026-08-30"
   },
   "messaging": {
     "value": {
-      "headline": "Innovative AI Solutions for Your Business",
+      "headline": "Food that fits your lab work, not just your macros.",
       "tagline": null,
       "key_messages": [
-        "Transforming industries with AI-driven applications",
-        "Enhancing business efficiency and growth"
+        "The first nutrition app that reads your lab report and knows your medical conditions.",
+        "Personalised meal scores for diabetes, PCOS, thyroid, hypertension."
       ]
     },
     "confidence": 1,
-    "last_verified": "2026-07-30",
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": "2026-08-29"
+    "expires_at": "2026-08-30"
   },
   "channels": {
     "value": [
       {
-        "channel": "website",
-        "evidence": "Home; Services; About; Contact; Privacy policy"
+        "channel": "App Store",
+        "evidence": "Download on the App Store"
+      },
+      {
+        "channel": "Google Play",
+        "evidence": "Get it on Google Play"
       }
     ],
     "confidence": 1,
-    "last_verified": "2026-07-30",
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": "2026-08-29"
+    "expires_at": "2026-08-30"
   },
   "funnel": {
     "value": {
       "entry_points": [
-        "Get Started",
-        "Contact",
-        "info@productverse.in"
+        "lab report upload",
+        "condition selection",
+        "food scan"
       ],
-      "cta_primary": "Get Started"
+      "cta_primary": "Try everything. Pay if you stay."
     },
     "confidence": 1,
-    "last_verified": "2026-07-30",
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": "2026-08-29"
+    "expires_at": "2026-08-30"
   },
   "metrics": {
     "value": null,
@@ -104,22 +136,22 @@
   "content_pillars": {
     "value": [
       {
-        "topic": "Real Estate Solutions",
-        "evidence": "AI applications tailored for the real estate market."
+        "topic": "Lab Reports",
+        "evidence": "Your blood work, in the loop."
       },
       {
-        "topic": "Fintech Automations powered by AI",
-        "evidence": "Empowering BFSI with cutting-edge Martech AI technology."
+        "topic": "Conditions",
+        "evidence": "Scores that know your body."
       },
       {
-        "topic": "Martech Excellence",
-        "evidence": "Martech Excellence"
+        "topic": "Organs",
+        "evidence": "Beyond macros. See your organs."
       }
     ],
     "confidence": 1,
-    "last_verified": "2026-07-30",
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": "2026-08-29"
+    "expires_at": "2026-08-30"
   },
   "campaigns": {
     "value": null,
@@ -130,18 +162,18 @@
   },
   "insights": {
     "value": {
-      "summary": "Productverse is positioned as a premium AI app development company serving the real estate, fintech, and ecommerce industries with AI-driven applications. A key differentiator is its focus on transforming industries with AI, enhancing business efficiency and growth. However, a strategic risk lies in the lack of publicly disclosed pricing, which may hinder competitive benchmarking and customer acquisition.",
+      "summary": "Nouriva AI is positioned as a personalized nutrition app that caters to individuals with specific medical conditions, offering a unique value proposition by reading lab reports and providing tailored meal scores. The company's key differentiator lies in its focus on Indian food and medical conditions such as diabetes, PCOS, thyroid, and hypertension. However, a strategic risk for Nouriva AI is the intense competition in the nutrition and wellness space, with established players like MyFitnessPal and Noom offering a wide range of features and services.",
       "gaps": [
-        "Pricing not publicly disclosed",
-        "ICP limited by lack of company size and geography data",
-        "No campaign history available",
-        "Competitor pricing benchmarks missing",
-        "Role of the target customer within the industry is unclear"
+        "pricing not publicly disclosed for potential enterprise or partnership opportunities",
+        "ICP limited to India — international expansion unclear",
+        "no campaign history available to gauge marketing effectiveness",
+        "competitor pricing benchmarks missing for premium tiers and features",
+        "user retention and engagement metrics not available"
       ]
     },
     "confidence": 0.75,
-    "last_verified": "2026-07-30",
+    "last_verified": "2026-07-31",
     "source_agent": "veena",
-    "expires_at": "2026-08-29"
+    "expires_at": "2026-08-30"
   }
 }

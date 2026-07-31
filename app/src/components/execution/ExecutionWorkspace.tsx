@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowRight, BarChart3, CheckCircle2, CircleAlert, ExternalLink, Link2, Radar, Send, FileText, RefreshCw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { EXECUTION_PLANS, EXISTING_CONNECTOR_IDS, connectorReadiness, formatExecutionConnector, type ExecutionWorkstream } from '@/lib/executionReadiness'
+import { PaidAdsDashboardTab, type AdsGoalState } from '@/components/modules/PaidAdsFlow'
+import { toast } from 'sonner'
 
 type Props = {
   workstream: ExecutionWorkstream
@@ -21,6 +23,14 @@ export function ExecutionWorkspace({ workstream, onModuleSelect }: Props) {
   const [loading, setLoading] = useState(true)
   const [performance, setPerformance] = useState<{ items: Array<{ platform: string; metrics?: { engagement_rate?: number | null } }>; recommendations: Array<{ recommendation?: { recommendation?: string; platform?: string; evidence?: { current_items?: number } } }> }>({ items: [], recommendations: [] })
   const [performanceBusy, setPerformanceBusy] = useState<string | null>(null)
+  const dashboardGoal = useMemo<AdsGoalState>(() => {
+    const fallback: AdsGoalState = { target: '', timeline: '30 days', budget: '', maxCpa: '', conversion: 'Primary conversion', geo: '', provenPct: '70', scalePct: '20', testPct: '10', approval: 'approval' }
+    if (!activeWorkspace?.id) return fallback
+    try {
+      const saved = localStorage.getItem(`marqq_ads_goal_${activeWorkspace.id}`)
+      return saved ? { ...fallback, ...JSON.parse(saved) } : fallback
+    } catch { return fallback }
+  }, [activeWorkspace?.id])
 
   useEffect(() => {
     let cancelled = false
@@ -51,23 +61,36 @@ export function ExecutionWorkspace({ workstream, onModuleSelect }: Props) {
 
   const readiness = useMemo(() => connectorReadiness(workstream, connectedIds), [workstream, connectedIds])
 
-  const loadPerformance = async () => {
+  const loadPerformance = useCallback(async () => {
     if (!activeWorkspace?.id) return
     const response = await fetch(`/api/content-studio/performance?companyId=${encodeURIComponent(activeWorkspace.id)}`)
-    if (response.ok) setPerformance(await response.json())
-  }
+    const json = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(json?.error || 'Could not load performance data')
+    setPerformance({
+      items: Array.isArray(json?.items) ? json.items : [],
+      recommendations: Array.isArray(json?.recommendations) ? json.recommendations : [],
+    })
+  }, [activeWorkspace?.id])
 
-  useEffect(() => { void loadPerformance().catch(() => {}) }, [activeWorkspace?.id])
+  useEffect(() => {
+    setPerformance({ items: [], recommendations: [] })
+    void loadPerformance().catch(() => {})
+  }, [activeWorkspace?.id, loadPerformance])
 
   const runPerformanceAction = async (action: 'sync' | 'review') => {
     if (!activeWorkspace?.id) return
     setPerformanceBusy(action)
     try {
-      await fetch(`/api/content-studio/performance/${action}`, {
+      const response = await fetch(`/api/content-studio/performance/${action}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId: activeWorkspace.id }),
       })
+      const json = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(json?.error || `Could not ${action} analytics`)
       await loadPerformance()
+      toast.success(action === 'sync' ? 'Analytics synced' : 'Course-correction review complete')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Performance action failed')
     } finally { setPerformanceBusy(null) }
   }
 
@@ -191,6 +214,16 @@ export function ExecutionWorkspace({ workstream, onModuleSelect }: Props) {
           })}
         </div>
       </section>
+
+      {workstream === 'dashboard' ? (
+        <section className="rounded-xl border border-border/60 bg-background p-5">
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+            <div><p className="text-sm font-semibold">Paid Ads</p><p className="mt-1 text-xs text-muted-foreground">Consolidated Meta, Google Ads, and LinkedIn Ads performance tied to the workspace goal.</p></div>
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => onModuleSelect('paid-ads')}>Open paid-ads workspace <ArrowRight className="h-3.5 w-3.5" /></Button>
+          </div>
+          <PaidAdsDashboardTab companyId={activeWorkspace?.id || ''} goal={dashboardGoal} />
+        </section>
+      ) : null}
 
       {(workstream === 'content' || workstream === 'dashboard' || workstream === 'monitoring') && (
         <section className="rounded-xl border border-border/60 bg-background p-5">

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { ChevronDown, Play, TrendingUp } from 'lucide-react'
+import { CheckCheck, ChevronDown, Send, ShieldCheck, TrendingUp } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { useAgentRun } from '@/hooks/useAgentRun'
@@ -13,9 +13,16 @@ import { ReportDeliveryCard } from './ReportDeliveryCard'
 import { OfferSelector, type Offer } from './OfferSelector'
 import { AnalyticsDataInput, type AnalyticsResult } from './AnalyticsDataInput'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
+import { outcomeKindFromPlatform, requestOutcomeGoLive } from '@/components/outcome-previews'
 
 // Agents that support campaign analytics data input
 const ANALYTICS_AGENT_NAMES = ['dev', 'arjun']
+
+type SectionChatMessage = {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
 
 function getRecentConversation(): Array<{ role: 'user' | 'assistant'; content: string }> {
   try {
@@ -106,15 +113,18 @@ function SingleAgentCard({
   moduleTitle: string
   onArtifactReady?: (agent: string, artifact: Record<string, unknown>) => void
 }) {
-  const [query, setQuery] = useState(cfg.defaultQuery)
+  const [composer, setComposer] = useState(cfg.defaultQuery)
   const [analyticsData, setAnalyticsData] = useState<AnalyticsResult | null>(null)
+  const [deliveryMode, setDeliveryMode] = useState<'draft' | 'live'>(cfg.deliveryMode ?? 'draft')
+  const [messages, setMessages] = useState<SectionChatMessage[]>([])
+  const [pendingLivePrompt, setPendingLivePrompt] = useState<string | null>(null)
   // Fix 10: expandable chained-context banner
   const [chainExpanded, setChainExpanded] = useState(false)
 
   // Fix 1: when chained input arrives, append to query
   useEffect(() => {
     if (chainedInput) {
-      setQuery(prev => `${prev}\n\n--- Context from previous agent ---\n${chainedInput}`)
+      setComposer(prev => `${prev}\n\n--- Context from previous agent ---\n${chainedInput}`)
     }
   }, [chainedInput])
 
@@ -131,7 +141,6 @@ function SingleAgentCard({
       ].join(':')
     : undefined
   const agentRun = useAgentRun(undefined, persistenceKey)
-  const isIdle = !agentRun.streaming && !agentRun.text && !agentRun.artifact && !agentRun.error
   const autoRunTriggeredRef = useRef(false)
   const lastArtifactRef = useRef<Record<string, unknown> | null>(null)
 
@@ -153,12 +162,76 @@ function SingleAgentCard({
     return parts.filter(Boolean).join('\n\n')
   }
 
+  const runPrompt = (baseQuery: string, isAutomatic = false) => {
+    const trimmed = baseQuery.trim()
+    if (!trimmed || agentRun.streaming || disabledReason) return
+    const finalQuery = buildFinalQuery(trimmed)
+    setMessages(prev => [...prev, { id: `${Date.now()}-user`, role: 'user', content: trimmed }])
+
+    // Live work always gets a draft/preview pass first. The user must explicitly
+    // approve the same request before the connector is allowed to send/publish.
+    const runMode = deliveryMode === 'live' ? 'draft' : 'draft'
+    if (deliveryMode === 'live' && !isAutomatic) setPendingLivePrompt(finalQuery)
+    const sectionHistory = [
+      ...(conversationHistory || []),
+      ...messages
+        .filter((message) => message.role !== 'system')
+        .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content })),
+    ].slice(-12)
+    void agentRun.run(cfg.name, finalQuery, cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, sectionHistory, moduleId, runMode, cfg.outputMode, cfg.connectors, cfg.paidChannel)
+    setComposer('')
+  }
+
+  const approveLiveExecution = () => {
+    if (!pendingLivePrompt || agentRun.streaming || !agentRun.artifact) return
+    const artifact = agentRun.artifact
+    const nestedEmail = artifact.generate_email_html as Record<string, unknown> | undefined
+    const nestedArticle = artifact.create_seo_article as Record<string, unknown> | undefined
+    const nestedLandingPage = artifact.create_landing_page as Record<string, unknown> | undefined
+    const publishable = nestedEmail?.html
+      ? { kind: 'newsletter' as const, payload: nestedEmail }
+      : nestedArticle?.html
+        ? { kind: 'blog' as const, payload: nestedArticle }
+        : nestedLandingPage?.html || nestedLandingPage?.page_structure
+          ? { kind: 'landing_page' as const, payload: nestedLandingPage }
+          : typeof artifact.post === 'string'
+            ? { kind: outcomeKindFromPlatform(String(artifact.platform || artifact.channel)), payload: artifact }
+            : typeof artifact.body === 'string'
+              ? { kind: 'email' as const, payload: artifact }
+              : typeof artifact.headline === 'string' || typeof artifact.ad_headline === 'string' || typeof artifact.primary_headline === 'string'
+                ? { kind: 'paid_ads' as const, payload: artifact }
+                : null
+    if (!publishable) {
+      toast.error('This result is not a publishable channel asset. Use draft mode or the dedicated execution workspace.')
+      return
+    }
+    setPendingLivePrompt(null)
+    setMessages(prev => [...prev, { id: `${Date.now()}-approval`, role: 'system', content: 'Approved — executing the live action now.' }])
+    void requestOutcomeGoLive({ kind: publishable.kind, workspaceId: companyId, companyId, payload: publishable.payload })
+      .then((result) => {
+        if (!result.ok) throw new Error(result.error || 'Live execution failed')
+        setMessages(prev => [...prev, { id: `${Date.now()}-success`, role: 'system', content: 'Live execution completed successfully.' }])
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Live execution failed'
+        setMessages(prev => [...prev, { id: `${Date.now()}-error`, role: 'system', content: `Live execution failed: ${message}` }])
+        toast.error(message)
+      })
+  }
+
   useEffect(() => {
     if (!shouldAutoRun || autoRunTriggeredRef.current) return
     autoRunTriggeredRef.current = true
-    void agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode, cfg.outputMode, cfg.connectors, cfg.paidChannel)
+    runPrompt(composer, true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoRun])
+
+  useEffect(() => {
+    if (agentRun.streaming || !agentRun.text) return
+    const runId = agentRun.runId || agentRun.text.slice(0, 48)
+    if (messages.some(message => message.id === `assistant-${runId}`)) return
+    setMessages(prev => [...prev, { id: `assistant-${runId}`, role: 'assistant', content: agentRun.text }])
+  }, [agentRun.streaming, agentRun.text, agentRun.runId, messages])
 
   return (
     <div className="space-y-3">
@@ -196,40 +269,83 @@ function SingleAgentCard({
           <CardTitle className="text-sm flex items-center gap-2">
             <span>{cfg.label}</span>
             <Badge variant="outline" className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-              Run
+              Agent chat
             </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* Fix 1: textarea visible when idle; collapsed read-only summary after run starts */}
-          {isIdle ? (
-            <Textarea
-              className="min-h-[80px] sm:min-h-[140px] whitespace-pre-wrap break-words text-sm leading-6 resize-y"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder={cfg.placeholder}
-            />
-          ) : (
-            <div
-              className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground line-clamp-3 cursor-default select-none"
-            >
-              {query.split('\n\n--- Context from previous agent ---')[0].trim()}
+          {messages.length > 0 && (
+            <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border border-border/60 bg-muted/10 p-3" aria-live="polite">
+              {messages.map(message => (
+                <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[90%] rounded-xl px-3 py-2 text-xs leading-5 whitespace-pre-wrap ${
+                    message.role === 'user'
+                      ? 'bg-orange-500 text-white'
+                      : message.role === 'system'
+                        ? 'border border-emerald-300/60 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-300'
+                        : 'bg-background text-foreground border border-border/60'
+                  }`}>
+                    {message.content}
+                  </div>
+                </div>
+              ))}
+              {agentRun.streaming && (
+                <div className="text-xs text-muted-foreground">{cfg.label} is working with the connected tools…</div>
+              )}
             </div>
           )}
-          {isIdle && showAnalyticsInput && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[11px] font-medium text-muted-foreground">Ask, revise, or instruct this agent</span>
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span>Mode</span>
+              <select
+                value={deliveryMode}
+                onChange={(event) => setDeliveryMode(event.target.value as 'draft' | 'live')}
+                className="h-8 rounded-md border border-border/70 bg-background px-2 text-xs text-foreground"
+                aria-label="Agent delivery mode"
+              >
+                <option value="draft">Draft / preview</option>
+                <option value="live">Live with approval</option>
+              </select>
+            </label>
+          </div>
+          <Textarea
+            className="min-h-[80px] whitespace-pre-wrap break-words text-sm leading-6 resize-y"
+            value={composer}
+            onChange={e => setComposer(e.target.value)}
+            placeholder={cfg.placeholder || 'Ask this agent a question or give it an execution instruction…'}
+            onKeyDown={event => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault()
+                runPrompt(composer)
+              }
+            }}
+          />
+          {showAnalyticsInput && (
             <AnalyticsDataInput value={analyticsData} onChange={setAnalyticsData} />
           )}
-          {/* Fix 2: only Run button here — Reset lives in AgentRunPanel */}
-          <Button
-            size="sm"
-            disabled={Boolean(disabledReason) || agentRun.streaming || !query.trim()}
-            onClick={() => agentRun.run(cfg.name, buildFinalQuery(query), cfg.taskType, companyId || undefined, selectedOffer, cfg.tags, conversationHistory, moduleId, cfg.deliveryMode, cfg.outputMode, cfg.connectors, cfg.paidChannel)}
-            className="h-auto min-h-9 max-w-full whitespace-normal text-left leading-5 gap-1"
-            title={disabledReason || undefined}
-          >
-            <Play className="h-3 w-3" />
-            {agentRun.streaming ? 'Running…' : 'Run'}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={Boolean(disabledReason) || agentRun.streaming || !composer.trim()}
+              onClick={() => runPrompt(composer)}
+              className="h-auto min-h-9 max-w-full whitespace-normal text-left leading-5 gap-1"
+              title={disabledReason || undefined}
+            >
+              <Send className="h-3 w-3" />
+              {agentRun.streaming ? 'Working…' : 'Send to agent'}
+            </Button>
+            <span className="text-[10px] text-muted-foreground">⌘/Ctrl + Enter to send</span>
+          </div>
+          {pendingLivePrompt && agentRun.artifact && !agentRun.streaming && !agentRun.error && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300/70 bg-amber-50/70 px-3 py-3 text-xs text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200">
+              <ShieldCheck className="h-4 w-4 shrink-0" />
+              <span className="flex-1">Preview ready. Approve this action to allow the connected channel to send, publish, or activate it.</span>
+              <Button size="sm" onClick={approveLiveExecution} className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700">
+                <CheckCheck className="h-3.5 w-3.5" /> Approve & execute live
+              </Button>
+            </div>
+          )}
           {disabledReason ? (
             <div className="text-xs text-amber-700 dark:text-amber-300">
               {disabledReason}
@@ -238,7 +354,7 @@ function SingleAgentCard({
         </CardContent>
       </Card>
 
-      {/* Fix 2: pass onReset so AgentRunPanel owns the Reset/Retry button */}
+      {/* Detailed tool calls, artifacts, connector errors, and execution results */}
       <AgentRunPanel
         agentName={cfg.name}
         label={cfg.label}

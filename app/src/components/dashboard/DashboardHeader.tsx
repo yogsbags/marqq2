@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Bell, CalendarDays, Settings, User, LogOut, Moon, Sun, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +11,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { dashboardData } from '@/data/dashboardData';
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel';
 import { CalendarPanel } from '@/components/calendar/CalendarPanel';
 import { WorkspaceSwitcher } from '@/components/layout/WorkspaceSwitcher';
@@ -24,10 +22,11 @@ interface DashboardHeaderProps {
   onModuleSelect: (moduleId: string | null) => void;
 }
 
-export function DashboardHeader({ selectedModule, onModuleSelect }: DashboardHeaderProps) {
+export function DashboardHeader({ selectedModule: _selectedModule, onModuleSelect }: DashboardHeaderProps) {
   const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const { plan, creditsRemaining, creditsTotal } = usePlan();
 
@@ -104,8 +103,8 @@ export function DashboardHeader({ selectedModule, onModuleSelect }: DashboardHea
             className="relative rounded-full transition-colors duration-200 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-gray-600 dark:text-gray-300 bg-transparent"
           >
             <Bell className="h-4 w-4 text-gray-900 dark:text-gray-100" />
-            <span aria-hidden="true" className="absolute -top-1 -right-1 h-3 w-3 bg-orange-500 rounded-full motion-reduce:animate-none animate-pulse" />
-            <span className="sr-only">You have unread notifications</span>
+            {unreadNotifications > 0 && <span aria-hidden="true" className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-bold text-white motion-reduce:animate-none animate-pulse">{unreadNotifications > 99 ? '99+' : unreadNotifications}</span>}
+            <span className="sr-only">{unreadNotifications ? `${unreadNotifications} unread notifications` : 'No unread notifications'}</span>
           </Button>
 
           <DropdownMenu>
@@ -163,6 +162,7 @@ export function DashboardHeader({ selectedModule, onModuleSelect }: DashboardHea
         isOpen={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}
         onModuleSelect={onModuleSelect}
+        onUnreadCountChange={setUnreadNotifications}
       />
 
       {/* Calendar Panel */}

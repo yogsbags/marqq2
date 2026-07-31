@@ -20,6 +20,7 @@
     "screenshots:marketing": "playwright test -c app/playwright.config.ts marketing-screenshots",
     "test:nouriva": "playwright test -c app/playwright.config.ts app/tests/nouriva-onboarding-gtm.spec.ts",
     "test:nouriva:backend": "node scripts/e2e-nouriva-gtm-strategy.mjs",
+    "test:nouriva:paid-ads": "node scripts/e2e-nouriva-paid-ads.mjs",
     "test:nouriva:gtm": "node scripts/e2e-nouriva-onboarding-gtm.mjs",
     "screenshots:marketing:node": "node ./scripts/capture-marketing-screenshots.mjs",
     "verify:rls-browser": "node --env-file=.env scripts/verify-browser-rls.mjs",

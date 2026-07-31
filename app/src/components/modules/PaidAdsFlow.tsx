@@ -9,14 +9,15 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
-import { getMetaAdAccountId } from '@/components/settings/tabs/AccountsTab'
+import { getGoogleAdsCustomerId, getMetaAdAccountId } from '@/components/settings/tabs/AccountsTab'
 import { MetaAdsManagerPreview, OutcomeGoLiveCta } from '@/components/outcome-previews'
 import { ConnectorGateCard } from '@/components/integrations/ConnectorGateCard'
 import { isConnectorActive } from '@/lib/connectorMeta'
+import { useAdsAnalysis } from '@/hooks/useAdsAnalysis'
 import { toast } from 'sonner'
 import {
   RefreshCw, TrendingUp, TrendingDown, Minus, Play, PauseCircle,
-  BarChart2, Megaphone, Zap, AlertCircle, CheckCircle2, Loader2, Radar, Target, WalletCards
+  BarChart2, Megaphone, Zap, AlertCircle, CheckCircle2, Loader2, Radar, Target, WalletCards, ChevronRight, Search
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -59,6 +60,281 @@ interface AutomationResult {
   dry_run?: boolean
   loop_enrollment?: { ok?: boolean; next_run?: string; enrolled_count?: number; error?: string }
   goals?: { quantified_target?: string; timeline_target?: string; objective?: string }
+}
+
+export interface AdsGoalState {
+  target: string
+  timeline: string
+  budget: string
+  maxCpa: string
+  conversion: string
+  geo: string
+  provenPct: string
+  scalePct: string
+  testPct: string
+  approval: 'draft' | 'approval' | 'limited'
+}
+
+const DEFAULT_ADS_GOAL: AdsGoalState = {
+  target: '',
+  timeline: '30 days',
+  budget: '',
+  maxCpa: '',
+  conversion: 'Primary conversion',
+  geo: '',
+  provenPct: '70',
+  scalePct: '20',
+  testPct: '10',
+  approval: 'approval',
+}
+
+function loadAdsGoal(companyId: string, initialObjective?: string): AdsGoalState {
+  try {
+    const raw = localStorage.getItem(`marqq_ads_goal_${companyId}`)
+    if (raw) return { ...DEFAULT_ADS_GOAL, ...JSON.parse(raw) }
+  } catch { /* use defaults */ }
+  return { ...DEFAULT_ADS_GOAL, conversion: initialObjective === 'sales' ? 'Purchase / subscription' : DEFAULT_ADS_GOAL.conversion }
+}
+
+function saveAdsGoal(companyId: string, goal: AdsGoalState) {
+  try { localStorage.setItem(`marqq_ads_goal_${companyId}`, JSON.stringify(goal)) } catch { /* best effort */ }
+}
+
+function SelectedPaidAccount({ companyId, channel }: { companyId: string; channel: string }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(Boolean(companyId))
+  const platform = channel === 'google' ? 'Google Ads customer' : channel === 'meta' ? 'Meta ad account' : 'LinkedIn ad account'
+
+  const load = useCallback(async () => {
+    if (!companyId) return
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/integrations/preferences?companyId=${encodeURIComponent(companyId)}`)
+      const json = response.ok ? await response.json().catch(() => ({})) : {}
+      const preferences = json?.preferences || {}
+      const stored = channel === 'google'
+        ? preferences.google_ads_customer_id || getGoogleAdsCustomerId(companyId)
+        : channel === 'meta'
+          ? preferences.meta_ads_account_id || getMetaAdAccountId(companyId)
+          : null
+      setSelectedId(stored ? String(stored) : null)
+    } catch {
+      setSelectedId(channel === 'google' ? getGoogleAdsCustomerId(companyId) : channel === 'meta' ? getMetaAdAccountId(companyId) : null)
+    } finally { setLoading(false) }
+  }, [channel, companyId])
+
+  useEffect(() => { void load() }, [load])
+
+  return (
+    <Card className="rounded-xl border-border/70 bg-background/80">
+      <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300">
+            <Megaphone className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Execution account</p>
+            <p className="mt-1 text-sm font-medium">{platform}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {loading ? 'Checking saved selection…' : selectedId ? selectedId : 'Not selected — choose an account in Settings → Accounts'}
+            </p>
+          </div>
+        </div>
+        <Badge variant="outline" className={selectedId ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400' : 'border-amber-500/40 text-amber-600 dark:text-amber-400'}>
+          {selectedId ? 'Selected' : 'Selection needed'}
+        </Badge>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AdsOverviewTab({
+  companyId,
+  channel,
+  objective,
+  goal,
+  onGoalChange,
+  onNavigate,
+}: {
+  companyId: string
+  channel: string
+  objective: string
+  goal: AdsGoalState
+  onGoalChange: (next: AdsGoalState) => void
+  onNavigate: (tab: string) => void
+}) {
+  const required = connectorsForPaidChannel(channel)
+  const [connectedIds, setConnectedIds] = useState<string[]>([])
+  const [loading, setLoading] = useState(Boolean(companyId))
+
+  const refresh = useCallback(async () => {
+    if (!companyId) return
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/integrations?companyId=${encodeURIComponent(companyId)}`)
+      const json = res.ok ? await res.json().catch(() => ({})) : {}
+      setConnectedIds((json?.connectors ?? [])
+        .filter((c: { id?: string; connected?: boolean; status?: string }) => isConnectorActive(c))
+        .map((c: { id: string }) => c.id))
+    } catch { setConnectedIds([]) }
+    finally { setLoading(false) }
+  }, [companyId])
+
+  useEffect(() => { void refresh() }, [refresh])
+  const missing = required.filter((id) => !connectedIds.includes(id))
+  const update = (key: keyof AdsGoalState, value: string) => onGoalChange({ ...goal, [key]: value })
+  const provenPct = Number(goal.provenPct) || 0
+  const scalePct = Number(goal.scalePct) || 0
+  const testPct = Number(goal.testPct) || 0
+  const allocationTotal = provenPct + scalePct + testPct
+  const allocationValid = allocationTotal === 100
+  const dailyBudget = Number(goal.budget) || 0
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <Card className="rounded-[1.5rem] border-border/70 bg-background/90">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Define the outcome before spending</CardTitle>
+            <CardDescription>Marqq optimizes toward the conversion you choose, not clicks or impressions.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Quantified target</Label>
+              <Input value={goal.target} onChange={(e) => update('target', e.target.value)} placeholder="e.g. 200 qualified leads" />
+              <p className="text-[11px] text-muted-foreground">Use the same North Star or section target from the GTM strategy.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Timeline</Label>
+              <Input value={goal.timeline} onChange={(e) => update('timeline', e.target.value)} placeholder="e.g. 30 days" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Daily budget cap (₹)</Label>
+              <Input type="number" value={goal.budget} onChange={(e) => update('budget', e.target.value)} placeholder="e.g. 1000" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Maximum CPA / CPL (₹)</Label>
+              <Input type="number" value={goal.maxCpa} onChange={(e) => update('maxCpa', e.target.value)} placeholder="e.g. 150" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Primary conversion</Label>
+              <Input value={goal.conversion} onChange={(e) => update('conversion', e.target.value)} placeholder="e.g. completed lead form" />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Geography / audience constraint</Label>
+              <Input value={goal.geo} onChange={(e) => update('geo', e.target.value)} placeholder="e.g. India · health-conscious adults · exclude existing customers" />
+            </div>
+            <div className="sm:col-span-2 rounded-xl border border-border/70 bg-muted/20 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div><Label className="text-xs">Budget allocation</Label><p className="mt-1 text-[11px] text-muted-foreground">Keep proven demand funded while protecting a reserve for learning.</p></div>
+                <Badge variant="outline" className={allocationValid ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400' : 'border-red-500/40 text-red-600 dark:text-red-400'}>{allocationTotal}% allocated</Badge>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                {([
+                  ['provenPct', 'Proven', 'Core acquisition'],
+                  ['scalePct', 'Promising', 'Scale candidates'],
+                  ['testPct', 'Test / learning', 'New angles and audiences'],
+                ] as const).map(([key, label, hint]) => <div key={key} className="space-y-1.5"><Label className="text-[11px]">{label} (%)</Label><Input type="number" min="0" max="100" value={goal[key]} onChange={(e) => update(key, e.target.value)} /><p className="text-[10px] text-muted-foreground">{hint}</p></div>)}
+              </div>
+              {dailyBudget > 0 ? <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3"><div className="rounded-lg bg-background/80 px-3 py-2"><span className="text-muted-foreground">Proven</span><strong className="ml-2">₹{Math.round(dailyBudget * provenPct / 100).toLocaleString('en-IN')}/day</strong></div><div className="rounded-lg bg-background/80 px-3 py-2"><span className="text-muted-foreground">Promising</span><strong className="ml-2">₹{Math.round(dailyBudget * scalePct / 100).toLocaleString('en-IN')}/day</strong></div><div className="rounded-lg bg-background/80 px-3 py-2"><span className="text-muted-foreground">Learning</span><strong className="ml-2">₹{Math.round(dailyBudget * testPct / 100).toLocaleString('en-IN')}/day</strong></div></div> : null}
+              {!allocationValid ? <p className="mt-3 text-xs text-red-600 dark:text-red-400">Allocation must equal 100% before a campaign plan can be approved.</p> : <p className="mt-3 text-xs text-muted-foreground">Default: 70% proven · 20% promising · 10% test and learning reserve.</p>}
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Agent action mode</Label>
+              <Select value={goal.approval} onValueChange={(v: AdsGoalState['approval']) => onGoalChange({ ...goal, approval: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft only — recommendations, no writes</SelectItem>
+                  <SelectItem value="approval">Approval required — recommended</SelectItem>
+                  <SelectItem value="limited">Limited automation — safety actions may run</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[1.5rem] border-border/70 bg-muted/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Launch readiness</CardTitle>
+            <CardDescription>Connect the platform account and measurement source before creating anything.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {required.map((id) => (
+              <div key={id} className="flex items-center justify-between rounded-xl border border-border/70 bg-background/70 px-3 py-2.5 text-sm">
+                <span>{id === 'ga4' ? 'GA4 measurement' : formatPaidLabel(id)}</span>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : connectedIds.includes(id) ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <AlertCircle className="h-4 w-4 text-amber-500" />}
+              </div>
+            ))}
+            {missing.length > 0 ? <ConnectorGateCard connectorIds={required} connectedConnectorIds={connectedIds} taskLabel={`${formatPaidLabel(channel)} ads`} workspaceId={companyId} hardGate={false} onConnected={() => { void refresh(); toast.success('Account connected') }} /> : null}
+            <div className="rounded-xl border border-orange-200/70 bg-orange-50/70 p-3 text-xs leading-5 text-orange-900 dark:border-orange-900/40 dark:bg-orange-950/20 dark:text-orange-200">
+              Campaigns are created paused by default. Live spend requires a separate approval step.
+            </div>
+            <SelectedPaidAccount companyId={companyId} channel={channel === 'facebook' || channel === 'instagram' ? 'meta' : channel} />
+            <Button className="w-full" onClick={() => onNavigate('research')}>Review research and account signals <ChevronRight className="ml-1 h-4 w-4" /></Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {[
+          ['Objective', formatPaidLabel(objective) || 'Generate leads'],
+          ['Platform', formatPaidLabel(channel) || 'Choose a platform'],
+          ['Guardrail', goal.maxCpa ? `₹${Number(goal.maxCpa).toLocaleString('en-IN')} max CPA/CPL` : 'Set a max CPA/CPL'],
+        ].map(([label, value]) => <KpiCard key={label} label={label} value={value} icon={<Target className="h-4 w-4" />} />)}
+      </div>
+    </div>
+  )
+}
+
+function AdsResearchTab({ companyId, onNavigate }: { companyId: string; onNavigate: (tab: string) => void }) {
+  const { analysis, updatedAt, loading, analyzing, error, runAnalysis } = useAdsAnalysis(companyId)
+  const [competitorInput, setCompetitorInput] = useState('')
+  const [scraping, setScraping] = useState(false)
+  const [scrapeMessage, setScrapeMessage] = useState<string | null>(null)
+  const scrapeCompetitors = async () => {
+    const competitors = competitorInput.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).map((value) => ({
+      name: value.replace(/^https?:\/\//, '').replace(/\/.*$/, ''),
+      google_domain: value.replace(/^https?:\/\//, '').replace(/\/.*$/, ''),
+    }))
+    if (!competitors.length) { toast.error('Add at least one competitor domain or name'); return }
+    setScraping(true); setScrapeMessage(null)
+    try {
+      const result = await runAutomation('ads_intel_scrape', { competitors, platforms: ['google'], country: 'IN', limit: 20 }, companyId)
+      if (result.status === 'error') throw new Error(result.error || 'Research fetch failed')
+      setScrapeMessage(`Collected ${String((result as AutomationResult & { total_new?: number }).total_new ?? 0)} new ads. Run analysis to turn the evidence into angles.`)
+      toast.success('Competitor ad research refreshed')
+    } catch (e) { setScrapeMessage(e instanceof Error ? e.message : 'Research fetch failed') }
+    finally { setScraping(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <Card className="rounded-[1.5rem] border-border/70 bg-background/90">
+        <CardHeader className="flex-row items-start justify-between space-y-0 pb-3">
+          <div><CardTitle className="text-base">Research before recommendation</CardTitle><CardDescription>Use stored competitor-ad evidence and the company context to find gaps and angles.</CardDescription></div>
+          <Button variant="outline" size="sm" onClick={() => void runAnalysis()} disabled={analyzing || !companyId} className="gap-2">{analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />} {analyzing ? 'Analyzing…' : 'Analyze research'}</Button>
+        </CardHeader>
+        <CardContent>
+          {loading ? <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Loading research…</div> : error ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{error}</div> : !analysis ? <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No analysis yet. Run the research analyzer after competitor ads have been collected.</div> : (
+            <div className="grid gap-3 md:grid-cols-3">
+              <KpiCard label="Competitor themes" value={String(analysis.messaging_themes?.length || 0)} icon={<Search className="h-4 w-4" />} />
+              <KpiCard label="White-space opportunities" value={String(analysis.white_space?.length || 0)} icon={<Radar className="h-4 w-4" />} />
+              <KpiCard label="Recommended angles" value={String(analysis.recommended_angles?.length || 0)} icon={<Megaphone className="h-4 w-4" />} />
+            </div>
+          )}
+          {analysis?.recommended_angles?.length ? <div className="mt-4 space-y-2">{analysis.recommended_angles.slice(0, 4).map((angle, i) => <div key={`${angle.headline}-${i}`} className="rounded-xl border border-border/70 bg-muted/20 p-3"><div className="flex items-center justify-between gap-3"><span className="font-medium text-sm">{angle.headline}</span><Badge variant="outline" className="text-[10px]">{angle.platform}</Badge></div><p className="mt-1 text-xs leading-5 text-muted-foreground">{angle.why}</p></div>)}</div> : null}
+          {updatedAt ? <p className="mt-3 text-[11px] text-muted-foreground">Last analyzed {new Date(updatedAt).toLocaleString()}</p> : null}
+        </CardContent>
+      </Card>
+      <Card className="rounded-[1.5rem] border-border/70 bg-background/90">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Refresh competitor evidence</CardTitle><CardDescription>Enter competitor domains or URLs. Apify fetches public Google ad signals; other platform sources can be added when their public identifiers are known.</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2"><Input value={competitorInput} onChange={(e) => setCompetitorInput(e.target.value)} placeholder="competitor.com, anothercompetitor.com" /><Button variant="outline" onClick={() => void scrapeCompetitors()} disabled={scraping || !companyId} className="shrink-0 gap-2">{scraping ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} {scraping ? 'Fetching…' : 'Fetch public ads'}</Button></div>
+          {scrapeMessage ? <p className="text-xs text-muted-foreground">{scrapeMessage}</p> : null}
+        </CardContent>
+      </Card>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 p-4 text-sm"><span className="text-muted-foreground">Research informs the campaign plan; it does not publish or change accounts.</span><Button onClick={() => onNavigate('plan')}>Build campaign plan <ChevronRight className="ml-1 h-4 w-4" /></Button></div>
+    </div>
+  )
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -130,6 +406,19 @@ function buildPaidAdsPlanQuery(objective: string, channel: string, initialQuesti
     'In artifact.data include: objective (platform-native), advertising_channel_type when Google, campaign_name, headline, primary_text, link_url, daily_budget, channel, cta_type when known.',
     'Keep the answer practical for an active paid media team. Avoid generic ad advice and make the plan channel-aware.',
   ].join('\n\n')
+}
+
+function goalBrief(goal: AdsGoalState) {
+  return [
+    goal.target && `Quantified target: ${goal.target}`,
+    goal.timeline && `Timeline: ${goal.timeline}`,
+    goal.budget && `Daily budget cap: ₹${goal.budget}`,
+    goal.maxCpa && `Maximum CPA/CPL: ₹${goal.maxCpa}`,
+    goal.conversion && `Primary conversion: ${goal.conversion}`,
+    goal.geo && `Geography/audience: ${goal.geo}`,
+    `Budget allocation: ${goal.provenPct}% proven / ${goal.scalePct}% promising / ${goal.testPct}% test-learning reserve`,
+    `Action mode: ${goal.approval}`,
+  ].filter(Boolean).join('\n')
 }
 
 /** Map home/plan goals → Meta Marketing API OUTCOME_* objectives. */
@@ -425,6 +714,97 @@ function KpiCard({ label, value, icon }: { label: string; value: string; icon: R
   )
 }
 
+function parseGoalNumber(value?: string) {
+  const match = String(value || '').replace(/,/g, '').match(/\d+(?:\.\d+)?/)
+  return match ? Number(match[0]) : null
+}
+
+function timelineDays(value?: string) {
+  const text = String(value || '').toLowerCase()
+  const match = text.match(/(\d+(?:\.\d+)?)\s*(day|days|week|weeks|month|months)/)
+  if (!match) return 30
+  const amount = Number(match[1])
+  if (match[2].startsWith('week')) return amount * 7
+  if (match[2].startsWith('month')) return amount * 30
+  return amount
+}
+
+export function PaidAdsDashboardTab({ companyId, goal }: { companyId: string; goal: AdsGoalState }) {
+  const [loading, setLoading] = useState(false)
+  const [dateRange, setDateRange] = useState('last_30d')
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [results, setResults] = useState<{ meta: AutomationResult | null; google: AutomationResult | null; linkedin: AutomationResult | null }>({ meta: null, google: null, linkedin: null })
+
+  const fetchAll = useCallback(async () => {
+    if (!companyId) return
+    setLoading(true)
+    try {
+      const [meta, google, linkedin] = await Promise.all([
+        runAutomation('fetch_meta_ads', { date_range: dateRange, ...(getMetaAdAccountId(companyId) ? { ad_account_id: getMetaAdAccountId(companyId) } : {}) }, companyId),
+        runAutomation('google_ads_fetch', { date_range: dateRange }, companyId),
+        runAutomation('linkedin_ads_fetch', { date_range: dateRange }, companyId),
+      ])
+      setResults({ meta, google, linkedin })
+      setLastUpdated(new Date().toISOString())
+    } catch { toast.error('Could not refresh Ads dashboard') }
+    finally { setLoading(false) }
+  }, [companyId, dateRange])
+
+  useEffect(() => { void fetchAll() }, [fetchAll])
+
+  const platformRows = [
+    { key: 'Meta', result: results.meta, color: 'bg-blue-500' },
+    { key: 'Google', result: results.google, color: 'bg-amber-500' },
+    { key: 'LinkedIn', result: results.linkedin, color: 'bg-sky-600' },
+  ].map((platform) => {
+    const campaigns = (platform.result?.campaigns || []) as CampaignRow[]
+    return {
+      ...platform,
+      campaigns,
+      spend: campaigns.reduce((sum, row) => sum + Number(row.spend || 0), 0),
+      impressions: campaigns.reduce((sum, row) => sum + Number(row.impressions || 0), 0),
+      clicks: campaigns.reduce((sum, row) => sum + Number(row.clicks || 0), 0),
+      conversions: campaigns.reduce((sum, row) => sum + Number(row.conversions || 0), 0),
+      status: platform.result?.status === 'error' ? 'error' : platform.result ? 'connected' : 'loading',
+    }
+  })
+  const totals = platformRows.reduce((sum, row) => ({ spend: sum.spend + row.spend, impressions: sum.impressions + row.impressions, clicks: sum.clicks + row.clicks, conversions: sum.conversions + row.conversions }), { spend: 0, impressions: 0, clicks: 0, conversions: 0 })
+  const ctr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : null
+  const cpa = totals.conversions > 0 ? totals.spend / totals.conversions : null
+  const target = parseGoalNumber(goal.target)
+  const progress = target && totals.conversions > 0 ? Math.min(100, (totals.conversions / target) * 100) : null
+  const budget = Number(goal.budget) || null
+  const days = timelineDays(goal.timeline)
+  const expectedSpend = budget ? budget * Math.min(days, 30) : null
+  const pace = target && days ? target / days : null
+  const hasConversionData = totals.conversions > 0
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><p className="text-sm font-medium">North Star and budget control</p><p className="text-xs text-muted-foreground">Live platform data · {dateRange === 'last_7d' ? 'Last 7 days' : 'Last 30 days'}{lastUpdated ? ` · refreshed ${new Date(lastUpdated).toLocaleTimeString()}` : ''}</p></div>
+        <div className="flex items-center gap-2"><Select value={dateRange} onValueChange={setDateRange}><SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="last_7d">Last 7 days</SelectItem><SelectItem value="last_30d">Last 30 days</SelectItem></SelectContent></Select><Button variant="outline" size="sm" onClick={() => void fetchAll()} disabled={loading} className="gap-1.5">{loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Refresh</Button></div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Target progress" value={progress == null ? '—' : `${progress.toFixed(0)}%`} icon={<Target className="h-4 w-4" />} />
+        <KpiCard label="Spend" value={fmtCurrency(totals.spend)} icon={<WalletCards className="h-4 w-4" />} />
+        <KpiCard label="CTR" value={fmtPct(ctr)} icon={<TrendingUp className="h-4 w-4" />} />
+        <KpiCard label="CPA / CPL" value={fmtCurrency(cpa)} icon={<BarChart2 className="h-4 w-4" />} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card className="rounded-[1.25rem] border-border/70 bg-background/90"><CardHeader className="pb-3"><CardTitle className="text-sm">Goal pacing</CardTitle><CardDescription>{goal.target || 'Set a quantified target in Goals & readiness'}{goal.timeline ? ` · ${goal.timeline}` : ''}</CardDescription></CardHeader><CardContent className="space-y-3"><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${progress || 0}%` }} /></div><div className="grid gap-3 text-xs sm:grid-cols-3"><div><span className="text-muted-foreground">Achieved</span><strong className="ml-2">{hasConversionData ? fmtNum(totals.conversions) : '—'}</strong></div><div><span className="text-muted-foreground">Required pace</span><strong className="ml-2">{pace ? `${pace.toFixed(1)}/day` : '—'}</strong></div><div><span className="text-muted-foreground">Status</span><strong className={`ml-2 ${progress != null && progress >= 80 ? 'text-emerald-500' : 'text-amber-500'}`}>{progress == null ? 'Tracking needed' : progress >= 80 ? 'On track' : 'Review pace'}</strong></div></div>{!hasConversionData ? <p className="rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 text-xs leading-5 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">Platforms returned no conversion total. Check Pixel, conversion actions, Insight Tag, or GA4 event mapping before judging campaign performance.</p> : null}</CardContent></Card>
+        <Card className="rounded-[1.25rem] border-border/70 bg-background/90"><CardHeader className="pb-3"><CardTitle className="text-sm">Budget pacing</CardTitle><CardDescription>Configured allocation versus observed spend.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid grid-cols-3 gap-2 text-xs"><div className="rounded-lg bg-muted/30 p-3"><div className="text-muted-foreground">Proven</div><strong>{goal.provenPct}%</strong></div><div className="rounded-lg bg-muted/30 p-3"><div className="text-muted-foreground">Promising</div><strong>{goal.scalePct}%</strong></div><div className="rounded-lg bg-muted/30 p-3"><div className="text-muted-foreground">Learning</div><strong>{goal.testPct}%</strong></div></div><div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">Daily cap</span><strong>{budget ? fmtCurrency(budget) : 'Not set'}</strong></div><div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">30-day plan</span><strong>{expectedSpend ? fmtCurrency(expectedSpend) : 'Not set'}</strong></div></CardContent></Card>
+      </div>
+
+      <Card className="rounded-[1.25rem] border-border/70 bg-background/90"><CardHeader className="pb-3"><CardTitle className="text-sm">Platform comparison</CardTitle><CardDescription>Each connector reports its own freshness and coverage.</CardDescription></CardHeader><CardContent className="space-y-3">{platformRows.map((row) => { const rowCtr = row.impressions > 0 ? row.clicks / row.impressions * 100 : null; const rowCpa = row.conversions > 0 ? row.spend / row.conversions : null; return <div key={row.key} className="grid grid-cols-2 gap-3 rounded-xl border border-border/60 bg-muted/15 p-3 sm:grid-cols-7 sm:items-center"><div className="flex items-center gap-2 text-sm font-medium"><span className={`h-2 w-2 rounded-full ${row.color}`} />{row.key}</div><div><div className="text-[10px] text-muted-foreground">Spend</div><div className="text-xs font-medium">{fmtCurrency(row.spend)}</div></div><div><div className="text-[10px] text-muted-foreground">Impressions</div><div className="text-xs font-medium">{fmtNum(row.impressions)}</div></div><div><div className="text-[10px] text-muted-foreground">Clicks</div><div className="text-xs font-medium">{fmtNum(row.clicks)}</div></div><div><div className="text-[10px] text-muted-foreground">CTR</div><div className="text-xs font-medium">{fmtPct(rowCtr)}</div></div><div><div className="text-[10px] text-muted-foreground">Conversions</div><div className="text-xs font-medium">{row.conversions > 0 ? fmtNum(row.conversions) : '—'}</div></div><div className="flex justify-end"><Badge variant="outline" className={row.status === 'connected' ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400' : row.status === 'error' ? 'border-red-500/40 text-red-600 dark:text-red-400' : ''}>{row.status === 'connected' ? (rowCpa ? `${fmtCurrency(rowCpa)} CPA` : 'Connected') : row.status === 'error' ? 'Needs attention' : 'Loading'}</Badge></div></div> })}</CardContent></Card>
+
+      <div className="grid gap-4 lg:grid-cols-2"><Card className="rounded-[1.25rem] border-border/70 bg-background/90"><CardHeader className="pb-3"><CardTitle className="text-sm">Decision signals</CardTitle><CardDescription>Rules the optimizer uses before changing spend.</CardDescription></CardHeader><CardContent className="space-y-2 text-xs text-muted-foreground"><div className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Minimum sample before declaring a winner</div><div className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Maximum 20% scale increase</div><div className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Three-day scaling cooldown</div><div className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Frequency and CTR fatigue checks</div></CardContent></Card><Card className="rounded-[1.25rem] border-border/70 bg-background/90"><CardHeader className="pb-3"><CardTitle className="text-sm">Next action</CardTitle><CardDescription>Keep recommendations evidence-led.</CardDescription></CardHeader><CardContent>{!companyId ? <p className="text-xs text-muted-foreground">Select a workspace to load live data.</p> : !hasConversionData ? <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">Fix conversion tracking before reallocating budget. Spend and click data alone should not trigger a CPA decision.</p> : cpa != null && goal.maxCpa && cpa > Number(goal.maxCpa) ? <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">CPA is above the configured guardrail. Run a dry-run review before making any budget change.</p> : <p className="text-xs leading-5 text-emerald-700 dark:text-emerald-300">No immediate budget action is required from the available sample.</p>}</CardContent></Card></div>
+    </div>
+  )
+}
+
 function connectorsForPaidChannel(channel: string): string[] {
   const c = String(channel || '').toLowerCase()
   if (['facebook', 'instagram', 'facebook_instagram', 'meta', 'fb+insta', 'fb_instagram'].includes(c)) {
@@ -517,6 +897,7 @@ function PaidAdsPlanTab({
   initialChannel,
   onPlanReady,
   onGoToLaunch,
+  goal,
 }: {
   companyId: string
   initialQuestion?: string
@@ -524,6 +905,7 @@ function PaidAdsPlanTab({
   initialChannel?: string
   onPlanReady?: (draft: LaunchDraft) => void
   onGoToLaunch?: () => void
+  goal: AdsGoalState
 }) {
   const objective = initialObjective || 'leads'
   const channel = initialChannel || 'google'
@@ -535,14 +917,14 @@ function PaidAdsPlanTab({
         name: 'zara',
         label: 'Build Paid Ads Plan',
         taskType: 'paid_ads_strategy',
-        defaultQuery: buildPaidAdsPlanQuery(objective, channel, initialQuestion),
+        defaultQuery: `${buildPaidAdsPlanQuery(objective, channel, initialQuestion)}\n\nUse these approved goal guardrails:\n${goalBrief(goal)}`,
         placeholder: 'Describe the offer, budget pressure, market, or launch context Zara should factor into the plan.',
         tags: ['paid-ads', 'plan', 'budget'],
         connectors: connectorsForPaidChannel(channel),
         paidChannel: channel,
       },
     ],
-    [channel, initialObjective, initialQuestion, objective]
+    [channel, initialObjective, initialQuestion, objective, goal]
   )
 
   const handleArtifactReady = useCallback((_agent: string, artifact: Record<string, unknown>) => {
@@ -744,11 +1126,13 @@ function CreateCampaignTab({
   initialChannel,
   initialObjective,
   draft,
+  goal,
 }: {
   companyId: string
   initialChannel?: string
   initialObjective?: string
   draft?: LaunchDraft | null
+  goal: AdsGoalState
 }) {
   const initial = normalizeCreateChannel(draft?.channel || initialChannel)
   const [form, setForm] = useState<CreateForm>({
@@ -765,10 +1149,17 @@ function CreateCampaignTab({
   })
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AutomationResult | null>(null)
+  const [allocationResult, setAllocationResult] = useState<Array<{ bucket: string; status: string; message?: string; campaign_id?: string }>>([])
   const channel = normalizeCreateChannel(form.channel)
   const isMeta = channel !== 'google' && channel !== 'linkedin'
   const preferredConnector = paidCreateConnector(channel)
   const objectiveOptions = objectivesForChannel(channel)
+  const allocationValid = (Number(goal.provenPct) || 0) + (Number(goal.scalePct) || 0) + (Number(goal.testPct) || 0) === 100
+  const allocationBuckets = [
+    { key: 'proven', label: 'Proven', pct: Number(goal.provenPct) || 0 },
+    { key: 'promising', label: 'Promising', pct: Number(goal.scalePct) || 0 },
+    { key: 'test_learning', label: 'Test / learning', pct: Number(goal.testPct) || 0 },
+  ]
 
   useEffect(() => {
     if (!draft) return
@@ -818,6 +1209,7 @@ function CreateCampaignTab({
       toast.error('Fill in all required fields')
       return
     }
+    if (!allocationValid) { toast.error('Budget allocation must total 100%'); return }
     if (!companyId) { toast.error('No workspace selected'); return }
 
     setLoading(true)
@@ -835,6 +1227,19 @@ function CreateCampaignTab({
         primary_text: form.primary_text,
         link_url: form.link_url,
         status: form.status,
+        quantified_target: goal.target || undefined,
+        timeline_target: goal.timeline || undefined,
+        max_cpa: goal.maxCpa ? Number(goal.maxCpa) : undefined,
+        target_cpa: goal.maxCpa ? Number(goal.maxCpa) : undefined,
+        budget_scale_max: goal.budget ? Number(goal.budget) : undefined,
+        budget_allocation: {
+          proven_pct: Number(goal.provenPct) || 0,
+          promising_pct: Number(goal.scalePct) || 0,
+          test_learning_pct: Number(goal.testPct) || 0,
+        },
+        primary_conversion: goal.conversion || undefined,
+        geography: goal.geo || undefined,
+        loop_dry_run: goal.approval !== 'limited',
       }
       if (isMeta) {
         params.objective = goalToMetaObjective(form.objective)
@@ -874,6 +1279,69 @@ function CreateCampaignTab({
     }
   }
 
+  async function handleCreateAllocationSet() {
+    if (!form.campaign_name || !form.daily_budget || !form.headline || !form.primary_text || !form.link_url) {
+      toast.error('Fill in all required fields before creating the allocation set')
+      return
+    }
+    if (!allocationValid) { toast.error('Budget allocation must total 100%'); return }
+    if (!companyId) { toast.error('No workspace selected'); return }
+    setLoading(true)
+    setAllocationResult([])
+    const totalDailyBudget = Number(form.daily_budget)
+    const nextResults: Array<{ bucket: string; status: string; message?: string; campaign_id?: string }> = []
+    try {
+      for (const bucket of allocationBuckets) {
+        const bucketBudget = Math.round(totalDailyBudget * bucket.pct / 100)
+        if (bucketBudget < 1) {
+          nextResults.push({ bucket: bucket.label, status: 'skipped', message: 'Allocation is below 1 currency unit/day' })
+          continue
+        }
+        const automationId = paidCreateAutomationId(channel)
+        const params: Record<string, unknown> = {
+          campaign_name: `${form.campaign_name} — ${bucket.label}`,
+          objective: form.objective,
+          channel,
+          daily_budget: isMeta ? bucketBudget * 100 : bucketBudget,
+          budget_scale_max: isMeta ? bucketBudget * 100 : bucketBudget,
+          headline: form.headline,
+          primary_text: form.primary_text,
+          link_url: form.link_url,
+          status: isMeta ? 'PAUSED' : 'PAUSED',
+          quantified_target: goal.target || undefined,
+          timeline_target: goal.timeline || undefined,
+          target_cpa: goal.maxCpa ? Number(goal.maxCpa) : undefined,
+          budget_allocation_bucket: bucket.key,
+          budget_allocation_pct: bucket.pct,
+        }
+        if (isMeta) {
+          params.objective = goalToMetaObjective(form.objective)
+          params.cta_type = form.cta_type
+          if (form.image_url) params.image_url = form.image_url
+          const preferredMeta = getMetaAdAccountId(companyId)
+          if (preferredMeta) params.ad_account_id = preferredMeta
+        }
+        if (channel === 'linkedin') {
+          params.objective = goalToLinkedInObjective(form.objective)
+          params.currency_code = 'USD'
+        }
+        if (channel === 'google') {
+          params.objective = form.objective
+          params.advertising_channel_type = goalToGoogleChannelType(form.objective)
+        }
+        const created = await runAutomation(automationId, params, companyId)
+        nextResults.push({ bucket: bucket.label, status: created.status, message: created.message || created.error, campaign_id: created.campaign_id })
+      }
+      setAllocationResult(nextResults)
+      const createdCount = nextResults.filter((entry) => entry.status === 'completed').length
+      if (createdCount) toast.success(`${createdCount} paused allocation campaign${createdCount === 1 ? '' : 's'} created`)
+      else toast.error('No allocation campaigns were created')
+    } catch (error) {
+      setAllocationResult([...nextResults, { bucket: 'Allocation set', status: 'error', message: error instanceof Error ? error.message : 'Request failed' }])
+      toast.error('Allocation set creation stopped')
+    } finally { setLoading(false) }
+  }
+
   return (
     <div className="space-y-5">
       <PaidChannelConnectorPrompt
@@ -882,6 +1350,7 @@ function CreateCampaignTab({
         hardGate
         taskLabel={`Launch on ${formatPaidLabel(channel)}`}
       />
+      <SelectedPaidAccount companyId={companyId} channel={isMeta ? 'meta' : channel} />
       <p className="text-sm text-muted-foreground">
         {channel === 'google'
           ? 'Creates a PAUSED Google Ads Search scaffold — Budget → Campaign → Ad Group → RSA — for review before enable.'
@@ -1086,7 +1555,8 @@ function CreateCampaignTab({
           !form.daily_budget ||
           !form.headline ||
           !form.primary_text ||
-          !form.link_url
+          !form.link_url ||
+          !allocationValid
         }
         payload={{
           campaign_name: form.campaign_name,
@@ -1108,6 +1578,15 @@ function CreateCampaignTab({
           image_url: form.image_url || undefined,
           status: form.status,
           ad_account_id: isMeta ? (getMetaAdAccountId(companyId) || undefined) : undefined,
+          quantified_target: goal.target || undefined,
+          timeline_target: goal.timeline || undefined,
+          target_cpa: goal.maxCpa ? Number(goal.maxCpa) : undefined,
+          budget_scale_max: goal.budget ? Number(goal.budget) : undefined,
+          budget_allocation: {
+            proven_pct: Number(goal.provenPct) || 0,
+            promising_pct: Number(goal.scalePct) || 0,
+            test_learning_pct: Number(goal.testPct) || 0,
+          },
         }}
       />
 
@@ -1122,6 +1601,14 @@ function CreateCampaignTab({
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
         Create via automation API
       </Button>
+
+      <div className="rounded-xl border border-orange-200/70 bg-orange-50/60 p-4 dark:border-orange-900/40 dark:bg-orange-950/20">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><div className="text-sm font-medium text-foreground">Create paused allocation set</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Creates three separately budgeted campaigns: Proven, Promising, and Test / learning. Keep them paused and attach distinct creatives before activation.</p></div>
+          <Button type="button" variant="outline" onClick={() => void handleCreateAllocationSet()} disabled={loading || !companyId || !allocationValid || !form.campaign_name || !form.daily_budget || !form.headline || !form.primary_text || !form.link_url} className="shrink-0 gap-2"><WalletCards className="h-4 w-4" />{loading ? 'Creating set…' : 'Create paused set'}</Button>
+        </div>
+        {allocationResult.length > 0 ? <div className="mt-3 grid gap-2 sm:grid-cols-3">{allocationResult.map((entry) => <div key={entry.bucket} className="rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-medium">{entry.bucket}</span>{entry.status === 'completed' ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <AlertCircle className="h-3.5 w-3.5 text-amber-500" />}</div><p className="mt-1 text-muted-foreground">{entry.message || entry.status}{entry.campaign_id ? ` · ${entry.campaign_id}` : ''}</p></div>)}</div> : null}
+      </div>
 
       {/* Result */}
       {result && (
@@ -1701,20 +2188,22 @@ type PaidAdsFlowProps = {
   initialQuestion?: string
   initialObjective?: string
   initialChannel?: string
+  onOpenDashboard?: () => void
 }
 
 export function PaidAdsFlow({
-  initialTab = 'performance',
+  initialTab = 'overview',
   initialQuestion,
   initialObjective,
   initialChannel,
+  onOpenDashboard,
 }: PaidAdsFlowProps) {
   const normalizeInitialTab = (value?: string) => {
-    if (value === 'plan' || value === 'launch' || value === 'optimize' || value === 'assets') return value
+    if (value === 'overview' || value === 'research' || value === 'plan' || value === 'launch' || value === 'optimize' || value === 'assets') return value
     if (value === 'create') return 'launch'
     if (value === 'performance' || value === 'optimizer') return 'optimize'
     if (value === 'copy' || value === 'creative') return 'assets'
-    return 'plan'
+    return 'overview'
   }
   const isGuidedLaunch = Boolean(initialQuestion || initialObjective || initialChannel)
   const [activeTab, setActiveTab] = useState(() => normalizeInitialTab(isGuidedLaunch ? 'plan' : initialTab))
@@ -1722,6 +2211,7 @@ export function PaidAdsFlow({
   const companyId = activeWorkspace?.id ?? ''
   const objectiveLabel = formatPaidLabel(initialObjective || 'leads')
   const channelLabel = formatPaidLabel(initialChannel || 'google')
+  const [adsGoal, setAdsGoal] = useState<AdsGoalState>(() => loadAdsGoal(companyId, initialObjective))
   const [launchDraft, setLaunchDraft] = useState<LaunchDraft | null>(() =>
     initialObjective || initialChannel
       ? {
@@ -1738,6 +2228,15 @@ export function PaidAdsFlow({
   useEffect(() => {
     setActiveTab(normalizeInitialTab(isGuidedLaunch ? 'plan' : initialTab))
   }, [initialTab, isGuidedLaunch])
+
+  useEffect(() => {
+    if (companyId) setAdsGoal(loadAdsGoal(companyId, initialObjective))
+  }, [companyId, initialObjective])
+
+  const updateAdsGoal = useCallback((next: AdsGoalState) => {
+    setAdsGoal(next)
+    if (companyId) saveAdsGoal(companyId, next)
+  }, [companyId])
 
   const handlePlanReady = useCallback((draft: LaunchDraft) => {
     setLaunchDraft((prev) => ({ ...(prev || {}), ...draft }))
@@ -1768,7 +2267,7 @@ export function PaidAdsFlow({
                 </div>
               ) : null}
               <div className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-sm"><span className="text-muted-foreground">Channel:</span> <span className="font-medium text-foreground">{channelLabel}</span></div>
-              <div className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-sm"><span className="text-muted-foreground">Flow:</span> <span className="font-medium text-foreground">Plan → Launch → Optimize</span></div>
+              <div className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-sm"><span className="text-muted-foreground">Flow:</span> <span className="font-medium text-foreground">Goals → Research → Plan → Launch → Monitor</span></div>
             </div>
           </CardContent>
         </Card>
@@ -1802,6 +2301,12 @@ export function PaidAdsFlow({
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="h-auto flex-wrap gap-1.5 rounded-[1.25rem] border border-border/70 bg-muted/50 p-1.5">
+          <TabsTrigger value="overview" className="gap-1.5">
+            <Target className="h-3.5 w-3.5" /> Goals & readiness
+          </TabsTrigger>
+          <TabsTrigger value="research" className="gap-1.5">
+            <Radar className="h-3.5 w-3.5" /> Research
+          </TabsTrigger>
           <TabsTrigger value="plan" className="gap-1.5">
             <WalletCards className="h-3.5 w-3.5" /> Campaign Plan
           </TabsTrigger>
@@ -1809,12 +2314,20 @@ export function PaidAdsFlow({
             <Play className="h-3.5 w-3.5" /> Launch
           </TabsTrigger>
           <TabsTrigger value="optimize" className="gap-1.5">
-            <Zap className="h-3.5 w-3.5" /> Optimize
+            <BarChart2 className="h-3.5 w-3.5" /> Monitor & optimize
           </TabsTrigger>
           <TabsTrigger value="assets" className="gap-1.5">
             <Megaphone className="h-3.5 w-3.5" /> Assets
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="overview" className="mt-4">
+          <AdsOverviewTab companyId={companyId} channel={initialChannel || 'google'} objective={initialObjective || 'leads'} goal={adsGoal} onGoalChange={updateAdsGoal} onNavigate={setActiveTab} />
+        </TabsContent>
+
+        <TabsContent value="research" className="mt-4">
+          <AdsResearchTab companyId={companyId} onNavigate={setActiveTab} />
+        </TabsContent>
 
         <TabsContent value="plan" className="mt-4">
           <PaidAdsPlanTab
@@ -1824,6 +2337,7 @@ export function PaidAdsFlow({
             initialChannel={initialChannel}
             onPlanReady={handlePlanReady}
             onGoToLaunch={() => setActiveTab('launch')}
+            goal={adsGoal}
           />
         </TabsContent>
 
@@ -1876,6 +2390,7 @@ export function PaidAdsFlow({
                   initialChannel={initialChannel}
                   initialObjective={initialObjective}
                   draft={launchDraft}
+                  goal={adsGoal}
                 />
               </CardContent>
             </Card>
@@ -1892,8 +2407,8 @@ export function PaidAdsFlow({
             />
             <Card className="rounded-[1.5rem] border-border/70 bg-background/90">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Live Ad Performance</CardTitle>
-                <CardDescription>Check channel health before making ROAS changes.</CardDescription>
+                <div><CardTitle className="text-base">Campaign monitoring</CardTitle><CardDescription>Action-level performance and course-correction controls.</CardDescription></div>
+                {onOpenDashboard ? <Button variant="outline" size="sm" onClick={onOpenDashboard} className="gap-1.5"><BarChart2 className="h-3.5 w-3.5" /> Open #dashboard</Button> : null}
               </CardHeader>
               <CardContent>
                 <LivePerformanceTab companyId={companyId} />

@@ -137,6 +137,9 @@ const DEPLOYMENT_SCHEDULER_INTERVAL_MS = Math.max(
   15_000,
   Number(process.env.AGENT_DEPLOYMENT_SCHEDULER_INTERVAL_MS || 60_000),
 );
+let deploymentDbUnavailable = false;
+let artifactDbUnavailable = false;
+let draftDbUnavailable = false;
 // Poll scheduled_automations table once per minute; env override for testing
 const AUTOMATION_SCHEDULER_INTERVAL_MS = Math.max(
   15_000,
@@ -2345,6 +2348,19 @@ function markStaleProcessingDeployments(entries) {
 }
 
 async function readDeploymentQueue() {
+  if (supabaseAdminClient && !deploymentDbUnavailable) {
+    try {
+      const { data, error } = await supabaseAdminClient
+        .from("agent_deployments")
+        .select("id, workspace_id, company_id, status, scheduled_for, created_at, updated_at, payload")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data.map((row) => ({ ...(row.payload || {}), id: row.id, workspaceId: row.workspace_id, companyId: row.company_id, status: row.status, scheduledFor: row.scheduled_for || row.payload?.scheduledFor, createdAt: row.created_at, updatedAt: row.updated_at }));
+      }
+      if (error && ["42P01", "PGRST205"].includes(error.code)) deploymentDbUnavailable = true;
+    } catch { /* disk fallback below */ }
+  }
   try {
     const raw = await readFile(DEPLOYMENT_QUEUE_PATH, "utf-8");
     const parsed = JSON.parse(raw);
@@ -2370,6 +2386,22 @@ async function readDeploymentQueue() {
 async function writeDeploymentQueue(entries) {
   await mkdir(dirname(DEPLOYMENT_QUEUE_PATH), { recursive: true });
   await writeFile(DEPLOYMENT_QUEUE_PATH, JSON.stringify(entries, null, 2), "utf-8");
+  if (supabaseAdminClient && !deploymentDbUnavailable) {
+    try {
+      const rows = entries.slice(0, 200).map((entry) => ({
+        id: entry.id,
+        workspace_id: entry.workspaceId || null,
+        company_id: entry.companyId || null,
+        status: entry.status || "pending",
+        scheduled_for: entry.scheduledFor && entry.scheduledFor !== "next_cron_run" ? entry.scheduledFor : null,
+        created_at: entry.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        payload: entry,
+      }));
+      const { error } = await supabaseAdminClient.from("agent_deployments").upsert(rows, { onConflict: "id" });
+      if (error && ["42P01", "PGRST205"].includes(error.code)) deploymentDbUnavailable = true;
+    } catch { /* disk remains the emergency fallback */ }
+  }
 }
 
 function companyKbDir(companyId) {
@@ -5880,8 +5912,8 @@ app.post("/api/agents/deployments", async (req, res) => {
 
 app.patch("/api/agents/deployments/:id", async (req, res) => {
   const { action } = req.body ?? {};
-  if (!["pause", "resume", "stop"].includes(String(action || ""))) {
-    return res.status(400).json({ error: "action must be pause, resume, or stop" });
+  if (!["pause", "resume", "stop", "reschedule"].includes(String(action || ""))) {
+    return res.status(400).json({ error: "action must be pause, resume, stop, or reschedule" });
   }
 
   try {
@@ -5890,9 +5922,27 @@ app.patch("/api/agents/deployments/:id", async (req, res) => {
     if (!entry) {
       return res.status(404).json({ error: "Deployment not found" });
     }
+    const workspaceId = entry.workspaceId || entry.companyId;
+    if (workspaceId && /^[0-9a-f-]{36}$/i.test(String(workspaceId))) {
+      const { data: membership, error: membershipError } = await supabaseAdminClient
+        .from("workspace_members")
+        .select("workspace_id")
+        .eq("workspace_id", workspaceId)
+        .eq("user_id", req.authUserId)
+        .maybeSingle();
+      if (membershipError) return res.status(500).json({ error: membershipError.message });
+      if (!membership) return res.status(403).json({ error: "You are not a member of this workspace" });
+    }
 
     const now = new Date().toISOString();
-    if (action === "pause") {
+    if (action === "reschedule") {
+      if (!req.body?.scheduledFor) return res.status(400).json({ error: "scheduledFor is required" });
+      const next = new Date(req.body.scheduledFor);
+      if (Number.isNaN(next.getTime())) return res.status(400).json({ error: "scheduledFor must be a valid date" });
+      entry.status = entry.scheduleMode === "monitor" || entry.scheduleMode === "recurring" ? "active" : "pending";
+      entry.scheduledFor = next.toISOString();
+      entry.rescheduledAt = now;
+    } else if (action === "pause") {
       entry.status = "paused";
       entry.pausedAt = now;
       await setCompanyActionStatus(entry.companyId, entry.sectionId, {
@@ -7978,6 +8028,20 @@ Replace ALL placeholder values with your actual outputs.
 const ARTIFACTS_VERSION = 1;
 
 async function loadArtifacts(companyId) {
+  if (supabaseAdminClient && !artifactDbUnavailable) {
+    try {
+      const { data, error } = await supabaseAdminClient
+        .from("agent_artifacts")
+        .select("id, company_id, agent, type, data, handoff_notes, tags, saved_at, payload")
+        .eq("company_id", companyId)
+        .order("saved_at", { ascending: false })
+        .limit(200);
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data.map((row) => ({ ...(row.payload || {}), id: row.id, companyId: row.company_id, agent: row.agent, type: row.type, data: row.data, handoff_notes: row.handoff_notes, tags: row.tags || [], savedAt: row.saved_at }));
+      }
+      if (error && ["42P01", "PGRST205"].includes(error.code)) artifactDbUnavailable = true;
+    } catch { /* disk fallback below */ }
+  }
   try {
     const p = join(AGENT_RUNTIME_DIR, 'memory', companyId, 'artifacts.json');
     const raw = await readFile(p, 'utf-8');
@@ -7992,6 +8056,16 @@ async function saveArtifactToFile(companyId, entry) {
   const existing = await loadArtifacts(companyId);
   const updated = [entry, ...existing.filter(a => a.id !== entry.id)].slice(0, 200);
   await writeFile(p, JSON.stringify(updated, null, 2), 'utf-8');
+  if (supabaseAdminClient && !artifactDbUnavailable) {
+    try {
+      const { error } = await supabaseAdminClient.from("agent_artifacts").upsert({
+        id: entry.id, company_id: companyId, agent: entry.agent, type: entry.type,
+        data: entry.data, handoff_notes: entry.handoff_notes, tags: entry.tags || [],
+        saved_at: entry.savedAt, payload: entry,
+      }, { onConflict: "id" });
+      if (error && ["42P01", "PGRST205"].includes(error.code)) artifactDbUnavailable = true;
+    } catch { /* disk remains the emergency fallback */ }
+  }
   return entry;
 }
 
@@ -8033,6 +8107,30 @@ app.get('/api/artifacts/:companyId', async (req, res) => {
   }
 });
 
+// GET /api/paid-ads/creative-status — frontend polling for async image/video drafts
+app.get('/api/paid-ads/creative-status', async (req, res) => {
+  const companyId = String(req.query.companyId || '').trim();
+  const artifactId = String(req.query.artifactId || '').trim();
+  if (!companyId || !artifactId) return res.status(400).json({ error: 'companyId and artifactId are required' });
+  try {
+    const artifacts = await loadArtifacts(companyId);
+    const artifact = artifacts.find((item) => item.id === artifactId && item.type === 'paid_ad_creative_draft');
+    if (!artifact) return res.status(404).json({ error: 'Creative draft not found' });
+    const data = artifact.data || {};
+    return res.json({
+      id: artifact.id,
+      status: data.status || 'unknown',
+      video_url: data.video_url || null,
+      image_url: data.image_url || null,
+      asset_generation: data.asset_generation || null,
+      creative: data,
+      ready: data.status === 'ready_for_approval',
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error?.message || 'Failed to load creative status' });
+  }
+});
+
 // DELETE /api/artifacts/:companyId/:artifactId
 app.delete('/api/artifacts/:companyId/:artifactId', async (req, res) => {
   const { companyId, artifactId } = req.params;
@@ -8041,6 +8139,9 @@ app.delete('/api/artifacts/:companyId/:artifactId', async (req, res) => {
     const updated = existing.filter(a => a.id !== artifactId);
     const dir = join(AGENT_RUNTIME_DIR, 'memory', companyId);
     await writeFile(join(dir, 'artifacts.json'), JSON.stringify(updated, null, 2), 'utf-8');
+    if (supabaseAdminClient && !artifactDbUnavailable) {
+      await supabaseAdminClient.from("agent_artifacts").delete().eq("id", artifactId).eq("company_id", companyId).catch(() => {});
+    }
     res.json({ deleted: artifactId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -9294,6 +9395,7 @@ async function processDeploymentQueueTick() {
               scheduleMode: entry.scheduleMode || null,
               schedule: entry.schedule || null,
             },
+            workspace_id: entry.workspaceId || null,
             action_items: [
               {
                 label: entry.companyId && entry.sectionId ? "Open module" : "View details",
@@ -11133,71 +11235,20 @@ const ANALYTICS_COMPOSIO_CONNECTORS = [
 ];
 
 function buildAnalyticsDashboard(period = "30d") {
-  const periodDays =
-    period === "7d" ? 7 :
-    period === "90d" ? 90 :
-    30;
-
-  const today = new Date();
-  const trafficChart = Array.from({ length: periodDays }, (_, idx) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - (periodDays - 1 - idx));
-    const base = 1200 + Math.sin(idx * 0.42) * 260;
-    const value = Math.round(base + ((idx % 5) * 37));
-    const prev = Math.round(base * 0.86 + ((idx % 4) * 29));
-    return {
-      date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      value,
-      prev,
-    };
-  });
-
-  const conversionChart = trafficChart.map((point, idx) => ({
-    date: point.date,
-    value: Math.round(point.value * 0.032 + (idx % 3)),
-    prev: Math.round((point.prev || 0) * 0.028 + (idx % 2)),
-  }));
-
-  const periodLabel =
-    period === "7d" ? "Last 7 days" :
-    period === "90d" ? "Last 90 days" :
-    "Last 30 days";
-
+  const periodLabel = period === "7d" ? "Last 7 days" : period === "90d" ? "Last 90 days" : "Last 30 days";
   return {
-    lastUpdated: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+    lastUpdated: null,
     period: periodLabel,
     connected: false,
-    kpis: [
-      { label: "Sessions", value: "38,214", delta: "+12.4%", trend: "up", sub: "vs prev period" },
-      { label: "Organic Clicks", value: "14,892", delta: "+8.7%", trend: "up", sub: "Google Search Console" },
-      { label: "Impressions", value: "312,740", delta: "+21.3%", trend: "up", sub: "GSC total" },
-      { label: "Avg. Position", value: "11.2", delta: "-1.4", trend: "up", sub: "lower is better" },
-      { label: "Bounce Rate", value: "54.1%", delta: "-3.2pp", trend: "up", sub: "engagement rate" },
-      { label: "Goal Completions", value: "1,243", delta: "+18.9%", trend: "up", sub: "all goals" },
-    ],
-    trafficChart,
-    conversionChart,
-    topPages: [
-      { path: "/blog/ai-marketing-guide", sessions: 4820, delta: 22 },
-      { path: "/pricing", sessions: 3210, delta: 8 },
-      { path: "/features/lead-scoring", sessions: 2980, delta: 15 },
-      { path: "/blog/seo-automation", sessions: 2540, delta: -4 },
-      { path: "/integrations", sessions: 1890, delta: 31 },
-    ],
-    topQueries: [
-      { query: "ai marketing automation", clicks: 1240, impressions: 18400, position: 3.2 },
-      { query: "b2b lead scoring software", clicks: 890, impressions: 12100, position: 5.7 },
-      { query: "marketing intelligence platform", clicks: 760, impressions: 9800, position: 4.1 },
-      { query: "content automation tool", clicks: 640, impressions: 8200, position: 6.8 },
-      { query: "seo content generator", clicks: 590, impressions: 7600, position: 7.4 },
-    ],
-    channels: [
-      { channel: "Organic Search", sessions: 18420, pct: 48, delta: 14 },
-      { channel: "Direct", sessions: 9810, pct: 26, delta: 5 },
-      { channel: "Referral", sessions: 5430, pct: 14, delta: -2 },
-      { channel: "Social", sessions: 3020, pct: 8, delta: 22 },
-      { channel: "Email", sessions: 1534, pct: 4, delta: 9 },
-    ],
+    connectedSources: [],
+    kpis: [],
+    trafficChart: null,
+    conversionChart: null,
+    topPages: null,
+    topQueries: null,
+    channels: null,
+    topAdCampaigns: [],
+    dataNote: "Connect an analytics source to load live performance data.",
   };
 }
 
@@ -12083,12 +12134,9 @@ app.get("/api/analytics/dashboard", async (req, res) => {
     }
   }
 
-  // 2. No connections → return mock data
+  // 2. No connections → return an honest empty state
   if (!connectedSources.length || !apiKey || !companyId) {
-    const mock = buildAnalyticsDashboard(period);
-    mock.connected = false;
-    mock.connectedSources = [];
-    return res.json(mock);
+    return res.json(buildAnalyticsDashboard(period));
   }
 
   // 3. Fetch real data from each connected source in parallel
@@ -12106,17 +12154,16 @@ app.get("/api/analytics/dashboard", async (req, res) => {
     hasLinkedInAds ? fetchLinkedInAdsData(companyId, apiKey, period)                      : Promise.resolve(null),
   ]);
 
-  // 4. If all real fetches failed, return mock with connected=true so banner still shows
+  // 4. If all real fetches failed, return an empty connected state with a diagnostic note
   if (!ga4Data && !gscData && !googleAdsData && !metaAdsData && !linkedInAdsData) {
-    const fallback = buildAnalyticsDashboard(period);
-    fallback.connected = true;
-    fallback.connectedSources = connectedSources;
-    fallback.dataNote = "Using demo data — live data temporarily unavailable";
-    return res.json(fallback);
+    const empty = buildAnalyticsDashboard(period);
+    empty.connected = true;
+    empty.connectedSources = connectedSources;
+    empty.dataNote = "Connected sources returned no live data for this period.";
+    return res.json(empty);
   }
 
-  // 5. Merge real data into dashboard — start from mock for chart skeleton if needed
-  const mock = buildAnalyticsDashboard(period);
+  // 5. Merge only connector responses; unavailable sections remain empty.
   const kpis = [
     ...(ga4Data?.kpis || (hasGA4 ? [
       { label: "Sessions", value: "—", delta: "—", trend: "flat", sub: "Google Analytics 4" },
@@ -12489,9 +12536,49 @@ function workspaceDbOr503(res) {
   return supabaseAdminClient;
 }
 
+async function resolveBearerUser(req) {
+  const header = String(req.headers.authorization || "");
+  const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
+  if (!token || !supabaseAdminClient) return null;
+  try {
+    const { data, error } = await supabaseAdminClient.auth.getUser(token);
+    return error ? null : data?.user?.id || null;
+  } catch { return null; }
+}
+
+async function requireAuthenticatedRequest(req, res, next) {
+  const userId = await resolveBearerUser(req);
+  if (!userId) return res.status(401).json({ error: "Authentication required" });
+  req.authUserId = userId;
+  next();
+}
+
+async function requireAuthenticatedWorkspaceRequest(req, res, next) {
+  const userId = await resolveBearerUser(req);
+  if (!userId) return res.status(401).json({ error: "Authentication required" });
+  req.authUserId = userId;
+  const workspaceId = req.params?.id;
+  if (workspaceId) {
+    const { data, error } = await supabaseAdminClient
+      .from("workspace_members")
+      .select("workspace_id")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(403).json({ error: "You are not a member of this workspace" });
+  }
+  next();
+}
+
+app.use("/api/workspaces", requireAuthenticatedWorkspaceRequest);
+// Durable scheduler and content scheduling mutations must carry a user session.
+app.use("/api/agents/deployments", requireAuthenticatedRequest);
+app.use("/api/content-studio/scheduled", requireAuthenticatedRequest);
+
 // GET /api/workspaces?userId=xxx — list workspaces for a user (auto-provisions default)
 app.get("/api/workspaces", async (req, res) => {
-  const { userId } = req.query;
+  const userId = req.authUserId;
   if (!userId) return res.status(400).json({ error: "userId required" });
   const db = workspaceDbOr503(res);
   if (!db) return;
@@ -12529,7 +12616,8 @@ app.get("/api/workspaces", async (req, res) => {
 
 // POST /api/workspaces — create workspace + add owner as member
 app.post("/api/workspaces", async (req, res) => {
-  const { userId, name } = req.body;
+  const { name } = req.body;
+  const userId = req.authUserId;
   if (!userId || !name)
     return res.status(400).json({ error: "userId and name required" });
   const db = workspaceDbOr503(res);
@@ -12554,7 +12642,8 @@ app.post("/api/workspaces", async (req, res) => {
 // PATCH /api/workspaces/:id — update name or website_url
 app.patch("/api/workspaces/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, website_url, userId } = req.body;
+  const { name, website_url } = req.body;
+  const userId = req.authUserId;
   if (!userId) return res.status(400).json({ error: "userId required" });
   const db = workspaceDbOr503(res);
   if (!db) return;
@@ -12578,7 +12667,7 @@ app.patch("/api/workspaces/:id", async (req, res) => {
 // DELETE /api/workspaces/:id — delete a workspace (owner only)
 app.delete("/api/workspaces/:id", async (req, res) => {
   const { id } = req.params;
-  const { userId } = req.body;
+  const userId = req.authUserId;
   console.log(`[DELETE /api/workspaces/:id] workspace=${id}, userId=${userId}`);
 
   if (!userId) {
@@ -12634,7 +12723,7 @@ app.delete("/api/workspaces/:id", async (req, res) => {
 // Accepts optional ?userId= query param; falls back to workspace owner_id.
 app.get("/api/workspaces/:id/plan", async (req, res) => {
   const { id } = req.params;
-  const queryUserId = typeof req.query.userId === "string" ? req.query.userId.trim() : null;
+  const queryUserId = req.authUserId;
   const db = workspaceDbOr503(res);
   if (!db) return;
   try {
@@ -13076,6 +13165,19 @@ app.post("/api/workspaces/:id/agent-deployments", async (req, res) => {
 const DRAFT_APPROVALS_PATH = join(__dirname, "data", "draft-approvals.json");
 
 async function readDraftApprovals() {
+  if (supabaseAdminClient && !draftDbUnavailable) {
+    try {
+      const { data, error } = await supabaseAdminClient
+        .from("draft_approvals")
+        .select("id, workspace_id, company_id, status, scheduled_for, created_at, updated_at, payload")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data.map((row) => ({ ...(row.payload || {}), id: row.id, workspaceId: row.workspace_id, companyId: row.company_id, status: row.status, scheduledFor: row.scheduled_for || row.payload?.scheduledFor, createdAt: row.created_at, updatedAt: row.updated_at }));
+      }
+      if (error && ["42P01", "PGRST205"].includes(error.code)) draftDbUnavailable = true;
+    } catch { /* disk fallback below */ }
+  }
   try {
     const raw = await readFile(DRAFT_APPROVALS_PATH, "utf-8");
     const parsed = JSON.parse(raw);
@@ -13088,6 +13190,17 @@ async function readDraftApprovals() {
 async function writeDraftApprovals(entries) {
   await mkdir(dirname(DRAFT_APPROVALS_PATH), { recursive: true });
   await writeFile(DRAFT_APPROVALS_PATH, JSON.stringify(entries, null, 2), "utf-8");
+  if (supabaseAdminClient && !draftDbUnavailable) {
+    try {
+      const rows = entries.slice(0, 500).map((draft) => ({
+        id: draft.id, workspace_id: draft.workspaceId || null, company_id: draft.companyId || null,
+        status: draft.status || "pending", scheduled_for: draft.scheduledFor || null,
+        created_at: draft.createdAt || new Date().toISOString(), updated_at: new Date().toISOString(), payload: draft,
+      }));
+      const { error } = await supabaseAdminClient.from("draft_approvals").upsert(rows, { onConflict: "id" });
+      if (error && ["42P01", "PGRST205"].includes(error.code)) draftDbUnavailable = true;
+    } catch { /* disk remains the emergency fallback */ }
+  }
 }
 
 /**
@@ -13673,6 +13786,34 @@ app.post("/api/content-studio/drafts/:id/schedule", async (req, res) => {
   const sb = supabaseForServerData();
   if (!sb) return res.status(503).json({ error: "Database not available" });
   const { data, error } = await sb.from("content_drafts").update({ status: "scheduled", mode: "schedule", publish_at: new Date(publishAt).toISOString(), approved_at: new Date().toISOString(), last_error: null }).eq("id", req.params.id).select("*").single();
+  if (error) return res.status(404).json({ error: error.message });
+  res.json({ ok: true, item: data });
+});
+
+app.patch("/api/content-studio/scheduled/:id", async (req, res) => {
+  const publishAt = req.body?.publishAt;
+  if (!publishAt) return res.status(400).json({ error: "publishAt is required" });
+  const next = new Date(publishAt);
+  if (Number.isNaN(next.getTime())) return res.status(400).json({ error: "publishAt must be a valid date" });
+  const sb = supabaseForServerData();
+  if (!sb) return res.status(503).json({ error: "Database not available" });
+  const { data, error } = await sb.from("content_drafts")
+    .update({ status: "scheduled", mode: "schedule", publish_at: next.toISOString(), last_error: null })
+    .eq("id", req.params.id).eq("company_id", String(req.body?.companyId || ""))
+    .select("*").single();
+  if (error) return res.status(404).json({ error: error.message });
+  res.json({ ok: true, item: data });
+});
+
+app.delete("/api/content-studio/scheduled/:id", async (req, res) => {
+  const companyId = String(req.query.companyId || req.body?.companyId || "");
+  if (!companyId) return res.status(400).json({ error: "companyId is required" });
+  const sb = supabaseForServerData();
+  if (!sb) return res.status(503).json({ error: "Database not available" });
+  const { data, error } = await sb.from("content_drafts")
+    .update({ status: "draft", mode: "draft", publish_at: null, last_error: null })
+    .eq("id", req.params.id).eq("company_id", companyId).eq("status", "scheduled")
+    .select("id, status, publish_at").single();
   if (error) return res.status(404).json({ error: error.message });
   res.json({ ok: true, item: data });
 });

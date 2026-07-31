@@ -103,12 +103,39 @@ async function readMkgWithWorkspaceFallback(companyId) {
   const normalizedDirect = direct ? normalizeMkgDocument(companyId, direct) : null;
   if (normalizedDirect && hasMeaningfulMkgData(normalizedDirect)) return normalizedDirect;
 
+  // The database copy is the durable fallback when the runtime filesystem has
+  // been replaced or the service is running on a fresh instance.
+  const client = getSupabaseReadClient();
+  if (client) {
+    try {
+      const { data, error } = await client
+        .from("company_mkg")
+        .select("company_id, mkg_data, updated_at")
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (!error && data?.mkg_data) {
+        const remote = normalizeMkgDocument(companyId, data.mkg_data);
+        if (hasMeaningfulMkgData(remote)) return remote;
+      }
+    } catch { /* filesystem/workspace fallback below */ }
+  }
+
   const resolvedCompanyId = await resolveCompanyIdForRead(companyId);
   if (!resolvedCompanyId || resolvedCompanyId === companyId) return normalizedDirect;
 
   const resolved = await readMkg(resolvedCompanyId);
   const normalizedResolved = resolved ? normalizeMkgDocument(resolvedCompanyId, resolved) : null;
   if (normalizedResolved && hasMeaningfulMkgData(normalizedResolved)) return normalizedResolved;
+  if (client && resolvedCompanyId) {
+    try {
+      const { data } = await client
+        .from("company_mkg")
+        .select("mkg_data")
+        .eq("company_id", resolvedCompanyId)
+        .maybeSingle();
+      if (data?.mkg_data) return normalizeMkgDocument(companyId, data.mkg_data);
+    } catch { /* return local envelope */ }
+  }
   return normalizedDirect || normalizedResolved;
 }
 

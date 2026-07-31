@@ -17,10 +17,12 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { ModuleDetail } from '@/components/modules/ModuleDetail';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
+import { DraftApprovalsView } from '@/components/approvals/DraftApprovalsView';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Toaster } from '@/components/ui/sonner';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { supabase } from '@/lib/supabase';
 import { WorkspaceProvider, useWorkspace } from '@/contexts/WorkspaceContext';
 import { dashboardData } from '@/data/dashboardData';
 import { BRAND } from '@/lib/brand';
@@ -225,7 +227,7 @@ function Dashboard() {
     }, 0);
   }, [activeWorkspace?.id]);
 
-  const handleModuleSelect = (moduleId: string | null) => {
+  const handleModuleSelect = useCallback((moduleId: string | null) => {
     if (moduleId !== 'veena-dm' && moduleId !== 'chat-sessions') {
       setActiveConversationId(null);
     }
@@ -248,7 +250,7 @@ function Dashboard() {
         new CustomEvent('marqq:channels-updated', { detail: { channels: updated } })
       );
     }
-  };
+  }, [activeWorkspace?.id]);
 
   // Reload conversations when workspace changes
   useEffect(() => {
@@ -285,7 +287,7 @@ function Dashboard() {
     if (autoStartModule) {
       setTimeout(() => setAutoStartModule(false), 1000);
     }
-  }, [selectedModule]);
+  }, [selectedModule, autoStartModule]);
 
   // Listen for in-app navigation events dispatched by deep components (e.g. OfferSelector)
   useEffect(() => {
@@ -310,7 +312,7 @@ function Dashboard() {
     }
     window.addEventListener('marqq:navigate', handler)
     return () => window.removeEventListener('marqq:navigate', handler)
-  }, [])
+  }, [handleModuleSelect])
 
   // Listen for workflow params collected from in-chat forms before module opens
   useEffect(() => {
@@ -400,8 +402,9 @@ function Dashboard() {
     if (selectedModule === 'dashboard') return <AgentDashboard />;
     if (selectedModule === 'library') return <LibraryView />;
     if (selectedModule === 'workspace-files') return <LibraryView />;
-    if (selectedModule === 'calendar') return <MarketingCalendarPage onModuleSelect={handleModuleSelect} />;
+    if (selectedModule === 'calendar') return <MarketingCalendarPage />;
     if (selectedModule === 'scheduled-jobs') return <ScheduledJobsPage />;
+    if (selectedModule === 'draft-approvals') return <DraftApprovalsView />;
     if (selectedModule === 'execution-outreach') return <ExecutionWorkspace workstream="outreach" onModuleSelect={handleModuleSelect} />;
     if (selectedModule === 'execution-content') return <ExecutionWorkspace workstream="content" onModuleSelect={handleModuleSelect} />;
     if (selectedModule === 'execution-blog-seo' || selectedModule === 'execution-landing-pages' || selectedModule === 'execution-lead-magnets' || selectedModule === 'execution-social') {
@@ -490,6 +493,22 @@ function Dashboard() {
 }
 
 function AppContent() {
+  useEffect(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const parsedUrl = new URL(requestUrl, window.location.origin);
+      const isApiRequest = parsedUrl.pathname.startsWith('/api/') && (parsedUrl.origin === window.location.origin || ['localhost', '127.0.0.1'].includes(parsedUrl.hostname));
+      if (!isApiRequest) return originalFetch(input, init);
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return originalFetch(input, init);
+      const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+      if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+      return originalFetch(input, { ...init, headers });
+    };
+    return () => { window.fetch = originalFetch; };
+  }, []);
   const { isAuthenticated, isLoading, user } = useAuth();
   // Set when this session finishes the flow (so we leave onboarding without waiting for metadata refresh)
   const [finishedOnboarding, setFinishedOnboarding] = useState(false);
