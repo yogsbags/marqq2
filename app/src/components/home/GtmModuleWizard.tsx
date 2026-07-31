@@ -32,6 +32,7 @@ import type {
   GtmWizardProgress,
 } from '@/types/gtm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { GtmStrategyDocumentView } from '@/components/home/GtmStrategyDocumentView';
 import { GtmStrategySectionReview } from '@/components/gtm/GtmStrategySectionReview';
@@ -872,13 +873,20 @@ export function GtmModuleWizard({
   const handleExecute = async (opt: GtmExecuteOption) => {
     if (!module) return;
     setBusy(true);
+    pushChat({
+      role: 'user',
+      type: 'text',
+      text: `Run: ${opt.title}`,
+    });
+    if (opt.id === 'gtm_strategy_doc' || opt.kind === 'document') {
+      pushChat({
+        role: 'assistant',
+        type: 'system',
+        text: 'Generating your GTM strategy — reviewing approved sections, aligning targets, and assembling the document…',
+      });
+    }
     try {
       const result = await executeGtmTask(module.id, opt.id);
-      pushChat({
-        role: 'user',
-        type: 'text',
-        text: `Run: ${opt.title}`,
-      });
 
       if (result.kind === 'document' || opt.id === 'gtm_strategy_doc' || opt.kind === 'document') {
         if (!result.strategy) throw new Error('Strategy document missing from response');
@@ -1194,10 +1202,15 @@ export function GtmModuleWizard({
                 type="button"
                 disabled={busy}
                 onClick={() => void handleExecute(opt)}
-                className="w-full rounded-lg border border-orange-400/50 bg-orange-500/[0.06] p-4 text-left transition hover:border-orange-400"
+                aria-busy={busy}
+                className="w-full rounded-lg border border-orange-400/50 bg-orange-500/[0.06] p-4 text-left transition hover:border-orange-400 disabled:cursor-wait disabled:opacity-80"
               >
-                <p className="text-sm font-semibold">{opt.title}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{opt.description}</p>
+                <div className="flex items-center gap-2">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin text-orange-600" /> : null}
+                  <p className="text-sm font-semibold">{busy ? 'Generating GTM strategy…' : opt.title}</p>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{busy ? 'This can take a minute while Marqq assembles and validates every section.' : opt.description}</p>
+                {busy ? <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-orange-200/50 dark:bg-orange-950/40"><div className="h-full w-1/3 animate-pulse rounded-full bg-orange-500" /></div> : null}
               </button>
             ))}
           </div>
