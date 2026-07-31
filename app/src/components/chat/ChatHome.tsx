@@ -3481,6 +3481,10 @@ export function ChatHome({
 
   // -- Render
 
+  const isMainScope = scope === 'main';
+  const chatHeaderLabel = isMainScope ? 'AI marketing team' : BRAND.agentName;
+  const chatHeaderTitle = isMainScope ? 'Your marketing team' : BRAND.agentName;
+
   return (
     <>
       <div className="flex h-full flex-col bg-transparent">
@@ -3489,10 +3493,10 @@ export function ChatHome({
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1.5">
               <div className="inline-flex items-center rounded-full border border-orange-200/80 bg-orange-50/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-orange-700 dark:border-orange-900/40 dark:bg-orange-950/20 dark:text-orange-300">
-                {BRAND.agentName}
+                {chatHeaderLabel}
               </div>
               <div className="space-y-1">
-                <h2 className="font-brand-syne text-[1.35rem] tracking-tight text-foreground">{BRAND.agentName}</h2>
+                <h2 className="font-brand-syne text-[1.35rem] tracking-tight text-foreground">{chatHeaderTitle}</h2>
                 <p className="max-w-[32rem] text-xs leading-5 text-muted-foreground">
                   {showGtmWizard && scope === 'main'
                     ? 'Complete the GTM wizard below — agents stay idle until you lock your profile and pick a task.'
