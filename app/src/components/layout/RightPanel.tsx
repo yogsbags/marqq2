@@ -89,6 +89,12 @@ function MetricsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => v
       .catch(() => setLoaded(true));
   }, [activeWorkspace?.id, loaded]);
 
+  useEffect(() => {
+    setLoaded(false);
+    setKpis([]);
+    setConnectedSources([]);
+  }, [activeWorkspace?.id]);
+
   if (loaded && kpis.length > 0) {
     return (
       <Section title="Metrics">
@@ -107,7 +113,7 @@ function MetricsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => v
             {kpis.map(k => (
               <button
                 key={k.label}
-                onClick={() => onModuleSelect?.('performance')}
+                onClick={() => onModuleSelect?.('execution-dashboard')}
                 className="rounded-lg border border-border/50 bg-background/80 p-2 text-left hover:border-orange-300/60 transition-colors"
               >
                 <p className="text-[10px] text-muted-foreground truncate">{k.label}</p>
@@ -121,7 +127,7 @@ function MetricsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => v
             ))}
           </div>
           <button
-            onClick={() => onModuleSelect?.('performance')}
+            onClick={() => onModuleSelect?.('execution-dashboard')}
             className="w-full text-[10px] text-orange-500 hover:underline text-center py-0.5"
           >
             View full report →
@@ -137,7 +143,7 @@ function MetricsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => v
         <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-4 flex flex-col items-center text-center gap-2">
           <PlugZap className="h-5 w-5 text-muted-foreground" />
           <p className="text-xs text-muted-foreground leading-5">
-            Connect Google Analytics to see live traffic, leads, and conversion metrics here.
+            Connect GA4, Search Console, or an ads account to see live performance metrics here.
           </p>
           <button
             onClick={() => onModuleSelect?.('integrations')}
@@ -164,7 +170,7 @@ const SOCIAL_CHANNEL_MAP: Record<string, SocialChannelConfig> = {
   tiktok:    { name: 'TikTok',     color: 'bg-zinc-900',  textColor: 'text-white', Icon: MessageSquare },
 };
 
-type ConnectedChannel = SocialChannelConfig & { id: string; posts: number };
+type ConnectedChannel = SocialChannelConfig & { id: string };
 
 // ── Connected connectors dropdown ─────────────────────────────────────────────
 
@@ -190,6 +196,11 @@ function ConnectorsDropdownSection({ onModuleSelect }: { onModuleSelect?: (id: s
       })
       .catch(() => setLoaded(true));
   }, [activeWorkspace?.id, loaded]);
+
+  useEffect(() => {
+    setLoaded(false);
+    setConnectors([]);
+  }, [activeWorkspace?.id]);
 
   return (
     <Section
@@ -259,7 +270,6 @@ function ConnectorsDropdownSection({ onModuleSelect }: { onModuleSelect?: (id: s
 
 function ChannelsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
   const { activeWorkspace } = useWorkspace();
-  const [autopilot, setAutopilot] = useState(false);
   const [channels, setChannels] = useState<ConnectedChannel[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -272,36 +282,31 @@ function ChannelsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => 
         const active = (data?.connectors ?? []).filter(c => c.connected || c.status === 'active');
         const social: ConnectedChannel[] = active
           .filter(c => SOCIAL_CHANNEL_MAP[c.id])
-          .map(c => ({ ...SOCIAL_CHANNEL_MAP[c.id], id: c.id, posts: 0 }));
+          .map(c => ({ ...SOCIAL_CHANNEL_MAP[c.id], id: c.id }));
         setChannels(social);
       })
       .catch(() => setLoaded(true));
   }, [activeWorkspace?.id, loaded]);
 
+  useEffect(() => {
+    setLoaded(false);
+    setChannels([]);
+  }, [activeWorkspace?.id]);
+
   return (
     <Section title="Channels" defaultOpen={true}>
       <div className="px-3 space-y-2">
-        {/* Autopilot toggle */}
+        {/* Publishing mode is approval-gated; the sidebar does not pretend to
+            toggle a server-side autopilot setting locally. */}
         <div className="flex items-center justify-between rounded-lg bg-muted/40 px-2.5 py-2">
           <div className="flex items-center gap-2">
-            <Zap className={cn('h-3.5 w-3.5', autopilot ? 'text-orange-500' : 'text-muted-foreground')} />
+            <Zap className="h-3.5 w-3.5 text-muted-foreground" />
             <div>
-              <p className="text-xs font-medium">Autopilot</p>
-              <p className="text-[10px] text-muted-foreground">Auto-post approved content</p>
+              <p className="text-xs font-medium">Publishing mode</p>
+              <p className="text-[10px] text-muted-foreground">Approval required before anything goes live</p>
             </div>
           </div>
-          <button
-            onClick={() => setAutopilot(p => !p)}
-            className={cn(
-              'relative h-5 w-9 rounded-full transition-colors flex-shrink-0',
-              autopilot ? 'bg-orange-500' : 'bg-border',
-            )}
-          >
-            <span className={cn(
-              'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform',
-              autopilot ? 'translate-x-4' : 'translate-x-0',
-            )} />
-          </button>
+          <button type="button" onClick={() => onModuleSelect?.('draft-approvals')} className="text-[10px] font-medium text-orange-500 hover:underline">Approvals</button>
         </div>
 
         {/* Connected social channels */}
@@ -315,7 +320,7 @@ function ChannelsSection({ onModuleSelect }: { onModuleSelect?: (id: string) => 
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium truncate">{ch.name}</p>
                 </div>
-                <span className="text-[10px] text-muted-foreground flex-shrink-0">{ch.posts} posts</span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 flex-shrink-0">Connected</span>
               </div>
             ))}
             <button
@@ -395,6 +400,11 @@ function TasksSection({ onModuleSelect }: { onModuleSelect?: (id: string) => voi
       .catch(() => { setLoaded(true); });
   }, [activeWorkspace?.id, loaded]);
 
+  useEffect(() => {
+    setLoaded(false);
+    setTasks([]);
+  }, [activeWorkspace?.id]);
+
   // Re-fetch when a new deployment is created (e.g. post-onboarding welcome)
   useEffect(() => {
     const handler = () => setLoaded(false);
@@ -427,7 +437,7 @@ function TasksSection({ onModuleSelect }: { onModuleSelect?: (id: string) => voi
         {pending.map(t => (
           <button
             key={t.id}
-            onClick={() => setTasks(prev => prev.map(x => x.id === t.id ? { ...x, done: true } : x))}
+            onClick={() => onModuleSelect?.('scheduled-jobs')}
             className="flex items-start gap-2 w-full rounded-lg px-2 py-1.5 hover:bg-muted/50 transition-colors text-left group"
           >
             <div className={cn(
@@ -496,6 +506,12 @@ function BrandKBSection({ onModuleSelect }: { onModuleSelect?: (id: string) => v
       })
       .catch(() => setLoaded(true));
   }, [activeWorkspace?.id, loaded]);
+
+  useEffect(() => {
+    setLoaded(false);
+    setFiles([]);
+    setShowAll(false);
+  }, [activeWorkspace?.id]);
 
   useEffect(() => {
     const handler = () => setLoaded(false);
@@ -578,6 +594,44 @@ function AgentsSection() {
   );
 }
 
+function NorthStarSection({ onModuleSelect }: { onModuleSelect?: (id: string) => void }) {
+  const { activeWorkspace } = useWorkspace();
+  const [goal, setGoal] = useState<{ north_star_metric?: string; quantified_target?: string; timeline_target?: string } | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+    setGoal(null);
+    if (!activeWorkspace?.id) return;
+    fetch(`/api/gtm/goal?companyId=${encodeURIComponent(activeWorkspace.id)}`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { goal?: { north_star_metric?: string; quantified_target?: string; timeline_target?: string } | null } | null) => {
+        setGoal(data?.goal || null);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [activeWorkspace?.id]);
+
+  return (
+    <Section title="North Star" defaultOpen={true}>
+      <div className="px-3">
+        {!loaded ? <div className="h-16 animate-pulse rounded-lg bg-muted/40" /> : goal ? (
+          <button type="button" onClick={() => onModuleSelect?.('execution-dashboard')} className="w-full rounded-lg border border-orange-500/25 bg-orange-500/[0.04] p-2.5 text-left hover:border-orange-500/50 transition-colors">
+            <p className="text-xs font-semibold leading-4">{goal.north_star_metric}</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">{goal.quantified_target || 'Target not specified'} · {goal.timeline_target || 'Timeline not specified'}</p>
+            <p className="mt-2 text-[10px] font-medium text-orange-600">Open control center →</p>
+          </button>
+        ) : (
+          <button type="button" onClick={() => onModuleSelect?.('main')} className="w-full rounded-lg border border-dashed border-border/70 p-3 text-left hover:border-orange-400/50 transition-colors">
+            <p className="text-xs font-medium">No locked North Star yet</p>
+            <p className="mt-1 text-[10px] leading-4 text-muted-foreground">Lock the GTM strategy in #main before interpreting channel performance.</p>
+          </button>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 // ── Root export ───────────────────────────────────────────────────────────────
 
 interface RightPanelProps {
@@ -588,7 +642,7 @@ interface RightPanelProps {
 export function RightPanel({ className, onModuleSelect }: RightPanelProps) {
   return (
     <div className={cn(
-      'w-[380px] flex-shrink-0 border-l border-border/60 bg-background/50 flex flex-col overflow-hidden',
+      'hidden xl:flex w-[340px] flex-shrink-0 border-l border-border/60 bg-background/50 flex-col overflow-hidden',
       className,
     )}>
       {/* Panel header */}
@@ -610,6 +664,7 @@ export function RightPanel({ className, onModuleSelect }: RightPanelProps) {
 
       {/* Scrollable sections */}
       <ScrollArea className="flex-1">
+        <NorthStarSection onModuleSelect={onModuleSelect} />
         <MetricsSection onModuleSelect={onModuleSelect} />
         <ConnectorsDropdownSection onModuleSelect={onModuleSelect} />
         <ChannelsSection onModuleSelect={onModuleSelect} />
